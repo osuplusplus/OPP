@@ -150,7 +150,7 @@ describe("LocalAnalysisPage", () => {
     renderPage("skins");
 
     expect(await screen.findByText("本地皮肤")).toBeInTheDocument();
-    expect(await screen.findByText("部分索引")).toBeInTheDocument();
+    expect(await screen.findByText("Realm 索引")).toBeInTheDocument();
     await waitFor(() => expect(mocks.queryLocalSkins).toHaveBeenCalled());
     expect(mocks.queryLocalBeatmapSets).not.toHaveBeenCalled();
   });

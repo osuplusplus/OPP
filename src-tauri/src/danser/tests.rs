@@ -33,8 +33,10 @@ fn failure_detail_prefers_the_panic_over_a_trailing_timestamp() {
 
 #[test]
 fn runtime_patch_points_danser_at_the_replay_osu_installation() {
-    let mut preferences = DanserRenderPreferences::default();
-    preferences.settings_patch = r#"{"Graphics":{"Width":1280}}"#.into();
+    let preferences = DanserRenderPreferences {
+        settings_patch: r#"{"Graphics":{"Width":1280}}"#.into(),
+        ..Default::default()
+    };
     let task = DanserTask {
         id: "test".into(),
         replay_path: "D:\\osu!\\Replays\\play.osr".into(),

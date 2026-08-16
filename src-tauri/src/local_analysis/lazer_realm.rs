@@ -355,7 +355,7 @@ impl<'a> RowStore<'a> {
     }
 }
 
-fn first_link<'a>(value: &'a Value) -> Option<&'a Link> {
+fn first_link(value: &Value) -> Option<&Link> {
     match value {
         Value::LinkList(links) => links.first(),
         _ => None,

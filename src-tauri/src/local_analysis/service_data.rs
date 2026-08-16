@@ -148,7 +148,10 @@ impl LocalIndex {
 #[derive(Debug, Clone)]
 pub(super) enum CandidateKind {
     Beatmap,
-    Skin { root: PathBuf },
+    Skin {
+        root: PathBuf,
+    },
+    #[allow(dead_code)]
     Unknown,
 }
 

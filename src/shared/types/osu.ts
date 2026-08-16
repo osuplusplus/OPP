@@ -838,6 +838,7 @@ export interface StrainSeries {
 
 export interface StrainAnalysis {
   first_object_time_ms: number;
+  section_start_time_ms?: number;
   section_length_ms: number;
   series: StrainSeries[];
 }

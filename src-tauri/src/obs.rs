@@ -9,7 +9,6 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::Message};
 use uuid::Uuid;
 
-
 use crate::{
     error::{CommandError, CommandResult},
     state::AppState,

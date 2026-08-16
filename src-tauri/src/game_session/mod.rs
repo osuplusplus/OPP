@@ -76,12 +76,14 @@ fn running_executables() -> Vec<PathBuf> {
             "Get-Process -Name 'osu!' -ErrorAction SilentlyContinue | ForEach-Object { $_.Path }",
         ])
         .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::trim)
-            .filter(|path| !path.is_empty())
-            .map(PathBuf::from)
-            .collect())
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -98,7 +100,7 @@ fn executable_running(executable: &Path, running: &[PathBuf]) -> bool {
 /// 判断客户端当前是否正在运行。Windows 按可执行文件路径比对进程列表；Linux
 /// 下游戏经 wine / pressure-vessel 等包装层启动，实际进程名与启动命令不同
 /// （stable 表现为 `D:\osu!.exe`），改按 `/proc` 匹配真实进程。
-fn client_running(client: LocalClient, executable: &Path) -> bool {
+fn client_running(_client: LocalClient, executable: &Path) -> bool {
     #[cfg(windows)]
     {
         executable_running(executable, &running_executables())
@@ -106,7 +108,7 @@ fn client_running(client: LocalClient, executable: &Path) -> bool {
     #[cfg(not(windows))]
     {
         let _ = executable;
-        crate::platform::game_process_running(&client.to_string())
+        crate::platform::game_process_running(&_client.to_string())
     }
 }
 
@@ -432,11 +434,12 @@ fn game_launch_target(client: LocalClient, state: &AppState) -> CommandResult<La
     #[cfg(windows)]
     {
         let source = state.local_analysis.source_status(client)?;
-        let root = source
-            .install_root
-            .ok_or_else(|| CommandError::new("GAME_NOT_FOUND", format!("未找到 osu! {client} 安装目录")))?;
-        let exe = executable(client, &root)
-            .ok_or_else(|| CommandError::new("GAME_NOT_FOUND", "安装目录中未找到 osu! 可执行文件"))?;
+        let root = source.install_root.ok_or_else(|| {
+            CommandError::new("GAME_NOT_FOUND", format!("未找到 osu! {client} 安装目录"))
+        })?;
+        let exe = executable(client, &root).ok_or_else(|| {
+            CommandError::new("GAME_NOT_FOUND", "安装目录中未找到 osu! 可执行文件")
+        })?;
         Ok(LaunchTarget {
             exe,
             working_dir: Some(PathBuf::from(root)),
@@ -445,8 +448,9 @@ fn game_launch_target(client: LocalClient, state: &AppState) -> CommandResult<La
     #[cfg(not(windows))]
     {
         let _ = state;
-        let exe = executable(client, "")
-            .ok_or_else(|| CommandError::new("GAME_NOT_FOUND", format!("未找到 osu! {client} 启动命令")))?;
+        let exe = executable(client, "").ok_or_else(|| {
+            CommandError::new("GAME_NOT_FOUND", format!("未找到 osu! {client} 启动命令"))
+        })?;
         Ok(LaunchTarget {
             exe,
             working_dir: None,

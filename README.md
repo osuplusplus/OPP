@@ -5,7 +5,7 @@
 
   **一站式 osu! 工具集合**
 
-  [![Version](https://img.shields.io/badge/version-0.4.2-ff6aa7?style=for-the-badge)](./src-tauri/tauri.conf.json)
+  [![Version](https://img.shields.io/badge/version-0.4.3-ff6aa7?style=for-the-badge)](./src-tauri/tauri.conf.json)
   [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-5ce1e6?style=for-the-badge&logo=linux&logoColor=white)](#平台支持)
   [![Tauri](https://img.shields.io/badge/Tauri-2-a673ff?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/)
   [![Vibe Coding](https://img.shields.io/badge/Vibe_Coding-AI_Collaborative-8b5cf6?style=for-the-badge)](#vibe-coding)
@@ -29,12 +29,13 @@ OPP 是一个使用 Tauri、Rust 与 React 构建的跨平台 osu! 桌面工具�
 - 管理 Stable 收藏夹、导入分享码，并自动补齐缺失谱面
 - 根据本地索引查找相似谱面，并可基于最近成绩或 BP 生成推荐
 - 内置 pp calculator，支持不同模式与 Mod
-- 支持本地谱面、Skin、截图和回放的预览与管理
+- 支持 Stable/lazer 本地谱面与 Skin 的浏览、预览和 `.osz` / `.osk` 导出
+- 新增 Skin Workshop，可组合 Stable Skin 的组件与配置并安全保存为副本
 - 支持启动 Stable 与 Lazer，并记录一次游戏会话的数据变化
 - 支持 o!rdr 在线渲染与 Danser 本地回放渲染队列
 - 支持 tosu、tosu-lyrics 与 OBS 直播工作流
 - 支持 Trainer 练习谱面生成和网易云音乐客户端搜索
-- 内置 osu!lazer 占用统计、文件关联、手速测试等实用工具
+- 内置谱面图预览、osu!lazer 空间去重与占用统计、文件关联、手速测试等实用工具
 
 当前算法口径为 [`Apeuriox/rosu-pp@pp-rework-202607`](https://github.com/Apeuriox/rosu-pp/tree/pp-rework-202607)，
 使用该分支提供的最新 pp rework 算法快照。

@@ -49,9 +49,8 @@ pub async fn read_lazer_realm_beatmap_sets() -> CommandResult<LazerRealmReadResu
     }
     let realm_path_display = realm_path.display().to_string();
     tokio::task::spawn_blocking(move || {
-        let data = realm::read_realm_data(&realm_path).map_err(|message| {
-            CommandError::new("REALM_READ_FAILED", message)
-        })?;
+        let data = realm::read_realm_data(&realm_path)
+            .map_err(|message| CommandError::new("REALM_READ_FAILED", message))?;
         let beatmap_sets = data
             .sets
             .into_iter()

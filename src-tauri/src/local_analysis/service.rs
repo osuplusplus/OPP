@@ -48,9 +48,9 @@ use service_data::{
     SkinAssetLocation, directory_stamp, load_index, modified_iso, persist_index, stamp,
 };
 use service_query::{
-    apply_direction, audio_mime, beatmap_matches, compare_beatmap_sets, enumerate_lazer_skin_assets,
-    enumerate_skin_assets, find_skin_entry, insert_bounded, option_f64_order, skin_root,
-    text_order,
+    apply_direction, audio_mime, beatmap_matches, compare_beatmap_sets,
+    enumerate_lazer_skin_assets, enumerate_skin_assets, find_skin_entry, insert_bounded,
+    option_f64_order, skin_root, text_order,
 };
 #[cfg(test)]
 use service_query::{compare_beatmaps, page};
@@ -735,8 +735,7 @@ impl LocalAnalysisService {
                 let Ok(directory) = beatmap_directory.canonicalize() else {
                     return Ok(None);
                 };
-                let Ok(background) = beatmap_directory.join(background_name).canonicalize()
-                else {
+                let Ok(background) = beatmap_directory.join(background_name).canonicalize() else {
                     return Ok(None);
                 };
                 if !background.starts_with(&directory) {
@@ -750,9 +749,10 @@ impl LocalAnalysisService {
                 let Some(files) = entry.lazer_files.as_ref() else {
                     return Ok(None);
                 };
-                let Some(file) = files.iter().find(|file| {
-                    file.filename.eq_ignore_ascii_case(background_name)
-                }) else {
+                let Some(file) = files
+                    .iter()
+                    .find(|file| file.filename.eq_ignore_ascii_case(background_name))
+                else {
                     return Ok(None);
                 };
                 let files_root = self.lazer_files_root(client)?;
@@ -964,12 +964,9 @@ impl LocalAnalysisService {
                     .ok_or_else(|| {
                         CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该 Skin 预览资源")
                     })?;
-                let hash = location
-                    .lazer_hash
-                    .clone()
-                    .ok_or_else(|| {
-                        CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该 Skin 预览资源")
-                    })?;
+                let hash = location.lazer_hash.clone().ok_or_else(|| {
+                    CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该 Skin 预览资源")
+                })?;
                 let path = files_root.join(lazer_realm::blob_relative_path(&hash));
                 (location.summary, path)
             }
@@ -1212,7 +1209,10 @@ impl LocalAnalysisService {
             .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面集"))?;
         let first = &index.entries[positions[0]];
         let IndexedData::Beatmap { summary, .. } = &first.data else {
-            return Err(CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面集"));
+            return Err(CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "未找到该谱面集",
+            ));
         };
         let file_name = sanitize_export_name(&format!(
             "{} - {} ({})",
@@ -1269,7 +1269,10 @@ impl LocalAnalysisService {
         let index = self.require_current_index(client)?;
         let entry = find_skin_entry(&index, skin_resource_id)?;
         let IndexedData::Skin { detail } = &entry.data else {
-            return Err(CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该 Skin 资源"));
+            return Err(CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "未找到该 Skin 资源",
+            ));
         };
         let author = detail.summary.author.trim();
         let base_name = if author.is_empty() || author.eq_ignore_ascii_case("unknown") {
@@ -1360,10 +1363,7 @@ impl LocalAnalysisService {
             })
             .collect::<Vec<_>>();
         for location in &locations {
-            cache.insert(
-                location.summary.resource_id.clone(),
-                location.clone(),
-            );
+            cache.insert(location.summary.resource_id.clone(), location.clone());
         }
         Ok(locations)
     }
@@ -1549,9 +1549,8 @@ fn discover(
             }
             // 以 Realm 为权威数据源：只索引 Realm 中登记的谱面 / 皮肤，
             // 元数据、谱面集归属与文件清单都来自数据库而不是目录推断。
-            let realm = lazer_realm::read_realm_data(&realm_path).map_err(|message| {
-                CommandError::new("REALM_READ_FAILED", message)
-            })?;
+            let realm = lazer_realm::read_realm_data(&realm_path)
+                .map_err(|message| CommandError::new("REALM_READ_FAILED", message))?;
             for set in &realm.sets {
                 check_cancelled(cancel)?;
                 let set = Arc::new(set.clone());
@@ -1594,8 +1593,7 @@ fn discover(
                 discovery.source_bytes = discovery
                     .source_bytes
                     .saturating_add(skin.files.iter().map(|file| file.size).sum::<u64>());
-                let physical =
-                    files_root.join(lazer_realm::blob_relative_path(&skin_ini.hash));
+                let physical = files_root.join(lazer_realm::blob_relative_path(&skin_ini.hash));
                 let Ok(metadata) = fs::metadata(&physical) else {
                     discovery.diagnostics.push(diagnostic(
                         "REALM_FILE_MISSING",
@@ -1728,9 +1726,10 @@ fn process_candidate(client: LocalClient, candidate: &Candidate) -> IndexedEntry
                     }
                     // Lazer：用 Realm 的权威元数据覆盖推断结果——
                     // 谱面集归属、unicode 元数据、在线 ID、MD5 全部来自数据库。
-                    if let (Some(beatmap), Some(set)) =
-                        (candidate.lazer_beatmap.as_ref(), candidate.lazer_set.as_ref())
-                    {
+                    if let (Some(beatmap), Some(set)) = (
+                        candidate.lazer_beatmap.as_ref(),
+                        candidate.lazer_set.as_ref(),
+                    ) {
                         parsed.summary.set_key = format!("realm:{}", set.id);
                         parsed.summary.set_grouping_inferred = false;
                         parsed.summary.beatmap_set_id =
@@ -1895,16 +1894,16 @@ fn zip_stored(name: &str) -> bool {
     std::path::Path::new(name)
         .extension()
         .and_then(|value| value.to_str())
-        .map(|value| {
-            STORED_EXTENSIONS
-                .contains(&value.to_ascii_lowercase().as_str())
-        })
+        .map(|value| STORED_EXTENSIONS.contains(&value.to_ascii_lowercase().as_str()))
         .unwrap_or(false)
 }
 
 fn write_export_zip(sources: &[(String, PathBuf)], out_path: &Path) -> CommandResult<()> {
     let file = fs::File::create(out_path).map_err(|error| {
-        CommandError::new("LOCAL_EXPORT_WRITE_ERROR", format!("无法创建导出文件：{error}"))
+        CommandError::new(
+            "LOCAL_EXPORT_WRITE_ERROR",
+            format!("无法创建导出文件：{error}"),
+        )
     })?;
     let mut archive = ZipWriter::new(file);
     for (name, source) in sources {
@@ -1914,11 +1913,12 @@ fn write_export_zip(sources: &[(String, PathBuf)], out_path: &Path) -> CommandRe
         } else {
             options = options.compression_method(CompressionMethod::Deflated);
         }
-        archive
-            .start_file(name.clone(), options)
-            .map_err(|error| {
-                CommandError::new("LOCAL_EXPORT_WRITE_ERROR", format!("写入 zip 失败：{error}"))
-            })?;
+        archive.start_file(name.clone(), options).map_err(|error| {
+            CommandError::new(
+                "LOCAL_EXPORT_WRITE_ERROR",
+                format!("写入 zip 失败：{error}"),
+            )
+        })?;
         let mut reader = fs::File::open(source).map_err(|error| {
             CommandError::new(
                 "LOCAL_EXPORT_READ_ERROR",
@@ -1926,14 +1926,18 @@ fn write_export_zip(sources: &[(String, PathBuf)], out_path: &Path) -> CommandRe
             )
         })?;
         std::io::copy(&mut reader, &mut archive).map_err(|error| {
-            CommandError::new("LOCAL_EXPORT_WRITE_ERROR", format!("写入 zip 失败：{error}"))
+            CommandError::new(
+                "LOCAL_EXPORT_WRITE_ERROR",
+                format!("写入 zip 失败：{error}"),
+            )
         })?;
     }
-    archive
-        .finish()
-        .map_err(|error| {
-            CommandError::new("LOCAL_EXPORT_WRITE_ERROR", format!("完成 zip 失败：{error}"))
-        })?;
+    archive.finish().map_err(|error| {
+        CommandError::new(
+            "LOCAL_EXPORT_WRITE_ERROR",
+            format!("完成 zip 失败：{error}"),
+        )
+    })?;
     Ok(())
 }
 
@@ -2580,7 +2584,9 @@ SliderTickRate:1
                         });
                     }
                 }
-                println!("lazer skin preview assets: {image_count} images, decoded: {decoded_image}");
+                println!(
+                    "lazer skin preview assets: {image_count} images, decoded: {decoded_image}"
+                );
                 assert!(image_count > 0);
                 assert!(decoded_image);
 
@@ -2592,10 +2598,14 @@ SliderTickRate:1
                 let osz = std::fs::File::open(&osz_path).expect("osz exists");
                 let osz_entries = zip::ZipArchive::new(osz).expect("osz readable").len();
                 println!("osz exported: {osz_path} ({osz_entries} entries)");
-                assert!(osz_entries >= sets.items[0].difficulties.len() + 1);
+                assert!(osz_entries > sets.items[0].difficulties.len());
 
                 let osk_path = service
-                    .export_skin_osk(client, &skins.items[0].resource.resource_id, export_dir.path())
+                    .export_skin_osk(
+                        client,
+                        &skins.items[0].resource.resource_id,
+                        export_dir.path(),
+                    )
                     .expect("acceptance osk export");
                 let osk = std::fs::File::open(&osk_path).expect("osk exists");
                 let osk_entries = zip::ZipArchive::new(osk).expect("osk readable").len();

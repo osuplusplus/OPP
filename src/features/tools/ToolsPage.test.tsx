@@ -84,12 +84,12 @@ describe("BeatmapPreviewCard", () => {
 
     renderCard();
     await user.type(screen.getByLabelText("Beatmap ID"), "456");
-    await user.click(screen.getByRole("button", { name: "读取铺面" }));
+    await user.click(screen.getByRole("button", { name: "读取谱面" }));
     expect(await screen.findByText("该模式将生成包含全部物件的 PNG 长图，无需选择区间。")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "生成 PNG" }));
     await waitFor(() => expect(generate).toHaveBeenCalledWith({ bid: 123, start_seconds: null, end_seconds: null }));
-    expect(await screen.findByAltText("铺面预览生成结果")).toHaveAttribute("src", "blob:preview");
+    expect(await screen.findByAltText("谱面预览生成结果")).toHaveAttribute("src", "blob:preview");
 
     await user.click(screen.getByRole("button", { name: "另存为" }));
     await waitFor(() => expect(choose).toHaveBeenCalledWith("mania.png", "png"));

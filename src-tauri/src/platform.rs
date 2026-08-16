@@ -20,19 +20,12 @@ pub fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// 用户数据目录。Windows 为 `%LOCALAPPDATA%`；类 Unix 为 `XDG_DATA_HOME`，回退
-/// 到 `~/.local/share`。
+/// 类 Unix 用户数据目录：优先 `XDG_DATA_HOME`，回退到 `~/.local/share`。
+#[cfg(not(windows))]
 pub fn data_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        env::var_os("LOCALAPPDATA").map(PathBuf::from)
-    }
-    #[cfg(not(windows))]
-    {
-        env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home_dir().map(|home| home.join(".local").join("share")))
-    }
+    env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().map(|home| home.join(".local").join("share")))
 }
 
 /// 默认下载目录（`~/Downloads`）。
@@ -108,7 +101,7 @@ pub fn lazer_data_root() -> Option<PathBuf> {
 /// 读取 lazer `storage.ini` 中的 `FullPath`（用户自定义的数据目录）。
 fn read_storage_ini_fullpath(storage_ini: &Path) -> Option<PathBuf> {
     let reader = io::BufReader::new(fs::File::open(storage_ini).ok()?);
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
         if let Some(value) = line
             .strip_prefix("FullPath")
             .and_then(|rest| rest.split('=').nth(1))
@@ -129,20 +122,13 @@ pub fn lazer_files_root() -> Option<PathBuf> {
 }
 
 /// Linux 上启动/识别 osu! 客户端用的系统命令名（stable → `osu-wine`，lazer →
-/// `osu-lazer`）。Windows 返回 `None`（由调用方使用安装目录内的可执行文件）。
+/// `osu-lazer`）。Windows 调用方使用安装目录内的可执行文件。
+#[cfg(not(windows))]
 pub fn game_command(client: &str) -> Option<&'static str> {
-    #[cfg(not(windows))]
-    {
-        match client {
-            "stable" => Some("osu-wine"),
-            "lazer" => Some("osu-lazer"),
-            _ => None,
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = client;
-        None
+    match client {
+        "stable" => Some("osu-wine"),
+        "lazer" => Some("osu-lazer"),
+        _ => None,
     }
 }
 
@@ -164,15 +150,9 @@ pub fn game_process_running(client: &str) -> bool {
 }
 
 /// 判断 OBS Studio 是否正在运行
+#[cfg(not(windows))]
 pub fn obs_process_running() -> bool {
-    #[cfg(not(windows))]
-    {
-        any_process(|comm| comm == "obs")
-    }
-    #[cfg(windows)]
-    {
-        false
-    }
+    any_process(|comm| comm == "obs")
 }
 
 /// 遍历 `/proc` 的进程名（comm，统一小写），命中即返回 `true`。
@@ -260,40 +240,25 @@ pub fn reveal_path(path: &Path) -> io::Result<()> {
         } else {
             path.parent().unwrap_or_else(|| Path::new("/"))
         };
-        std::process::Command::new("xdg-open")
-            .arg(target)
-            .spawn()?;
+        std::process::Command::new("xdg-open").arg(target).spawn()?;
         Ok(())
     }
 }
 
 /// danser-go 在类 Unix 上把 settings 存在 XDG 配置目录（`~/.config/danser`），而非
-/// 可执行文件旁边。Windows 返回 `None`（沿用可执行文件目录的旧逻辑）。
+/// 可执行文件旁边。Windows 沿用可执行文件目录的旧逻辑。
+#[cfg(not(windows))]
 pub fn danser_config_dir() -> Option<PathBuf> {
-    #[cfg(not(windows))]
-    {
-        env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home_dir().map(|home| home.join(".config")))
-            .map(|config| config.join("danser"))
-    }
-    #[cfg(windows)]
-    {
-        None
-    }
+    env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().map(|home| home.join(".config")))
+        .map(|config| config.join("danser"))
 }
 
-/// 按进程名（comm）精确匹配判断是否运行中（Windows 返回 `false`）。
+/// 在类 Unix 系统按进程名（comm）精确匹配判断是否运行中。
+#[cfg(not(windows))]
 pub fn unix_process_running(name: &str) -> bool {
-    #[cfg(not(windows))]
-    {
-        !unix_process_ids(name).is_empty()
-    }
-    #[cfg(windows)]
-    {
-        let _ = name;
-        false
-    }
+    !unix_process_ids(name).is_empty()
 }
 
 /// tosu 的 PID 列表。tosu（Node 运行时）启动后会把进程名改为 `MainThread`

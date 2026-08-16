@@ -76,7 +76,6 @@ struct LazerFile {
     size: u64,
     path: PathBuf,
     volume: u64,
-    index: u64,
 }
 
 #[tauri::command]
@@ -154,7 +153,6 @@ fn run(
             size: *size,
             path: path.clone(),
             volume: info.volume,
-            index: info.index,
         });
     }
     if pending.is_empty() {
@@ -326,7 +324,7 @@ fn enumerate_files(
             }
             paths.push(entry.into_path());
             walked += 1;
-            if walked % 2048 == 0 {
+            if walked.is_multiple_of(2048) {
                 reporter.emit(phase, walked, 0, false);
             }
         }
@@ -403,6 +401,7 @@ fn display(path: &Path) -> String {
 /// 文件标识：卷/设备号 + inode/文件索引 + 硬链接数，用于同卷与同文件判断。
 struct FileInfo {
     volume: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
     index: u64,
     links: u32,
 }
@@ -491,7 +490,6 @@ mod tests {
             size: 17,
             path: lazer.clone(),
             volume: file_info(&stable).expect("stable info").volume,
-            index: file_info(&lazer).expect("lazer info").index,
         };
         link_replace(&file, &stable).expect("link replace");
         assert_eq!(fs::read(&lazer).expect("read lazer"), b"duplicate content");

@@ -101,7 +101,10 @@ export function BeatmapPreviewCard() {
     if (!strains) return [];
     const pointCount = Math.max(0, ...strains.series.map((series) => series.values.length));
     return Array.from({ length: pointCount }, (_, index) => ({
-      time: ((index + 1) * strains.section_length_ms) / 1_000,
+      time:
+        ((strains.section_start_time_ms ?? strains.first_object_time_ms) +
+          (index + 1) * strains.section_length_ms) /
+        1_000,
       strain: strains.series.reduce((sum, series) => sum + (series.values[index] ?? 0), 0),
     }));
   }, [inspection]);
@@ -205,11 +208,11 @@ export function BeatmapPreviewCard() {
   return <Card className="scroll-mt-8 p-6" id="beatmap-preview">
     <div className="flex items-start gap-4">
       <div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><ImageIcon className="size-5" /></div>
-      <SectionTitle title="铺面预览" description="输入 Beatmap ID；std 选择 strain 区间生成 GIF，其他模式生成完整 PNG。" />
+      <SectionTitle title="谱面预览" description="输入 Beatmap ID；std 选择 strain 区间生成 GIF，其他模式生成完整 PNG。" />
     </div>
     <form className="mt-5 flex flex-wrap items-end gap-3" onSubmit={(event) => { event.preventDefault(); void inspect(bid); }}>
       <label className="min-w-64 flex-1"><span className="mb-1.5 block text-xs text-slate-400">Beatmap ID</span><input aria-label="Beatmap ID" className="min-h-10 w-full rounded-xl border border-white/[0.09] bg-black/20 px-3 font-mono text-sm text-white outline-none focus:border-[var(--theme-primary)]" inputMode="numeric" onChange={(event) => setBid(event.target.value.replace(/\D/g, ""))} placeholder="例如 738063" value={bid} /></label>
-      <Button loading={inspecting} type="submit" variant="primary"><RefreshCw className="size-4" />读取铺面</Button>
+      <Button loading={inspecting} type="submit" variant="primary"><RefreshCw className="size-4" />读取谱面</Button>
     </form>
 
     {error ? <div className="mt-4"><ErrorPanel error={error} onRetry={() => inspection ? void generate() : void inspect(bid)} /></div> : null}
@@ -264,7 +267,7 @@ export function BeatmapPreviewCard() {
 
       <Button disabled={inspection.ruleset === "osu" && lengthSeconds < 1} loading={generating} onClick={() => void generate()} variant="primary"><ImageIcon className="size-4" />生成{inspection.ruleset === "osu" ? " GIF" : " PNG"}</Button>
 
-      {result && previewUrl ? <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-white">生成结果</h3><p className="mt-1 font-mono text-xs text-slate-500">{result.file_name}</p></div><div className="flex gap-2"><Button loading={saving} onClick={() => void saveResult()} size="sm"><Download className="size-3.5" />另存为</Button><Button onClick={() => void desktopApi.openBeatmapPreviewOutput(result.output_path).catch(setError)} size="sm"><FolderOpen className="size-3.5" />打开所在文件夹</Button></div></div><div className="max-h-[560px] overflow-auto rounded-xl bg-[#080b12] p-3"><img alt="铺面预览生成结果" className="mx-auto max-w-full" src={previewUrl} /></div></div> : null}
+      {result && previewUrl ? <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-white">生成结果</h3><p className="mt-1 font-mono text-xs text-slate-500">{result.file_name}</p></div><div className="flex gap-2"><Button loading={saving} onClick={() => void saveResult()} size="sm"><Download className="size-3.5" />另存为</Button><Button onClick={() => void desktopApi.openBeatmapPreviewOutput(result.output_path).catch(setError)} size="sm"><FolderOpen className="size-3.5" />打开所在文件夹</Button></div></div><div className="max-h-[560px] overflow-auto rounded-xl bg-[#080b12] p-3"><img alt="谱面预览生成结果" className="mx-auto max-w-full" src={previewUrl} /></div></div> : null}
     </div> : null}
   </Card>;
 

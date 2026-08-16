@@ -125,7 +125,7 @@ impl Analyzer {
         let raw_difficulty = DifficultyVector {
             aim: attrs.aim as f32,
             speed: attrs.speed as f32,
-            reading: reading_baseline(&parsed.objects, parsed.ar, &self.config) as f32,
+            reading: attrs.reading as f32,
             slider: slider_dimension(&parsed.objects, circles, sliders),
             overlap: overlap.peak,
         };
@@ -373,33 +373,6 @@ fn ar_to_preempt(ar: f64) -> f64 {
     } else {
         1200.0 - 150.0 * (ar - 5.0)
     }
-}
-
-fn reading_baseline(objects: &[HitObject], ar: f64, config: &AnalyzerConfig) -> f64 {
-    let mut peaks = Vec::new();
-    let mut section_end = config.reading_section_ms;
-    let mut count = 0_u32;
-    for object in objects
-        .iter()
-        .filter(|object| object.kind != ObjectKind::Spinner)
-    {
-        while object.time > section_end {
-            peaks.push(count as f64 / (config.reading_section_ms / 1000.0));
-            count = 0;
-            section_end += config.reading_section_ms;
-        }
-        count += 1;
-    }
-    peaks.push(count as f64 / (config.reading_section_ms / 1000.0));
-    peaks.sort_by(|left, right| right.partial_cmp(left).unwrap_or(Ordering::Equal));
-    let ar_pressure = 1.0 + (ar.clamp(0.0, 11.0) / 10.0);
-    peaks
-        .iter()
-        .enumerate()
-        .map(|(index, peak)| {
-            peak * ar_pressure * config.reading_peak_weight_decay.powi(index as i32)
-        })
-        .sum()
 }
 
 fn min_object_distance(left: &HitObject, right: &HitObject) -> f64 {
@@ -731,5 +704,19 @@ mod tests {
 
         assert_eq!(slider_speed_change_frequency(&objects), 0.0);
         assert!((slider_dimension(&objects, 1.0, 1.0) - 0.15).abs() < 1e-6);
+    }
+
+    #[test]
+    fn reading_dimension_comes_from_rosu_pp() -> Result<()> {
+        let bytes = b"osu file format v14\n\n[General]\nMode:0\n\n[Metadata]\nTitle:Reading\nArtist:Test\nCreator:Mapper\nVersion:Hard\nBeatmapID:999\nBeatmapSetID:999\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:8\nApproachRate:9\n\n[TimingPoints]\n0,500,4,2,0,100,1,0\n\n[HitObjects]\n64,64,0,1,0,0:0:0:0:\n448,320,160,1,0,0:0:0:0:\n64,320,320,1,0,0:0:0:0:\n448,64,480,1,0,0:0:0:0:\n";
+        let map = Beatmap::from_bytes(bytes)?;
+        let expected = match Difficulty::new().calculate(&map) {
+            DifficultyAttributes::Osu(attributes) => attributes.reading as f32,
+            _ => unreachable!(),
+        };
+        let (_, record) = Analyzer::new(AnalyzerConfig::default()).analyze_bytes(bytes)?;
+
+        assert_eq!(record.raw_difficulty.reading, expected);
+        Ok(())
     }
 }

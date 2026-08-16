@@ -3531,7 +3531,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "opp"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3551,7 +3551,8 @@ dependencies = [
  "realm-db-reader",
  "reqwest 0.12.28",
  "rosu-map",
- "rosu-pp",
+ "rosu-pp 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?branch=pp-rework-202607)",
  "rosu-render",
  "semver",
  "serde",
@@ -3626,7 +3627,7 @@ dependencies = [
  "hnsw",
  "memmap2",
  "rand_pcg 0.3.1",
- "rosu-pp",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?branch=pp-rework-202607)",
  "rusqlite",
  "serde",
  "sha2",
@@ -4518,6 +4519,17 @@ name = "rosu-mods"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc58d42f8f2308b4b241de147827af84179d0a318de250495c7c5e47cb701cd9"
+
+[[package]]
+name = "rosu-pp"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "697808a7bff3a12f18f519c7111de1df1846ae5b937561d56117658626cab978"
+dependencies = [
+ "divan",
+ "rosu-map",
+ "rosu-mods",
+]
 
 [[package]]
 name = "rosu-pp"
