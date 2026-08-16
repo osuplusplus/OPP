@@ -101,7 +101,10 @@ export function BeatmapPreviewCard() {
     if (!strains) return [];
     const pointCount = Math.max(0, ...strains.series.map((series) => series.values.length));
     return Array.from({ length: pointCount }, (_, index) => ({
-      time: ((index + 1) * strains.section_length_ms) / 1_000,
+      time:
+        ((strains.section_start_time_ms ?? strains.first_object_time_ms) +
+          (index + 1) * strains.section_length_ms) /
+        1_000,
       strain: strains.series.reduce((sum, series) => sum + (series.values[index] ?? 0), 0),
     }));
   }, [inspection]);

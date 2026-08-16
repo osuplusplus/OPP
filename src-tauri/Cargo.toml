@@ -43,6 +43,7 @@ image = { version = "0.25.10", default-features = false, features = ["bmp", "gif
 rayon = "1"
 rosu-map = "0.2.1"
 rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp", branch = "pp-rework-202607" }
+rosu-pp-official = { package = "rosu-pp", version = "4.0.1" }
 sha2 = "0.10"
 walkdir = "2"
 zip = "4"

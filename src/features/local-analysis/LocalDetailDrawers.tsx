@@ -123,7 +123,7 @@ export function BeatmapDetailDrawer({
     return Array.from({ length: pointCount }, (_, index) => {
       const row: Record<string, number> = {
         time:
-          strains.first_object_time_ms +
+          (strains.section_start_time_ms ?? strains.first_object_time_ms) +
           (index + 1) * strains.section_length_ms,
       };
       strains.series.forEach((series) => {
