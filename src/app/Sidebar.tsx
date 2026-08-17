@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Map,
   Music2,
+  PackageOpen,
   Palette,
   Play,
   Radio,
@@ -91,6 +92,7 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
           <div data-onboarding="online-and-collections">
             <NavItem emphasis="beatmaps" icon={Music2} label="在线谱面" to="/online/beatmaps" />
             <NavItem emphasis="beatmaps" icon={Heart} label="谱面收藏夹" to="/collections" />
+            <NavItem emphasis="beatmaps" icon={PackageOpen} label="BeatmapHub" to="/beatmaphub" />
           </div>
           <NavItem emphasis="similar" icon={ScanSearch} label="相似谱面" onboarding="similar-beatmaps" to="/online/similar" />
           <NavItem emphasis="trainer" icon={WandSparkles} label="谱面练习生成器" onboarding="trainer" to="/trainer" />

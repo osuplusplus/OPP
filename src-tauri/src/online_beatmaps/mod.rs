@@ -261,6 +261,7 @@ pub async fn download_online_beatmapsets(
             &state,
             item.beatmapset_id,
             &request.provider,
+            request.include_video,
             cancel.as_ref(),
             |downloaded_bytes, total_bytes| {
                 let now = Instant::now();

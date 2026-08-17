@@ -103,6 +103,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
         destination,
         provider: resolveDefaultDownloadProvider(settings.data),
         overwrite: false,
+        include_video: settings.data?.include_video_in_beatmap_downloads ?? true,
         items: [{ beatmapset_id: beatmapset.id, artist: beatmapset.artist, title: beatmapset.title }],
       });
       if (result.failed) setDirectDownloadError(result.failures[0]?.message ?? "谱面下载失败");

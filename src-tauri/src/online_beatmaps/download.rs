@@ -37,6 +37,7 @@ pub async fn download_with_adapters<F>(
     state: &AppState,
     beatmapset_id: u64,
     provider: &str,
+    include_video: bool,
     cancel: &AtomicBool,
     mut on_progress: F,
 ) -> CommandResult<super::providers::ProviderBytes>
@@ -63,7 +64,13 @@ where
         }
         match state
             .providers
-            .osz_with_progress(beatmapset_id, adapter, cancel, &mut on_progress)
+            .osz_with_progress(
+                beatmapset_id,
+                adapter,
+                include_video,
+                cancel,
+                &mut on_progress,
+            )
             .await
         {
             Ok(download) => return Ok(download),

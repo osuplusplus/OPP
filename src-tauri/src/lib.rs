@@ -1,4 +1,5 @@
 mod account;
+mod beatmaphub;
 mod collections;
 mod danser;
 mod error;
@@ -21,10 +22,18 @@ mod tosu;
 mod trainer;
 mod update_check;
 
+
 use account::{
     begin_oauth_login, cancel_oauth_login, clear_profile_cache, disconnect_osu,
     export_replay_video, get_auth_status, get_own_profile, get_scores, get_settings,
     mark_onboarding_seen, mark_page_onboarding_seen, save_oauth_credentials, update_settings,
+};
+use beatmaphub::{
+    create_beatmaphub_device_link, create_beatmaphub_profile, delete_beatmaphub_pack,
+    favorite_beatmaphub_pack, get_beatmaphub_auth_status, get_beatmaphub_pack,
+    get_beatmaphub_profile, import_beatmaphub_pack, link_beatmaphub_device, login_beatmaphub,
+    logout_beatmaphub, preview_beatmaphub_pack, publish_beatmaphub_pack, rate_beatmaphub_pack,
+    revoke_beatmaphub_device, update_beatmaphub_pack,
 };
 use collections::{
     add_collection_entries, begin_collection_task, cancel_collection_task, create_collection,
@@ -159,6 +168,22 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_auth_status,
+            get_beatmaphub_auth_status,
+            create_beatmaphub_profile,
+            login_beatmaphub,
+            link_beatmaphub_device,
+            logout_beatmaphub,
+            get_beatmaphub_profile,
+            create_beatmaphub_device_link,
+            revoke_beatmaphub_device,
+            get_beatmaphub_pack,
+            preview_beatmaphub_pack,
+            publish_beatmaphub_pack,
+            update_beatmaphub_pack,
+            delete_beatmaphub_pack,
+            rate_beatmaphub_pack,
+            favorite_beatmaphub_pack,
+            import_beatmaphub_pack,
             get_capabilities,
             list_collections,
             get_collection_sync_status,

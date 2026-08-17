@@ -6,6 +6,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   AppSettings,
   AuthStatus,
+  BeatmapHubAuthStatus,
+  BeatmapHubDeviceLink,
+  BeatmapHubImportResult,
+  BeatmapHubPack,
+  BeatmapHubPackPreview,
+  BeatmapHubProfile,
+  BeatmapHubPublishResult,
   BeatmapDownloadProgress,
   BeatmapDownloadRequest,
   BeatmapDownloadResult,
@@ -148,6 +155,8 @@ async function call<T>(
 
 function browserPreviewValue<T>(command: string, args?: Record<string, unknown>): T | undefined {
   if (command === "get_capabilities") return { os: "windows", display_gamma: true, file_association: true } as T;
+  if (command === "get_beatmaphub_auth_status") return { has_identity: false, connected: false, public_key: null, user_id: null, device_id: null, display_name: null, device_name: "Preview PC", expires_at: null } as T;
+  if (command === "list_collections") return { folders: [], sources: [] } as T;
   if (command === "get_lazer_disk_usage") return { path: "C:\\osu!", total_size: 1610612736, unique_size: 536870912, file_count: 4096 } as T;
   if (command === "read_lazer_realm_beatmap_sets") return { realm_path: "C:\\osu!\\client.realm", table_count: 16, beatmap_set_count: 2, beatmap_sets: [{ id: "fc56eb02bba7428499af65e5c2c80c73", online_id: -1, artist: "cYsmix", title: "triangles", creator: "peppy", beatmap_count: 1, delete_pending: false, files: [{ filename: "audio.mp3", hash: "47b895484e7751f3ab429694ff6dbf21e774ab023e4f6c5b481476f04ff22f0f" }, { filename: "cYsmix - triangles (peppy) [peppy].osu", hash: "a1556d0801b3a6b175dda32ef546f0ec812b400499f575c44fccbe9c67f9b1e5" }] }] } as T;
   if (command === "export_local_beatmap_set") return `${args?.outDir ?? "C:\\Export"}/export.osz` as T;
@@ -231,6 +240,27 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
 
 export const desktopApi = {
   getAuthStatus: () => call<AuthStatus>("get_auth_status"),
+  getBeatmapHubAuthStatus: () => call<BeatmapHubAuthStatus>("get_beatmaphub_auth_status"),
+  createBeatmapHubProfile: (displayName: string, deviceName: string) =>
+    call<BeatmapHubAuthStatus>("create_beatmaphub_profile", { displayName, deviceName }),
+  loginBeatmapHub: () => call<BeatmapHubAuthStatus>("login_beatmaphub"),
+  linkBeatmapHubDevice: (linkToken: string, deviceName: string) =>
+    call<BeatmapHubAuthStatus>("link_beatmaphub_device", { linkToken, deviceName }),
+  logoutBeatmapHub: () => call<void>("logout_beatmaphub"),
+  getBeatmapHubProfile: () => call<BeatmapHubProfile>("get_beatmaphub_profile"),
+  createBeatmapHubDeviceLink: () => call<BeatmapHubDeviceLink>("create_beatmaphub_device_link"),
+  revokeBeatmapHubDevice: (deviceId: string) => call<void>("revoke_beatmaphub_device", { deviceId }),
+  getBeatmapHubPack: (shareId: string) => call<BeatmapHubPack>("get_beatmaphub_pack", { shareId }),
+  previewBeatmapHubPack: (shareId: string) => call<BeatmapHubPackPreview>("preview_beatmaphub_pack", { shareId }),
+  publishBeatmapHubPack: (folderId: string, title: string, description: string) =>
+    call<BeatmapHubPublishResult>("publish_beatmaphub_pack", { folderId, title, description }),
+  updateBeatmapHubPack: (shareId: string, folderId: string, title: string, description: string) =>
+    call<void>("update_beatmaphub_pack", { shareId, folderId, title, description }),
+  deleteBeatmapHubPack: (shareId: string) => call<void>("delete_beatmaphub_pack", { shareId }),
+  rateBeatmapHubPack: (shareId: string, score: number) => call<void>("rate_beatmaphub_pack", { shareId, score }),
+  favoriteBeatmapHubPack: (shareId: string, enabled: boolean) => call<void>("favorite_beatmaphub_pack", { shareId, enabled }),
+  importBeatmapHubPack: (shareId: string, resolved: OnlineBeatmapset[]) =>
+    call<BeatmapHubImportResult>("import_beatmaphub_pack", { shareId, resolved }),
   getCapabilities: () => call<PlatformCapabilities>("get_capabilities"),
   getLazerDiskUsage: () => call<LazerDiskUsage>("get_lazer_disk_usage"),
   readLazerRealmBeatmapSets: () =>

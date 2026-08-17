@@ -8,6 +8,8 @@ pub struct CommandError {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 impl CommandError {
@@ -16,11 +18,17 @@ impl CommandError {
             code: code.into(),
             message: message.into(),
             retry_after_seconds: None,
+            request_id: None,
         }
     }
 
     pub fn retry_after(mut self, seconds: Option<u64>) -> Self {
         self.retry_after_seconds = seconds;
+        self
+    }
+
+    pub fn request_id(mut self, request_id: Option<String>) -> Self {
+        self.request_id = request_id;
         self
     }
 

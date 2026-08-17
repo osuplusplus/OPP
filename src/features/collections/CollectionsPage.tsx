@@ -248,6 +248,7 @@ export function CollectionsPage() {
         destination,
         provider: resolveDefaultDownloadProvider(settings),
         overwrite: false,
+        include_video: settings.include_video_in_beatmap_downloads,
         open_after_download: false,
         items,
       });

@@ -158,6 +158,8 @@ pub struct AppSettings {
     pub beatmap_download_directory: Option<String>,
     #[serde(default)]
     pub default_beatmap_download_provider: BeatmapDownloadProvider,
+    #[serde(default = "default_true")]
+    pub include_video_in_beatmap_downloads: bool,
     #[serde(default)]
     pub open_downloaded_beatmaps_after_download: bool,
     #[serde(default)]
@@ -475,6 +477,7 @@ impl Default for AppSettings {
             similarity_preferences: SimilarityPreferences::default(),
             beatmap_download_directory: None,
             default_beatmap_download_provider: BeatmapDownloadProvider::default(),
+            include_video_in_beatmap_downloads: true,
             open_downloaded_beatmaps_after_download: false,
             replay_export_directory: None,
             danser_executable_path: None,
@@ -664,6 +667,7 @@ mod tests {
             settings.default_beatmap_download_provider,
             BeatmapDownloadProvider::Sayobot
         );
+        assert!(settings.include_video_in_beatmap_downloads);
         assert_eq!(
             serde_json::to_value(settings)
                 .expect("settings should serialize")

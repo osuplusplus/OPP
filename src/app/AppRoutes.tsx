@@ -17,6 +17,7 @@ const ToolsPage = lazy(() => import("../features/tools/ToolsPage").then((module)
 const TosuPage = lazy(() => import("../features/tools/TosuPage").then((module) => ({ default: module.TosuPage })));
 const TrainerPage = lazy(() => import("../features/trainer/TrainerPage").then((module) => ({ default: module.TrainerPage })));
 const CollectionsPage = lazy(() => import("../features/collections/CollectionsPage").then((module) => ({ default: module.CollectionsPage })));
+const BeatmapHubPage = lazy(() => import("../features/beatmaphub/BeatmapHubPage").then((module) => ({ default: module.BeatmapHubPage })));
 
 export function AppRoutes() {
   return (
@@ -30,6 +31,7 @@ export function AppRoutes() {
           <Route path="/online/scores" element={<Navigate replace to="/data#scores" />} />
           <Route path="/online/beatmaps" element={<OnlineBeatmapsPage />} />
           <Route path="/collections" element={<CollectionsPage />} />
+          <Route path="/beatmaphub" element={<BeatmapHubPage />} />
           <Route path="/online/similar" element={<SimilarBeatmapsPage />} />
           <Route path="/trainer" element={<TrainerPage />} />
           <Route path="/local" element={<Navigate replace to="/local/maps" />} />
