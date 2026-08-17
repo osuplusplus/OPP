@@ -13,6 +13,7 @@ use crate::{
 /// The mutex deliberately covers the whole refresh exchange so concurrent commands do not
 /// invalidate each other's refresh token.
 pub(crate) async fn ensure_access_token(state: &AppState) -> CommandResult<String> {
+    // 令牌仍有余量时直接复用；临近过期才走刷新流程，减少不必要的 OAuth 请求。
     let _refresh_guard = state.token_refresh.lock().await;
     let tokens = state
         .credentials

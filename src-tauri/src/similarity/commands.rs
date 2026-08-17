@@ -23,6 +23,8 @@ use crate::{
 };
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_similarity_index_status(
     state: State<'_, AppState>,
 ) -> CommandResult<SimilarityIndexStatus> {
@@ -32,6 +34,8 @@ pub async fn get_similarity_index_status(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：配置服务的索引或连接。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn configure_similarity_index(
     directory: Option<String>,
     state: State<'_, AppState>,
@@ -47,6 +51,8 @@ pub async fn configure_similarity_index(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：按条件查询本地索引。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn query_similar_beatmaps(
     request: SimilarityQueryRequest,
     state: State<'_, AppState>,
@@ -106,6 +112,8 @@ pub async fn query_similar_beatmaps(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn recommend_similar_beatmaps(
     request: SimilarityRecommendationRequest,
     state: State<'_, AppState>,

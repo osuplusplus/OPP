@@ -17,6 +17,8 @@ const SCORE_CACHE_SECONDS: i64 = 600;
 const MANUAL_REFRESH_SECONDS: i64 = 60;
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn get_auth_status(state: State<'_, AppState>) -> CommandResult<AuthStatus> {
     let snapshot = state.store.snapshot()?;
     let has_secret = state.credentials.get_client_secret()?.is_some();
@@ -32,6 +34,8 @@ pub fn get_auth_status(state: State<'_, AppState>) -> CommandResult<AuthStatus> 
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：校验并持久化用户配置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn save_oauth_credentials(
     client_id: String,
     client_secret: String,
@@ -75,16 +79,22 @@ pub fn save_oauth_credentials(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：初始化可取消的异步流程。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn begin_oauth_login(app: AppHandle) -> CommandResult<PendingOAuth> {
     oauth::begin(app).await
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn cancel_oauth_login(state: State<'_, AppState>) -> CommandResult<()> {
     oauth::cancel(&state)
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn disconnect_osu(
     revoke: bool,
     state: State<'_, AppState>,
@@ -111,6 +121,8 @@ pub async fn disconnect_osu(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_own_profile(
     ruleset: Ruleset,
     force_refresh: bool,
@@ -161,6 +173,8 @@ pub async fn get_own_profile(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_scores(
     ruleset: Ruleset,
     category: ScoreCategory,
@@ -219,6 +233,8 @@ pub async fn get_scores(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：清除可安全重建的本地缓存。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn clear_profile_cache(state: State<'_, AppState>) -> CommandResult<()> {
     state.store.update(|persisted| {
         persisted.cache.clear();
@@ -228,6 +244,8 @@ pub fn clear_profile_cache(state: State<'_, AppState>) -> CommandResult<()> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn get_settings(state: State<'_, AppState>) -> CommandResult<AppSettings> {
     state.store.update(|persisted| {
         if persisted.settings.beatmap_download_directory.is_none() {
@@ -238,6 +256,8 @@ pub fn get_settings(state: State<'_, AppState>) -> CommandResult<AppSettings> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：记录用户已完成的引导状态。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn mark_onboarding_seen(
     version: u32,
     state: State<'_, AppState>,
@@ -249,6 +269,8 @@ pub fn mark_onboarding_seen(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：记录用户已完成的引导状态。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn mark_page_onboarding_seen(
     page_id: String,
     version: u32,
@@ -274,6 +296,8 @@ pub fn mark_page_onboarding_seen(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：更新持久化设置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn update_settings(
     mut settings: AppSettings,
     state: State<'_, AppState>,
@@ -296,6 +320,8 @@ fn default_download_directory() -> Option<String> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：将资源导出到用户指定的位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn export_replay_video(
     video_url: String,
     file_name: String,
@@ -359,6 +385,7 @@ pub async fn export_replay_video(
 }
 
 fn enforce_manual_cooldown(state: &AppState, key: &str) -> CommandResult<()> {
+    // 强制刷新会消耗远程 API 配额；按缓存键分别限流，避免一个页面影响另一个页面。
     let now = Utc::now();
     state.store.update(|persisted| {
         if let Some(previous) = persisted.last_manual_refresh.get(key) {
@@ -382,6 +409,7 @@ fn profile_from_cache(record: &CacheRecord, stale: bool) -> CommandResult<Cached
 }
 
 async fn attach_avatar(state: &AppState, profile: &mut OwnProfile, force_refresh: bool) {
+    // 头像是辅助展示数据：下载失败不应使个人资料请求整体失败。
     profile.avatar_data_url = state
         .avatar_cache
         .load_or_fetch(profile.id, &profile.avatar_url, force_refresh)

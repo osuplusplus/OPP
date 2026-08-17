@@ -77,6 +77,7 @@ pub struct CollectionService {
 
 impl CollectionService {
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
+        // 收藏夹按文件夹拆分持久化，单个文件损坏不会使整个集合不可恢复。
         fs::create_dir_all(app_data_dir)?;
         let path = app_data_dir.join("collections.json");
         let collection_bytes = fs::read(&path).unwrap_or_default();
@@ -135,6 +136,7 @@ impl CollectionService {
         &self,
         action: impl FnOnce(&mut CollectionFile) -> CommandResult<R>,
     ) -> CommandResult<R> {
+        // 在持久化锁内读改写，确保并发编辑不会丢失另一个调用刚写入的条目。
         let mut persisted = self
             .persist
             .lock()
@@ -301,6 +303,7 @@ fn folder_storage_key(id: &str) -> String {
 }
 
 fn prune_presence_cache(cache: &mut HashMap<String, LocalPresenceCacheEntry>) {
+    // 本地谱面存在性可由下次扫描重建，采用时间顺序淘汰并限制内存占用。
     let mut entries = cache
         .iter()
         .map(|(key, value)| {
@@ -391,6 +394,7 @@ fn same_entry(left: &CollectionEntry, right: &CollectionEntry) -> bool {
 }
 
 fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
+    // 先用临时文件完整落盘，再替换目标，防止意外退出破坏收藏夹分片。
     if target.exists() {
         let backup = target.with_extension("bak");
         if backup.exists() {

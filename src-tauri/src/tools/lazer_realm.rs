@@ -37,6 +37,8 @@ pub struct LazerRealmReadResult {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取已生成或本地保存的内容。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn read_lazer_realm_beatmap_sets() -> CommandResult<LazerRealmReadResult> {
     let data_root = platform::lazer_data_root()
         .ok_or_else(|| CommandError::new("LAZER_NOT_FOUND", "未找到 osu!lazer 数据目录"))?;

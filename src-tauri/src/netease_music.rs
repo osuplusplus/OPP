@@ -5,6 +5,8 @@ use crate::error::{CommandError, CommandResult};
 
 /// Opens NetEase Cloud Music's web search in the user's default browser.
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_netease_music_search(
     app: AppHandle,
     artist: String,

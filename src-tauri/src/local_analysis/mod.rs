@@ -58,6 +58,8 @@ pub fn get_local_summary(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn scan_local_source(
     client: LocalClient,
     force: bool,
@@ -79,6 +81,8 @@ pub async fn scan_local_source(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn cancel_local_scan(client: LocalClient, state: State<'_, AppState>) -> CommandResult<()> {
     state.local_analysis.cancel_scan(client)
 }
@@ -118,6 +122,8 @@ pub fn get_local_beatmap_path(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_local_beatmap_background(
     client: LocalClient,
     resource_id: String,
@@ -135,6 +141,8 @@ pub async fn get_local_beatmap_background(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：将资源导出到用户指定的位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn export_local_beatmap_set(
     client: LocalClient,
     set_key: String,
@@ -155,6 +163,8 @@ pub async fn export_local_beatmap_set(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：将资源导出到用户指定的位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn export_local_skin(
     client: LocalClient,
     skin_resource_id: String,
@@ -192,6 +202,8 @@ pub fn get_local_skin_detail(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_local_skin_preview(
     client: LocalClient,
     resource_id: String,
@@ -209,6 +221,8 @@ pub async fn get_local_skin_preview(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_local_skin_asset(
     client: LocalClient,
     skin_resource_id: String,
@@ -229,6 +243,8 @@ pub async fn get_local_skin_asset(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn replace_local_skin_asset(
     client: LocalClient,
     skin_resource_id: String,

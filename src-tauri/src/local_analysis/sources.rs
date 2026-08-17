@@ -75,6 +75,7 @@ pub struct SourceResolver {
 
 impl SourceResolver {
     pub fn load(directory: &Path) -> CommandResult<Self> {
+        // 用户覆盖路径独立保存；自动发现逻辑始终可在覆盖被重置后重新生效。
         fs::create_dir_all(directory)?;
         let path = directory.join("sources.json");
         let overrides = fs::read(&path)
@@ -150,6 +151,7 @@ impl SourceResolver {
     }
 
     fn persist(&self, overrides: &SourceOverrides) -> CommandResult<()> {
+        // 使用临时文件替换覆盖配置，防止系统中断造成 JSON 截断。
         let bytes = serde_json::to_vec_pretty(overrides)?;
         let temporary = self.path.with_extension("json.tmp");
         fs::write(&temporary, bytes)?;
@@ -181,6 +183,7 @@ fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
 }
 
 fn resolve_stable(configured_path: Option<&Path>) -> ResolvedSource {
+    // Stable 的 Songs 目录可在配置中改名或改为相对路径，不能假设固定位置。
     let mode = if configured_path.is_some() {
         SourceMode::Override
     } else {
@@ -257,6 +260,7 @@ fn resolve_stable(configured_path: Option<&Path>) -> ResolvedSource {
 }
 
 fn resolve_lazer(configured_path: Option<&Path>) -> ResolvedSource {
+    // lazer 的数据根目录与安装目录不同；优先识别含 client.realm 的数据根目录。
     let mode = if configured_path.is_some() {
         SourceMode::Override
     } else {

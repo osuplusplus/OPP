@@ -10,6 +10,7 @@ use crate::{
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub fn download_file_name(item: &BeatmapDownloadItem, suggested: Option<&str>) -> String {
+    // 以谱面集 ID 作为稳定前缀，避免镜像给出相同文件名时发生覆盖。
     let fallback = format!(
         "{} {} - {}.osz",
         item.beatmapset_id,

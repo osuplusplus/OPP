@@ -61,6 +61,7 @@ fn short_hash(value: &str) -> String {
 ///
 /// 优先识别 UTF-16 BOM 与空字节特征，再尝试 UTF-8，最后使用编码探测兜底。
 pub fn decode_text(bytes: &[u8]) -> String {
+    // .osu 与 skin.ini 可能来自旧版 Windows 客户端，按 BOM、UTF-8、系统编码依次解码。
     if bytes.starts_with(&[0xff, 0xfe])
         || (bytes.len() >= 4
             && bytes.len().is_multiple_of(2)
@@ -197,6 +198,7 @@ pub fn parse_beatmap(
     modified_at: Option<String>,
     known_hash: Option<&str>,
 ) -> Result<ParsedBeatmap, String> {
+    // 解析结果同时提供展示元数据和索引特征，任何单个损坏文件都只产生诊断而非中断扫描。
     if !looks_like_beatmap(bytes) {
         return Err("文件缺少有效的 osu file format 头".into());
     }
@@ -337,6 +339,7 @@ pub fn parse_beatmap(
 
 /// 按游戏模式导出 rosu-pp 的分段难度曲线，供前端绘制 strain 图。
 pub fn calculate_strains(bytes: &[u8]) -> Result<StrainAnalysis, String> {
+    // 使用规则集原生难度运行时计算对象 strain，并转换为前端可绘制的时间分段序列。
     let map = rosu_pp::Beatmap::from_bytes(bytes)
         .map_err(|error| format!("无法为谱面计算 strain：{error}"))?;
     let first_object_time_ms = map

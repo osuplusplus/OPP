@@ -118,6 +118,7 @@ fn auth(password: &str, salt: &str, challenge: &str) -> String {
 }
 
 async fn connect(url: &str, password: Option<&str>) -> CommandResult<ObsSocket> {
+    // OBS WebSocket 的 Hello/Identify 握手必须在任何 RPC 请求前完成。
     let url = valid_url(url)?;
     let (mut socket, _) = connect_async(url).await.map_err(|e| {
         CommandError::new(
@@ -175,6 +176,7 @@ async fn request(
     request_type: &str,
     request_data: Value,
 ) -> CommandResult<Value> {
+    // 每个请求使用 UUID 关联响应，避免事件消息与并发 RPC 响应相互混淆。
     let request_id = Uuid::new_v4().to_string();
     socket.send(Message::Text(json!({"op":6,"d":{"requestType":request_type,"requestId":request_id,"requestData":request_data}}).to_string().into())).await.map_err(|e| CommandError::new("OBS_WEBSOCKET_ERROR", e.to_string()))?;
     loop {
@@ -223,6 +225,8 @@ fn status(state: &AppState, connected: bool, error: Option<String>) -> CommandRe
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_obs_status(state: State<'_, AppState>) -> CommandResult<ObsStatus> {
     let result = match open(&state).await {
         Ok(_) => status(&state, true, None),
@@ -235,6 +239,8 @@ pub async fn get_obs_status(state: State<'_, AppState>) -> CommandResult<ObsStat
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：校验并持久化用户配置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn save_obs_connection(
     websocket_url: String,
     password: Option<String>,
@@ -256,6 +262,8 @@ pub fn save_obs_connection(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_obs_scenes(state: State<'_, AppState>) -> CommandResult<Vec<String>> {
     let mut socket = open(&state).await?;
     let data = request(&mut socket, "GetSceneList", json!({})).await?;
@@ -359,6 +367,8 @@ pub async fn refresh_selected(state: &AppState) -> CommandResult<ObsRefreshResul
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：刷新外部状态。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn refresh_selected_obs_scene(
     state: State<'_, AppState>,
 ) -> CommandResult<ObsRefreshResult> {
@@ -366,6 +376,7 @@ pub async fn refresh_selected_obs_scene(
 }
 
 pub fn start_obs_monitor(app: AppHandle) {
+    // 监控器只在后台轮询连接状态；具体场景刷新仍由显式命令触发。
     tauri::async_runtime::spawn(async move {
         let mut previous = false;
         loop {

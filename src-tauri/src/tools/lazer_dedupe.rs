@@ -79,6 +79,8 @@ struct LazerFile {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：扫描并去重可安全识别的重复文件。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn dedupe_lazer_files(
     dry_run: bool,
     app: AppHandle,
@@ -96,6 +98,8 @@ pub async fn dedupe_lazer_files(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn cancel_lazer_dedupe() {
     CANCELLED.store(true, Ordering::Relaxed);
 }
@@ -255,6 +259,7 @@ fn record_failure(result: &mut LazerDedupeResult, path: &Path, message: String) 
 
 /// 把 lazer 副本替换为指向 stable 的硬链接。
 fn link_replace(file: &LazerFile, stable: &Path) -> Result<(), String> {
+    // 在替换前先通过临时链接验证目标卷支持硬链接，失败时保持原始 lazer 文件不变。
     let fresh = |path: &Path| fs::metadata(path).map(|metadata| metadata.len());
     if fresh(stable).unwrap_or(u64::MAX) != file.size {
         return Err("stable 文件在扫描后发生变化，已跳过".into());

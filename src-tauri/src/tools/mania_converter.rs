@@ -49,6 +49,8 @@ fn convert_one(input: String) -> ManiaConversionItem {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn convert_mania_beatmaps(paths: Vec<String>) -> CommandResult<ManiaConversionResult> {
     if paths.is_empty() {
         return Err(CommandError::new(

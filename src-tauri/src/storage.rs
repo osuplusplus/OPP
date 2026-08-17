@@ -39,6 +39,10 @@ pub struct StateStore {
 }
 
 impl StateStore {
+    /// 从应用数据目录恢复状态和可再生缓存，并在载入后立刻执行容量淘汰。
+    ///
+    /// 状态文件损坏时回退到默认值，缓存文件损坏时只丢弃缓存，避免一个损坏的
+    /// 优化数据文件阻止应用启动。
     pub fn load(app_data_dir: &Path) -> CommandResult<Self> {
         fs::create_dir_all(app_data_dir)?;
         let path = app_data_dir.join("state.json");
@@ -65,6 +69,7 @@ impl StateStore {
         })
     }
 
+    /// 返回一致的内存快照，不会触发磁盘写入。
     pub fn snapshot(&self) -> CommandResult<PersistedState> {
         self.value
             .lock()
@@ -72,6 +77,9 @@ impl StateStore {
             .map_err(|_| CommandError::new("STATE_ERROR", "本地状态锁已损坏"))
     }
 
+    /// 在同一持久化临界区中修改状态、执行缓存淘汰并按需落盘。
+    ///
+    /// 先取得持久化锁再取得状态锁，使并发更新不能因交错写入而覆盖彼此。
     pub fn update<R>(&self, operation: impl FnOnce(&mut PersistedState) -> R) -> CommandResult<R> {
         let mut persisted = self
             .persist
@@ -90,6 +98,7 @@ impl StateStore {
         Ok(result)
     }
 
+    /// 将主状态与高频缓存分别序列化，仅在字节实际变更时执行原子替换写入。
     fn persist(&self, state: &PersistedState, previous: &mut PersistedBytes) -> CommandResult<()> {
         let cache = PersistedCache {
             cache: state.cache.clone(),
@@ -113,6 +122,7 @@ impl StateStore {
 }
 
 fn prune_cache(state: &mut PersistedState) {
+    // 缓存按抓取时间淘汰，同时受条目数和序列化后体积两项上限约束。
     let mut oldest = state
         .cache
         .iter()
@@ -149,6 +159,7 @@ fn prune_cache(state: &mut PersistedState) {
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> CommandResult<()> {
+    // 保留上一份完整文件直到新文件改名成功，避免崩溃留下半写入的 JSON。
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, bytes)?;
     let backup = path.with_extension("json.bak");

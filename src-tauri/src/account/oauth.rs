@@ -19,6 +19,7 @@ pub const CALLBACK_URL: &str = "http://127.0.0.1:42831/oauth/callback";
 const CALLBACK_ADDRESS: &str = "127.0.0.1:42831";
 const AUTHORIZATION_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 
+/// 建立一次仅在本机回调端口上有效的 OAuth 会话，并用随机 state 抵御 CSRF 回调。
 pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
     let app_state = app.state::<AppState>();
     let snapshot = app_state.store.snapshot()?;
@@ -92,6 +93,7 @@ pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
     })
 }
 
+/// 取消当前授权等待；接收端任务会收到 oneshot 信号并清理与该会话绑定的 state。
 pub fn cancel(app_state: &AppState) -> CommandResult<()> {
     let mut runtime = app_state
         .oauth
@@ -105,6 +107,7 @@ pub fn cancel(app_state: &AppState) -> CommandResult<()> {
 }
 
 fn build_authorization_url(client_id: &str, csrf_state: &str) -> CommandResult<String> {
+    // state 与浏览器回调进行一一比对，不能省略或复用。
     let mut url = Url::parse(AUTHORIZATION_URL)
         .map_err(|error| CommandError::new("INVALID_URL", error.to_string()))?;
     url.query_pairs_mut()
@@ -242,6 +245,7 @@ struct CallbackQuery {
 }
 
 fn parse_callback_request(request: &str) -> CommandResult<CallbackQuery> {
+    // 只解析 HTTP 请求行，不把浏览器提供的正文或头部当作可信输入。
     let request_line = request
         .lines()
         .next()

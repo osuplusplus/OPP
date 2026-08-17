@@ -34,6 +34,8 @@ use tools::{
 use uuid::Uuid;
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：搜索远程资源。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn search_online_beatmapsets(
     query: OnlineBeatmapSearchQuery,
     state: State<'_, AppState>,
@@ -42,6 +44,8 @@ pub async fn search_online_beatmapsets(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：收集远程资源的候选结果。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn collect_online_beatmapsets(
     mut query: OnlineBeatmapSearchQuery,
     limit: usize,
@@ -101,6 +105,8 @@ pub async fn collect_online_beatmapsets(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_online_beatmapset(
     beatmapset_id: u64,
     state: State<'_, AppState>,
@@ -115,6 +121,8 @@ pub async fn get_online_beatmapset(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_online_beatmap(
     beatmap_id: u64,
     state: State<'_, AppState>,
@@ -125,6 +133,8 @@ pub async fn get_online_beatmap(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_online_beatmap_provider_status(
     state: State<'_, AppState>,
 ) -> CommandResult<Vec<providers::ProviderStatus>> {
@@ -132,6 +142,8 @@ pub async fn get_online_beatmap_provider_status(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：下载所选资源。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn download_online_beatmapsets(
     app: AppHandle,
     request: BeatmapDownloadRequest,
@@ -479,6 +491,8 @@ pub async fn download_online_beatmapsets(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_downloaded_path(app: AppHandle, path: String) -> CommandResult<()> {
     let path = PathBuf::from(path);
     if !path.exists() {
@@ -493,6 +507,8 @@ pub fn open_downloaded_path(app: AppHandle, path: String) -> CommandResult<()> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn cancel_online_beatmap_download(state: State<'_, AppState>) -> CommandResult<()> {
     let runtime = state
         .beatmap_download

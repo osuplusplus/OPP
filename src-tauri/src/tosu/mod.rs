@@ -92,6 +92,8 @@ fn current_status(state: &AppState, settings: &AppSettings, api_reachable: bool)
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_tosu_status(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -109,11 +111,15 @@ pub async fn get_tosu_status(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn get_tosu_logs(state: State<'_, AppState>) -> CommandResult<Vec<TosuLogEntry>> {
     Ok(service::logs(&state.tosu))
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：更新运行时或持久化配置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn set_tosu_executable(path: String, state: State<'_, AppState>) -> CommandResult<TosuStatus> {
     let executable = service::validate_executable(PathBuf::from(path).as_path())?;
     let saved = executable.display().to_string();
@@ -125,6 +131,8 @@ pub fn set_tosu_executable(path: String, state: State<'_, AppState>) -> CommandR
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：更新运行时或持久化配置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn set_tosu_lyrics_executable(
     path: String,
     state: State<'_, AppState>,
@@ -139,6 +147,8 @@ pub fn set_tosu_lyrics_executable(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn start_tosu(state: State<'_, AppState>, app: AppHandle) -> CommandResult<()> {
     start_managed_tosu(&state, app)
 }
@@ -173,6 +183,8 @@ pub fn start_managed_tosu(state: &AppState, app: AppHandle) -> CommandResult<()>
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：停止受应用管理的服务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn stop_tosu(state: State<'_, AppState>, app: AppHandle) -> CommandResult<()> {
     // pkexec 认证会阻塞到用户在弹窗输入密码，放进 blocking 线程避免卡住 UI。
     let runtime = state.tosu.clone();

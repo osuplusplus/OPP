@@ -67,6 +67,8 @@ fn build_update_result(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn check_for_updates(app: tauri::AppHandle) -> CommandResult<UpdateCheckResult> {
     let current_version = app.package_info().version.to_string();
     let client = reqwest::Client::builder()
@@ -100,6 +102,8 @@ pub async fn check_for_updates(app: tauri::AppHandle) -> CommandResult<UpdateChe
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：记录用户忽略的版本。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn ignore_update_version(
     version: String,
     state: State<'_, AppState>,

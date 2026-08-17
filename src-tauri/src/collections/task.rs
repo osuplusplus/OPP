@@ -20,11 +20,15 @@ pub(super) fn ensure_collection_task_active(state: &AppState) -> CommandResult<(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：初始化可取消的异步流程。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn begin_collection_task(state: State<'_, AppState>) {
     state.collection_task_cancel.store(false, Ordering::Relaxed);
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn cancel_collection_task(state: State<'_, AppState>) -> CommandResult<()> {
     state.collection_task_cancel.store(true, Ordering::Relaxed);
     if let Some(cancel) = state

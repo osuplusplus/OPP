@@ -245,6 +245,8 @@ fn result_from_value(value: serde_json::Value) -> CommandResult<BeatmapPreviewRe
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：检查资源的元数据或可用性。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn inspect_beatmap_preview(bid: u32) -> CommandResult<BeatmapPreviewInspection> {
     let bytes = ensure_beatmap_cached(bid).await?;
     async_runtime::spawn_blocking(move || inspect_bytes(bid, &bytes))
@@ -253,6 +255,8 @@ pub async fn inspect_beatmap_preview(bid: u32) -> CommandResult<BeatmapPreviewIn
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：生成派生资源或分析结果。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn generate_beatmap_preview(
     request: BeatmapPreviewRequest,
 ) -> CommandResult<BeatmapPreviewResult> {
@@ -269,12 +273,16 @@ pub async fn generate_beatmap_preview(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取已生成或本地保存的内容。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn read_beatmap_preview_output(path: String) -> CommandResult<Response> {
     let output = validated_output(&path)?;
     Ok(Response::new(fs::read(output)?))
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：校验并持久化用户配置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn save_beatmap_preview_output(source: String, destination: String) -> CommandResult<String> {
     let source = validated_output(&source)?;
     let destination = PathBuf::from(destination);
@@ -301,6 +309,8 @@ pub fn save_beatmap_preview_output(source: String, destination: String) -> Comma
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_beatmap_preview_output(path: String) -> CommandResult<()> {
     let output = validated_output(&path)?;
     crate::platform::reveal_path(Path::new(&output)).map_err(|error| {

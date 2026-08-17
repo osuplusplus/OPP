@@ -19,6 +19,7 @@ pub struct CredentialStore;
 
 impl CredentialStore {
     pub fn set_client_secret(&self, secret: &str) -> CommandResult<()> {
+        // Client Secret 仅保存到系统密钥环，永不写入可同步的 state.json。
         Self::write_password(CLIENT_SECRET_ENTRY, secret)
     }
 
@@ -27,6 +28,7 @@ impl CredentialStore {
     }
 
     pub fn set_tokens(&self, tokens: &TokenSet) -> CommandResult<()> {
+        // 分项存储令牌与过期时间，便于后续在不暴露令牌内容的前提下判断是否需要刷新。
         // Windows Credential Manager limits the size of a single credential.
         // OAuth access and refresh tokens must therefore be stored separately.
         Self::delete(ACCESS_TOKEN_ENTRY)?;
@@ -43,6 +45,7 @@ impl CredentialStore {
     }
 
     pub fn get_tokens(&self) -> CommandResult<Option<TokenSet>> {
+        // 任一令牌字段缺失即视为未登录，避免构造不完整的认证状态。
         if let Some(access_token) = Self::read_secret(ACCESS_TOKEN_ENTRY)? {
             let expires_at = Self::read_secret(TOKEN_EXPIRY_ENTRY)?
                 .ok_or_else(|| {
@@ -143,6 +146,7 @@ impl CredentialStore {
     }
 
     fn map_error(error: KeyringError) -> CommandError {
+        // 密钥环实现细节不应泄露给前端；统一映射为可恢复的本地凭据错误。
         CommandError::new(
             "CREDENTIAL_STORE_ERROR",
             format!("系统凭据存储不可用：{error}"),

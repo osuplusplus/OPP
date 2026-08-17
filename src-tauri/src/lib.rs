@@ -92,11 +92,16 @@ use trainer::generate_trainer_beatmap;
 use update_check::{check_for_updates, ignore_update_version};
 
 #[tauri::command]
+/// 立即结束应用进程；仅由显式的退出操作调用，不参与窗口隐藏或托盘最小化逻辑。
 fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// 构建桌面应用并注册共享状态、后台监控器、托盘交互和前端可调用的命令表。
+///
+/// 初始化索引会被移至阻塞线程，避免拖慢窗口创建；游戏和 OBS 监控器则持有
+/// `AppHandle`，以便把状态变化推送回前端。
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
