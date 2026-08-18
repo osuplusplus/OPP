@@ -4,10 +4,11 @@ use reqwest::{Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use url::Url;
+ 
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::{OwnProfile, Ruleset, Score, TokenResponse},
+    app::models::{OwnProfile, Ruleset, Score, TokenResponse},
 };
 
 const API_BASE_URL: &str = "https://osu.ppy.sh/api/v2";
@@ -104,11 +105,11 @@ impl OsuApi {
         access_token: &str,
         user_id: u64,
         ruleset: Ruleset,
-        category: crate::models::ScoreCategory,
+        category: crate::app::models::ScoreCategory,
         offset: u32,
         limit: u8,
     ) -> CommandResult<Vec<Score>> {
-        let include_fails = if category == crate::models::ScoreCategory::Recent {
+        let include_fails = if category == crate::app::models::ScoreCategory::Recent {
             "&include_fails=0"
         } else {
             ""
@@ -130,7 +131,7 @@ impl OsuApi {
             access_token,
             user_id,
             ruleset,
-            crate::models::ScoreCategory::Best,
+            crate::app::models::ScoreCategory::Best,
             0,
             100,
         )
@@ -147,7 +148,7 @@ impl OsuApi {
             access_token,
             user_id,
             ruleset,
-            crate::models::ScoreCategory::Recent,
+            crate::app::models::ScoreCategory::Recent,
             0,
             100,
         )

@@ -4,8 +4,8 @@ use chrono::{Duration, Utc};
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::TokenSet,
-    state::AppState,
+    app::models::TokenSet,
+    app::state::AppState,
 };
 
 /// Returns a usable OAuth access token, refreshing it once when it is near expiry.

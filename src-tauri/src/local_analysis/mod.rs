@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     error::{CommandError, CommandResult},
-    state::AppState,
+    app::state::AppState,
 };
 
 #[tauri::command(async)]

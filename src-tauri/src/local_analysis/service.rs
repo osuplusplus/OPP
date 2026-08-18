@@ -25,7 +25,7 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use crate::error::{CommandError, CommandResult};
 #[cfg(test)]
-use crate::models::Ruleset;
+use crate::app::models::Ruleset;
 
 use super::{
     lazer_realm,

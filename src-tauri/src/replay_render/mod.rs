@@ -10,8 +10,8 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::{load_game_replay_file, parse_replay_metadata},
     local_analysis::LocalClient,
-    models::Ruleset,
-    state::AppState,
+    app::models::Ruleset,
+    app::state::AppState,
 };
 
 mod events;

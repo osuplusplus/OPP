@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{local_analysis::LocalClient, models::DanserRenderPreferences};
+use crate::{local_analysis::LocalClient, app::models::DanserRenderPreferences};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DanserStatus {

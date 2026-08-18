@@ -21,7 +21,7 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::get_game_status,
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 const MAX_INSTALL_ARCHIVES: usize = 500;

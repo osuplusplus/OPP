@@ -21,7 +21,7 @@ use super::models::*;
 use crate::{
     collections::{CollectionCandidate, CollectionSource},
     error::{CommandError, CommandResult},
-    state::AppState,
+    app::state::AppState,
 };
 
 pub const BASE_URL: &str = "https://beatmap-pack-hub.l1rics2006.workers.dev/api/v1";

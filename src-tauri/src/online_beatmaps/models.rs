@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::models::Ruleset;
+use crate::app::models::Ruleset;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]

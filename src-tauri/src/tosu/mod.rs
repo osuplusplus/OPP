@@ -7,8 +7,8 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::AppSettings,
-    state::AppState,
+    app::models::AppSettings,
+    app::state::AppState,
 };
 
 pub use models::{TosuLogEntry, TosuStatus};

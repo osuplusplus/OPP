@@ -6,8 +6,8 @@ use tauri::State;
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::AppSettings,
-    state::AppState,
+    app::models::AppSettings,
+    app::state::AppState,
 };
 
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/osuplusplus/OPP/releases/latest";

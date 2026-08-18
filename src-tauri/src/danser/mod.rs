@@ -23,8 +23,8 @@ use uuid::Uuid;
 use crate::{
     error::{CommandError, CommandResult},
     game_session::load_game_replay_file,
-    models::DanserRenderPreferences,
-    state::AppState,
+    app::models::DanserRenderPreferences,
+    app::state::AppState,
 };
 
 #[cfg(windows)]

@@ -5,29 +5,31 @@ mod danser;
 mod error;
 mod game_session;
 mod local_analysis;
-mod models;
 mod netease_music;
 mod obs;
 mod online_beatmaps;
 mod osu_api;
 mod platform;
-mod pp_calc;
+
+mod app;
 mod replay_render;
 mod similarity;
 mod skin_workshop;
-mod state;
+
 mod storage;
 mod tools;
 mod tosu;
 mod trainer;
 mod update_check;
 
-
 use account::{
     begin_oauth_login, cancel_oauth_login, clear_profile_cache, disconnect_osu,
     export_replay_video, get_auth_status, get_own_profile, get_scores, get_settings,
     mark_onboarding_seen, mark_page_onboarding_seen, save_oauth_credentials, update_settings,
 };
+
+use app::state::AppState;
+
 use beatmaphub::{
     create_beatmaphub_device_link, create_beatmaphub_profile, delete_beatmaphub_pack,
     favorite_beatmaphub_pack, get_beatmaphub_auth_status, get_beatmaphub_pack,
@@ -69,7 +71,7 @@ use online_beatmaps::{
     open_downloaded_path, search_online_beatmapsets,
 };
 use platform::get_capabilities;
-use pp_calc::calculate_beatmap_pp;
+
 use replay_render::submit_replay_render;
 use similarity::{
     configure_similarity_index, get_similarity_index_status, query_similar_beatmaps,
@@ -80,18 +82,18 @@ use skin_workshop::{
     get_skin_workshop_config, get_skin_workshop_part_preview, get_skin_workshop_tree,
     open_skin_workshop_package,
 };
-use state::AppState;
+
 use tauri::{
     Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tools::{
-    cancel_lazer_dedupe, convert_mania_beatmaps, dedupe_lazer_files, generate_beatmap_preview,
-    get_default_file_clients, get_lazer_disk_usage, inspect_beatmap_preview,
-    open_beatmap_preview_output, open_local_resource_in_explorer, read_beatmap_preview_output,
-    read_lazer_realm_beatmap_sets, save_beatmap_preview_output, set_default_file_client,
-    set_display_gamma,
+    calculate_beatmap_pp, cancel_lazer_dedupe, convert_mania_beatmaps, dedupe_lazer_files,
+    generate_beatmap_preview, get_default_file_clients, get_lazer_disk_usage,
+    inspect_beatmap_preview, open_beatmap_preview_output, open_local_resource_in_explorer,
+    read_beatmap_preview_output, read_lazer_realm_beatmap_sets, save_beatmap_preview_output,
+    set_default_file_client, set_display_gamma,
 };
 use tosu::{
     get_tosu_logs, get_tosu_status, set_tosu_executable, set_tosu_lyrics_executable, start_tosu,

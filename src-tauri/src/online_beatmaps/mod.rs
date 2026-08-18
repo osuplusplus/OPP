@@ -16,7 +16,7 @@ use std::{
 use crate::{
     account::ensure_access_token,
     error::{CommandError, CommandResult},
-    state::AppState,
+    app::state::AppState,
 };
 
 use download::{download_file_name, download_with_adapters};

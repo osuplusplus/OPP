@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::{OAuthResult, PendingOAuth, TokenSet},
-    state::AppState,
+    app::models::{OAuthResult, PendingOAuth, TokenSet},
+    app::state::AppState,
 };
 
 pub const CALLBACK_URL: &str = "http://127.0.0.1:42831/oauth/callback";

@@ -23,8 +23,8 @@ use crate::{
     account::ensure_access_token,
     error::{CommandError, CommandResult},
     local_analysis::LocalClient,
-    models::Ruleset,
-    state::AppState,
+    app::models::Ruleset,
+    app::state::AppState,
     tosu::start_managed_tosu,
 };
 

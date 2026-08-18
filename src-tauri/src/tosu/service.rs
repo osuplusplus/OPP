@@ -14,7 +14,7 @@ use url::Url;
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::AppSettings,
+    app::models::AppSettings,
 };
 
 use super::models::{TosuLiveSnapshot, TosuLogEntry};

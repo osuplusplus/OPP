@@ -7,7 +7,7 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::executable,
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

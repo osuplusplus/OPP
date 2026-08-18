@@ -5,7 +5,7 @@ use tauri::State;
 use crate::{
     account::ensure_access_token,
     error::{CommandError, CommandResult},
-    models::Ruleset,
+    app::models::Ruleset,
     similarity::{
         models::{
             SimilarityIndexStatus, SimilarityQueryRequest, SimilarityQueryResponse,
@@ -19,7 +19,7 @@ use crate::{
         recommendation::{requested_seed_limit, seed_ids},
         source::{fetch_online_osu, parse_beatmap_id, read_local_osu},
     },
-    state::AppState,
+    app::state::AppState,
 };
 
 #[tauri::command]

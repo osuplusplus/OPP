@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, State};
 use super::CollectionTaskProgress;
 use crate::{
     error::{CommandError, CommandResult},
-    state::AppState,
+    app::state::AppState,
 };
 
 pub(super) fn ensure_collection_task_active(state: &AppState) -> CommandResult<()> {

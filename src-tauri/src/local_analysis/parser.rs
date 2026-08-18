@@ -11,7 +11,7 @@ use rosu_pp::{Difficulty, any::Strains};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
-use crate::models::Ruleset;
+use crate::app::models::Ruleset;
 
 use super::models::{
     Completeness, HitObjectCounts, LocalBeatmapDetail, LocalBeatmapSummary,

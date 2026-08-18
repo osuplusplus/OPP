@@ -13,7 +13,7 @@ use crate::{
         LocalClient, StrainAnalysis,
         parser::{calculate_strains, parse_beatmap},
     },
-    models::Ruleset,
+    app::models::Ruleset,
 };
 
 const MIN_GIF_SECONDS: f64 = 1.0;

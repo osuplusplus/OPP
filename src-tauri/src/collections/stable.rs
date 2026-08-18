@@ -19,7 +19,7 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::get_game_status,
     local_analysis::{LocalBeatmapSummary, LocalClient},
-    state::AppState,
+    app::state::AppState,
 };
 
 #[derive(Debug, Clone)]

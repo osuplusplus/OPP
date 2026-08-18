@@ -3,7 +3,7 @@ use keyring::{Entry, Error as KeyringError};
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::TokenSet,
+    app::models::TokenSet,
 };
 
 const SERVICE: &str = "com.opp.desktop";

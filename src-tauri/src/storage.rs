@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::{CacheRecord, PersistedState},
+    app::models::{CacheRecord, PersistedState},
 };
 
 const MAX_CACHE_ENTRIES: usize = 500;
@@ -186,7 +186,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> CommandResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::CacheRecord;
+    use crate::app::models::CacheRecord;
     use serde_json::json;
 
     #[test]

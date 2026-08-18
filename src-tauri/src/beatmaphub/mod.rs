@@ -6,7 +6,7 @@ pub use service::BeatmapHubService;
 
 use tauri::State;
 
-use crate::{error::CommandResult, state::AppState};
+use crate::{app::state::AppState, error::CommandResult};
 
 #[tauri::command]
 pub fn get_beatmaphub_auth_status(state: State<'_, AppState>) -> CommandResult<AuthStatus> {

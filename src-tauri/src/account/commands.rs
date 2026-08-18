@@ -3,11 +3,11 @@ use tauri::{AppHandle, State};
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::{
+    app::models::{
         AppSettings, AuthStatus, CacheRecord, Cached, DisconnectResult, OwnProfile, PendingOAuth,
         Ruleset, SavedCredentials, Score, ScoreCategory,
     },
-    state::AppState,
+    app::state::AppState,
 };
 
 use super::{oauth, token::ensure_access_token};

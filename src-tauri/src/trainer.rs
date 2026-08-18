@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     error::{CommandError, CommandResult},
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 #[derive(Debug, Deserialize)]

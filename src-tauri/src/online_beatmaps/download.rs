@@ -5,7 +5,7 @@ use super::tools::sanitize_filename;
 
 use crate::{
     error::{CommandError, CommandResult},
-    state::AppState,
+    app::state::AppState,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 

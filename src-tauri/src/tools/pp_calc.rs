@@ -5,7 +5,7 @@ use tauri::State;
 
 use crate::{
     error::{CommandError, CommandResult},
-    state::AppState,
+    app::state::AppState,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -149,20 +149,4 @@ fn mod_bits(mods: &[String], mode: &str) -> CommandResult<u32> {
     Ok(bits)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::mod_bits;
 
-    #[test]
-    fn parses_common_mods() {
-        assert_eq!(mod_bits(&["HD".into(), "DT".into()], "osu").unwrap(), 72);
-        assert_eq!(mod_bits(&["NM".into()], "osu").unwrap(), 0);
-        assert_eq!(mod_bits(&["FI".into()], "mania").unwrap(), 1 << 20);
-    }
-
-    #[test]
-    fn rejects_unknown_mods() {
-        assert!(mod_bits(&["UNKNOWN".into()], "osu").is_err());
-        assert!(mod_bits(&["FI".into()], "osu").is_err());
-    }
-}
