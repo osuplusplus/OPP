@@ -1,5 +1,5 @@
 export type Ruleset = "osu" | "taiko" | "fruits" | "mania";
-export type ScoreCategory = "best" | "pinned";
+export type ScoreCategory = "best" | "pinned" | "recent";
 export type OsuClient = "stable" | "lazer";
 export type Completeness = "complete" | "partial";
 export type CapabilityLevel = "full" | "partial" | "unavailable";
@@ -1165,6 +1165,31 @@ export interface BeatmapHubPack {
   viewer: { rating: number | null; favorited: boolean; liked: boolean; can_edit: boolean } | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface OsekaiMedal {
+  Medal_ID: number;
+  Name?: string;
+  Description?: string;
+  Instructions?: string;
+  Solution?: string;
+  Link?: string;
+  Date_Released?: string;
+  [key: string]: unknown;
+}
+
+export interface OsekaiMedalBeatmap {
+  Beatmap_ID?: number;
+  Beatmapset_ID?: number;
+  Title?: string;
+  Artist?: string;
+  Version?: string;
+  Creator?: string;
+  Note?: string;
+  Song_Title?: string;
+  Song_Artist?: string;
+  Difficulty_Name?: string;
+  [key: string]: unknown;
 }
 
 export interface BeatmapHubComment {

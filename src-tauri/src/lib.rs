@@ -7,6 +7,7 @@ mod game_session;
 mod local_analysis;
 mod netease_music;
 mod obs;
+mod osekai;
 mod online_beatmaps;
 mod osu_api;
 mod platform;
@@ -29,6 +30,7 @@ use account::{
 };
 
 use app::state::AppState;
+use osekai::{get_osekai_medal_beatmaps, get_osekai_medal_detail, get_osekai_medals};
 
 use beatmaphub::{
     create_beatmaphub_comment, create_beatmaphub_device_link, create_beatmaphub_profile,
@@ -226,6 +228,9 @@ pub fn run() {
             disconnect_osu,
             get_own_profile,
             get_scores,
+            get_osekai_medals,
+            get_osekai_medal_detail,
+            get_osekai_medal_beatmaps,
             search_online_beatmapsets,
             collect_online_beatmapsets,
             get_online_beatmapset,

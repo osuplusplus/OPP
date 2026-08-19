@@ -6,6 +6,10 @@ import { AppLoading } from "./AppLoading";
 // Keep feature bundles at the route boundary: the shell becomes interactive
 // without eagerly loading charts, local scans, and tooling screens.
 const DataCenterPage = lazy(() => import("../features/profile/DataCenterPage").then((module) => ({ default: module.DataCenterPage })));
+const OverviewPage = lazy(() => import("../features/profile/OverviewPage").then((module) => ({ default: module.OverviewPage })));
+const ProfileDetailsPage = lazy(() => import("../features/profile/ProfileDetailsPage").then((module) => ({ default: module.ProfileDetailsPage })));
+const MedalsPage = lazy(() => import("../features/profile/MedalsPage").then((module) => ({ default: module.MedalsPage })));
+const ScoresPage = lazy(() => import("../features/scores/ScoresPage").then((module) => ({ default: module.ScoresPage })));
 const OnlineBeatmapsPage = lazy(() => import("../features/online-beatmaps/OnlineBeatmapsPage").then((module) => ({ default: module.OnlineBeatmapsPage })));
 const SimilarBeatmapsPage = lazy(() => import("../features/similar-beatmaps/SimilarBeatmapsPage").then((module) => ({ default: module.SimilarBeatmapsPage })));
 const LocalAnalysisPage = lazy(() => import("../features/local-analysis/LocalAnalysisPage").then((module) => ({ default: module.LocalAnalysisPage })));
@@ -25,10 +29,18 @@ export function AppRoutes() {
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<Navigate replace to="/online/beatmaps" />} />
-          <Route path="/data" element={<DataCenterPage />} />
-          <Route path="/online/overview" element={<Navigate replace to="/data#overview" />} />
-          <Route path="/online/profile" element={<Navigate replace to="/data#profile" />} />
-          <Route path="/online/scores" element={<Navigate replace to="/data#scores" />} />
+          <Route path="/data" element={<DataCenterPage />}>
+            <Route index element={<Navigate replace to="overview" />} />
+            <Route path="overview" element={<OverviewPage />} />
+            <Route path="scores" element={<ScoresPage />} />
+            <Route path="recent" element={<ScoresPage category="recent" title="近期成绩" />} />
+            <Route path="pinned" element={<ScoresPage category="pinned" title="Pinned 成绩" />} />
+            <Route path="medals" element={<MedalsPage />} />
+            <Route path="profile" element={<ProfileDetailsPage />} />
+          </Route>
+          <Route path="/online/overview" element={<Navigate replace to="/data/overview" />} />
+          <Route path="/online/profile" element={<Navigate replace to="/data/profile" />} />
+          <Route path="/online/scores" element={<Navigate replace to="/data/scores" />} />
           <Route path="/online/beatmaps" element={<OnlineBeatmapsPage />} />
           <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/beatmaphub" element={<BeatmapHubPage />} />

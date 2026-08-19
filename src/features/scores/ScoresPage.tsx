@@ -11,6 +11,7 @@ import { desktopApi } from "../../shared/lib/tauri";
 import { dateTime, fullNumber, rankTone, scoreMods, scoreTotal } from "../../shared/lib/format";
 import type { Score, ScoreCategory } from "../../shared/types/osu";
 import { useOwnProfile } from "../profile/api";
+import { Link, useSearchParams } from "react-router-dom";
 import { useScores } from "./api";
 
 function accuracy(score: Score) { return `${(score.accuracy * 100).toFixed(2)}%`; }
@@ -69,20 +70,22 @@ function ScoreDialog({ score, position, onClose }: { score: Score; position: num
 
 export function ScoresPage({ category = "best", offset = 0, title, embedded = false }: { category?: ScoreCategory; offset?: number; title?: string; embedded?: boolean }) {
   const { ruleset } = useMode();
+  const [params] = useSearchParams();
+  const effectiveOffset = category === "best" ? Number(params.get("offset") ?? offset) || 0 : offset;
   const profileQuery = useOwnProfile(ruleset);
-  const scoresQuery = useScores(ruleset, category, offset, 100, Boolean(profileQuery.data?.data));
+  const scoresQuery = useScores(ruleset, category, effectiveOffset, 100, Boolean(profileQuery.data?.data));
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<{ score: Score; position: number } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const heading = title ?? (category === "pinned" ? "Pinned 成绩" : offset ? "BP 101–200" : "最佳成绩");
+  const heading = title ?? (category === "pinned" ? "Pinned 成绩" : category === "recent" ? "近期成绩" : effectiveOffset ? "BP 101–200" : "最佳成绩");
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
-    return (scoresQuery.data?.data ?? []).map((score, index) => ({ score, position: index + offset + 1 })).filter(({ score }) => !query || [score.beatmapset?.title, score.beatmapset?.title_unicode, score.beatmapset?.artist, score.beatmapset?.creator, score.beatmap?.version, ...scoreMods(score)].filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(query)));
-  }, [scoresQuery.data, search, offset]);
+    return (scoresQuery.data?.data ?? []).map((score, index) => ({ score, position: index + effectiveOffset + 1 })).filter(({ score }) => !query || [score.beatmapset?.title, score.beatmapset?.title_unicode, score.beatmapset?.artist, score.beatmapset?.creator, score.beatmap?.version, ...scoreMods(score)].filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(query)));
+  }, [scoresQuery.data, search, effectiveOffset]);
   const suggestions = (scoresQuery.data?.data ?? []).flatMap((score) => [score.beatmapset?.title, score.beatmapset?.artist, score.beatmap?.version, ...scoreMods(score)]).filter((value): value is string => Boolean(value)).map((value) => ({ value }));
   const refresh = async () => { setRefreshing(true); try { await scoresQuery.refresh(); } finally { setRefreshing(false); } };
   return <>
-    {!embedded ? <PageHeader title={heading} /> : <div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2"><h2 className="text-xl font-semibold tracking-tight text-white">{heading}</h2>{category === "pinned" ? <Pin className="size-4 text-pink-200" /> : null}</div><Badge tone={category === "pinned" ? "pink" : "cyan"}>{category === "pinned" ? "官方置顶" : `BP ${offset + 1}–${offset + 100}`}</Badge></div>}
+    {!embedded ? <><PageHeader title={heading} />{category === "best" ? <div className="mb-4 flex gap-2"><Link className={`rounded-lg px-3 py-2 text-xs ${effectiveOffset === 0 ? "bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]" : "text-slate-500 hover:text-white"}`} to="/data/scores">BP 1–100</Link><Link className={`rounded-lg px-3 py-2 text-xs ${effectiveOffset === 100 ? "bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]" : "text-slate-500 hover:text-white"}`} to="/data/scores?offset=100">BP 101–200</Link></div> : null}</> : <div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2"><h2 className="text-xl font-semibold tracking-tight text-white">{heading}</h2>{category === "pinned" ? <Pin className="size-4 text-pink-200" /> : null}</div><Badge tone={category === "pinned" ? "pink" : "cyan"}>{category === "pinned" ? "官方置顶" : category === "recent" ? "最近游玩" : `BP ${effectiveOffset + 1}–${effectiveOffset + 100}`}</Badge></div>}
     <Card className="mb-4 flex items-center gap-3 p-3"><div className="flex-1"><SearchAutocomplete aria-label={`搜索${heading}`} className="w-full rounded-xl border border-white/[0.07] bg-black/20 py-2.5 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/25" onChange={setSearch} placeholder="搜索曲名、艺术家、Mapper、难度或 Mod" suggestions={suggestions} value={search} /></div><span className="px-2 text-xs text-slate-400">{filtered.length} / {scoresQuery.data?.data.length ?? 0}</span><Button loading={refreshing} onClick={refresh} size="icon" title="刷新成绩"><RefreshCw className="size-4" /></Button></Card>
     {scoresQuery.isLoading || profileQuery.isLoading ? <ScoreSkeleton /> : scoresQuery.error ? <ErrorPanel error={scoresQuery.error} onRetry={() => scoresQuery.refetch()} /> : filtered.length ? <div className="space-y-2.5">{filtered.map(({ score, position }) => <ScoreRow key={`${score.id ?? "legacy"}-${position}`} onOpen={() => setSelected({ score, position })} pinned={category === "pinned"} position={position} score={score} />)}</div> : <EmptyState icon={category === "pinned" ? <Pin className="size-5" /> : <Zap className="size-5" />} title={search ? "没有匹配的成绩" : category === "pinned" ? "尚未置顶成绩" : "当前范围没有最佳成绩"} description={search ? "尝试更短的关键词或 Mod 缩写。" : category === "pinned" ? "在 osu! 个人资料中置顶的成绩会显示在这里。" : "切换模式后可能会找到更多记录。"} />}
     <Dialog.Root onOpenChange={(open) => !open && setSelected(null)} open={Boolean(selected)}>{selected ? <ScoreDialog onClose={() => setSelected(null)} position={selected.position} score={selected.score} /> : null}</Dialog.Root>

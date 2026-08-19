@@ -4,7 +4,6 @@ import {
   Clock3,
   Crosshair,
   Crown,
-  Globe2,
   RefreshCw,
   ShieldAlert,
   Target,
@@ -26,7 +25,6 @@ import {
   YAxis,
 } from "recharts";
 import { useMode } from "../../app/ModeContext";
-import { Avatar } from "../../shared/components/Avatar";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
 import {
@@ -42,7 +40,6 @@ import {
   duration,
   fullNumber,
   percent,
-  rulesetLabels,
 } from "../../shared/lib/format";
 import type { UserStatistics } from "../../shared/types/osu";
 import { useOwnProfile } from "./api";
@@ -114,7 +111,6 @@ function ChartTooltip({
 function OverviewSkeleton() {
   return (
     <div className="space-y-6">
-      <Skeleton className="h-52 rounded-[24px]" />
       <div className="grid grid-cols-4 gap-4">
         {Array.from({ length: 4 }, (_, index) => (
           <Skeleton className="h-32" key={index} />
@@ -192,7 +188,6 @@ export function OverviewPage() {
     }
   };
 
-  const coverUrl = profile.cover?.url ?? profile.cover_url ?? "";
   const grades = statistics.grade_counts ?? {};
   const gradeItems = [
     ["SSH", grades.ssh ?? 0, "text-slate-100"],
@@ -238,55 +233,6 @@ export function OverviewPage() {
           osu! 将此账号标记为受限状态，部分公开数据可能缺失。
         </div>
       ) : null}
-
-      <Card className="theme-profile-hero relative mb-5 min-h-52 overflow-hidden rounded-[24px]">
-        {coverUrl ? (
-          <img
-            alt=""
-            className="absolute inset-0 size-full object-cover opacity-45"
-            src={coverUrl}
-          />
-        ) : null}
-        <div className="theme-profile-overlay absolute inset-0 bg-gradient-to-r from-[#0b101c] via-[#0b101c]/85 to-[#0b101c]/20" />
-        <div className="theme-profile-overlay absolute inset-0 bg-gradient-to-t from-[#0b101c] to-transparent" />
-        <div className="relative flex min-h-52 items-end gap-5 p-6">
-          <Avatar
-            className="size-28 rounded-[22px] border-2 border-white/15 object-cover shadow-[0_18px_45px_rgba(0,0,0,.45)]"
-            profile={profile}
-          />
-          <div className="min-w-0 pb-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-3xl font-semibold tracking-tight text-white">
-                {profile.username}
-              </h2>
-              {profile.is_supporter ? <Badge tone="pink">supporter</Badge> : null}
-              {profile.title ? <Badge tone="cyan">{profile.title}</Badge> : null}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-300">
-              <span className="inline-flex items-center gap-1.5">
-                <Globe2 className="size-3.5 text-cyan-200" />
-                {profile.country?.name ?? profile.country_code}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className={`size-1.5 rounded-full ${profile.is_online ? "bg-emerald-300" : "bg-slate-500"}`}
-                />
-                {profile.is_online ? "当前在线" : "当前离线"}
-              </span>
-              <span>ID {profile.id}</span>
-              <span>主模式 · {rulesetLabels[profile.playmode ?? ruleset]}</span>
-            </div>
-          </div>
-          <div className="ml-auto hidden rounded-2xl border border-white/10 bg-black/20 px-5 py-4 text-right backdrop-blur-md 2xl:block">
-            <p className="text-[10px] tracking-[0.12em] text-slate-500">
-              最高排名
-            </p>
-            <p className="mt-1 font-mono text-xl font-semibold text-white">
-              #{fullNumber(profile.rank_highest?.rank)}
-            </p>
-          </div>
-        </div>
-      </Card>
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard

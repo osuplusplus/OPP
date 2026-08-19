@@ -34,7 +34,6 @@ import {
 import { desktopApi } from "../../shared/lib/tauri";
 import {
   dateOnly,
-  dateTime,
   duration,
   fullNumber,
   percent,
@@ -48,7 +47,6 @@ const tabs = [
   ["identity", "身份与社交", Users],
   ["stats", "游玩统计", Gamepad2],
   ["community", "社区与谱面", Map],
-  ["honours", "荣誉记录", Award],
   ["about", "关于我", BookOpenText],
   ["raw", "原始数据", Braces],
 ] as const;
@@ -283,79 +281,6 @@ function CommunityTab({ profile }: { profile: OwnProfile }) {
   );
 }
 
-function HonoursTab({ profile }: { profile: OwnProfile }) {
-  return (
-    <div className="space-y-5">
-      <Card className="p-5">
-        <SectionTitle
-          eyebrow="Badges"
-          title={`徽章 · ${profile.badges?.length ?? 0}`}
-        />
-        {profile.badges?.length ? (
-          <div className="mt-5 grid grid-cols-2 gap-4">
-            {profile.badges.map((badge, index) => (
-              <div
-                className="flex items-center gap-4 rounded-xl border border-white/[0.06] bg-white/[0.025] p-4"
-                key={String(badge.url ?? index)}
-              >
-                {badge.image_url ? (
-                  <img
-                    alt=""
-                    className="h-12 w-24 object-contain"
-                    src={String(badge.image_url)}
-                  />
-                ) : (
-                  <span className="grid size-12 place-items-center rounded-xl bg-yellow-300/10">
-                    <Award className="size-5 text-yellow-200" />
-                  </span>
-                )}
-                <div>
-                  <p className="text-sm font-semibold text-white">
-                    {String(badge.description ?? "osu! 徽章")}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {dateOnly(String(badge.awarded_at ?? ""))}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-5 text-sm text-slate-500">暂无公开徽章</p>
-        )}
-      </Card>
-
-      <Card className="p-5">
-        <SectionTitle
-          description="API v2 仅提供成就 ID 与获得时间；OPP 不通过未公开接口补全元数据。"
-          eyebrow="Achievements"
-          title={`成就记录 · ${profile.user_achievements?.length ?? 0}`}
-        />
-        {profile.user_achievements?.length ? (
-          <div className="mt-5 grid grid-cols-3 gap-3">
-            {profile.user_achievements.map((achievement, index) => (
-              <div
-                className="rounded-xl border border-yellow-300/[0.12] bg-yellow-300/[0.045] p-4"
-                key={String(achievement.achievement_id ?? index)}
-              >
-                <Medal className="size-5 text-yellow-200" />
-                <p className="mt-3 font-mono text-sm font-semibold text-white">
-                  Achievement #{String(achievement.achievement_id ?? "—")}
-                </p>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  {dateTime(String(achievement.achieved_at ?? ""))}
-                </p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-5 text-sm text-slate-500">暂无成就记录</p>
-        )}
-      </Card>
-    </div>
-  );
-}
-
 export function AboutProfile({ profile }: { profile: OwnProfile }) {
   const sanitized = DOMPurify.sanitize(profile.page?.html ?? "", {
     FORBID_TAGS: ["script", "iframe", "object", "embed", "style", "form"],
@@ -474,9 +399,6 @@ export function ProfileDetailsPage() {
         </Tabs.Content>
         <Tabs.Content value="community">
           <CommunityTab profile={profile} />
-        </Tabs.Content>
-        <Tabs.Content value="honours">
-          <HonoursTab profile={profile} />
         </Tabs.Content>
         <Tabs.Content value="about">
           <AboutProfile profile={profile} />

@@ -174,6 +174,9 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     }, statistics_rulesets: null,
   };
   if (command === "get_own_profile") return { data: profile, fetched_at: new Date().toISOString(), stale: false } as T;
+  if (command === "get_osekai_medals") return { content: [{ Medal_ID: 1, Name: "Preview Medal", Description: "完成一次练习", Instructions: "在 osu! 中完成目标。", Link: "all-secret-jackpot.png" }] } as T;
+  if (command === "get_osekai_medal_detail") return { content: [{ Medal_ID: Number(args?.medalId ?? 1), Name: "Preview Medal", Description: "完成一次练习", Instructions: "在 osu! 中完成目标。", Solution: "完成目标即可解锁。", Link: "all-secret-jackpot.png" }] } as T;
+  if (command === "get_osekai_medal_beatmaps") return { content: [] } as T;
   if (command === "get_scores") return { data: [], fetched_at: new Date().toISOString(), stale: false } as T;
   if (command === "get_game_status") return { clients: [{ client: "stable", running: false, executable: null, detected_at: new Date().toISOString() }, { client: "lazer", running: false, executable: null, detected_at: new Date().toISOString() }] } as T;
   if (command === "get_game_session_status") return null as T;
@@ -304,6 +307,9 @@ export const desktopApi = {
       ruleset,
       forceRefresh,
     }),
+  getOsekaiMedals: () => call<{ content?: unknown[] }>("get_osekai_medals"),
+  getOsekaiMedalDetail: (medalId: number) => call<{ content?: unknown[] }>("get_osekai_medal_detail", { medalId }),
+  getOsekaiMedalBeatmaps: (medalId: number) => call<{ content?: unknown[] }>("get_osekai_medal_beatmaps", { medalId }),
   getScores: (ruleset: Ruleset, category: ScoreCategory, offset = 0, limit = 100, forceRefresh = false) =>
     call<Cached<Score[]>>("get_scores", {
       ruleset,
