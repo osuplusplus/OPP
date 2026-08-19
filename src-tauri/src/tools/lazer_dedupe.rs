@@ -284,7 +284,7 @@ fn resolve_lazer_files_root(service: &LocalAnalysisService) -> CommandResult<Pat
     let resolved = service.resolved_source(LocalClient::Lazer).ok();
     resolved
         .and_then(|source| source.repository_root)
-        .or_else(|| platform::lazer_files_root().map(|root| root.join("files")))
+        .or_else(|| platform::resolve_lazer_data_root().map(|root| root.join("files")))
         .filter(|path| path.is_dir())
         .ok_or_else(|| {
             CommandError::new(

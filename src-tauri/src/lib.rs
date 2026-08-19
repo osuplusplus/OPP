@@ -98,7 +98,7 @@ use tools::{
     calculate_beatmap_pp, cancel_lazer_dedupe, convert_mania_beatmaps, dedupe_lazer_files,
     generate_beatmap_preview, get_default_file_clients, get_lazer_disk_usage,
     inspect_beatmap_preview, open_beatmap_preview_output, open_local_resource_in_explorer,
-    read_beatmap_preview_output, read_lazer_realm_beatmap_sets, save_beatmap_preview_output,
+    read_beatmap_preview_output, save_beatmap_preview_output,
     set_default_file_client, set_display_gamma,
 };
 use tosu::{
@@ -298,7 +298,6 @@ pub fn run() {
             set_default_file_client,
             set_display_gamma,
             get_lazer_disk_usage,
-            read_lazer_realm_beatmap_sets,
             dedupe_lazer_files,
             cancel_lazer_dedupe,
             open_netease_music_search,

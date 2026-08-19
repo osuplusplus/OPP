@@ -18,29 +18,6 @@ export interface LazerDiskUsage {
   file_count: number;
 }
 
-export interface LazerRealmBeatmapFile {
-  filename: string;
-  hash: string;
-}
-
-export interface LazerRealmBeatmapSet {
-  id: string;
-  online_id: number;
-  artist: string;
-  title: string;
-  creator: string;
-  beatmap_count: number;
-  delete_pending: boolean;
-  files: LazerRealmBeatmapFile[];
-}
-
-export interface LazerRealmReadResult {
-  realm_path: string;
-  table_count: number;
-  beatmap_set_count: number;
-  beatmap_sets: LazerRealmBeatmapSet[];
-}
-
 export interface LazerDedupeProgress {
   phase: string;
   processed: number;

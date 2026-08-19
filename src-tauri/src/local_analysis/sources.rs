@@ -269,7 +269,8 @@ fn resolve_lazer(configured_path: Option<&Path>) -> ResolvedSource {
     let registry_install = crate::platform::lazer_install_candidates()
         .into_iter()
         .find(|path| looks_like_lazer_install(path));
-    let default_data = crate::platform::lazer_data_root();
+    // 自动识别的数据根以 storage.ini 的 FullPath
+    let default_data = crate::platform::resolve_lazer_data_root();
     let configured_path_string = configured_path.map(display_path);
 
     let (install_root, data_candidate) = match configured_path {

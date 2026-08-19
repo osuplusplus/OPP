@@ -11,7 +11,7 @@ import { PageHeader } from "../../shared/components/PageHeader";
 import { Badge, Button, Card, SectionTitle } from "../../shared/components/ui";
 import { desktopApi, useCapabilities } from "../../shared/lib/tauri";
 
-import type { DefaultFileClients, LazerDedupeProgress, LazerDedupeResult, LazerDiskUsage, LazerRealmReadResult, ManiaConversionItem, OsuClient } from "../../shared/types/osu";
+import type { DefaultFileClients, LazerDedupeProgress, LazerDedupeResult, LazerDiskUsage, ManiaConversionItem, OsuClient } from "../../shared/types/osu";
 import type { BeatmapPreviewInspection, BeatmapPreviewResult } from "../../shared/types/osu";
 
 function formatByteSize(bytes: number) {
@@ -466,7 +466,7 @@ export function ToolsPage() {
   const [saving, setSaving] = useState<"beatmap" | "skin" | null>(null);
   useEffect(() => { void desktopApi.getDefaultFileClients().then(setDefaults).catch(setError); }, []);
   const save = async (kind: "beatmap" | "skin", target: OsuClient) => { setSaving(kind); setNotice(null); setError(null); try { await desktopApi.setDefaultFileClient(kind, target); setDefaults((current) => ({ ...current, [kind]: target })); setNotice(`${kind === "beatmap" ? "谱面" : "Skin"} 默认打开端已设为 ${target === "stable" ? "Stable" : "Lazer"}`); } catch (caught) { setError(caught); } finally { setSaving(null); } };
-  return <><PageHeader eyebrow="Tools" title="工具集合" description="集中放置 osu! 日常使用的小工具与系统集成设置。" actions={<Badge tone="cyan"><Wrench className="size-3.5" />实用工具</Badge>} />{error ? <div className="mb-5"><ErrorPanel error={error} onRetry={() => void desktopApi.getDefaultFileClients().then(setDefaults).catch(setError)} /></div> : null}{notice ? <div className="mb-5 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.08] px-4 py-3 text-sm text-emerald-100">{notice}</div> : null}<div className="space-y-5"><SpeedTestCard />{capabilities.data?.file_association ? (<Card className="p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><FileCog className="size-5" /></div><SectionTitle title="文件默认打开端" description="设置 Windows 双击 .osz 谱面包和 .osk Skin 文件时使用的 osu! 客户端。" /></div><div className="mt-6 grid gap-4 lg:grid-cols-2"><FileAssociationCard title="谱面包文件 (.osz)" description="双击 .osz 文件时直接交给选中的客户端读取。" value={defaults.beatmap} saving={saving === "beatmap"} onSave={(target) => void save("beatmap", target)} /><FileAssociationCard title="Skin 文件 (.osk)" description="双击 .osk 文件时使用选中的客户端导入或读取。" value={defaults.skin} saving={saving === "skin"} onSave={(target) => void save("skin", target)} /></div><div className="mt-5 flex items-start gap-2 rounded-xl border border-amber-300/15 bg-amber-300/[0.06] p-3 text-sm leading-5 text-amber-100"><Info className="mt-0.5 size-4 shrink-0" />请先在设置中确认 Stable 或 Lazer 的游戏目录。</div></Card>) : null}{capabilities.data?.display_gamma ? <DisplayGammaCard /> : null}<ManiaConverterCard /><LazerDiskUsageCard /><LazerRealmReadCard /><LazerDedupeCard /></div></>;
+  return <><PageHeader eyebrow="Tools" title="工具集合" description="集中放置 osu! 日常使用的小工具与系统集成设置。" actions={<Badge tone="cyan"><Wrench className="size-3.5" />实用工具</Badge>} />{error ? <div className="mb-5"><ErrorPanel error={error} onRetry={() => void desktopApi.getDefaultFileClients().then(setDefaults).catch(setError)} /></div> : null}{notice ? <div className="mb-5 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.08] px-4 py-3 text-sm text-emerald-100">{notice}</div> : null}<div className="space-y-5"><SpeedTestCard />{capabilities.data?.file_association ? (<Card className="p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><FileCog className="size-5" /></div><SectionTitle title="文件默认打开端" description="设置 Windows 双击 .osz 谱面包和 .osk Skin 文件时使用的 osu! 客户端。" /></div><div className="mt-6 grid gap-4 lg:grid-cols-2"><FileAssociationCard title="谱面包文件 (.osz)" description="双击 .osz 文件时直接交给选中的客户端读取。" value={defaults.beatmap} saving={saving === "beatmap"} onSave={(target) => void save("beatmap", target)} /><FileAssociationCard title="Skin 文件 (.osk)" description="双击 .osk 文件时使用选中的客户端导入或读取。" value={defaults.skin} saving={saving === "skin"} onSave={(target) => void save("skin", target)} /></div><div className="mt-5 flex items-start gap-2 rounded-xl border border-amber-300/15 bg-amber-300/[0.06] p-3 text-sm leading-5 text-amber-100"><Info className="mt-0.5 size-4 shrink-0" />请先在设置中确认 Stable 或 Lazer 的游戏目录。</div></Card>) : null}{capabilities.data?.display_gamma ? <DisplayGammaCard /> : null}<ManiaConverterCard /><LazerDiskUsageCard /><LazerDedupeCard /></div></>;
 }
 
 function LazerDiskUsageCard() {
@@ -475,39 +475,6 @@ function LazerDiskUsageCard() {
   const [error, setError] = useState<unknown>(null);
   const scan = async () => { setBusy(true); setError(null); try { setData(await desktopApi.getLazerDiskUsage()); } catch (value) { setError(value); } finally { setBusy(false); } };
   return <Card className="p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><Database className="size-5" /></div><SectionTitle title="osu!lazer 占用统计" description="按 storage.ini 的 FullPath 定位数据目录，统计含硬链接的总大小与排除硬链接后的实际占用。" /></div><div className="mt-5"><Button loading={busy} onClick={() => void scan()}><FolderOpen className="size-4" />{data ? "重新统计" : "开始统计"}</Button></div>{data ? <div className="mt-5 space-y-3"><p className="truncate font-mono text-xs text-slate-400">{data.path}</p><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">总大小</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{formatByteSize(data.total_size)}</p></div><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">实际占用</p><p className="mt-1 text-lg font-semibold tabular-nums text-[var(--theme-primary-light)]">{formatByteSize(data.unique_size)}</p></div><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">文件数</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{data.file_count.toLocaleString()}</p></div></div></div> : null}{error ? <div className="mt-4"><ErrorPanel error={error} /></div> : null}</Card>;
-}
-
-function LazerRealmReadCard() {
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<LazerRealmReadResult | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const run = async () => { setBusy(true); setError(null); try { setResult(await desktopApi.readLazerRealmBeatmapSets()); } catch (caught) { setError(caught); } finally { setBusy(false); } };
-  const preview = result?.beatmap_sets.slice(0, 12) ?? [];
-  return <Card className="p-6">
-    <div className="flex items-start gap-4">
-      <div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><Database className="size-5" /></div>
-      <SectionTitle title="Lazer Realm 读取测试" description="通过本地 realm-db-reader 直接解析 client.realm（只读快照，不影响游戏运行），验证谱面集归属、原始文件名与内容哈希的读取链路，为后续 osz 导出做准备。" />
-    </div>
-    <div className="mt-5"><Button loading={busy} onClick={() => void run()}><Database className="size-4" />{result ? "重新读取" : "读取 client.realm"}</Button></div>
-    <p className="mt-3 text-xs leading-5 text-slate-500">库文件较大时全量解析可能需要数十秒，读取过程中请耐心等待。</p>
-    {result ? <div className="mt-5 space-y-3">
-      <p className="truncate font-mono text-xs text-slate-400" title={result.realm_path}>{result.realm_path}</p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">数据表</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{result.table_count.toLocaleString()}</p></div>
-        <div className="rounded-xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)]/40 p-4"><p className="text-xs text-slate-500">谱面集（不含软删除）</p><p className="mt-1 text-lg font-semibold tabular-nums text-[var(--theme-primary-light)]">{result.beatmap_set_count.toLocaleString()}</p></div>
-      </div>
-      {preview.length ? <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-        <p className="text-xs text-slate-400">前 {preview.length} 个谱面集：</p>
-        <div className="mt-2 space-y-1.5">
-          {preview.map((set) => <div className="flex items-center justify-between gap-3 text-xs" key={set.id}>
-            <span className="min-w-0 truncate text-slate-200">{set.artist} - {set.title} <span className="text-slate-500">({set.creator})</span></span>
-            <span className="shrink-0 tabular-nums text-slate-500">{set.beatmap_count} 难度 · {set.files.length} 文件</span>
-          </div>)}
-        </div>
-      </div> : null}
-    </div> : null}
-    {error ? <div className="mt-4"><ErrorPanel error={error} /></div> : null}
-  </Card>;
 }
 
 const lazerDedupePhaseLabels: Record<string, string> = {

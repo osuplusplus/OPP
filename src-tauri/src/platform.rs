@@ -102,23 +102,24 @@ pub fn lazer_data_root() -> Option<PathBuf> {
 fn read_storage_ini_fullpath(storage_ini: &Path) -> Option<PathBuf> {
     let reader = io::BufReader::new(fs::File::open(storage_ini).ok()?);
     for line in reader.lines().map_while(Result::ok) {
-        if let Some(value) = line
+        let Some(value) = line
             .strip_prefix("FullPath")
-            .and_then(|rest| rest.split('=').nth(1))
-        {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return Some(PathBuf::from(trimmed));
-            }
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+        else {
+            continue;
+        };
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
         }
     }
     None
 }
 
-/// osu!lazer 的文件存储根：优先取 `storage.ini` 的 `FullPath`，否则回退到数据根。
-pub fn lazer_files_root() -> Option<PathBuf> {
+/// 解析 osu!lazer 实际使用的数据根：只认默认数据根下 `storage.ini`
+pub fn resolve_lazer_data_root() -> Option<PathBuf> {
     let data_root = lazer_data_root()?;
-    read_storage_ini_fullpath(&data_root.join("storage.ini")).or(Some(data_root))
+    read_storage_ini_fullpath(&data_root.join("storage.ini"))
 }
 
 /// Linux 上启动/识别 osu! 客户端用的系统命令名（stable → `osu-wine`，lazer →
