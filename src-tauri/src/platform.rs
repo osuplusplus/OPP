@@ -384,8 +384,34 @@ fn registry_install(matches_name: impl Fn(&str) -> bool) -> Option<PathBuf> {
                 {
                     return Some(PathBuf::from(path.trim().trim_matches('"')));
                 }
+                // osu! 的卸载项常不写 InstallLocation，路径只在 UninstallString
+                // （如 `D:\osu!\osu!.exe -uninstall`）里，取可执行文件所在目录。
+                if let Some(directory) = subkey
+                    .get_value::<String, _>("UninstallString")
+                    .ok()
+                    .and_then(|value| uninstall_string_exe(&value))
+                    .and_then(|exe| exe.parent().map(Path::to_path_buf))
+                {
+                    return Some(directory);
+                }
             }
         }
     }
     None
+}
+
+/// 从 `UninstallString` 提取可执行文件路径：兼容带引号
+/// （`"C:\dir\osu!.exe" -uninstall`）与不带引号（`D:\osu!\osu!.exe -uninstall`，
+/// 目录含空格也正确）两种写法。
+#[cfg(windows)]
+fn uninstall_string_exe(value: &str) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    let exe = if let Some(rest) = trimmed.strip_prefix('"') {
+        rest.split('"').next()?
+    } else {
+        let position = trimmed.to_ascii_lowercase().find(".exe")?;
+        &trimmed[..position + ".exe".len()]
+    };
+    let path = PathBuf::from(exe.trim());
+    (!path.as_os_str().is_empty()).then_some(path)
 }
