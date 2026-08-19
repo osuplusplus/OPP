@@ -137,10 +137,10 @@ pub fn run() {
                 app.handle().clone(),
             );
             start_obs_monitor(app.handle().clone());
-            let icon = app
-                .default_window_icon()
-                .expect("application bundle must include an icon")
-                .clone();
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../../public/01.png"))?;
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_icon(icon.clone())?;
+            }
             let show_window =
                 MenuItem::with_id(app, "show-window", "显示界面", true, None::<&str>)?;
             let exit = MenuItem::with_id(app, "exit", "退出", true, None::<&str>)?;

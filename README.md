@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./public/opp-icon.png" width="112" height="112" alt="OPP logo" />
+  <img src="./public/02.png" width="112" height="112" alt="OPP logo" />
 
   # OPP
 
@@ -160,5 +160,7 @@ OPP/
 ## 特别鸣谢
 
 [**Rinne_0** ](https://osu.ppy.sh/users/11511458)和 [**Ribet**](https://osu.ppy.sh/users/19140906) 作为OPP的早期用户，深度参与了软件的测试，提出许多建设性意见，没有你们我可能在中间就放弃了。
+
+图标原型：NekoArc 绘制者：**9**
 
 感谢所有上游维护者、贡献者以及参与测试和反馈的 osu! 社区用户。

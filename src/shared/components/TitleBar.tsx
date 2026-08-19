@@ -20,10 +20,10 @@ export function TitleBar() {
         className="flex items-center gap-2.5 text-xs font-semibold tracking-wide text-slate-200"
         data-tauri-drag-region
       >
-        <img alt="" className="opp-title-mark size-5 rounded-md" src="/opp-icon.png" />
+        <img alt="" className="opp-title-mark size-5 rounded-md" src="/07.png" />
         OPP
       </div>
-      <div className="ml-auto flex h-full">
+      <div className="ml-auto flex h-full items-center">
         <button
           aria-label="最小化"
           className="opp-window-control grid min-w-11 place-items-center text-slate-500 hover:bg-[var(--surface-interactive-hover)] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--theme-primary)]"
