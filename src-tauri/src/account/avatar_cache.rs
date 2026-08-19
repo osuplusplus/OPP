@@ -45,6 +45,7 @@ impl AvatarCache {
         avatar_url: &str,
         force_refresh: bool,
     ) -> CommandResult<Option<String>> {
+        // 缓存命中优先，强制刷新时才绕过本地副本重新请求头像。
         let _guard = self.write_lock.lock().await;
         let image_path = self.directory.join(format!("avatar-{user_id}.bin"));
         let url_path = self.directory.join(format!("avatar-{user_id}.url"));
@@ -74,6 +75,7 @@ impl AvatarCache {
     }
 
     async fn fetch(&self, avatar_url: &str) -> CommandResult<Vec<u8>> {
+        // 头像 URL 来自 API，仍限制响应大小以防异常服务占用大量内存。
         let url = Url::parse(avatar_url)
             .map_err(|_| CommandError::new("INVALID_AVATAR_URL", "头像地址无效"))?;
         let host = url.host_str().unwrap_or_default();

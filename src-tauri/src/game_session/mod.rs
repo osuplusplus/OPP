@@ -23,8 +23,8 @@ use crate::{
     account::ensure_access_token,
     error::{CommandError, CommandResult},
     local_analysis::LocalClient,
-    models::Ruleset,
-    state::AppState,
+    app::models::Ruleset,
+    app::state::AppState,
     tosu::start_managed_tosu,
 };
 
@@ -48,6 +48,7 @@ fn decimal(value: &serde_json::Value, key: &str) -> Option<f64> {
 }
 
 async fn snapshot(state: &AppState, ruleset: Ruleset) -> CommandResult<UserSnapshot> {
+    // 游戏会话开始时固定用户资料快照，后续写入媒体元数据不依赖易变的网络状态。
     let token = ensure_access_token(state).await?;
     let profile = state.api.get_own_profile(&token, ruleset).await?;
     let stats = profile
@@ -414,6 +415,8 @@ pub fn start_game_monitor(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn get_game_status(state: State<'_, AppState>) -> CommandResult<GameStatusSnapshot> {
     state
         .game_monitor
@@ -459,6 +462,8 @@ fn game_launch_target(client: LocalClient, state: &AppState) -> CommandResult<La
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn start_game_session(
     ruleset: Ruleset,
     client: LocalClient,
@@ -506,6 +511,8 @@ pub async fn start_game_session(
 /// The process monitor calls this after a running client is observed, so the
 /// normal end-of-session poll can still produce a before/after summary.
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn start_detected_game_session(
     ruleset: Ruleset,
     client: LocalClient,
@@ -552,6 +559,8 @@ pub async fn start_detected_game_session(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_game_session_status(
     state: State<'_, AppState>,
 ) -> CommandResult<Option<GameSessionSummary>> {
@@ -625,6 +634,7 @@ pub(crate) fn media_roots(state: &AppState, client: LocalClient) -> CommandResul
 }
 
 pub(crate) fn within_root(candidate: &Path, root: &Path) -> bool {
+    // 媒体读取前验证规范化后的路径归属，阻止前端构造路径越界访问。
     let candidate = candidate.to_string_lossy().to_ascii_lowercase();
     let root = root.to_string_lossy().to_ascii_lowercase();
     candidate == root
@@ -923,6 +933,8 @@ mod tests {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_media_in_explorer(
     client: LocalClient,
     path: String,

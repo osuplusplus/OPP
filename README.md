@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./public/opp-icon.png" width="112" height="112" alt="OPP logo" />
+  <img src="./public/02.png" width="112" height="112" alt="OPP logo" />
 
   # OPP
 
@@ -32,7 +32,7 @@ OPP 是一个使用 Tauri、Rust 与 React 构建的跨平台 osu! 桌面工具�
 - 支持 Stable/lazer 本地谱面与 Skin 的浏览、预览和 `.osz` / `.osk` 导出
 - 新增 Skin Workshop，可组合 Stable Skin 的组件与配置并安全保存为副本
 - 支持启动 Stable 与 Lazer，并记录一次游戏会话的数据变化
-- 支持 o!rdr 在线渲染，以及 Windows 上的 Danser 本地回放渲染队列
+- 支持 o!rdr 在线渲染与 Danser 本地回放渲染队列
 - 支持 tosu、tosu-lyrics 与 OBS 直播工作流
 - 支持 Trainer 练习谱面生成和网易云音乐客户端搜索
 - 内置谱面图预览、osu!lazer 空间去重与占用统计、文件关联、手速测试等实用工具
@@ -115,19 +115,6 @@ src-tauri/target/release/bundle/nsis/
 
 Linux 当前默认生成 `src-tauri/target/release/opp`；发行打包策略见 [Linux 使用与构建](./docs/Linux.md)。
 
-## 平台支持
-
-| 能力 | Windows | Linux |
-| --- | :---: | :---: |
-| OAuth、在线数据、相似谱面、Trainer | ✓ | ✓ |
-| Stable/lazer 本地资源与游戏会话 | ✓ | ✓，需配置数据目录及启动命令 |
-| 收藏夹、o!rdr、tosu/OBS、lazer 占用统计 | ✓ | ✓ |
-| 系统安全凭据 | Credential Manager | Secret Service |
-| `.osz` / `.osk` 文件关联、显示器伽马 | ✓ | — |
-| Danser 本地回放渲染 | ✓ | 暂不支持 |
-
-更完整的 Linux 环境要求、目录约定和已知限制见 [Linux 使用与构建](./docs/Linux.md)。
-
 ## 项目结构
 
 ```text
@@ -173,5 +160,7 @@ OPP/
 ## 特别鸣谢
 
 [**Rinne_0** ](https://osu.ppy.sh/users/11511458)和 [**Ribet**](https://osu.ppy.sh/users/19140906) 作为OPP的早期用户，深度参与了软件的测试，提出许多建设性意见，没有你们我可能在中间就放弃了。
+
+图标原型：NekoArc 绘制者：**9**
 
 感谢所有上游维护者、贡献者以及参与测试和反馈的 osu! 社区用户。

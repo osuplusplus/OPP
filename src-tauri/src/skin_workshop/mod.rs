@@ -12,10 +12,12 @@ use tauri::State;
 use crate::{
     error::{CommandError, CommandResult},
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn open_skin_workshop_package(
     path: String,
     state: State<'_, AppState>,
@@ -27,6 +29,8 @@ pub async fn open_skin_workshop_package(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：执行已校验的工作流动作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn execute_skin_workshop_action(
     target_skin_resource_id: String,
     mode: SkinWorkshopWriteMode,
@@ -42,6 +46,8 @@ pub async fn execute_skin_workshop_action(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：执行已校验的工作流动作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn execute_skin_workshop_preset(
     target_skin_resource_id: String,
     mode: SkinWorkshopWriteMode,
@@ -57,6 +63,8 @@ pub async fn execute_skin_workshop_preset(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_skin_workshop_tree(
     client: LocalClient,
     skin_resource_id: String,
@@ -69,6 +77,8 @@ pub async fn get_skin_workshop_tree(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_skin_workshop_part_preview(
     client: LocalClient,
     skin_resource_id: String,
@@ -84,6 +94,8 @@ pub async fn get_skin_workshop_part_preview(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_skin_workshop_asset(
     client: LocalClient,
     skin_resource_id: String,
@@ -99,6 +111,8 @@ pub async fn get_skin_workshop_asset(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_skin_workshop_config(
     client: LocalClient,
     skin_resource_id: String,

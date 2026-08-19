@@ -74,6 +74,7 @@ impl ProviderRegistry {
         &self,
         id: u64,
         provider: &str,
+        include_video: bool,
         cancel: &AtomicBool,
         on_progress: &mut F,
     ) -> CommandResult<ProviderBytes>
@@ -82,22 +83,34 @@ impl ProviderRegistry {
     {
         let (url, code, fallback_name) = match provider {
             "sayobot" => (
-                format!("{SAYOBOT_BASE_URL}/beatmaps/download/full/{id}"),
+                format!(
+                    "{SAYOBOT_BASE_URL}/beatmaps/download/{}/{id}",
+                    if include_video { "full" } else { "novideo" }
+                ),
                 "SAYOBOT_DOWNLOAD_FAILED",
                 Some(format!("{id}.osz")),
             ),
             "hinai" => (
-                format!("{HINAI_BASE_URL}/api/v1/hinai/d/{id}"),
+                format!(
+                    "{HINAI_BASE_URL}/api/v1/hinai/d/{id}{}",
+                    if include_video { "" } else { "?novideo=true" }
+                ),
                 "HINAI_DOWNLOAD_FAILED",
                 None,
             ),
             "catboy" => (
-                format!("{CATBOY_BASE_URL}/d/{id}"),
+                format!(
+                    "{CATBOY_BASE_URL}/d/{id}{}",
+                    if include_video { "" } else { "?novideo=true" }
+                ),
                 "CATBOY_DOWNLOAD_FAILED",
                 Some(format!("{id}.osz")),
             ),
             "nerinyan" => (
-                format!("{NERINYAN_BASE_URL}/d/{id}"),
+                format!(
+                    "{NERINYAN_BASE_URL}/d/{id}{}",
+                    if include_video { "" } else { "?noVideo=true" }
+                ),
                 "NERINYAN_DOWNLOAD_FAILED",
                 None,
             ),

@@ -72,6 +72,7 @@ const base: AppSettings = {
   similarity_index_directory: null,
   beatmap_download_directory: null,
   default_beatmap_download_provider: "sayobot",
+  include_video_in_beatmap_downloads: true,
   open_downloaded_beatmaps_after_download: false,
   replay_export_directory: null,
   danser_executable_path: null,
@@ -518,6 +519,14 @@ export function SettingsPage() {
                   </Button>
                 ) : null}
               </div>
+            </div>
+            <div className="mt-3">
+              <Toggle
+                checked={settings.include_video_in_beatmap_downloads}
+                description="开启后下载完整谱面包（可能包含背景视频，文件更大）；关闭后会向镜像请求不含视频的版本。该偏好适用于在线谱面、相似谱面、收藏夹和 BeatmapHub 补全下载。"
+                label="下载谱面时包含视频"
+                onChange={(value) => void save({ ...settings, include_video_in_beatmap_downloads: value })}
+              />
             </div>
             <div className="mt-3">
               <Toggle

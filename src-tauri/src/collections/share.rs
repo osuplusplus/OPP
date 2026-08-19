@@ -18,7 +18,7 @@ use super::{
 use crate::{
     error::{CommandError, CommandResult},
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 const SHARE_PREFIX: &str = "OPPC2";

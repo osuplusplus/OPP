@@ -25,6 +25,7 @@ impl SimilarityRuntime {
     }
 
     pub fn inspect(&self, directory: Option<&str>) -> SimilarityIndexStatus {
+        // 检查仅描述索引可用性，不加载完整数据集，避免设置页触发昂贵初始化。
         let Some(directory) = directory.map(str::trim).filter(|value| !value.is_empty()) else {
             return SimilarityIndexStatus::unconfigured();
         };
@@ -63,6 +64,7 @@ impl SimilarityRuntime {
     }
 
     pub fn dataset(&self, directory: &str) -> Result<Arc<Dataset>, RuntimeError> {
+        // 以规范化目录为键缓存运行时数据集；同一索引的并发查询共享只读实例。
         let path = PathBuf::from(directory);
         if let Ok(cached) = self.cached.lock()
             && let Some(cached) = cached.as_ref()

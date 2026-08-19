@@ -4,10 +4,11 @@ use reqwest::{Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use url::Url;
+ 
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::{OwnProfile, Ruleset, Score, TokenResponse},
+    app::models::{OwnProfile, Ruleset, Score, TokenResponse},
 };
 
 const API_BASE_URL: &str = "https://osu.ppy.sh/api/v2";
@@ -20,6 +21,7 @@ pub struct OsuApi {
 }
 
 impl OsuApi {
+    /// 创建指向官方 API 的客户端，并统一配置请求超时与 TLS 实现。
     pub fn new() -> CommandResult<Self> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
@@ -38,6 +40,7 @@ impl OsuApi {
     }
 
     #[cfg(test)]
+    /// 使用指定基地址创建客户端，主要用于集成测试或受控代理环境。
     pub fn with_base_url(base_url: String) -> CommandResult<Self> {
         let mut api = Self::new()?;
         api.api_base_url = base_url;
@@ -102,11 +105,11 @@ impl OsuApi {
         access_token: &str,
         user_id: u64,
         ruleset: Ruleset,
-        category: crate::models::ScoreCategory,
+        category: crate::app::models::ScoreCategory,
         offset: u32,
         limit: u8,
     ) -> CommandResult<Vec<Score>> {
-        let include_fails = if category == crate::models::ScoreCategory::Recent {
+        let include_fails = if category == crate::app::models::ScoreCategory::Recent {
             "&include_fails=0"
         } else {
             ""
@@ -128,7 +131,7 @@ impl OsuApi {
             access_token,
             user_id,
             ruleset,
-            crate::models::ScoreCategory::Best,
+            crate::app::models::ScoreCategory::Best,
             0,
             100,
         )
@@ -145,7 +148,7 @@ impl OsuApi {
             access_token,
             user_id,
             ruleset,
-            crate::models::ScoreCategory::Recent,
+            crate::app::models::ScoreCategory::Recent,
             0,
             100,
         )
@@ -209,6 +212,7 @@ impl OsuApi {
         url: &str,
         access_token: &str,
     ) -> CommandResult<T> {
+        // 所有携带访问令牌的 GET 请求集中在此处，保证认证头与错误映射保持一致。
         let response = self
             .client
             .get(url)
@@ -226,6 +230,7 @@ impl OsuApi {
         response: Response,
         default_code: &str,
     ) -> CommandResult<T> {
+        // 非成功响应先保留服务端错误体，再映射为前端可识别的领域错误。
         if !response.status().is_success() {
             return Err(Self::map_status(&response, default_code));
         }

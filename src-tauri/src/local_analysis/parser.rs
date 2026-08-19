@@ -11,7 +11,7 @@ use rosu_pp::{Difficulty, any::Strains};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
-use crate::models::Ruleset;
+use crate::app::models::Ruleset;
 
 use super::models::{
     Completeness, HitObjectCounts, LocalBeatmapDetail, LocalBeatmapSummary,
@@ -61,6 +61,7 @@ fn short_hash(value: &str) -> String {
 ///
 /// 优先识别 UTF-16 BOM 与空字节特征，再尝试 UTF-8，最后使用编码探测兜底。
 pub fn decode_text(bytes: &[u8]) -> String {
+    // .osu 与 skin.ini 可能来自旧版 Windows 客户端，按 BOM、UTF-8、系统编码依次解码。
     if bytes.starts_with(&[0xff, 0xfe])
         || (bytes.len() >= 4
             && bytes.len().is_multiple_of(2)
@@ -197,6 +198,7 @@ pub fn parse_beatmap(
     modified_at: Option<String>,
     known_hash: Option<&str>,
 ) -> Result<ParsedBeatmap, String> {
+    // 解析结果同时提供展示元数据和索引特征，任何单个损坏文件都只产生诊断而非中断扫描。
     if !looks_like_beatmap(bytes) {
         return Err("文件缺少有效的 osu file format 头".into());
     }
@@ -337,6 +339,7 @@ pub fn parse_beatmap(
 
 /// 按游戏模式导出 rosu-pp 的分段难度曲线，供前端绘制 strain 图。
 pub fn calculate_strains(bytes: &[u8]) -> Result<StrainAnalysis, String> {
+    // 使用规则集原生难度运行时计算对象 strain，并转换为前端可绘制的时间分段序列。
     let map = rosu_pp::Beatmap::from_bytes(bytes)
         .map_err(|error| format!("无法为谱面计算 strain：{error}"))?;
     let first_object_time_ms = map
@@ -347,21 +350,62 @@ pub fn calculate_strains(bytes: &[u8]) -> Result<StrainAnalysis, String> {
         .checked_strains(&map)
         .map_err(|error| format!("谱面被安全检查跳过 strain 计算：{error:?}"))?;
     let section_length_ms = strains.section_len();
+    let section_start_time_ms = map
+        .hit_objects
+        .get(1)
+        .or_else(|| map.hit_objects.first())
+        .map_or(0.0, |object| {
+            (object.start_time / section_length_ms).ceil() * section_length_ms - section_length_ms
+        });
     let series = match strains {
-        Strains::Osu(strains) => vec![
-            StrainSeries {
-                key: "aim".into(),
-                values: strains.aim,
-            },
-            StrainSeries {
-                key: "speed".into(),
-                values: strains.speed,
-            },
-            StrainSeries {
-                key: "flashlight".into(),
-                values: strains.flashlight,
-            },
-        ],
+        Strains::Osu(strains) => {
+            // The pp-rework fork exports speed and reading per difficulty
+            // object, and its aim peaks are sorted for harmonic aggregation so
+            // they no longer retain chronology. Use stable rosu-pp for the
+            // temporal skills and fold the fork's reading values into that
+            // fixed 400 ms timeline.
+            let stable_map = rosu_pp_official::Beatmap::from_bytes(bytes)
+                .map_err(|error| format!("无法为谱面计算稳定 strain 时间轴：{error}"))?;
+            let stable_strains = rosu_pp_official::Difficulty::new()
+                .checked_strains(&stable_map)
+                .map_err(|error| format!("谱面被安全检查跳过稳定 strain 时间轴：{error:?}"))?;
+            let rosu_pp_official::any::Strains::Osu(stable) = stable_strains else {
+                return Err("稳定 strain 时间轴未返回 osu!standard 数据".into());
+            };
+            let section_count = stable.aim.len();
+            let object_times = map
+                .hit_objects
+                .iter()
+                .skip(1)
+                .map(|object| object.start_time)
+                .collect::<Vec<_>>();
+            let reading = object_strains_to_sections(
+                &strains.reading,
+                &object_times,
+                section_start_time_ms,
+                section_length_ms,
+                section_count,
+            );
+
+            vec![
+                StrainSeries {
+                    key: "aim".into(),
+                    values: stable.aim,
+                },
+                StrainSeries {
+                    key: "speed".into(),
+                    values: stable.speed,
+                },
+                StrainSeries {
+                    key: "reading".into(),
+                    values: reading,
+                },
+                StrainSeries {
+                    key: "flashlight".into(),
+                    values: stable.flashlight,
+                },
+            ]
+        }
         Strains::Taiko(strains) => vec![
             StrainSeries {
                 key: "color".into(),
@@ -392,9 +436,36 @@ pub fn calculate_strains(bytes: &[u8]) -> Result<StrainAnalysis, String> {
 
     Ok(StrainAnalysis {
         first_object_time_ms,
+        section_start_time_ms,
         section_length_ms,
         series,
     })
+}
+
+fn object_strains_to_sections(
+    values: &[f64],
+    object_times: &[f64],
+    section_start_time_ms: f64,
+    section_length_ms: f64,
+    section_count: usize,
+) -> Vec<f64> {
+    let mut sections = vec![0.0_f64; section_count];
+
+    if section_count == 0 || section_length_ms <= 0.0 {
+        return sections;
+    }
+
+    for (&value, &time) in values.iter().zip(object_times) {
+        let elapsed = (time - section_start_time_ms).max(0.0);
+        // rosu keeps an object exactly on a section boundary in the section
+        // ending at that boundary, hence ceil rather than floor here.
+        let index = ((elapsed / section_length_ms).ceil() as usize)
+            .saturating_sub(1)
+            .min(section_count - 1);
+        sections[index] = sections[index].max(value);
+    }
+
+    sections
 }
 
 fn parse_color(value: &str) -> Option<Vec<u8>> {
@@ -682,7 +753,11 @@ SliderTickRate:1
             .collect::<Vec<_>>()
             .join("\n");
         let expected = [
-            (0, Ruleset::Osu, vec!["aim", "speed", "flashlight"]),
+            (
+                0,
+                Ruleset::Osu,
+                vec!["aim", "speed", "reading", "flashlight"],
+            ),
             (
                 1,
                 Ruleset::Taiko,
@@ -718,7 +793,30 @@ SliderTickRate:1
                     .collect::<Vec<_>>(),
                 expected_keys
             );
+            assert!(
+                strains
+                    .series
+                    .windows(2)
+                    .all(|pair| pair[0].values.len() == pair[1].values.len()),
+                "{ruleset} strain series must share one fixed-section timeline: {:?}",
+                strains
+                    .series
+                    .iter()
+                    .map(|series| (&series.key, series.values.len()))
+                    .collect::<Vec<_>>()
+            );
         }
+    }
+
+    #[test]
+    fn folds_object_strains_into_section_peaks() {
+        let values = [1.0, 3.0, 2.0, 4.0];
+        let times = [1_100.0, 1_400.0, 1_401.0, 1_900.0];
+
+        assert_eq!(
+            object_strains_to_sections(&values, &times, 1_000.0, 400.0, 3),
+            vec![3.0, 2.0, 4.0]
+        );
     }
 
     #[test]

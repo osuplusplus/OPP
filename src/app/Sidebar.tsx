@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Map,
   Music2,
+  PackageOpen,
   Palette,
   Play,
   Radio,
@@ -85,12 +86,13 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
 
   return (
     <aside className="fixed bottom-0 left-0 top-11 z-40 flex w-[248px] flex-col overflow-hidden border-r border-[var(--line-subtle)] bg-[var(--surface-sidebar)] px-3 pb-3 pt-4">
-      <div className="mb-4 border-b border-[var(--line-subtle)] px-2 pb-4"><div className="flex items-center gap-3"><img alt="OPP" className="opp-brand-mark size-10" src="/opp-icon.png" /><p className="text-sm font-semibold tracking-wide text-white">OSU! Plus Plus</p></div></div>
+      <div className="mb-4 border-b border-[var(--line-subtle)] px-2 pb-4"><div className="flex items-center gap-3"><img alt="OPP" className="opp-brand-mark size-10" src="/03.png" /><p className="text-sm font-semibold tracking-wide text-white">OSU! Plus Plus</p></div></div>
       <nav aria-label="主导航" className="min-h-0 flex-1 overflow-y-auto pr-1">
         <NavGroup label="核心功能">
           <div data-onboarding="online-and-collections">
             <NavItem emphasis="beatmaps" icon={Music2} label="在线谱面" to="/online/beatmaps" />
             <NavItem emphasis="beatmaps" icon={Heart} label="谱面收藏夹" to="/collections" />
+            <NavItem emphasis="beatmaps" icon={PackageOpen} label="BeatmapHub" to="/beatmaphub" />
           </div>
           <NavItem emphasis="similar" icon={ScanSearch} label="相似谱面" onboarding="similar-beatmaps" to="/online/similar" />
           <NavItem emphasis="trainer" icon={WandSparkles} label="谱面练习生成器" onboarding="trainer" to="/trainer" />

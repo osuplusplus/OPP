@@ -224,11 +224,11 @@ export function LocalMediaPage() {
               </div>
             </div>
             {notice ? <p className="mt-4 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.06] px-3 py-2 text-sm text-cyan-100">{notice}</p> : null}
-            <div className="grid min-h-0 flex-1 place-items-center py-6">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto py-6">
               {loading
                 ? <div className="text-sm text-slate-500">正在读取…</div>
                 : payload && "mime_type" in payload
-                  ? <img className="max-h-full max-w-full rounded-xl border border-white/[0.06] object-contain" src={`data:${payload.mime_type};base64,${payload.bytes_base64}`} alt={payload.file_name} />
+                  ? <img className="block h-auto max-h-full max-w-full shrink-0 rounded-xl border border-white/[0.06] object-contain" src={`data:${payload.mime_type};base64,${payload.bytes_base64}`} alt={payload.file_name} />
                   : payload
                     ? <div className="w-full max-w-2xl rounded-2xl border border-pink-300/15 bg-pink-300/[0.05] p-8"><FileVideo className="size-8 text-pink-200" /><h3 className="mt-4 text-lg font-semibold text-white">回放文件已读取</h3><p className="mt-2 text-sm text-slate-400">{payload.note}</p><p className="mt-4 font-mono text-sm text-slate-500">原始数据大小：{formatBytes(Math.ceil(payload.bytes_base64.length * 0.75))}</p></div>
                     : <div className="text-sm text-slate-500">选择对象以开始预览</div>}

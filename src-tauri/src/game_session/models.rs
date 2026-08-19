@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Mutex};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{local_analysis::LocalClient, models::Ruleset};
+use crate::{local_analysis::LocalClient, app::models::Ruleset};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSnapshot {

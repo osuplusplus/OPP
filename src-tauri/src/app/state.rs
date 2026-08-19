@@ -7,6 +7,7 @@ use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
 use crate::{
     account::{AvatarCache, CredentialStore},
+    beatmaphub::BeatmapHubService,
     collections::CollectionService,
     danser::DanserRuntime,
     error::CommandResult,
@@ -35,6 +36,7 @@ pub struct AppState {
     pub local_analysis: Arc<LocalAnalysisService>,
     pub skin_workshop: Arc<SkinWorkshopService>,
     pub collections: Arc<CollectionService>,
+    pub beatmaphub: Arc<BeatmapHubService>,
     pub similarity: Arc<SimilarityRuntime>,
     pub store: StateStore,
     pub oauth: Mutex<OAuthRuntime>,
@@ -57,6 +59,7 @@ impl AppState {
             Arc::clone(&local_analysis),
         )?);
         let collections = Arc::new(CollectionService::new(app_data_dir)?);
+        let beatmaphub = Arc::new(BeatmapHubService::new(app_data_dir)?);
         local_analysis.set_thumbnail_cache_limit_mb(store.snapshot()?.settings.cache_limit_mb)?;
         Ok(Self {
             api: OsuApi::new()?,
@@ -66,6 +69,7 @@ impl AppState {
             local_analysis,
             skin_workshop,
             collections,
+            beatmaphub,
             similarity: Arc::new(SimilarityRuntime::default()),
             store,
             oauth: Mutex::new(OAuthRuntime::default()),

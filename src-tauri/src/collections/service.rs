@@ -77,6 +77,7 @@ pub struct CollectionService {
 
 impl CollectionService {
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
+        // 收藏夹按文件夹拆分持久化，单个文件损坏不会使整个集合不可恢复。
         fs::create_dir_all(app_data_dir)?;
         let path = app_data_dir.join("collections.json");
         let collection_bytes = fs::read(&path).unwrap_or_default();
@@ -135,6 +136,7 @@ impl CollectionService {
         &self,
         action: impl FnOnce(&mut CollectionFile) -> CommandResult<R>,
     ) -> CommandResult<R> {
+        // 在持久化锁内读改写，确保并发编辑不会丢失另一个调用刚写入的条目。
         let mut persisted = self
             .persist
             .lock()
@@ -218,7 +220,7 @@ impl CollectionService {
         })
     }
 
-    pub(super) fn create(&self, name: &str, creator: &str) -> CommandResult<CollectionFolder> {
+    pub(crate) fn create(&self, name: &str, creator: &str) -> CommandResult<CollectionFolder> {
         let name = validate_name(name)?;
         self.update(|file| {
             let now = Utc::now().to_rfc3339();
@@ -249,7 +251,7 @@ impl CollectionService {
         })
     }
 
-    pub(super) fn delete(&self, folder_id: &str) -> CommandResult<()> {
+    pub(crate) fn delete(&self, folder_id: &str) -> CommandResult<()> {
         self.update(|file| {
             let index = file
                 .folders
@@ -262,7 +264,7 @@ impl CollectionService {
         })
     }
 
-    pub(super) fn add_entries(
+    pub(crate) fn add_entries(
         &self,
         folder_id: &str,
         candidates: Vec<CollectionCandidate>,
@@ -294,6 +296,17 @@ impl CollectionService {
             Ok(())
         })
     }
+
+    pub(crate) fn folder(&self, folder_id: &str) -> CommandResult<CollectionFolder> {
+        self.value
+            .lock()
+            .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?
+            .folders
+            .iter()
+            .find(|folder| folder.id == folder_id)
+            .cloned()
+            .ok_or_else(|| CommandError::new("COLLECTION_NOT_FOUND", "未找到收藏夹"))
+    }
 }
 
 fn folder_storage_key(id: &str) -> String {
@@ -301,6 +314,7 @@ fn folder_storage_key(id: &str) -> String {
 }
 
 fn prune_presence_cache(cache: &mut HashMap<String, LocalPresenceCacheEntry>) {
+    // 本地谱面存在性可由下次扫描重建，采用时间顺序淘汰并限制内存占用。
     let mut entries = cache
         .iter()
         .map(|(key, value)| {
@@ -391,6 +405,7 @@ fn same_entry(left: &CollectionEntry, right: &CollectionEntry) -> bool {
 }
 
 fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
+    // 先用临时文件完整落盘，再替换目标，防止意外退出破坏收藏夹分片。
     if target.exists() {
         let backup = target.with_extension("bak");
         if backup.exists() {

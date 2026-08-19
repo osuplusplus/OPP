@@ -23,8 +23,8 @@ use uuid::Uuid;
 use crate::{
     error::{CommandError, CommandResult},
     game_session::load_game_replay_file,
-    models::DanserRenderPreferences,
-    state::AppState,
+    app::models::DanserRenderPreferences,
+    app::state::AppState,
 };
 
 #[cfg(windows)]
@@ -51,6 +51,8 @@ fn resolve_danser(state: &AppState) -> CommandResult<PathBuf> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn get_danser_status(state: State<'_, AppState>) -> CommandResult<DanserStatus> {
     let saved = state.store.snapshot()?.settings.danser_executable_path;
     let executable = find_danser(saved.as_deref());
@@ -73,6 +75,8 @@ pub fn get_danser_status(state: State<'_, AppState>) -> CommandResult<DanserStat
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：列出可用资源。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn list_danser_profiles(state: State<'_, AppState>) -> CommandResult<Vec<String>> {
     Ok(list_profiles_for(&resolve_danser(&state)?))
 }
@@ -678,6 +682,8 @@ fn start_worker(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn enqueue_danser_renders(
     request: DanserEnqueueRequest,
     state: State<'_, AppState>,
@@ -752,6 +758,8 @@ pub fn enqueue_danser_renders(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn start_danser_render_queue(state: State<'_, AppState>, app: AppHandle) -> CommandResult<()> {
     let has_waiting = !state
         .danser
@@ -779,6 +787,8 @@ pub fn start_danser_render_queue(state: State<'_, AppState>, app: AppHandle) -> 
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn get_danser_render_queue(state: State<'_, AppState>) -> CommandResult<Vec<DanserRenderJob>> {
     state
         .danser
@@ -789,6 +799,8 @@ pub fn get_danser_render_queue(state: State<'_, AppState>) -> CommandResult<Vec<
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn cancel_danser_render(
     id: String,
     state: State<'_, AppState>,
@@ -814,6 +826,8 @@ pub fn cancel_danser_render(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_danser_output(path: String, state: State<'_, AppState>) -> CommandResult<()> {
     let directory = state
         .store

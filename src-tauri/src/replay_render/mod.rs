@@ -10,8 +10,8 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::{load_game_replay_file, parse_replay_metadata},
     local_analysis::LocalClient,
-    models::Ruleset,
-    state::AppState,
+    app::models::Ruleset,
+    app::state::AppState,
 };
 
 mod events;
@@ -369,6 +369,8 @@ fn monitor_render(app: AppHandle, render_id: u32) {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：提交异步渲染任务。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn submit_replay_render(
     request: ReplayRenderRequest,
     app: AppHandle,

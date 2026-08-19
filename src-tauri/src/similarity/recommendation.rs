@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::models::Score;
+use crate::app::models::Score;
 
 pub const MAX_RECOMMENDATION_SEEDS: usize = 50;
 

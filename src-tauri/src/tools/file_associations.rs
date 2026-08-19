@@ -7,7 +7,7 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::executable,
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +36,8 @@ fn safe_candidate(base: &Path, relative: &str) -> Option<PathBuf> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_local_resource_in_explorer(
     client: LocalClient,
     logical_path: String,
@@ -85,6 +87,8 @@ fn registry_client(kind: &str) -> Option<LocalClient> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn get_default_file_clients() -> CommandResult<DefaultFileClients> {
     #[cfg(windows)]
     {
@@ -103,6 +107,8 @@ pub fn get_default_file_clients() -> CommandResult<DefaultFileClients> {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：更新运行时或持久化配置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn set_default_file_client(
     kind: String,
     client: LocalClient,

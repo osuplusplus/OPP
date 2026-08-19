@@ -6,6 +6,7 @@ mod lazer_disk_usage;
 mod lazer_realm;
 mod mania_converter;
 mod models;
+mod pp_calc;
 
 pub use beatmap_preview::{
     generate_beatmap_preview, inspect_beatmap_preview, open_beatmap_preview_output,
@@ -19,3 +20,4 @@ pub use lazer_dedupe::{cancel_lazer_dedupe, dedupe_lazer_files};
 pub use lazer_disk_usage::get_lazer_disk_usage;
 pub use lazer_realm::read_lazer_realm_beatmap_sets;
 pub use mania_converter::convert_mania_beatmaps;
+pub use pp_calc::calculate_beatmap_pp;

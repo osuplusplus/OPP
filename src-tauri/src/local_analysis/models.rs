@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::Ruleset;
+use crate::app::models::Ruleset;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -240,6 +240,8 @@ pub struct StrainSeries {
 pub struct StrainAnalysis {
     /// 首个物件相对音频起点的绝对时间。前端用它把 section 曲线放回编辑器时间轴。
     pub first_object_time_ms: f64,
+    /// 第一个固定 section 的起点；第一个数据点位于该值加上 `section_length_ms`。
+    pub section_start_time_ms: f64,
     pub section_length_ms: f64,
     pub series: Vec<StrainSeries>,
 }

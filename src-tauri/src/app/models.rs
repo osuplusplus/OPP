@@ -1,8 +1,16 @@
-use std::{collections::BTreeMap, fmt};
-
+use crate::app::default::{
+    default_cache_limit_mb, default_danser_encoder, default_danser_fps,
+    default_danser_frame_height, default_danser_frame_width, default_danser_motion_blur_oversample,
+    default_danser_quality, default_danser_settings_profile, default_launch_tosu_lyrics,
+    default_obs_websocket_url, default_one, default_open_local_maps_key, default_open_settings_key,
+    default_open_trainer_key, default_preview_volume, default_similarity_results_per_page,
+    default_similarity_section_range, default_theme_mode, default_theme_primary,
+    default_theme_secondary, default_tosu_api_base_url, default_true,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::{collections::BTreeMap, fmt};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -13,10 +21,6 @@ pub enum Ruleset {
     Mania,
 }
 
-impl Ruleset {
-    #[cfg(test)]
-    pub const ALL: [Self; 4] = [Self::Osu, Self::Taiko, Self::Fruits, Self::Mania];
-}
 
 impl fmt::Display for Ruleset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -158,6 +162,8 @@ pub struct AppSettings {
     pub beatmap_download_directory: Option<String>,
     #[serde(default)]
     pub default_beatmap_download_provider: BeatmapDownloadProvider,
+    #[serde(default = "default_true")]
+    pub include_video_in_beatmap_downloads: bool,
     #[serde(default)]
     pub open_downloaded_beatmaps_after_download: bool,
     #[serde(default)]
@@ -259,42 +265,6 @@ pub struct DanserRenderPreferences {
     pub motion_blur: bool,
     #[serde(default = "default_danser_motion_blur_oversample")]
     pub motion_blur_oversample: u32,
-}
-
-fn default_danser_settings_profile() -> String {
-    "default".into()
-}
-
-fn default_one() -> f64 {
-    1.0
-}
-
-fn default_danser_frame_width() -> u32 {
-    1920
-}
-
-fn default_danser_frame_height() -> u32 {
-    1080
-}
-
-fn default_danser_fps() -> u32 {
-    60
-}
-
-fn default_danser_encoder() -> String {
-    "libx264".into()
-}
-
-fn default_danser_quality() -> u8 {
-    14
-}
-
-fn default_danser_motion_blur_oversample() -> u32 {
-    16
-}
-
-fn default_true() -> bool {
-    true
 }
 
 impl Default for DanserRenderPreferences {
@@ -412,58 +382,6 @@ pub enum BeatmapDownloadProvider {
     Nerinyan,
 }
 
-fn default_tosu_api_base_url() -> String {
-    "http://127.0.0.1:24050".into()
-}
-
-fn default_launch_tosu_lyrics() -> bool {
-    true
-}
-
-fn default_theme_primary() -> String {
-    "cyan".into()
-}
-
-fn default_theme_secondary() -> String {
-    "pink".into()
-}
-
-fn default_theme_mode() -> String {
-    "dark".into()
-}
-
-fn default_preview_volume() -> u8 {
-    65
-}
-
-fn default_cache_limit_mb() -> u32 {
-    512
-}
-
-fn default_open_local_maps_key() -> String {
-    "Alt+1".into()
-}
-
-fn default_open_trainer_key() -> String {
-    "Alt+2".into()
-}
-
-fn default_open_settings_key() -> String {
-    "Alt+,".into()
-}
-
-fn default_similarity_section_range() -> u32 {
-    4
-}
-
-fn default_similarity_results_per_page() -> u32 {
-    5
-}
-
-fn default_obs_websocket_url() -> String {
-    "ws://127.0.0.1:4455".into()
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -475,6 +393,7 @@ impl Default for AppSettings {
             similarity_preferences: SimilarityPreferences::default(),
             beatmap_download_directory: None,
             default_beatmap_download_provider: BeatmapDownloadProvider::default(),
+            include_video_in_beatmap_downloads: true,
             open_downloaded_beatmaps_after_download: false,
             replay_export_directory: None,
             danser_executable_path: None,
@@ -508,51 +427,6 @@ impl Default for AppKeyBindings {
             open_trainer: default_open_trainer_key(),
             open_settings: default_open_settings_key(),
         }
-    }
-}
-
-#[cfg(test)]
-mod settings_tests {
-    use super::{AppSettings, BTreeMap};
-
-    #[test]
-    fn legacy_settings_default_to_unseen_onboarding() {
-        let settings: AppSettings = serde_json::from_str("{}").expect("deserialize settings");
-        assert_eq!(settings.onboarding_version, 0);
-        assert!(settings.page_onboarding_versions.is_empty());
-        assert_eq!(settings.ignored_update_version, None);
-        assert_eq!(settings.danser_executable_path, None);
-        assert!(!settings.auto_export_new_replays_with_danser);
-        assert_eq!(
-            settings.danser_render_preferences.settings_profile,
-            "default"
-        );
-    }
-
-    #[test]
-    fn onboarding_version_round_trips() {
-        let mut page_onboarding_versions = BTreeMap::new();
-        page_onboarding_versions.insert("tools".to_string(), 1);
-        let settings = AppSettings {
-            onboarding_version: 1,
-            page_onboarding_versions,
-            ..AppSettings::default()
-        };
-        let json = serde_json::to_string(&settings).expect("serialize settings");
-        let restored: AppSettings = serde_json::from_str(&json).expect("deserialize settings");
-        assert_eq!(restored.onboarding_version, 1);
-        assert_eq!(restored.page_onboarding_versions.get("tools"), Some(&1));
-    }
-
-    #[test]
-    fn ignored_update_version_round_trips() {
-        let settings = AppSettings {
-            ignored_update_version: Some("1.2.3".to_string()),
-            ..AppSettings::default()
-        };
-        let json = serde_json::to_string(&settings).expect("serialize settings");
-        let restored: AppSettings = serde_json::from_str(&json).expect("deserialize settings");
-        assert_eq!(restored.ignored_update_version.as_deref(), Some("1.2.3"));
     }
 }
 
@@ -624,70 +498,4 @@ pub struct TokenResponse {
     #[serde(default)]
     pub refresh_token: Option<String>,
     pub expires_in: i64,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rulesets_use_api_names() {
-        assert_eq!(
-            Ruleset::ALL.map(|mode| mode.to_string()),
-            ["osu", "taiko", "fruits", "mania"]
-        );
-    }
-
-    #[test]
-    fn profile_keeps_unknown_api_fields() {
-        let profile: OwnProfile = serde_json::from_value(serde_json::json!({
-            "id": 1,
-            "username": "player",
-            "avatar_url": "https://example.test/avatar.png",
-            "country_code": "CN",
-            "new_api_field": {"kept": true}
-        }))
-        .expect("profile should parse");
-
-        assert_eq!(
-            profile.extra.get("new_api_field"),
-            Some(&serde_json::json!({"kept": true}))
-        );
-    }
-
-    #[test]
-    fn settings_default_to_sayobot_downloads() {
-        let settings: AppSettings =
-            serde_json::from_value(serde_json::json!({})).expect("settings should parse");
-
-        assert_eq!(
-            settings.default_beatmap_download_provider,
-            BeatmapDownloadProvider::Sayobot
-        );
-        assert_eq!(
-            serde_json::to_value(settings)
-                .expect("settings should serialize")
-                .get("default_beatmap_download_provider"),
-            Some(&serde_json::json!("sayobot"))
-        );
-    }
-
-    #[test]
-    fn legacy_settings_default_to_safe_similarity_preferences() {
-        let settings: AppSettings =
-            serde_json::from_value(serde_json::json!({})).expect("settings should parse");
-
-        assert!(!settings.similarity_preferences.advanced_enabled);
-        assert_eq!(
-            settings.similarity_preferences.mode,
-            SimilarityWeightingPreference::Dynamic
-        );
-        assert_eq!(settings.similarity_preferences.lower_sections, 4);
-        assert_eq!(settings.similarity_preferences.upper_sections, 4);
-        assert_eq!(settings.similarity_preferences.results_per_page, 5);
-        assert_eq!(
-            settings.similarity_preferences.manual_weights.parameters,
-            1.0
-        );
-    }
 }

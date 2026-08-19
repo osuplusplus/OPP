@@ -1,20 +1,21 @@
 mod account;
+mod beatmaphub;
 mod collections;
 mod danser;
 mod error;
 mod game_session;
 mod local_analysis;
-mod models;
 mod netease_music;
 mod obs;
 mod online_beatmaps;
 mod osu_api;
 mod platform;
-mod pp_calc;
+
+mod app;
 mod replay_render;
 mod similarity;
 mod skin_workshop;
-mod state;
+
 mod storage;
 mod tools;
 mod tosu;
@@ -26,12 +27,26 @@ use account::{
     export_replay_video, get_auth_status, get_own_profile, get_scores, get_settings,
     mark_onboarding_seen, mark_page_onboarding_seen, save_oauth_credentials, update_settings,
 };
+
+use app::state::AppState;
+
+use beatmaphub::{
+    create_beatmaphub_comment, create_beatmaphub_device_link, create_beatmaphub_profile,
+    delete_beatmaphub_comment, delete_beatmaphub_pack, favorite_beatmaphub_pack,
+    get_beatmaphub_auth_status, get_beatmaphub_comments, get_beatmaphub_pack,
+    get_beatmaphub_profile, get_beatmaphub_recommendations, import_beatmaphub_pack,
+    like_beatmaphub_pack, link_beatmaphub_device, login_beatmaphub, logout_beatmaphub,
+    preview_beatmaphub_pack, publish_beatmaphub_pack, rate_beatmaphub_pack,
+    revoke_beatmaphub_device, search_beatmaphub_packs, update_beatmaphub_comment,
+    update_beatmaphub_pack,
+};
 use collections::{
     add_collection_entries, begin_collection_task, cancel_collection_task, create_collection,
     delete_collection, export_collection_share, get_collection_download_items,
-    get_collection_sync_status, import_collection_share, install_collection_downloads,
-    list_collections, open_collection_downloads, preview_collection_share, refresh_collections,
-    remove_collection_entry, rename_collection, write_stable_collections,
+    get_collection_sync_status, import_collection_archive, import_collection_share,
+    install_collection_downloads, list_collections, open_collection_downloads,
+    preview_collection_share, refresh_collections, remove_collection_entry, rename_collection,
+    write_stable_collections,
 };
 use danser::{
     cancel_danser_render, enqueue_danser_renders, get_danser_render_queue, get_danser_status,
@@ -60,7 +75,7 @@ use online_beatmaps::{
     open_downloaded_path, search_online_beatmapsets,
 };
 use platform::get_capabilities;
-use pp_calc::calculate_beatmap_pp;
+
 use replay_render::submit_replay_render;
 use similarity::{
     configure_similarity_index, get_similarity_index_status, query_similar_beatmaps,
@@ -71,18 +86,18 @@ use skin_workshop::{
     get_skin_workshop_config, get_skin_workshop_part_preview, get_skin_workshop_tree,
     open_skin_workshop_package,
 };
-use state::AppState;
+
 use tauri::{
     Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tools::{
-    cancel_lazer_dedupe, convert_mania_beatmaps, dedupe_lazer_files, generate_beatmap_preview,
-    get_default_file_clients, get_lazer_disk_usage, inspect_beatmap_preview,
-    open_beatmap_preview_output, open_local_resource_in_explorer, read_beatmap_preview_output,
-    read_lazer_realm_beatmap_sets, save_beatmap_preview_output, set_default_file_client,
-    set_display_gamma,
+    calculate_beatmap_pp, cancel_lazer_dedupe, convert_mania_beatmaps, dedupe_lazer_files,
+    generate_beatmap_preview, get_default_file_clients, get_lazer_disk_usage,
+    inspect_beatmap_preview, open_beatmap_preview_output, open_local_resource_in_explorer,
+    read_beatmap_preview_output, read_lazer_realm_beatmap_sets, save_beatmap_preview_output,
+    set_default_file_client, set_display_gamma,
 };
 use tosu::{
     get_tosu_logs, get_tosu_status, set_tosu_executable, set_tosu_lyrics_executable, start_tosu,
@@ -92,11 +107,16 @@ use trainer::generate_trainer_beatmap;
 use update_check::{check_for_updates, ignore_update_version};
 
 #[tauri::command]
+/// 立即结束应用进程；仅由显式的退出操作调用，不参与窗口隐藏或托盘最小化逻辑。
 fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// 构建桌面应用并注册共享状态、后台监控器、托盘交互和前端可调用的命令表。
+///
+/// 初始化索引会被移至阻塞线程，避免拖慢窗口创建；游戏和 OBS 监控器则持有
+/// `AppHandle`，以便把状态变化推送回前端。
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -107,16 +127,20 @@ pub fn run() {
             let state = app.state::<AppState>();
             let local_analysis = state.local_analysis.clone();
             tauri::async_runtime::spawn_blocking(move || local_analysis.load_cached_indexes());
+            let beatmaphub = state.beatmaphub.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = beatmaphub.recommendations(20, true).await;
+            });
             start_game_monitor(
                 state.local_analysis.clone(),
                 state.game_monitor.clone(),
                 app.handle().clone(),
             );
             start_obs_monitor(app.handle().clone());
-            let icon = app
-                .default_window_icon()
-                .expect("application bundle must include an icon")
-                .clone();
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../../public/01.png"))?;
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_icon(icon.clone())?;
+            }
             let show_window =
                 MenuItem::with_id(app, "show-window", "显示界面", true, None::<&str>)?;
             let exit = MenuItem::with_id(app, "exit", "退出", true, None::<&str>)?;
@@ -154,6 +178,29 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_auth_status,
+            get_beatmaphub_auth_status,
+            create_beatmaphub_profile,
+            login_beatmaphub,
+            link_beatmaphub_device,
+            logout_beatmaphub,
+            get_beatmaphub_profile,
+            create_beatmaphub_device_link,
+            revoke_beatmaphub_device,
+            get_beatmaphub_pack,
+            get_beatmaphub_recommendations,
+            search_beatmaphub_packs,
+            preview_beatmaphub_pack,
+            publish_beatmaphub_pack,
+            update_beatmaphub_pack,
+            delete_beatmaphub_pack,
+            rate_beatmaphub_pack,
+            favorite_beatmaphub_pack,
+            like_beatmaphub_pack,
+            get_beatmaphub_comments,
+            create_beatmaphub_comment,
+            update_beatmaphub_comment,
+            delete_beatmaphub_comment,
+            import_beatmaphub_pack,
             get_capabilities,
             list_collections,
             get_collection_sync_status,
@@ -167,6 +214,7 @@ pub fn run() {
             export_collection_share,
             preview_collection_share,
             import_collection_share,
+            import_collection_archive,
             get_collection_download_items,
             begin_collection_task,
             cancel_collection_task,

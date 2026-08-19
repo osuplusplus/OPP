@@ -84,6 +84,7 @@ pub(super) struct LocalIndex {
 
 impl LocalIndex {
     pub(super) fn rebuild_runtime_indexes(&mut self) {
+        // 持久化数据只存稳定字段；派生查询索引在载入后重建以兼顾兼容性和查询速度。
         self.beatmap_md5_lookup.clear();
         self.beatmap_sets.clear();
         self.beatmap_orders.clear();
@@ -220,6 +221,7 @@ pub(super) fn index_path(cache_dir: &Path, client: LocalClient) -> PathBuf {
 /// Loads the primary cache first, then its last-known-good backup.
 /// Incompatible or corrupted indexes are deliberately treated as cache misses.
 pub(super) fn load_index(cache_dir: &Path, client: LocalClient) -> Option<LocalIndex> {
+    // 主索引损坏时尝试备份；架构或难度算法版本不匹配时主动失效并在下次扫描重建。
     let target = index_path(cache_dir, client);
     let backup = cache_dir.join(format!("{client}-index.json.bak"));
     [target, backup].into_iter().find_map(|path| {

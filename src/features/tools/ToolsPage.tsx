@@ -101,7 +101,10 @@ export function BeatmapPreviewCard() {
     if (!strains) return [];
     const pointCount = Math.max(0, ...strains.series.map((series) => series.values.length));
     return Array.from({ length: pointCount }, (_, index) => ({
-      time: ((index + 1) * strains.section_length_ms) / 1_000,
+      time:
+        ((strains.section_start_time_ms ?? strains.first_object_time_ms) +
+          (index + 1) * strains.section_length_ms) /
+        1_000,
       strain: strains.series.reduce((sum, series) => sum + (series.values[index] ?? 0), 0),
     }));
   }, [inspection]);
@@ -310,6 +313,7 @@ function SpeedTestCard() {
 
 function SpeedTestContent() {
   const [active, setActive] = useState(false);
+  const [armed, setArmed] = useState(false);
   const [binding, setBinding] = useState(false);
   const [testKeys, setTestKeys] = useState<string[]>(["KeyZ", "KeyX"]);
   const [presses, setPresses] = useState(0);
@@ -371,8 +375,7 @@ function SpeedTestContent() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [binding]);
 
-  const start = () => {
-    startedAt.current = performance.now();
+  const resetTest = () => {
     pressTimesRef.current = [];
     setPresses(0);
     setRemaining(duration);
@@ -381,20 +384,40 @@ function SpeedTestContent() {
     setLiveKps(0);
     setPeakKps(0);
     setBuckets([]);
-    setActive(true);
+  };
+  const armTest = () => {
+    resetTest();
+    setArmed(true);
   };
   const terminate = () => { setTerminated(true); setActive(false); };
+
+  useEffect(() => {
+    if (!armed) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || !testKeys.includes(event.code)) return;
+      event.preventDefault();
+      const firstPressAt = performance.now();
+      startedAt.current = firstPressAt;
+      pressTimesRef.current = [firstPressAt];
+      setPresses(1);
+      setArmed(false);
+      setActive(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [armed, testKeys]);
+
   const bpm = active ? liveKps * 15 : result == null ? null : result * 15;
   const chartMax = Math.max(1, ...buckets);
   // 折线图：x 轴按测试时长铺满，每秒一档的按键数归一化到 0-100。
   const linePoints = buckets.map((count, index) => `${(index / Math.max(1, duration - 1)) * 100},${100 - (count / chartMax) * 100}`).join(" ");
   const lineEndX = ((buckets.length - 1) / Math.max(1, duration - 1)) * 100;
-  const status = active ? "测试中" : terminated ? "已终止（不计成绩）" : result == null ? "准备开始" : "本次成绩";
+  const status = active ? "测试中" : armed ? "等待测试按键" : terminated ? "已终止（不计成绩）" : result == null ? "准备开始" : "本次成绩";
 
   return <Card className="p-6">
     <div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><Keyboard className="size-5" /></div><SectionTitle title="手速测试" description="仅统计绑定的测试按键；实时 KPS 取最近 1 秒滚动窗口，BPM 按四分之一拍换算。" /></div>
-    <div className="mt-5 flex flex-wrap items-center gap-3"><span className="text-xs text-slate-500">测试时长</span>{[5, 10, 15, 30].map((value) => <button className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${duration === value ? "border-[var(--theme-primary)] bg-[var(--theme-primary-muted)] text-white" : "border-white/[0.08] text-slate-400"}`} disabled={active} key={value} onClick={() => { setDuration(value); setRemaining(value); setResult(null); setTerminated(false); }} type="button">{value}s</button>)}</div>
-    <div className="mt-3 flex flex-wrap items-center gap-2"><Button disabled={active} onClick={() => setBinding((current) => !current)} size="sm" variant="secondary">{binding ? "完成绑定" : "绑定测试按键"}</Button><span className="font-mono text-xs text-cyan-200">{testKeys.length ? testKeys.join(" + ").replace(/Key/g, "") : "未绑定"}</span></div>
+    <div className="mt-5 flex flex-wrap items-center gap-3"><span className="text-xs text-slate-500">测试时长</span>{[5, 10, 15, 30].map((value) => <button className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${duration === value ? "border-[var(--theme-primary)] bg-[var(--theme-primary-muted)] text-white" : "border-white/[0.08] text-slate-400"}`} disabled={active || armed} key={value} onClick={() => { setDuration(value); setRemaining(value); setResult(null); setTerminated(false); }} type="button">{value}s</button>)}</div>
+    <div className="mt-3 flex flex-wrap items-center gap-2"><Button disabled={active || armed} onClick={() => setBinding((current) => !current)} size="sm" variant="secondary">{binding ? "完成绑定" : "绑定测试按键"}</Button><span className="font-mono text-xs text-cyan-200">{testKeys.length ? testKeys.join(" + ").replace(/Key/g, "") : "未绑定"}</span></div>
     {binding ? <p className="mt-2 text-xs text-amber-200">按一个键以添加或移除；按 Esc 结束绑定。</p> : null}
     <div className="mt-4 rounded-2xl border border-white/[0.08] bg-black/[0.12] p-5">
       <div className="flex items-end justify-between gap-5">
@@ -422,7 +445,9 @@ function SpeedTestContent() {
       <div className="mt-5 flex flex-wrap gap-3">
         {active
           ? <Button onClick={terminate} variant="danger"><Square className="size-4" />终止测试</Button>
-          : <Button disabled={!testKeys.length} onClick={start} variant="primary">{result == null && !terminated ? `开始 ${duration} 秒测试` : "再测一次"}</Button>}
+          : armed
+            ? <><Button disabled variant="primary">按 {testKeys.join(" / ").replace(/Key/g, "")} 开始计时</Button><Button onClick={() => setArmed(false)} variant="ghost">取消等待</Button></>
+            : <Button disabled={!testKeys.length || binding} onClick={armTest} variant="primary">{result == null && !terminated ? `开始 ${duration} 秒测试` : "再测一次"}</Button>}
       </div>
     </div>
   </Card>;

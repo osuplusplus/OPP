@@ -106,7 +106,7 @@ export function AuthSetup({ status }: { status: AuthStatus }) {
       <Card className={`opp-auth-card relative z-10 w-full p-7 sm:p-9 ${editing ? "max-w-xl" : "max-w-md"}`}>
         <div className="flex items-center gap-3">
           <span className="grid size-11 place-items-center rounded-xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)]">
-            <img alt="OPP" className="size-7 rounded-md" src="/opp-icon.png" />
+            <img alt="OPP" className="size-7 rounded-md" src="/03.png" />
           </span>
           <div><p className="text-lg font-semibold text-white">OPP</p><p className="text-xs text-slate-500">连接 osu! 账户</p></div>
         </div>

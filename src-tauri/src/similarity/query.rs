@@ -278,6 +278,7 @@ fn beatmap_from_parts(
 }
 
 pub fn map_runtime_error(error: RuntimeError) -> CommandError {
+    // 不把索引的文件系统路径或运行时内部细节暴露给前端。
     match error.kind() {
         RuntimeErrorKind::Invalid => {
             CommandError::new("SIMILARITY_INDEX_INVALID", "本地相似谱面索引损坏或无法读取")

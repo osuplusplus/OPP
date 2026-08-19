@@ -150,6 +150,7 @@ function renderPage(advancedEnabled = false) {
     similarity_preferences: { ...defaultSimilarityPreferences, advanced_enabled: advancedEnabled },
     preview_volume: 65,
     default_beatmap_download_provider: "hinai",
+    include_video_in_beatmap_downloads: true,
     beatmap_download_directory: null,
   });
   return render(
@@ -242,6 +243,7 @@ describe("SimilarBeatmapsPage", () => {
       destination: "D:/downloads",
       provider: "hinai",
       overwrite: false,
+      include_video: true,
       items: [{ beatmapset_id: 2, artist: "Signal", title: "Candidate" }],
     });
 

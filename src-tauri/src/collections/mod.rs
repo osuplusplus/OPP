@@ -1,3 +1,4 @@
+mod archive;
 mod downloads;
 mod models;
 mod service;
@@ -8,6 +9,7 @@ mod task;
 #[cfg(test)]
 mod tests;
 
+pub use archive::import_collection_archive;
 pub use downloads::{
     get_collection_download_items, install_collection_downloads, open_collection_downloads,
 };

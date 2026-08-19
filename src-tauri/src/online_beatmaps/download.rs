@@ -5,11 +5,12 @@ use super::tools::sanitize_filename;
 
 use crate::{
     error::{CommandError, CommandResult},
-    state::AppState,
+    app::state::AppState,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub fn download_file_name(item: &BeatmapDownloadItem, suggested: Option<&str>) -> String {
+    // 以谱面集 ID 作为稳定前缀，避免镜像给出相同文件名时发生覆盖。
     let fallback = format!(
         "{} {} - {}.osz",
         item.beatmapset_id,
@@ -36,6 +37,7 @@ pub async fn download_with_adapters<F>(
     state: &AppState,
     beatmapset_id: u64,
     provider: &str,
+    include_video: bool,
     cancel: &AtomicBool,
     mut on_progress: F,
 ) -> CommandResult<super::providers::ProviderBytes>
@@ -62,7 +64,13 @@ where
         }
         match state
             .providers
-            .osz_with_progress(beatmapset_id, adapter, cancel, &mut on_progress)
+            .osz_with_progress(
+                beatmapset_id,
+                adapter,
+                include_video,
+                cancel,
+                &mut on_progress,
+            )
             .await
         {
             Ok(download) => return Ok(download),

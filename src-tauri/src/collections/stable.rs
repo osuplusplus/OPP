@@ -19,7 +19,7 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::get_game_status,
     local_analysis::{LocalBeatmapSummary, LocalClient},
-    state::AppState,
+    app::state::AppState,
 };
 
 #[derive(Debug, Clone)]
@@ -46,6 +46,7 @@ fn read_i32(bytes: &[u8], offset: &mut usize) -> CommandResult<i32> {
 }
 
 pub(super) fn read_uleb(bytes: &[u8], offset: &mut usize) -> CommandResult<usize> {
+    // Stable 数据库使用无符号 LEB128；每次读取都检查边界和移位长度。
     let mut value = 0usize;
     let mut shift = 0usize;
     loop {
@@ -119,6 +120,7 @@ fn push_osu_string(value: &str, output: &mut Vec<u8>) {
 }
 
 pub(super) fn parse_stable_db(bytes: &[u8]) -> CommandResult<StableDb> {
+    // 只解析 collections.db 所需字段，保留未知字段的二进制边界检查以兼容版本变更。
     let mut offset = 0;
     let version = read_i32(bytes, &mut offset)?;
     let count = read_i32(bytes, &mut offset)?;
@@ -148,6 +150,7 @@ pub(super) fn parse_stable_db(bytes: &[u8]) -> CommandResult<StableDb> {
 }
 
 pub(super) fn encode_stable_db(db: &StableDb) -> CommandResult<Vec<u8>> {
+    // 写回时使用与 stable 客户端相同的字段顺序和字符串编码，保证客户端可继续读取。
     let mut output = Vec::new();
     output.extend_from_slice(&db.version.to_le_bytes());
     let count = i32::try_from(db.folders.len())
@@ -416,10 +419,13 @@ fn refresh_stable_collections(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：刷新外部状态。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn refresh_collections(
     client: LocalClient,
     state: State<'_, AppState>,
 ) -> CommandResult<CollectionSnapshot> {
+    // 刷新会将 stable 的外部变化合并进内部副本，而不是覆盖本地创建的收藏夹。
     if client == LocalClient::Lazer {
         return state.collections.snapshot(source_statuses(&state));
     }

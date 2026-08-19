@@ -21,7 +21,7 @@ use crate::{
     error::{CommandError, CommandResult},
     game_session::get_game_status,
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 const MAX_INSTALL_ARCHIVES: usize = 500;
@@ -43,6 +43,8 @@ pub(super) struct DownloadedBeatmap {
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：读取当前状态或详情。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_collection_download_items(
     folder_ids: Vec<String>,
     app: AppHandle,
@@ -579,6 +581,8 @@ pub fn install_collection_downloads(
 }
 
 #[tauri::command]
+/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
+/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn open_collection_downloads(
     archive_paths: Vec<String>,
     app: AppHandle,

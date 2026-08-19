@@ -14,7 +14,7 @@ use url::Url;
 
 use crate::{
     error::{CommandError, CommandResult},
-    models::AppSettings,
+    app::models::AppSettings,
 };
 
 use super::models::{TosuLiveSnapshot, TosuLogEntry};
@@ -91,6 +91,7 @@ pub fn lyrics_executable_path(settings: &AppSettings) -> CommandResult<PathBuf> 
 }
 
 pub fn validate_executable(path: &Path) -> CommandResult<PathBuf> {
+    // 仅接受存在的可执行文件；后续启动使用规范化路径避免配置中的相对路径漂移。
     let path = path.canonicalize().map_err(|_| {
         CommandError::new("TOSU_EXECUTABLE_NOT_FOUND", "未找到所选的 tosu 可执行文件")
     })?;
@@ -482,6 +483,7 @@ fn stop_owned_lyrics(runtime: &TosuRuntime, app: &AppHandle) {
 
 /// OPP 退出时清理：终止由 OPP 启动的 tosu-lyrics 子进程
 pub fn cleanup_on_exit(runtime: &TosuRuntime) {
+    // 仅终止本进程启动的 lyrics 代理，避免退出 OPP 时误杀外部 tosu。
     if let Ok(mut lyrics) = runtime.lyrics_process.lock()
         && let Some(mut child) = lyrics.take()
     {

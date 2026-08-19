@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 realm-db-reader = { git = "https://github.com/Ohdmire/realm-db-reader" }
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +27,8 @@ serde_json = "1"
 semver = "1"
 axum = "0.8"
 base64 = "0.22"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 flate2 = "1"
 chrono = { version = "0.4", features = ["serde"] }
 keyring = { version = "3", features = ["windows-native", "sync-secret-service", "crypto-rust"] }
@@ -43,6 +45,7 @@ image = { version = "0.25.10", default-features = false, features = ["bmp", "gif
 rayon = "1"
 rosu-map = "0.2.1"
 rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp", branch = "pp-rework-202607" }
+rosu-pp-official = { package = "rosu-pp", version = "4.0.1" }
 sha2 = "0.10"
 walkdir = "2"
 zip = "4"

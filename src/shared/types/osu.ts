@@ -83,6 +83,7 @@ export interface CommandError {
   code: string;
   message: string;
   retry_after_seconds?: number;
+  request_id?: string;
 }
 
 export interface AuthStatus {
@@ -113,6 +114,7 @@ export interface AppSettings {
   similarity_index_directory: string | null;
   beatmap_download_directory: string | null;
   default_beatmap_download_provider: BeatmapDownloadProvider;
+  include_video_in_beatmap_downloads: boolean;
   open_downloaded_beatmaps_after_download: boolean;
   replay_export_directory: string | null;
   danser_executable_path?: string | null;
@@ -838,6 +840,7 @@ export interface StrainSeries {
 
 export interface StrainAnalysis {
   first_object_time_ms: number;
+  section_start_time_ms?: number;
   section_length_ms: number;
   series: StrainSeries[];
 }
@@ -1120,6 +1123,84 @@ export interface CollectionWriteResult {
   backup_path: string | null;
 }
 
+export interface BeatmapHubAuthStatus {
+  has_identity: boolean;
+  connected: boolean;
+  public_key: string | null;
+  user_id: string | null;
+  device_id: string | null;
+  display_name: string | null;
+  device_name: string | null;
+  expires_at: string | null;
+}
+
+export interface BeatmapHubDevice {
+  id: string;
+  device_name: string;
+  public_key: string;
+  created_at: string;
+  last_seen_at: string;
+  revoked_at: string | null;
+}
+
+export interface BeatmapHubProfile {
+  user: { id: string; display_name: string };
+  current_device_id: string;
+  devices: BeatmapHubDevice[];
+}
+
+export interface BeatmapHubPack {
+  id: string;
+  title: string;
+  description: string;
+  is_private: boolean;
+  owner: { id: string; display_name: string };
+  beatmapset_ids: number[];
+  stars_min?: number | null;
+  stars_max?: number | null;
+  manifest_hash: string;
+  rating: { average: number | null; count: number };
+  likes: { count: number };
+  comments: { count: number };
+  viewer: { rating: number | null; favorited: boolean; liked: boolean; can_edit: boolean } | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BeatmapHubComment {
+  id: string;
+  user: { id: string; display_name: string };
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BeatmapHubRecommendation = BeatmapHubPack;
+
+export interface BeatmapHubPackPreview {
+  pack: BeatmapHubPack;
+  locally_available_ids: number[];
+  missing_ids: number[];
+}
+
+export interface BeatmapHubPublishResult {
+  id: string;
+  included: number;
+  skipped: number;
+}
+
+export interface BeatmapHubImportResult {
+  folder_id: string;
+  imported_sets: number;
+  imported_entries: number;
+  unresolved_sets: number;
+}
+
+export interface BeatmapHubDeviceLink {
+  link_token: string;
+  expires_at: string;
+}
+
 export interface OnlineBeatmapset {
   id: number;
   user_id?: number;
@@ -1176,6 +1257,7 @@ export interface BeatmapDownloadRequest {
   items: BeatmapDownloadItem[];
   provider: BeatmapDownloadProvider | "none";
   overwrite: boolean;
+  include_video: boolean;
   open_after_download?: boolean;
 }
 

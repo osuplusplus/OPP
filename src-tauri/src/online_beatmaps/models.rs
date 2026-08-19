@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::models::Ruleset;
+use crate::app::models::Ruleset;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -75,12 +75,18 @@ pub struct BeatmapDownloadRequest {
     pub provider: String,
     #[serde(default)]
     pub overwrite: bool,
+    #[serde(default = "default_include_video")]
+    pub include_video: bool,
     #[serde(default)]
     pub open_after_download: Option<bool>,
 }
 
 fn default_download_provider() -> String {
     "sayobot".into()
+}
+
+fn default_include_video() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize)]

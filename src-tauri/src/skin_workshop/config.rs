@@ -13,6 +13,7 @@ use crate::{
 use super::models::{SkinConfigDocument, SkinConfigEntry, SkinConfigError, SkinConfigSection};
 
 pub(crate) fn copy_directory(source: &Path, target: &Path) -> CommandResult<()> {
+    // 发布前复制到独立工作目录，后续编辑不会直接修改用户正在使用的原始皮肤。
     fs::create_dir_all(target)?;
     for entry in WalkDir::new(source).follow_links(false) {
         let entry = entry
@@ -427,6 +428,7 @@ fn encode_like(original: &[u8], source: &str) -> Vec<u8> {
 }
 
 pub(crate) fn safe_child(root: &Path, logical_path: &str) -> CommandResult<PathBuf> {
+    // 拒绝绝对路径和父目录穿越，所有工作区文件操作必须限制在皮肤根目录内。
     let relative = Path::new(logical_path);
     if relative.is_absolute()
         || relative.components().any(|part| {

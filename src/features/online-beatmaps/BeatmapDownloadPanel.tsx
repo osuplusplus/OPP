@@ -185,6 +185,7 @@ export function BeatmapDownloadPanel({
         destination: target,
         provider,
         overwrite,
+        include_video: settings.data?.include_video_in_beatmap_downloads ?? true,
         items: queue.map((item) => ({ beatmapset_id: item.id, artist: item.artist, title: item.title })),
       });
       setResult(completed);

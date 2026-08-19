@@ -13,8 +13,8 @@ use tauri::{AppHandle, Emitter};
 use crate::{
     account::ensure_access_token,
     error::{CommandError, CommandResult},
-    models::Ruleset,
-    state::AppState,
+    app::models::Ruleset,
+    app::state::AppState,
 };
 
 pub const MAX_COLLECT_RESULTS: usize = 500;

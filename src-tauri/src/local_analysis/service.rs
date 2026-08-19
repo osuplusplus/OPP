@@ -25,7 +25,7 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use crate::error::{CommandError, CommandResult};
 #[cfg(test)]
-use crate::models::Ruleset;
+use crate::app::models::Ruleset;
 
 use super::{
     lazer_realm,
@@ -477,6 +477,21 @@ impl LocalAnalysisService {
             offset: query.offset,
             limit,
         })
+    }
+
+    pub(crate) fn contains_beatmapset_id(&self, beatmapset_id: i32) -> bool {
+        [LocalClient::Stable, LocalClient::Lazer]
+            .into_iter()
+            .filter_map(|client| self.require_current_index(client).ok())
+            .any(|index| {
+                index.entries.iter().any(|entry| {
+                    matches!(
+                        &entry.data,
+                        IndexedData::Beatmap { summary, .. }
+                            if summary.beatmap_set_id == Some(beatmapset_id)
+                    )
+                })
+            })
     }
 
     pub fn query_beatmap_sets(

@@ -396,6 +396,7 @@ export function SimilarBeatmapsPage() {
         destination,
         provider: resolveDefaultDownloadProvider(settings.data),
         overwrite: false,
+        include_video: settings.data?.include_video_in_beatmap_downloads ?? true,
         items: Array.from(new Map(results.map((result) => [result.beatmapset_id, { beatmapset_id: result.beatmapset_id, artist: result.artist, title: result.title }])).values()),
       });
       setDownloadNotice(

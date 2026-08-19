@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     error::{CommandError, CommandResult},
     local_analysis::LocalClient,
-    state::AppState,
+    app::state::AppState,
 };
 
 #[derive(Debug, Deserialize)]
@@ -123,6 +123,7 @@ fn is_mania_beatmap(source: &str) -> bool {
 }
 
 fn transform_beatmap(source: &str, request: &TrainerRequest) -> CommandResult<(String, usize)> {
+    // 只重写可安全识别的元数据和 HitObjects，保留其余 .osu 段落以兼容原始谱面。
     if !(0.75..=2.0).contains(&request.rate) {
         return Err(CommandError::new(
             "INVALID_RATE",
@@ -314,6 +315,7 @@ mod tests {
 }
 
 fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) -> CommandResult<()> {
+    // 音频变速需要外部工具；未请求变速时直接复制以避免无损资源被重复编码。
     let requires_transform = (request.rate - 1.0).abs() > f64::EPSILON
         || request.start_time_ms.unwrap_or(0.0) > 0.0
         || request.end_time_ms.is_some();
