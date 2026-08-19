@@ -45,10 +45,10 @@ describe("BeatmapHubPage", () => {
     renderPage();
     const input = await screen.findByPlaceholderText("BPH-7K3N9A");
     await userEvent.type(input, "7K3N9A");
-    await userEvent.click(screen.getByRole("button", { name: "打开" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "打开" }).slice(-1)[0]);
     expect(await screen.findByRole("heading", { name: "Tech Pack" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认导入/ })).toBeInTheDocument();
-    expect(screen.getByText("已收藏")).toBeInTheDocument();
+    expect(screen.getAllByText("已收藏").slice(-1)[0]).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "删除曲包" })).toBeInTheDocument();
   });
 });

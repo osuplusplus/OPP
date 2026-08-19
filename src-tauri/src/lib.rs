@@ -31,18 +31,22 @@ use account::{
 use app::state::AppState;
 
 use beatmaphub::{
-    create_beatmaphub_device_link, create_beatmaphub_profile, delete_beatmaphub_pack,
-    favorite_beatmaphub_pack, get_beatmaphub_auth_status, get_beatmaphub_pack,
-    get_beatmaphub_profile, import_beatmaphub_pack, link_beatmaphub_device, login_beatmaphub,
-    logout_beatmaphub, preview_beatmaphub_pack, publish_beatmaphub_pack, rate_beatmaphub_pack,
-    revoke_beatmaphub_device, update_beatmaphub_pack,
+    create_beatmaphub_comment, create_beatmaphub_device_link, create_beatmaphub_profile,
+    delete_beatmaphub_comment, delete_beatmaphub_pack, favorite_beatmaphub_pack,
+    get_beatmaphub_auth_status, get_beatmaphub_comments, get_beatmaphub_pack,
+    get_beatmaphub_profile, get_beatmaphub_recommendations, import_beatmaphub_pack,
+    like_beatmaphub_pack, link_beatmaphub_device, login_beatmaphub, logout_beatmaphub,
+    preview_beatmaphub_pack, publish_beatmaphub_pack, rate_beatmaphub_pack,
+    revoke_beatmaphub_device, search_beatmaphub_packs, update_beatmaphub_comment,
+    update_beatmaphub_pack,
 };
 use collections::{
     add_collection_entries, begin_collection_task, cancel_collection_task, create_collection,
     delete_collection, export_collection_share, get_collection_download_items,
-    get_collection_sync_status, import_collection_share, install_collection_downloads,
-    list_collections, open_collection_downloads, preview_collection_share, refresh_collections,
-    remove_collection_entry, rename_collection, write_stable_collections,
+    get_collection_sync_status, import_collection_archive, import_collection_share,
+    install_collection_downloads, list_collections, open_collection_downloads,
+    preview_collection_share, refresh_collections, remove_collection_entry, rename_collection,
+    write_stable_collections,
 };
 use danser::{
     cancel_danser_render, enqueue_danser_renders, get_danser_render_queue, get_danser_status,
@@ -123,6 +127,10 @@ pub fn run() {
             let state = app.state::<AppState>();
             let local_analysis = state.local_analysis.clone();
             tauri::async_runtime::spawn_blocking(move || local_analysis.load_cached_indexes());
+            let beatmaphub = state.beatmaphub.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = beatmaphub.recommendations(20, true).await;
+            });
             start_game_monitor(
                 state.local_analysis.clone(),
                 state.game_monitor.clone(),
@@ -179,12 +187,19 @@ pub fn run() {
             create_beatmaphub_device_link,
             revoke_beatmaphub_device,
             get_beatmaphub_pack,
+            get_beatmaphub_recommendations,
+            search_beatmaphub_packs,
             preview_beatmaphub_pack,
             publish_beatmaphub_pack,
             update_beatmaphub_pack,
             delete_beatmaphub_pack,
             rate_beatmaphub_pack,
             favorite_beatmaphub_pack,
+            like_beatmaphub_pack,
+            get_beatmaphub_comments,
+            create_beatmaphub_comment,
+            update_beatmaphub_comment,
+            delete_beatmaphub_comment,
             import_beatmaphub_pack,
             get_capabilities,
             list_collections,
@@ -199,6 +214,7 @@ pub fn run() {
             export_collection_share,
             preview_collection_share,
             import_collection_share,
+            import_collection_archive,
             get_collection_download_items,
             begin_collection_task,
             cancel_collection_task,

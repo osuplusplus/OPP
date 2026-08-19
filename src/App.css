@@ -584,6 +584,12 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   animation: opp-content-enter var(--motion-base) ease-out both;
 }
 
+/* BeatmapHub now presents the active pack in a detail dialog. Keep the
+   legacy inline surface out of the document flow until it can be removed. */
+.beatmaphub-page > .opp-section.overflow-hidden {
+  display: none;
+}
+
 @keyframes opp-content-enter {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }

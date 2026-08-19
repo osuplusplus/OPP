@@ -72,11 +72,43 @@ pub struct PackRating {
     pub count: u64,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PackCount {
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackViewer {
     pub rating: Option<u8>,
     pub favorited: bool,
+    #[serde(default)]
+    pub liked: bool,
     pub can_edit: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackCommentUser {
+    pub id: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackComment {
+    pub id: String,
+    pub user: PackCommentUser,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PackCommentsResponse {
+    pub comments: Vec<PackComment>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PackSearchResponse {
+    pub packs: Vec<Pack>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,10 +116,20 @@ pub struct Pack {
     pub id: String,
     pub title: String,
     pub description: String,
+    #[serde(default)]
+    pub is_private: bool,
     pub owner: PackOwner,
     pub beatmapset_ids: Vec<i32>,
+    #[serde(default)]
+    pub stars_min: Option<f64>,
+    #[serde(default)]
+    pub stars_max: Option<f64>,
     pub manifest_hash: String,
     pub rating: PackRating,
+    #[serde(default)]
+    pub likes: PackCount,
+    #[serde(default)]
+    pub comments: PackCount,
     pub viewer: Option<PackViewer>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

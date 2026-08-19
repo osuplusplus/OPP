@@ -1153,14 +1153,29 @@ export interface BeatmapHubPack {
   id: string;
   title: string;
   description: string;
+  is_private: boolean;
   owner: { id: string; display_name: string };
   beatmapset_ids: number[];
+  stars_min?: number | null;
+  stars_max?: number | null;
   manifest_hash: string;
   rating: { average: number | null; count: number };
-  viewer: { rating: number | null; favorited: boolean; can_edit: boolean } | null;
+  likes: { count: number };
+  comments: { count: number };
+  viewer: { rating: number | null; favorited: boolean; liked: boolean; can_edit: boolean } | null;
   created_at: string;
   updated_at: string;
 }
+
+export interface BeatmapHubComment {
+  id: string;
+  user: { id: string; display_name: string };
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BeatmapHubRecommendation = BeatmapHubPack;
 
 export interface BeatmapHubPackPreview {
   pack: BeatmapHubPack;

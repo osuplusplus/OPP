@@ -73,6 +73,27 @@ pub async fn get_beatmaphub_pack(
 }
 
 #[tauri::command]
+pub async fn get_beatmaphub_recommendations(
+    limit: Option<u8>,
+    force_refresh: Option<bool>,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<Pack>> {
+    state
+        .beatmaphub
+        .recommendations(limit.unwrap_or(20), force_refresh.unwrap_or(false))
+        .await
+}
+
+#[tauri::command]
+pub async fn search_beatmaphub_packs(
+    query: String,
+    limit: Option<u8>,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<Pack>> {
+    state.beatmaphub.search(&query, limit.unwrap_or(20)).await
+}
+
+#[tauri::command]
 pub async fn preview_beatmaphub_pack(
     share_id: String,
     state: State<'_, AppState>,
@@ -85,11 +106,12 @@ pub async fn publish_beatmaphub_pack(
     folder_id: String,
     title: String,
     description: String,
+    is_private: bool,
     state: State<'_, AppState>,
 ) -> CommandResult<PublishResult> {
     state
         .beatmaphub
-        .publish(&state, &folder_id, title, description)
+        .publish(&state, &folder_id, title, description, is_private)
         .await
 }
 
@@ -99,11 +121,19 @@ pub async fn update_beatmaphub_pack(
     folder_id: String,
     title: String,
     description: String,
+    is_private: bool,
     state: State<'_, AppState>,
 ) -> CommandResult<()> {
     state
         .beatmaphub
-        .update_pack(&state, &share_id, &folder_id, title, description)
+        .update_pack(
+            &state,
+            &share_id,
+            &folder_id,
+            title,
+            description,
+            is_private,
+        )
         .await
 }
 
@@ -131,6 +161,53 @@ pub async fn favorite_beatmaphub_pack(
     state: State<'_, AppState>,
 ) -> CommandResult<()> {
     state.beatmaphub.favorite(&share_id, enabled).await
+}
+
+#[tauri::command]
+pub async fn like_beatmaphub_pack(
+    share_id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> CommandResult<()> {
+    state.beatmaphub.like(&share_id, enabled).await
+}
+
+#[tauri::command]
+pub async fn get_beatmaphub_comments(
+    share_id: String,
+    limit: Option<u8>,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<PackComment>> {
+    state
+        .beatmaphub
+        .comments(&share_id, limit.unwrap_or(50))
+        .await
+}
+
+#[tauri::command]
+pub async fn create_beatmaphub_comment(
+    share_id: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> CommandResult<PackComment> {
+    state.beatmaphub.create_comment(&share_id, content).await
+}
+
+#[tauri::command]
+pub async fn update_beatmaphub_comment(
+    comment_id: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> CommandResult<PackComment> {
+    state.beatmaphub.update_comment(&comment_id, content).await
+}
+
+#[tauri::command]
+pub async fn delete_beatmaphub_comment(
+    comment_id: String,
+    state: State<'_, AppState>,
+) -> CommandResult<()> {
+    state.beatmaphub.delete_comment(&comment_id).await
 }
 
 #[tauri::command]

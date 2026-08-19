@@ -7,9 +7,11 @@ import type {
   AppSettings,
   AuthStatus,
   BeatmapHubAuthStatus,
+  BeatmapHubComment,
   BeatmapHubDeviceLink,
   BeatmapHubImportResult,
   BeatmapHubPack,
+  BeatmapHubRecommendation,
   BeatmapHubPackPreview,
   BeatmapHubProfile,
   BeatmapHubPublishResult,
@@ -156,6 +158,7 @@ async function call<T>(
 function browserPreviewValue<T>(command: string, args?: Record<string, unknown>): T | undefined {
   if (command === "get_capabilities") return { os: "windows", display_gamma: true, file_association: true } as T;
   if (command === "get_beatmaphub_auth_status") return { has_identity: false, connected: false, public_key: null, user_id: null, device_id: null, display_name: null, device_name: "Preview PC", expires_at: null } as T;
+  if (command === "get_beatmaphub_recommendations") return [] as T;
   if (command === "list_collections") return { folders: [], sources: [] } as T;
   if (command === "get_lazer_disk_usage") return { path: "C:\\osu!", total_size: 1610612736, unique_size: 536870912, file_count: 4096 } as T;
   if (command === "read_lazer_realm_beatmap_sets") return { realm_path: "C:\\osu!\\client.realm", table_count: 16, beatmap_set_count: 2, beatmap_sets: [{ id: "fc56eb02bba7428499af65e5c2c80c73", online_id: -1, artist: "cYsmix", title: "triangles", creator: "peppy", beatmap_count: 1, delete_pending: false, files: [{ filename: "audio.mp3", hash: "47b895484e7751f3ab429694ff6dbf21e774ab023e4f6c5b481476f04ff22f0f" }, { filename: "cYsmix - triangles (peppy) [peppy].osu", hash: "a1556d0801b3a6b175dda32ef546f0ec812b400499f575c44fccbe9c67f9b1e5" }] }] } as T;
@@ -251,14 +254,21 @@ export const desktopApi = {
   createBeatmapHubDeviceLink: () => call<BeatmapHubDeviceLink>("create_beatmaphub_device_link"),
   revokeBeatmapHubDevice: (deviceId: string) => call<void>("revoke_beatmaphub_device", { deviceId }),
   getBeatmapHubPack: (shareId: string) => call<BeatmapHubPack>("get_beatmaphub_pack", { shareId }),
+  getBeatmapHubRecommendations: (limit = 20, forceRefresh = false) => call<BeatmapHubRecommendation[]>("get_beatmaphub_recommendations", { limit, forceRefresh }),
+  searchBeatmapHubPacks: (query: string, limit = 20) => call<BeatmapHubRecommendation[]>("search_beatmaphub_packs", { query, limit }),
   previewBeatmapHubPack: (shareId: string) => call<BeatmapHubPackPreview>("preview_beatmaphub_pack", { shareId }),
-  publishBeatmapHubPack: (folderId: string, title: string, description: string) =>
-    call<BeatmapHubPublishResult>("publish_beatmaphub_pack", { folderId, title, description }),
-  updateBeatmapHubPack: (shareId: string, folderId: string, title: string, description: string) =>
-    call<void>("update_beatmaphub_pack", { shareId, folderId, title, description }),
+  publishBeatmapHubPack: (folderId: string, title: string, description: string, isPrivate = false) =>
+    call<BeatmapHubPublishResult>("publish_beatmaphub_pack", { folderId, title, description, isPrivate }),
+  updateBeatmapHubPack: (shareId: string, folderId: string, title: string, description: string, isPrivate = false) =>
+    call<void>("update_beatmaphub_pack", { shareId, folderId, title, description, isPrivate }),
   deleteBeatmapHubPack: (shareId: string) => call<void>("delete_beatmaphub_pack", { shareId }),
   rateBeatmapHubPack: (shareId: string, score: number) => call<void>("rate_beatmaphub_pack", { shareId, score }),
   favoriteBeatmapHubPack: (shareId: string, enabled: boolean) => call<void>("favorite_beatmaphub_pack", { shareId, enabled }),
+  likeBeatmapHubPack: (shareId: string, enabled: boolean) => call<void>("like_beatmaphub_pack", { shareId, enabled }),
+  getBeatmapHubComments: (shareId: string, limit = 50) => call<BeatmapHubComment[]>("get_beatmaphub_comments", { shareId, limit }),
+  createBeatmapHubComment: (shareId: string, content: string) => call<BeatmapHubComment>("create_beatmaphub_comment", { shareId, content }),
+  updateBeatmapHubComment: (commentId: string, content: string) => call<BeatmapHubComment>("update_beatmaphub_comment", { commentId, content }),
+  deleteBeatmapHubComment: (commentId: string) => call<void>("delete_beatmaphub_comment", { commentId }),
   importBeatmapHubPack: (shareId: string, resolved: OnlineBeatmapset[]) =>
     call<BeatmapHubImportResult>("import_beatmaphub_pack", { shareId, resolved }),
   getCapabilities: () => call<PlatformCapabilities>("get_capabilities"),
@@ -333,6 +343,7 @@ export const desktopApi = {
   exportCollectionShare: (folderId: string, creator: string) => call<string>("export_collection_share", { folderId, creator }),
   previewCollectionShare: (code: string) => call<CollectionSharePreview>("preview_collection_share", { code }),
   importCollectionShare: (code: string) => call<CollectionFolder>("import_collection_share", { code }),
+  importCollectionArchive: (path: string) => call<CollectionFolder>("import_collection_archive", { path }),
   getCollectionDownloadItems: (folderIds: string[]) => call<CollectionDownloadItem[]>("get_collection_download_items", { folderIds }),
   beginCollectionTask: () => call<void>("begin_collection_task"),
   cancelCollectionTask: () => call<void>("cancel_collection_task"),
