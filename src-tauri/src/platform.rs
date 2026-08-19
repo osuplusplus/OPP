@@ -116,10 +116,11 @@ fn read_storage_ini_fullpath(storage_ini: &Path) -> Option<PathBuf> {
     None
 }
 
-/// 解析 osu!lazer 实际使用的数据根：只认默认数据根下 `storage.ini`
+/// 解析 osu!lazer 实际使用的数据根：`storage.ini` 的 `FullPath` 存在时
+/// 无条件只认它，不回退；没有 ini 才用默认数据根。
 pub fn resolve_lazer_data_root() -> Option<PathBuf> {
     let data_root = lazer_data_root()?;
-    read_storage_ini_fullpath(&data_root.join("storage.ini"))
+    read_storage_ini_fullpath(&data_root.join("storage.ini")).or(Some(data_root))
 }
 
 /// Linux 上启动/识别 osu! 客户端用的系统命令名（stable → `osu-wine`，lazer →

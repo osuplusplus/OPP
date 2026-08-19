@@ -372,7 +372,7 @@ export function SettingsPage() {
             <div className="mt-5 space-y-3">
               {clients.map(([client, label]) => {
                 const source = sources.data?.find((item) => item.client === client);
-                const path = source?.configured_path ?? source?.install_root ?? source?.data_root;
+                const path = source?.configured_path ?? source?.data_root ?? source?.install_root;
                 return (
                   <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4" key={client}>
                     <div className="flex items-start justify-between gap-3">
