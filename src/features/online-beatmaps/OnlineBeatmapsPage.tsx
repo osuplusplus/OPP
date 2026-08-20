@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckSquare2, ChevronDown, DownloadCloud, Music2, SearchX } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMode } from "../../app/ModeContext";
@@ -29,17 +29,32 @@ function collectionCandidates(beatmapset: OnlineBeatmapset) {
   return (beatmapset.beatmaps ?? []).map((beatmap) => ({ beatmap_id: beatmap.id, beatmapset_id: beatmapset.id, checksum: beatmap.checksum ?? null, ruleset: beatmap.mode, difficulty_name: beatmap.version, title: beatmapset.title_unicode ?? beatmapset.title, artist: beatmapset.artist_unicode ?? beatmapset.artist, creator: beatmapset.creator }));
 }
 
+function beatmapsetIdFromLookup(value: Record<string, unknown>) {
+  const direct = value.beatmapset_id ?? value.beatmap_set_id ?? value.set_id;
+  const nested = value.beatmapset;
+  const candidate = direct ?? (nested && typeof nested === "object" ? (nested as Record<string, unknown>).id : null);
+  const id = Number(candidate);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLink = parseOnlineBeatmapDeepLink(searchParams);
+  const beatmapLookup = useQuery({
+    queryKey: ["online-beatmap", deepLink.beatmapId],
+    queryFn: () => desktopApi.getOnlineBeatmap(deepLink.beatmapId!),
+    enabled: deepLink.beatmapsetId === null && deepLink.beatmapId !== null,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
   const [draft, setDraft] = useState<OnlineBeatmapSearchQuery>(() => createDefaultSearchQuery(ruleset));
   const [activeQuery, setActiveQuery] = useState<OnlineBeatmapSearchQuery>(() => createDefaultSearchQuery(ruleset));
   const [queue, setQueue] = useState<Map<number, OnlineBeatmapset>>(() => new Map());
   const [manualDetailId, setManualDetailId] = useState<number | null>(null);
-  const detailId = deepLink.beatmapsetId ?? manualDetailId;
+  const detailId = deepLink.beatmapsetId ?? beatmapsetIdFromLookup(beatmapLookup.data ?? {}) ?? manualDetailId;
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [directDownloadId, setDirectDownloadId] = useState<number | null>(null);
   const [directDownloadError, setDirectDownloadError] = useState<string | null>(null);
