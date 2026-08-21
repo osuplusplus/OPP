@@ -804,6 +804,7 @@ export interface LiveExportParams {
 export interface LiveRenderOptions {
   urBar: boolean;
   followPoints: boolean;
+  keyOverlay: boolean;
   bg: boolean;
   bgOpacity: number;
   audio: boolean;

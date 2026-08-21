@@ -60,6 +60,8 @@ pub struct LiveOptions {
     /// UR 显示(UR 条:刻度/中心标记/均值箭头/判定色轴/UR 数值)整体
     /// 一个开关,默认开。
     pub ur_bar: bool,
+    /// 按键输入展示(右下角 Z/X/C 键位计数,Argon key overlay),默认开。
+    pub key_overlay: bool,
     /// 物件之间的引导线(follow points),默认开。
     pub follow_points: bool,
     /// 绘制谱面背景图([Events] 0,0,...,全屏铺满)。
@@ -68,8 +70,8 @@ pub struct LiveOptions {
     pub bg_opacity: f32,
     /// 播放 BGM([General] AudioFilename,相对谱面目录)。
     pub audio: bool,
-    /// BGM 对齐偏移 ms,默认 +15(lazer Windows 平台偏移:
-    /// 音频位置 = 回放时间 − 总偏移)。
+    /// BGM 对齐偏移 ms,默认 0(音频位置 = 回放时间 − 偏移,
+    /// 界面里用户可自行调整)。
     pub audio_offset: f64,
 }
 
@@ -77,11 +79,12 @@ impl Default for LiveOptions {
     fn default() -> Self {
         Self {
             ur_bar: true,
+            key_overlay: true,
             follow_points: true,
             bg: false,
             bg_opacity: 0.3,
             audio: true,
-            audio_offset: 15.0,
+            audio_offset: 0.0,
         }
     }
 }
@@ -864,6 +867,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             let Some(s) = session.as_mut() else { return };
             // ---- 即时字段:下一帧生效 ----
             s.state.hud.ur_bar = options.ur_bar;
+            s.state.hud.key_overlay = options.key_overlay;
             s.state.follow_points = options.follow_points;
             s.audio_offset = options.audio_offset;
 
@@ -953,6 +957,7 @@ fn open_session(
     // 固定 Argon-Pro 皮肤(无判定文字、滑条身体透明度 0.92)。
     state.pro_skin = true;
     state.hud.ur_bar = options.ur_bar;
+    state.hud.key_overlay = options.key_overlay;
     state.follow_points = options.follow_points;
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))
@@ -1422,6 +1427,7 @@ fn run_export(
     let mut state = scene::SceneState::new(&game, params.width, params.height);
     state.pro_skin = true;
     state.hud.ur_bar = options.ur_bar;
+    state.hud.key_overlay = options.key_overlay;
     state.follow_points = options.follow_points;
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))

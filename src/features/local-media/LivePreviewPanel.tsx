@@ -22,10 +22,11 @@ function formatTime(ms: number) {
 const defaultOptions: LiveRenderOptions = {
   urBar: true,
   followPoints: true,
+  keyOverlay: true,
   bg: false,
   bgOpacity: 0.3,
   audio: true,
-  audioOffset: 15,
+  audioOffset: 0,
 };
 
 export function LivePreviewPanel() {
@@ -361,6 +362,9 @@ export function LivePreviewPanel() {
             </label> : null}
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.urBar} onChange={(event) => update("urBar", event.target.checked)} />UR 显示(UR 条与数值)
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
+              <input className="accent-cyan-400" type="checkbox" checked={options.keyOverlay} onChange={(event) => update("keyOverlay", event.target.checked)} />按键输入展示(Z/X/C 键与计数)
             </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线(Follow points)
