@@ -71,6 +71,7 @@ const base: AppSettings = {
   ignored_update_version: null,
   reduce_motion: false,
   similarity_index_directory: null,
+  mania_similarity_index_directory: null,
   beatmap_download_directory: null,
   default_beatmap_download_provider: "sayobot",
   include_video_in_beatmap_downloads: true,
@@ -449,7 +450,7 @@ export function SettingsPage() {
             <div className="mt-5 space-y-3">
               <Toggle
                 checked={settings.similarity_preferences.advanced_enabled}
-                description="开启后可在相似谱面页面切换动态或手动模式，并调整星数范围及六组推荐权重。"
+                description="开启后可在 osu!standard 相似谱面中切换动态或手动模式，并调整星数范围及六组推荐权重；Mania 使用固定权重。"
                 label="相似谱面高级设置"
                 onChange={(value) => void save({
                   ...settings,

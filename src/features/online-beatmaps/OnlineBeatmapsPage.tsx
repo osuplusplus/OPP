@@ -43,6 +43,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLink = parseOnlineBeatmapDeepLink(searchParams);
+  const linkedQuery = searchParams.get("query")?.trim() ?? "";
   const beatmapLookup = useQuery({
     queryKey: ["online-beatmap", deepLink.beatmapId],
     queryFn: () => desktopApi.getOnlineBeatmap(deepLink.beatmapId!),
@@ -50,8 +51,8 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
     retry: false,
     staleTime: 5 * 60_000,
   });
-  const [draft, setDraft] = useState<OnlineBeatmapSearchQuery>(() => createDefaultSearchQuery(ruleset));
-  const [activeQuery, setActiveQuery] = useState<OnlineBeatmapSearchQuery>(() => createDefaultSearchQuery(ruleset));
+  const [draft, setDraft] = useState<OnlineBeatmapSearchQuery>(() => ({ ...createDefaultSearchQuery(ruleset), query: linkedQuery, title: linkedQuery }));
+  const [activeQuery, setActiveQuery] = useState<OnlineBeatmapSearchQuery>(() => ({ ...createDefaultSearchQuery(ruleset), query: linkedQuery, title: linkedQuery }));
   const [queue, setQueue] = useState<Map<number, OnlineBeatmapset>>(() => new Map());
   const [manualDetailId, setManualDetailId] = useState<number | null>(null);
   const detailId = deepLink.beatmapsetId ?? beatmapsetIdFromLookup(beatmapLookup.data ?? {}) ?? manualDetailId;
@@ -67,6 +68,15 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
 
   useEffect(() => () => { audioRef.current?.pause(); audioRef.current = null; }, []);
   useEffect(() => { if (audioRef.current) audioRef.current.volume = previewVolume / 100; }, [previewVolume]);
+  useEffect(() => {
+    if (!linkedQuery) return;
+    const frame = window.requestAnimationFrame(() => {
+      const next = { ...createDefaultSearchQuery(ruleset), query: linkedQuery, title: linkedQuery };
+      setDraft(next);
+      setActiveQuery(next);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [linkedQuery, ruleset]);
 
   const items = useMemo(() => uniqueBeatmapsets(search.data?.pages.flatMap((page) => page.beatmapsets ?? []) ?? []), [search.data]);
   const searchSuggestions = useMemo(() => items.flatMap((item) => [
@@ -171,7 +181,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
       </div>
     </div>
 
-    <BeatmapsetDetailDialog beatmapsetId={detailId} fallback={detailFallback} initialBeatmapId={deepLink.beatmapId} key={detailId ?? "closed"} onAddToCollection={(beatmapset) => openCollectionDialog(collectionCandidates(beatmapset))} onClose={closeDetail} onFindSimilar={(beatmapId) => navigate(similarityRouteForBeatmap(beatmapId))} onPreview={togglePreview} playing={detailId !== null && playingId === detailId} />
+    <BeatmapsetDetailDialog beatmapsetId={detailId} fallback={detailFallback} initialBeatmapId={deepLink.beatmapId} key={detailId ?? "closed"} onAddToCollection={(beatmapset) => openCollectionDialog(collectionCandidates(beatmapset))} onClose={closeDetail} onFindSimilar={(beatmapId, beatmapRuleset) => navigate(similarityRouteForBeatmap(beatmapId, beatmapRuleset))} onPreview={togglePreview} playing={detailId !== null && playingId === detailId} />
   </>;
 }
 

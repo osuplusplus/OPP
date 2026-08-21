@@ -156,6 +156,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub similarity_index_directory: Option<String>,
     #[serde(default)]
+    pub mania_similarity_index_directory: Option<String>,
+    #[serde(default)]
     pub similarity_preferences: SimilarityPreferences,
     #[serde(default)]
     pub beatmap_download_directory: Option<String>,
@@ -392,6 +394,7 @@ impl Default for AppSettings {
             ignored_update_version: None,
             reduce_motion: false,
             similarity_index_directory: None,
+            mania_similarity_index_directory: None,
             similarity_preferences: SimilarityPreferences::default(),
             beatmap_download_directory: None,
             default_beatmap_download_provider: BeatmapDownloadProvider::default(),

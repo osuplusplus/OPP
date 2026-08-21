@@ -1,7 +1,7 @@
 import { RotateCcw } from "lucide-react";
 
 import { Button, Card } from "../../shared/components/ui";
-import type { DifficultyFeatureVector, SimilarityPreferences, SimilarityQueryRequest } from "../../shared/types/osu";
+import type { DifficultyFeatureVector, OsuSimilarityQueryRequest, SimilarityPreferences } from "../../shared/types/osu";
 import { defaultDifficultyWeights } from "./defaults";
 
 const difficultyControls: Array<{ key: keyof DifficultyFeatureVector; label: string }> = [
@@ -30,10 +30,10 @@ export function SimilarityAdvancedPanel({
   preferences,
   onChange,
 }: {
-  request: SimilarityQueryRequest;
+  request: OsuSimilarityQueryRequest;
   supportsDynamicWeighting: boolean;
   preferences: SimilarityPreferences;
-  onChange: (request: SimilarityQueryRequest) => void;
+  onChange: (request: OsuSimilarityQueryRequest) => void;
 }) {
   const dynamicWeighting = request.weighting.mode === "dynamic" ? request.weighting : null;
   const manualWeighting = request.weighting.mode === "manual" ? request.weighting : null;

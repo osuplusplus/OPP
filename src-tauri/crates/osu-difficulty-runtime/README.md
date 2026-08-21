@@ -8,6 +8,28 @@ It intentionally contains no dataset, downloader, importer, training pipeline,
 or export tooling. Dataset directories are opened read-only and are never
 modified by this crate.
 
+## osu!mania Analyzer v1
+
+The isolated Mania runtime is pinned byte-for-byte and formula-for-formula to
+[`osu-difficulty-lab` commit `1fa21fa6`](https://github.com/osuplusplus/osu-difficulty-lab/commit/1fa21fa6a5144992df58efe7ce9d96019981fad3),
+Analyzer snapshot `1:mania-roxy-interlude-similarity-v1`. It supports NoMod
+4K, 6K, and 7K maps only. Its same-key-count ranked difficulty percentile is
+a corpus-relative normalization value, not the official osu! star rating.
+
+`ManiaDataset` requires exactly the v1 runtime artifacts
+`mania-metadata.sqlite`, `mania-features-v1.bin`,
+`normalizers/mania-v1.bin`, `indexes/mania-v1.buckets`, and its `.sha256`
+checksum. SQLite is opened with `mode=ro&immutable=1`; the crate does not ship
+or expose the upstream writable feature-store, importer, fitting, index-build,
+CLI, or export pipeline. The obsolete `mania-v1-pre-filename-id-fix`
+directory is never consulted.
+
+The Mania analyzer is a clean-room implementation whose public design refers
+to the MIT-licensed `osumania_map_analyser` documentation at commit
+`f146c479fde24523b4d0909b83f8008b9d6815b2` (copyright 2026 Leo_Black). The
+runtime does not embed or execute that project's JavaScript, models, or WASM;
+see the pinned upstream `THIRD_PARTY_NOTICES.md` for the full provenance.
+
 ## Analyzer v4
 
 Analyzer v4 (`five-dimension-slider-rosu-reading-v4`) keeps the five dimensions
