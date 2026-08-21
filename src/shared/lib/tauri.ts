@@ -5,6 +5,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   AppSettings,
+  FfmpegStatusInfo,
   AuthStatus,
   BeatmapHubAuthStatus,
   BeatmapHubComment,
@@ -645,6 +646,85 @@ export const desktopApi = {
       handler(event.payload),
     );
   },
+  liveRenderOpen: (
+    beatmapPath: string,
+    replayPath: string,
+    options: LiveRenderOptions,
+    rect: { x: number; y: number; width: number; height: number },
+  ) =>
+    call<{ durationMs: number; mode: "native" | "canvas" }>("live_render_open", {
+      beatmapPath,
+      replayPath,
+      options,
+      rect,
+    }),
+  liveRenderFrame: () => invoke<ArrayBuffer>("live_render_frame"),
+  liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
+    call<void>("live_render_move", { rect }),
+  liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),
+  liveRenderSetOptions: (options: LiveRenderOptions) =>
+    call<void>("live_render_set_options", { options }),
+  liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
+  liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
+  chooseFfmpegExecutable: async (defaultPath?: string | null) => {
+    if (!isTauri()) return null;
+    const isWindows = navigator.userAgent.includes("Windows");
+    const selected = await openDialog({
+      directory: false,
+      multiple: false,
+      defaultPath: defaultPath ?? undefined,
+      title: isWindows ? "选择 ffmpeg.exe" : "选择 ffmpeg 可执行文件",
+      ...(isWindows ? { filters: [{ name: "FFmpeg", extensions: ["exe"] }] } : {}),
+    });
+    return typeof selected === "string" ? selected : null;
+  },
+  liveRenderExport: (
+    beatmapPath: string,
+    replayPath: string,
+    options: LiveRenderOptions,
+    params: LiveExportParams,
+  ) =>
+    call<string>("live_render_export", {
+      beatmapPath,
+      replayPath,
+      options,
+      params,
+    }),
+  liveRenderExportCancel: () => call<void>("live_render_export_cancel"),
+  liveRenderOpenExportOutput: (path: string) =>
+    call<void>("live_render_open_export_output", { path }),
+  onLiveRenderExport: async (
+    handler: (progress: { phase: string; frame: number; total: number; message: string }) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<{
+      phase: string;
+      frame: number;
+      total: number;
+      message: string;
+    }>("live-render-export", (event) => handler(event.payload));
+  },
+  liveRenderPlay: () => call<void>("live_render_play"),
+  liveRenderPause: () => call<void>("live_render_pause"),
+  liveRenderClose: () => call<void>("live_render_close"),
+  onLiveRenderTime: async (
+    handler: (state: { active: boolean; playing: boolean; timeMs: number; durationMs: number }) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<{
+      active: boolean;
+      playing: boolean;
+      time_ms: number;
+      duration_ms: number;
+    }>("live-render-time", (event) =>
+      handler({
+        active: event.payload.active,
+        playing: event.payload.playing,
+        timeMs: event.payload.time_ms,
+        durationMs: event.payload.duration_ms,
+      }),
+    );
+  },
   onDanserRenderProgress: async (
     handler: (progress: DanserRenderJob) => void,
   ): Promise<UnlistenFn> => {
@@ -690,4 +770,23 @@ export function useCapabilities() {
     staleTime: Infinity,
     retry: false,
   });
+}
+
+export interface LiveExportParams {
+  outPath: string;
+  width: number;
+  height: number;
+  fps: number;
+  encoder: "x264" | "x265" | "nvenc";
+  quality: number;
+  audio: boolean;
+}
+
+export interface LiveRenderOptions {
+  urBar: boolean;
+  followPoints: boolean;
+  bg: boolean;
+  bgOpacity: number;
+  audio: boolean;
+  audioOffset: number;
 }

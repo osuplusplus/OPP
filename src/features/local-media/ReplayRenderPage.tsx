@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronDown, Cloud, Copy, ExternalLink, Film, LoaderCircle, MonitorUp, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ChevronDown, Cloud, Copy, ExternalLink, Film, LoaderCircle, MonitorPlay, MonitorUp, Search, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
@@ -8,6 +8,7 @@ import { Badge, Button, Card, EmptyState, SectionTitle } from "../../shared/comp
 import { desktopApi } from "../../shared/lib/tauri";
 import type { GameMediaItem, ReplayMapInfo, ReplayRenderOptions, ReplayRenderProgress } from "../../shared/types/osu";
 import { DanserRenderPanel } from "./DanserRenderPanel";
+import { LivePreviewPanel } from "./LivePreviewPanel";
 
 const defaults: ReplayRenderOptions = {
   resolution: "1280x720", global_volume: 50, music_volume: 50, hitsound_volume: 50,
@@ -94,7 +95,7 @@ function OrdrRenderPanel() {
             <span className="relative mt-2 block"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" /><input list="replay-search-suggestions" className="w-full rounded-xl border border-white/10 bg-black/20 py-3 pl-10 pr-3 text-base text-white" value={replaySearch} onChange={(event) => setReplaySearch(event.target.value)} placeholder="搜索文件名或路径" /><datalist id="replay-search-suggestions">{replaySuggestions.map((suggestion) => <option key={suggestion} value={suggestion} />)}</datalist></span>
             <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-base text-white" disabled={loadingReplays} value={replayPath} onChange={(event) => void inspect(event.target.value)}><option value="">{loadingReplays ? "正在扫描本地回放…" : "选择回放"}</option>{filteredReplays.map((item) => <option key={item.path} value={item.path}>{labelForReplay(item)}</option>)}</select>
           </label>
-          {inspectingReplay ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-white/10 p-4 text-sm text-slate-300"><LoaderCircle className="size-4 animate-spin" />正在校验回放…</div> : replayInfo ? <div className={`mt-4 rounded-xl border p-4 text-sm ${replayInfo.submitted ? "border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-100" : "border-amber-300/15 bg-amber-300/[0.05] text-amber-100"}`}>{replayInfo.submitted ? `已匹配 Beatmap ID ${replayInfo.beatmap_id} · ${replayInfo.beatmap_title ?? "已提交谱面"}` : "未在本地索引中找到对应谱面，或该谱面尚未提交。请先扫描本地谱面。"}</div> : null}
+          {inspectingReplay ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-white/10 p-4 text-sm text-slate-300"><LoaderCircle className="size-4 animate-spin" />正在校验回放…</div> : replayInfo ? <div className={`mt-4 rounded-xl border p-4 text-sm ${replayInfo.submitted ? "border-success-300/15 bg-success-300/[0.05] text-success-100" : "border-amber-300/15 bg-amber-300/[0.05] text-amber-100"}`}>{replayInfo.submitted ? `已匹配 Beatmap ID ${replayInfo.beatmap_id} · ${replayInfo.beatmap_title ?? "已提交谱面"}` : "未在本地索引中找到对应谱面，或该谱面尚未提交。请先扫描本地谱面。"}</div> : null}
         </Card>
         <Card className="p-5"><SectionTitle title="输出与音频" description="分辨率由 o!rdr 的当前权限与服务器能力决定。" />
           <div className="mt-5 grid gap-4 md:grid-cols-4"><label className="text-xs text-slate-400">分辨率<select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={options.resolution} onChange={(event) => update("resolution", event.target.value as ReplayRenderOptions["resolution"])}>{["720x480", "960x540", "1280x720", "1920x1080"].map((value) => <option key={value}>{value}</option>)}</select></label>{([['global_volume','总音量'], ['music_volume','音乐'], ['hitsound_volume','打击音']] as const).map(([key, label]) => <label className="text-xs text-slate-400" key={key}>{label} {options[key]}%<input className="mt-3 w-full accent-pink-400" type="range" min="0" max="100" value={options[key]} onChange={(event) => update(key, Number(event.target.value))} /></label>)}</div>
@@ -111,15 +112,20 @@ function OrdrRenderPanel() {
 }
 
 export function ReplayRenderPage() {
-  const [provider, setProvider] = useState<"danser" | "ordr">(() => window.localStorage.getItem("opp:replay-render-provider") === "ordr" ? "ordr" : "danser");
-  const choose = (value: "danser" | "ordr") => { setProvider(value); window.localStorage.setItem("opp:replay-render-provider", value); };
+  const [provider, setProvider] = useState<"danser" | "ordr" | "live">(() => {
+    const stored = window.localStorage.getItem("opp:replay-render-provider");
+    return stored === "ordr" || stored === "live" ? stored : "danser";
+  });
+  const choose = (value: "danser" | "ordr" | "live") => { setProvider(value); window.localStorage.setItem("opp:replay-render-provider", value); };
   return <div className="pb-8">
-    <PageHeader eyebrow="Replay studio" title="回放渲染" description="在本机使用 Danser 快速导出，或将回放提交到 o!rdr 在线渲染。" actions={<Badge tone={provider === "danser" ? "cyan" : "pink"}>{provider === "danser" ? "本地渲染" : "在线渲染"}</Badge>} />
-    <div className="mb-5 grid max-w-xl grid-cols-2 rounded-2xl border border-white/[0.08] bg-black/20 p-1.5" role="tablist" aria-label="渲染方式">
+    <PageHeader eyebrow="Replay studio" title="回放渲染" description="在本机使用 Danser 快速导出，或将回放提交到 o!rdr 在线渲染。" actions={<Badge tone={provider === "danser" ? "cyan" : provider === "ordr" ? "pink" : "success"}>{provider === "danser" ? "本地渲染" : provider === "ordr" ? "在线渲染" : "实时预览"}</Badge>} />
+    <div className="mb-5 grid max-w-xl grid-cols-3 rounded-2xl border border-white/[0.08] bg-black/20 p-1.5" role="tablist" aria-label="渲染方式">
       <button aria-selected={provider === "danser"} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${provider === "danser" ? "selected-mask text-[var(--theme-primary-light)]" : "text-slate-500 hover:text-slate-200"}`} onClick={() => choose("danser")} role="tab" type="button"><MonitorUp className="size-4" />本地 Danser</button>
       <button aria-selected={provider === "ordr"} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${provider === "ordr" ? "selected-mask text-pink-200" : "text-slate-500 hover:text-slate-200"}`} onClick={() => choose("ordr")} role="tab" type="button"><Cloud className="size-4" />在线 o!rdr</button>
+      <button aria-selected={provider === "live"} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${provider === "live" ? "selected-mask text-success-200" : "text-slate-500 hover:text-slate-200"}`} onClick={() => choose("live")} role="tab" type="button"><MonitorPlay className="size-4" />实时预览</button>
     </div>
     <div className={provider === "danser" ? "block" : "hidden"} aria-hidden={provider !== "danser"}><DanserRenderPanel /></div>
     <div className={provider === "ordr" ? "block" : "hidden"} aria-hidden={provider !== "ordr"}><OrdrRenderPanel /></div>
+    <div className={provider === "live" ? "block" : "hidden"} aria-hidden={provider !== "live"}><LivePreviewPanel /></div>
   </div>;
 }

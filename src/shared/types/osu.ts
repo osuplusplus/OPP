@@ -95,6 +95,7 @@ export interface AppSettings {
   open_downloaded_beatmaps_after_download: boolean;
   replay_export_directory: string | null;
   danser_executable_path?: string | null;
+  ffmpeg_executable_path?: string | null;
   auto_export_new_replays_with_danser?: boolean;
   danser_render_preferences?: DanserRenderPreferences;
   tosu_executable_path: string | null;
@@ -478,6 +479,11 @@ export interface DanserRenderPreferences {
   quality: number;
   motion_blur: boolean;
   motion_blur_oversample: number;
+}
+
+export interface FfmpegStatusInfo {
+  version: string | null;
+  source: "manual" | "path" | "danser" | "";
 }
 
 export interface DanserStatus {

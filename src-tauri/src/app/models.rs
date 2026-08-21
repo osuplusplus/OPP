@@ -21,7 +21,6 @@ pub enum Ruleset {
     Mania,
 }
 
-
 impl fmt::Display for Ruleset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = match self {
@@ -170,6 +169,9 @@ pub struct AppSettings {
     pub replay_export_directory: Option<String>,
     #[serde(default)]
     pub danser_executable_path: Option<String>,
+    /// FFmpeg 可执行文件路径
+    #[serde(default)]
+    pub ffmpeg_executable_path: Option<String>,
     #[serde(default)]
     pub auto_export_new_replays_with_danser: bool,
     #[serde(default)]
@@ -397,6 +399,7 @@ impl Default for AppSettings {
             open_downloaded_beatmaps_after_download: false,
             replay_export_directory: None,
             danser_executable_path: None,
+            ffmpeg_executable_path: None,
             auto_export_new_replays_with_danser: false,
             danser_render_preferences: DanserRenderPreferences::default(),
             tosu_executable_path: None,

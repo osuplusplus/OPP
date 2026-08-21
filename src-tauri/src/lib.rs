@@ -4,6 +4,7 @@ mod collections;
 mod danser;
 mod error;
 mod game_session;
+mod live_render;
 mod local_analysis;
 mod netease_music;
 mod obs;
@@ -53,6 +54,12 @@ use collections::{
 use danser::{
     cancel_danser_render, enqueue_danser_renders, get_danser_render_queue, get_danser_status,
     list_danser_profiles, open_danser_output, start_danser_render_queue,
+};
+use live_render::{
+    live_render_check_ffmpeg, live_render_close, live_render_export, live_render_export_cancel,
+    live_render_frame,
+    live_render_move, live_render_open, live_render_open_export_output, live_render_pause,
+    live_render_get_ffmpeg_status, live_render_play, live_render_seek, live_render_set_options,
 };
 use game_session::{
     get_game_session_status, get_game_status, inspect_game_replay, list_game_media,
@@ -246,6 +253,19 @@ pub fn run() {
             calculate_beatmap_pp,
             submit_replay_render,
             get_danser_status,
+            live_render_close,
+            live_render_frame,
+            live_render_move,
+            live_render_open,
+            live_render_pause,
+            live_render_play,
+            live_render_seek,
+            live_render_set_options,
+            live_render_check_ffmpeg,
+            live_render_export,
+            live_render_export_cancel,
+            live_render_get_ffmpeg_status,
+            live_render_open_export_output,
             list_danser_profiles,
             enqueue_danser_renders,
             start_danser_render_queue,
