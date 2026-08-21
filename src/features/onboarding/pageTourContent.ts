@@ -58,11 +58,11 @@ const copies: Record<string, PageGuideCopy> = {
   "/online/similar": {
     id: "similar-beatmaps",
     title: "相似谱面",
-    summary: "这个页面使用本地 Analyzer v3 特征索引，以谱面、最近成绩或 BP 为种子生成相似结果。",
+    summary: "这个页面按全局模式使用独立索引：osu!standard 使用 Analyzer v4，osu!mania 使用 Analyzer v1，并可从谱面、最近成绩或 BP 生成相似结果。",
     modules: [
       { title: "查询来源", purpose: "选择单个 Beatmap ID、最近成绩或 BP 推荐，并设置返回数量。查询内容只在本机索引中计算。", example: "输入 Beatmap ID 1234567，保留默认权重，点击查找相似谱面。", target: '[data-page-guide-content="true"]' },
-      { title: "高级参数", purpose: "高级模式可切换动态或手动权重，并调整难度特征和星数范围。只有在设置中开启高级功能后才显示。", example: "想强调读图相似度时，展开高级参数并提高 Reading 权重，再重新查询。", targetText: "高级参数", targetTextSelector: "button", expandTarget: true },
-      { title: "候选谱面筛选", purpose: "浮动筛选面板限制候选结果的 BPM、长度、AR、OD、CS 和星数，不会改变相似度权重。", example: "推荐结果过宽时，打开筛选并设置 180–220 BPM、5–7 星。", target: ".opp-candidate-filter-panel", expandSelector: '[aria-label="打开候选谱面筛选"]' },
+      { title: "高级参数", purpose: "osu!standard 高级模式可切换动态或手动权重，并调整难度特征和星数范围；Mania 使用固定权重。", example: "standard 想强调读图相似度时，展开高级参数并提高 Reading 权重，再重新查询。", targetText: "高级参数", targetTextSelector: "button", expandTarget: true },
+      { title: "候选谱面筛选", purpose: "standard 的浮动筛选面板限制 BPM、长度、AR、OD、CS 和星数；Mania 结果固定使用同键数 Ranked 分位与键型特征。", example: "standard 推荐结果过宽时，打开筛选并设置 180–220 BPM、5–7 星。", target: ".opp-candidate-filter-panel", expandSelector: '[aria-label="打开候选谱面筛选"]' },
       { title: "相似结果与对比", purpose: "结果区展示距离、特征对比和推荐来源，可试听、快捷下载或跳转在线谱面详情。", example: "先查看距离最小的结果，再对比雷达图，试听确认风格后下载。", target: '[data-page-guide-content="true"]' },
     ],
   },

@@ -51,6 +51,16 @@ state.json
 **/difficulty-delta.hnsw.sha256
 **/features-v*.bin
 **/normalizers/v*.bin
+**/mania-metadata.sqlite*
+**/mania-features-v*.bin
+**/mania-raw-features.bin
+**/normalizers/mania-v*.bin
+**/indexes/mania-v*.buckets
+**/indexes/mania-v*.buckets.sha256
+**/mania-ranked-catalog.jsonl
+**/mania-ranked-download-manifest.csv
+**/mania-ranked.sqlite*
+**/mania-v1-pre-filename-id-fix/
 
 # Logs and crash output
 logs/

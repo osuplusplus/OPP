@@ -1,15 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
+  OsuSimilarityQueryResponse,
+  OsuSimilarityRecommendationResponse,
   SimilarityIndexStatus,
-  SimilarityQueryResponse,
-  SimilarityRecommendationResponse,
 } from "../../shared/types/osu";
+import { ModeProvider } from "../../app/ModeContext";
 import { SimilarBeatmapsPage } from "./SimilarBeatmapsPage";
 import { settingsQueryKey } from "../settings/api";
 import { defaultSimilarityPreferences } from "./defaults";
@@ -23,6 +24,7 @@ vi.mock("./SimilarityRadar", () => ({
 }));
 
 const unconfigured: SimilarityIndexStatus = {
+  ruleset: "osu",
   state: "unconfigured",
   directory: null,
   message: "尚未配置本地相似谱面索引。",
@@ -32,18 +34,21 @@ const unconfigured: SimilarityIndexStatus = {
   algorithm_id: null,
   data_cutoff_at: null,
   supports_dynamic_weighting: false,
+  records_by_key_count: {},
 };
 
 const ready: SimilarityIndexStatus = {
+  ruleset: "osu",
   state: "ready",
   directory: "D:/private-index",
   message: "本地索引已就绪。",
   record_count: 3,
-  analyzer_version: 3,
+  analyzer_version: 4,
   normalization_version: 1,
-  algorithm_id: "five-dimension-slider-v3",
+  algorithm_id: "five-dimension-slider-rosu-reading-v4",
   data_cutoff_at: 1_785_140_308,
   supports_dynamic_weighting: true,
+  records_by_key_count: {},
 };
 
 const feature = {
@@ -69,8 +74,10 @@ const base = {
   max_combo: 800,
 };
 
-const response: SimilarityQueryResponse = {
+const response: OsuSimilarityQueryResponse = {
+  ruleset: "osu",
   target: {
+    ruleset: "osu",
     beatmap_id: 10,
     beatmapset_id: 1,
     artist: "Reference",
@@ -82,11 +89,12 @@ const response: SimilarityQueryResponse = {
     difficulty: feature,
     base,
     source: "index",
-    analyzer_version: 3,
+    analyzer_version: 4,
     normalization_version: 1,
   },
   results: [
     {
+      ruleset: "osu",
       beatmap_id: 20,
       beatmapset_id: 2,
       artist: "Signal",
@@ -124,7 +132,8 @@ const response: SimilarityQueryResponse = {
   },
 };
 
-const recommendationResponse: SimilarityRecommendationResponse = {
+const recommendationResponse: OsuSimilarityRecommendationResponse = {
+  ruleset: "osu",
   kind: "recent",
   seed_count: 20,
   skipped_seed_count: 1,
@@ -155,10 +164,12 @@ function renderPage(advancedEnabled = false) {
   });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/online/similar"]}>
-        <SimilarBeatmapsPage />
-        <LocationProbe />
-      </MemoryRouter>
+      <ModeProvider>
+        <MemoryRouter initialEntries={["/online/similar"]}>
+          <SimilarBeatmapsPage />
+          <LocationProbe />
+        </MemoryRouter>
+      </ModeProvider>
     </QueryClientProvider>,
   );
 }
@@ -190,7 +201,7 @@ describe("SimilarBeatmapsPage", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "选择索引目录" }));
 
-    expect(configure).toHaveBeenCalledWith("D:/private-index");
+    expect(configure).toHaveBeenCalledWith("osu", "D:/private-index");
     expect(await screen.findByText("索引已就绪")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "查找相似谱面" })).toBeDisabled();
   });
@@ -293,6 +304,7 @@ describe("SimilarBeatmapsPage", () => {
       .mockImplementation(async (request) => ({
         ...recommendationResponse,
         kind: request.kind,
+        results: request.seed_limit === 5 ? [] : recommendationResponse.results,
       }));
 
     renderPage();
@@ -314,16 +326,16 @@ describe("SimilarBeatmapsPage", () => {
   it("shows five recommended beatmaps at a time and switches batches", async () => {
     const user = userEvent.setup();
     vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue(ready);
-    vi.spyOn(desktopApi, "recommendSimilarBeatmaps").mockResolvedValue({
+    vi.spyOn(desktopApi, "recommendSimilarBeatmaps").mockImplementation(async (request) => ({
       ...recommendationResponse,
-      results: Array.from({ length: 6 }, (_, index) => ({
+      results: request.seed_limit === 5 ? [] : Array.from({ length: 6 }, (_, index) => ({
         ...recommendationResponse.results[0],
         beatmap_id: 20 + index,
         beatmapset_id: 200 + index,
         artist: `Artist ${index + 1}`,
         title: `Recommendation ${index + 1}`,
       })),
-    });
+    }));
 
     renderPage();
     await user.click(await screen.findByRole("button", { name: "根据最近游玩推荐" }));
@@ -344,15 +356,15 @@ describe("SimilarBeatmapsPage", () => {
       beatmapset_id: 300 + index,
       title: `History ${index + 1}`,
     }));
-    const recommend = vi.spyOn(desktopApi, "recommendSimilarBeatmaps").mockResolvedValue({
+    const recommend = vi.spyOn(desktopApi, "recommendSimilarBeatmaps").mockImplementation(async (request) => ({
       ...recommendationResponse,
-      results: recommendations,
-    });
+      results: request.seed_limit === 5 ? [] : recommendations,
+    }));
 
     renderPage();
     await user.click(await screen.findByRole("button", { name: "根据最近游玩推荐" }));
     expect(await screen.findByText("Signal - History 1")).toBeInTheDocument();
-    await waitFor(() => expect(localStorage.getItem("opp.similarity-recommendation-history.v1")).toContain("History 5"));
+    await waitFor(() => expect(localStorage.getItem("opp.similarity-recommendation-history.v2")).toContain("History 5"));
     const historyButton = await screen.findByRole("button", { name: /今日推荐历史/ });
 
     await user.click(historyButton);
@@ -367,6 +379,50 @@ describe("SimilarBeatmapsPage", () => {
         ),
       }),
     ));
+  });
+
+  it("does not repeat the displayed quick batch when the deferred standard response completes", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue(ready);
+    const quickResults = Array.from({ length: 5 }, (_, index) => ({
+      ...recommendationResponse.results[0],
+      beatmap_id: 40 + index,
+      beatmapset_id: 400 + index,
+      title: `Quick ${index + 1}`,
+    }));
+    const freshResults = Array.from({ length: 5 }, (_, index) => ({
+      ...recommendationResponse.results[0],
+      beatmap_id: 50 + index,
+      beatmapset_id: 500 + index,
+      title: `Full ${index + 1}`,
+    }));
+    const quickResponse: OsuSimilarityRecommendationResponse = {
+      ...recommendationResponse,
+      results: quickResults,
+    };
+    const fullResponse: OsuSimilarityRecommendationResponse = {
+      ...recommendationResponse,
+      results: [...quickResults, ...freshResults],
+    };
+    let resolveFull!: (response: OsuSimilarityRecommendationResponse) => void;
+    const deferredFull = new Promise<OsuSimilarityRecommendationResponse>((resolve) => {
+      resolveFull = resolve;
+    });
+    vi.spyOn(desktopApi, "recommendSimilarBeatmaps").mockImplementation((request) =>
+      request.seed_limit === 5
+        ? Promise.resolve({ ...quickResponse, kind: request.kind })
+        : deferredFull,
+    );
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "根据最近游玩推荐" }));
+    expect(await screen.findByText("Signal - Quick 1")).toBeInTheDocument();
+    await waitFor(() => expect(localStorage.getItem("opp.similarity-recommendation-history.v2")).toContain("Quick 5"));
+
+    await act(async () => resolveFull(fullResponse));
+
+    expect(await screen.findByText("Signal - Full 1")).toBeInTheDocument();
+    expect(screen.queryByText("Signal - Quick 1")).not.toBeInTheDocument();
   });
 
   it("applies range sliders to the recalled candidate batch without changing the query", async () => {

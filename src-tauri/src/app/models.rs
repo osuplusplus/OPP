@@ -21,7 +21,6 @@ pub enum Ruleset {
     Mania,
 }
 
-
 impl fmt::Display for Ruleset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = match self {
@@ -156,6 +155,8 @@ pub struct AppSettings {
     pub reduce_motion: bool,
     #[serde(default)]
     pub similarity_index_directory: Option<String>,
+    #[serde(default)]
+    pub mania_similarity_index_directory: Option<String>,
     #[serde(default)]
     pub similarity_preferences: SimilarityPreferences,
     #[serde(default)]
@@ -390,6 +391,7 @@ impl Default for AppSettings {
             ignored_update_version: None,
             reduce_motion: false,
             similarity_index_directory: None,
+            mania_similarity_index_directory: None,
             similarity_preferences: SimilarityPreferences::default(),
             beatmap_download_directory: None,
             default_beatmap_download_provider: BeatmapDownloadProvider::default(),

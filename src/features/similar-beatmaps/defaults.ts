@@ -2,7 +2,8 @@ import type {
   DifficultyFeatureVector,
   SimilarityPreferences,
   SimilarityFilters,
-  SimilarityQueryRequest,
+  ManiaSimilarityQueryRequest,
+  OsuSimilarityQueryRequest,
   SimilaritySource,
 } from "../../shared/types/osu";
 
@@ -57,11 +58,22 @@ export const defaultSimilarityFilters: SimilarityFilters = {
 
 export function createSimilarityRequest(
   source: SimilaritySource,
-): SimilarityQueryRequest {
+): OsuSimilarityQueryRequest {
   return {
+    ruleset: "osu",
     source,
     weighting: { ...defaultDynamicWeighting },
     filters: { ...defaultSimilarityFilters },
+    result_limit: 50,
+  };
+}
+
+export function createManiaSimilarityRequest(
+  source: SimilaritySource,
+): ManiaSimilarityQueryRequest {
+  return {
+    ruleset: "mania",
+    source,
     result_limit: 50,
   };
 }

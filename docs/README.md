@@ -6,7 +6,7 @@
 
 - [快速入门](./快速入门.md)：账号连接、目录配置、主要功能和常见问题。
 - [Linux 使用与构建](./Linux.md)：Linux 依赖、客户端命令、数据目录、构建方式和平台限制。
-- [相似谱面数据集](./similarity-dataset.md)：Analyzer v3 数据集的下载、目录结构与兼容性。
+- [相似谱面数据集](./similarity-dataset.md)：standard Analyzer v4 与 mania Analyzer v1 数据集的目录结构和兼容性。
 - [版本变更记录](./版本变更记录.md)：各版本的功能、界面与兼容性变化。
 
 ## 开发文档

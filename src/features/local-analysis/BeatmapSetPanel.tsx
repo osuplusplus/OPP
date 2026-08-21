@@ -161,7 +161,7 @@ function LocalDifficultyDialog({
   open: boolean;
   onClose: () => void;
   onOpen: (resourceId: string) => void;
-  onFindSimilar: (resourceId: string) => void;
+  onFindSimilar: (resourceId: string, ruleset: Ruleset) => void;
 }) {
   const buttonClass = "w-full justify-center whitespace-nowrap px-2";
   return (
@@ -181,7 +181,7 @@ function LocalDifficultyDialog({
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 border-t border-white/[0.06] pt-3 sm:grid-cols-3 xl:grid-cols-5">
                 <Button className={buttonClass} onClick={() => onOpen(difficulty.resource.resource_id)} size="sm" variant="secondary">查看详情</Button>
-                <Button className={buttonClass} onClick={() => onFindSimilar(difficulty.resource.resource_id)} size="sm" variant="primary"><ScanSearch className="size-3.5" />查找相似</Button>
+                <Button className={buttonClass} onClick={() => onFindSimilar(difficulty.resource.resource_id, difficulty.ruleset)} size="sm" variant="primary"><ScanSearch className="size-3.5" />查找相似</Button>
                 <Button className={buttonClass} onClick={() => openCollectionDialog([{ beatmap_id: difficulty.beatmap_id, beatmapset_id: difficulty.beatmap_set_id, checksum: null, ruleset: difficulty.ruleset, difficulty_name: difficulty.difficulty_name, title: difficulty.title_unicode || difficulty.title, artist: difficulty.artist_unicode || difficulty.artist, creator: difficulty.creator, local_client: client, local_resource_id: difficulty.resource.resource_id }])} size="sm" variant="secondary"><Heart className="size-3.5" />加入收藏夹</Button>
                 <Button className={buttonClass} onClick={() => { const params = new URLSearchParams({ client, resource: difficulty.resource.resource_id }); window.location.hash = `/trainer?${params}`; }} size="sm" variant="primary"><WandSparkles className="size-3.5" />导入 Trainer</Button>
                 <Button className={buttonClass} disabled={!beatmapPreviewRoute(difficulty.beatmap_id)} onClick={() => { const route = beatmapPreviewRoute(difficulty.beatmap_id); if (route) window.location.hash = route; }} size="sm" title={difficulty.beatmap_id ? "前往工具集合生成铺面预览" : "该本地谱面没有 Beatmap ID，暂不支持生成预览"} variant="secondary"><ImageIcon className="size-3.5" />生成预览</Button>
@@ -203,7 +203,7 @@ function BeatmapSetCard({
   client: OsuClient;
   set: LocalBeatmapSetSummary;
   onOpen: (resourceId: string) => void;
-  onFindSimilar: (resourceId: string) => void;
+  onFindSimilar: (resourceId: string, ruleset: Ruleset) => void;
 }) {
   const [difficultyDialogOpen, setDifficultyDialogOpen] = useState(false);
   const [neteaseError, setNeteaseError] = useState<unknown>(null);
@@ -597,8 +597,8 @@ export function BeatmapSetPanel({
               <BeatmapSetCard
                 client={client}
                 key={set.set_key}
-                onFindSimilar={(resourceId) => {
-                  window.location.hash = similarityRouteForLocalResource(client, resourceId);
+                onFindSimilar={(resourceId, difficultyRuleset) => {
+                  window.location.hash = similarityRouteForLocalResource(client, resourceId, difficultyRuleset);
                 }}
                 onOpen={onOpen}
                 set={set}
