@@ -844,12 +844,20 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 s.playing = true;
                 s.clock = Instant::now();
                 s.audio_restart();
+                let _ = s.app.emit(
+                    "live-render-time",
+                    LiveRenderState { active: true, playing: true, time_ms: s.t, duration_ms: s.duration },
+                );
             }
         }
         Cmd::Pause => {
             if let Some(s) = session.as_mut() {
                 s.playing = false;
                 s.audio_pause();
+                let _ = s.app.emit(
+                    "live-render-time",
+                    LiveRenderState { active: true, playing: false, time_ms: s.t, duration_ms: s.duration },
+                );
             }
         }
         Cmd::SetOptions(options) => {
@@ -1613,7 +1621,7 @@ fn run_export(
             .filter(|p| p.exists());
         if let Some(audio) = audio_path {
             emit("mux", exported, total, "混入音频…".into());
-            let audio_start = (t0 - options.audio_offset) / 1000.0;
+            let audio_start = ((t0 - options.audio_offset) / 1000.0).max(0.0);
             let status = std::process::Command::new(&ffmpeg)
                 .args(["-y", "-v", "error"])
                 .arg("-i")

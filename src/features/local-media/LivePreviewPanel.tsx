@@ -250,6 +250,10 @@ export function LivePreviewPanel() {
     try {
       const version = await desktopApi.liveRenderCheckFfmpeg();
       setFfmpegVersion(version);
+      if (playing) {
+        setPlaying(false);
+        void desktopApi.liveRenderPause();
+      }
       setExportOpen(true);
     } catch (value) {
       setError(value);
@@ -281,7 +285,10 @@ export function LivePreviewPanel() {
   const update = <K extends keyof LiveRenderOptions>(key: K, value: LiveRenderOptions[K]) =>
     setOptions((current) => ({ ...current, [key]: value }));
 
-  const toggle = () => { void (playing ? desktopApi.liveRenderPause() : desktopApi.liveRenderPlay()); };
+  const toggle = () => {
+    setPlaying(!playing);
+    void (playing ? desktopApi.liveRenderPause() : desktopApi.liveRenderPlay());
+  };
   const seek = (value: number) => {
     setTime(value);
     void desktopApi.liveRenderSeek(value);

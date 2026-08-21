@@ -1743,7 +1743,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4161,6 +4161,7 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+ "windows 0.58.0",
  "windows-sys 0.59.0",
  "winreg",
  "zip 4.6.1",
@@ -4247,7 +4248,7 @@ dependencies = [
 [[package]]
 name = "osu_replay_render"
 version = "0.1.0"
-source = "git+https://github.com/Ohdmire/osu-replay-render#d5b853b5c898bfeaea218cb0977298dfe6aa8492"
+source = "git+https://github.com/Ohdmire/osu-replay-render#82b9bb0a50708e79150206d0409604892feaf6ed"
 dependencies = [
  "ab_glyph",
  "jpeg-decoder",
@@ -4755,7 +4756,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5311,7 +5312,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6624,7 +6625,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7809,7 +7810,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

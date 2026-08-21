@@ -112,17 +112,17 @@ function OrdrRenderPanel() {
 }
 
 export function ReplayRenderPage() {
-  const [provider, setProvider] = useState<"danser" | "ordr" | "live">(() => {
+  const [provider, setProvider] = useState<"live" | "danser" | "ordr">(() => {
     const stored = window.localStorage.getItem("opp:replay-render-provider");
-    return stored === "ordr" || stored === "live" ? stored : "danser";
+    return stored === "danser" || stored === "ordr" ? stored : "live";
   });
   const choose = (value: "danser" | "ordr" | "live") => { setProvider(value); window.localStorage.setItem("opp:replay-render-provider", value); };
   return <div className="pb-8">
     <PageHeader eyebrow="Replay studio" title="回放渲染" description="在本机使用 Danser 快速导出，或将回放提交到 o!rdr 在线渲染。" actions={<Badge tone={provider === "danser" ? "cyan" : provider === "ordr" ? "pink" : "success"}>{provider === "danser" ? "本地渲染" : provider === "ordr" ? "在线渲染" : "实时预览"}</Badge>} />
     <div className="mb-5 grid max-w-xl grid-cols-3 rounded-2xl border border-white/[0.08] bg-black/20 p-1.5" role="tablist" aria-label="渲染方式">
+      <button aria-selected={provider === "live"} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${provider === "live" ? "selected-mask text-success-200" : "text-slate-500 hover:text-slate-200"}`} onClick={() => choose("live")} role="tab" type="button"><MonitorPlay className="size-4" />实时预览</button>
       <button aria-selected={provider === "danser"} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${provider === "danser" ? "selected-mask text-[var(--theme-primary-light)]" : "text-slate-500 hover:text-slate-200"}`} onClick={() => choose("danser")} role="tab" type="button"><MonitorUp className="size-4" />本地 Danser</button>
       <button aria-selected={provider === "ordr"} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${provider === "ordr" ? "selected-mask text-pink-200" : "text-slate-500 hover:text-slate-200"}`} onClick={() => choose("ordr")} role="tab" type="button"><Cloud className="size-4" />在线 o!rdr</button>
-      <button aria-selected={provider === "live"} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${provider === "live" ? "selected-mask text-success-200" : "text-slate-500 hover:text-slate-200"}`} onClick={() => choose("live")} role="tab" type="button"><MonitorPlay className="size-4" />实时预览</button>
     </div>
     <div className={provider === "danser" ? "block" : "hidden"} aria-hidden={provider !== "danser"}><DanserRenderPanel /></div>
     <div className={provider === "ordr" ? "block" : "hidden"} aria-hidden={provider !== "ordr"}><OrdrRenderPanel /></div>
