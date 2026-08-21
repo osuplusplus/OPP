@@ -115,6 +115,15 @@ export interface UpdateCheckResult {
   release_url: string;
   published_at: string | null;
   release_notes: string | null;
+  can_auto_update: boolean;
+  download_size: number | null;
+}
+
+export interface UpdateProgress {
+  phase: "downloading" | "preparing" | "restarting";
+  downloaded_bytes: number;
+  total_bytes: number;
+  message: string;
 }
 
 function normalizeError(error: unknown): CommandError {
@@ -195,6 +204,8 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     release_url: "https://github.com/osuplusplus/OPP/releases/latest",
     published_at: null,
     release_notes: "当前为浏览器预览版本。",
+    can_auto_update: false,
+    download_size: null,
   } as T;
   if (command === "get_similarity_index_status") return {
     ruleset: args?.ruleset === "mania" || args?.ruleset === "taiko" || args?.ruleset === "fruits" ? args.ruleset : "osu",
@@ -377,6 +388,8 @@ export const desktopApi = {
   exitApp: () => call<void>("exit_app"),
   clearProfileCache: () => call<void>("clear_profile_cache"),
   checkForUpdates: () => call<UpdateCheckResult>("check_for_updates"),
+  downloadAndInstallUpdate: (expectedVersion: string) =>
+    call<void>("download_and_install_update", { expectedVersion }),
   ignoreUpdateVersion: (version: string) =>
     call<AppSettings>("ignore_update_version", { version }),
   getSettings: () => call<AppSettings>("get_settings"),
@@ -623,6 +636,12 @@ export const desktopApi = {
   ): Promise<UnlistenFn> => {
     if (!isTauri()) return () => undefined;
     return listen<OAuthResult>("oauth-result", (event) => handler(event.payload));
+  },
+  onUpdateProgress: async (
+    handler: (progress: UpdateProgress) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<UpdateProgress>("update-progress", (event) => handler(event.payload));
   },
   onLocalScanProgress: async (
     handler: (progress: LocalScanProgress) => void,

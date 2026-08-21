@@ -14,6 +14,9 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
 jobs:
   build-and-release:
     name: Build ${{ matrix.name }}
@@ -76,10 +79,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          releaseName: "OPP ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "OPP ${{ env.RELEASE_TAG }}"
           releaseBody: "Download AppImage or deb for Linux, or the portable exe for Windows."
-          releaseDraft: false
+          # 所有平台和 latest.json 上传完成后再发布，避免固定地址指向半成品。
+          releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
           args: ${{ matrix.args }}
@@ -90,3 +94,32 @@ jobs:
           releaseAssetNamePattern: ${{ matrix.asset_name }}
           workflowArtifactNamePattern: "OPP-[version]-[platform]-[arch]-[bundle]"
           retryAttempts: 3
+
+      - name: Create and upload portable update manifest
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^[vV]', ''
+          $assetNames = gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name'
+          $portableAssets = @($assetNames | Where-Object { $_ -like 'OPP_*_windows_*_portable.exe' })
+          if ($portableAssets.Count -ne 1) {
+            throw "Expected exactly one Windows portable EXE, found $($portableAssets.Count)."
+          }
+          $assetUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/$($portableAssets[0])"
+          # 固定清单只保存客户端实际需要的版本号和便携 EXE 地址。
+          [ordered]@{ version = $version; url = $assetUrl } |
+            ConvertTo-Json |
+            Set-Content -Path "latest.json" -Encoding utf8
+          gh release upload $env:RELEASE_TAG "latest.json" --clobber
+
+  publish-release:
+    name: Publish complete release
+    needs: build-and-release
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Publish draft after every asset succeeds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest
