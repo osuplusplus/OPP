@@ -4286,6 +4286,7 @@ dependencies = [
 [[package]]
 name = "osu_replay_render"
 version = "0.1.2"
+source = "git+https://github.com/Ohdmire/osu-replay-render#705725e0987b6f715f2e567a4405521f991aad9c"
 dependencies = [
  "ab_glyph",
  "jpeg-decoder",
