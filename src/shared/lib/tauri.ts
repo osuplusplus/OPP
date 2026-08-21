@@ -684,6 +684,7 @@ export const desktopApi = {
   liveRenderSetOptions: (options: LiveRenderOptions) =>
     call<void>("live_render_set_options", { options }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
+  liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {
     if (!isTauri()) return null;
@@ -796,9 +797,10 @@ export interface LiveExportParams {
   width: number;
   height: number;
   fps: number;
-  encoder: "x264" | "x265" | "nvenc";
+  encoder: "x264" | "x265" | "nvenc" | "hevc_nvenc";
   quality: number;
   audio: boolean;
+  hitsounds: boolean;
 }
 
 export interface LiveRenderOptions {
@@ -809,4 +811,5 @@ export interface LiveRenderOptions {
   bgOpacity: number;
   audio: boolean;
   audioOffset: number;
+  hitsounds: boolean;
 }

@@ -5,7 +5,8 @@
 //!
 
 use crate::error::{CommandError, CommandResult};
-use osu_replay_render::{build_atlas, draw, game, render::Renderer, scene};
+use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene};
+use std::collections::HashMap;
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -73,6 +74,9 @@ pub struct LiveOptions {
     /// BGM 对齐偏移 ms,默认 0(音频位置 = 回放时间 − 偏移,
     /// 界面里用户可自行调整)。
     pub audio_offset: f64,
+    /// 预览播放音效(命中音/滑条节点/combobreak,ArgonPro 采样,
+    /// lazer 语义;与 BGM 同走 Kira 输出)。
+    pub hitsounds: bool,
 }
 
 impl Default for LiveOptions {
@@ -85,6 +89,7 @@ impl Default for LiveOptions {
             bg_opacity: 0.3,
             audio: true,
             audio_offset: 0.0,
+            hitsounds: true,
         }
     }
 }
@@ -343,65 +348,62 @@ mod native {
     }
 }
 
-// ---- 音频(rodio,跨平台) ----------------------------------------------------
+// ---- 音频(Kira:BGM + 音效共用一个输出流) ------------------------------------
 
-struct AudioClip {
-    samples: std::sync::Arc<Vec<f32>>,
-    rate: u32,
-    channels: u16,
+/// osu! 默认 Music 通道音量(`OsuGame.GetFrameworkConfigDefaults` 0.6)。
+const MUSIC_VOLUME: f64 = 0.6;
+
+/// 解码 BGM 文件(mp3/flac/ogg/wav,symphonia 全量入内存)。
+fn load_bgm(path: &std::path::Path) -> Option<kira::sound::static_sound::StaticSoundData> {
+    let bytes = std::fs::read(path).ok()?;
+    kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).ok()
 }
 
-/// 从任意起点流式播放的样本源。
-struct ClipSource {
-    samples: std::sync::Arc<Vec<f32>>,
-    pos: usize,
-    rate: u32,
-    channels: u16,
+// ---- 音效(Kira;命中音/滑条节点音/combobreak) --------------------------------
+
+/// 全局 Kira 管理器:与会话无关地持有输出设备(BGM 与音效共用同
+/// 一条输出流;初始化失败 = 音频/音效禁用,不影响预览其余功能)。
+static KIRA: LazyLock<Mutex<Option<kira::AudioManager<kira::DefaultBackend>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// osu! 默认 Effect 通道音量(`OsuGame.GetFrameworkConfigDefaults` 0.6)。
+const EFFECT_VOLUME: f64 = 0.6;
+
+/// lazer `CalculateSamplePlaybackBalance`(PositionalHitsoundsLevel 0.8):
+/// balance = round2(1.6·(x/512 − 0.5)),映射到 Kira 的 0..1 声像。
+fn kira_panning(x: f32) -> f32 {
+    let b = (1.6 * (x as f64 / 512.0 - 0.5) * 100.0).round() / 100.0;
+    ((b.clamp(-1.0, 1.0) + 1.0) / 2.0).clamp(0.0, 1.0) as f32
 }
 
-impl Iterator for ClipSource {
-    type Item = f32;
-    fn next(&mut self) -> Option<f32> {
-        let v = self.samples.get(self.pos).copied();
-        if v.is_some() {
-            self.pos += 1;
+/// 线性幅度 → Kira 的分贝音量(-60dB 起静音)。
+fn amplitude_to_decibels(amplitude: f64) -> kira::Decibels {
+    if amplitude <= 0.0 {
+        kira::Decibels::SILENCE
+    } else {
+        kira::Decibels((20.0 * amplitude.log10()) as f32)
+    }
+}
+
+/// 确保 Kira 管理器已初始化(输出设备打开一次,全局复用)。
+fn ensure_kira_manager() {
+    let mut guard = KIRA.lock().unwrap();
+    if guard.is_none() {
+        *guard = kira::AudioManager::new(Default::default()).ok();
+        if guard.is_none() {
+            eprintln!("live_render: Kira 音频设备初始化失败,音频/音效禁用");
         }
-        v
     }
 }
 
-impl rodio::Source for ClipSource {
-    fn current_frame_len(&self) -> Option<usize> {
-        Some((self.samples.len() - self.pos) / self.channels.max(1) as usize)
-    }
-    fn channels(&self) -> u16 {
-        self.channels
-    }
-    fn sample_rate(&self) -> u32 {
-        self.rate
-    }
-    fn total_duration(&self) -> Option<std::time::Duration> {
-        Some(std::time::Duration::from_secs_f64(
-            self.samples.len() as f64 / self.channels.max(1) as f64 / self.rate as f64,
-        ))
-    }
-}
-
-fn load_audio(path: &std::path::Path) -> Option<AudioClip> {
-    use rodio::Source as _;
-    let file = std::fs::File::open(path).ok()?;
-    let decoder = rodio::Decoder::new(std::io::BufReader::new(file)).ok()?;
-    let rate = decoder.sample_rate();
-    let channels = decoder.channels();
-    let samples: Vec<f32> = decoder.convert_samples().collect();
-    if samples.is_empty() {
-        return None;
-    }
-    Some(AudioClip {
-        samples: std::sync::Arc::new(samples),
-        rate,
-        channels,
-    })
+/// 预加载一个采样(内嵌 ArgonPro wav → Kira StaticSoundData;
+/// 播放时 Clone 并覆写 settings)。
+fn load_kira_sound(bank: &str, name: &str) -> Option<kira::sound::static_sound::StaticSoundData> {
+    let bytes = hitsound::sample_bytes(bank, name)?.to_vec();
+    let data = kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(bytes))
+        .ok()?;
+    ensure_kira_manager();
+    Some(data)
 }
 
 // ---- BGRA(padded)→ RGBA(tight),canvas 模式 ---------------------------------
@@ -489,11 +491,55 @@ struct Session {
     last_emit: Instant,
     /// Z 序重压节奏(对抗 WebView2 抬升自己)。
     last_top_assert: Instant,
-    /// 音频输出(rodio)。`_stream` 必须存活整个会话。
-    _stream: Option<rodio::OutputStream>,
-    sink: Option<rodio::Sink>,
-    clip: Option<AudioClip>,
+    /// BGM 解码数据(开启音频时懒加载;Kira StaticSoundData)。
+    bgm_data: Option<kira::sound::static_sound::StaticSoundData>,
+    /// 当前 BGM 播放句柄(播放/暂停中;None = 未起播)。
+    bgm_handle: Option<kira::sound::static_sound::StaticSoundHandle>,
     audio_offset: f64,
+    /// 音效(一次性事件表,按时间排序;循环音不导出——ArgonPro 静音)。
+    hs_events: Vec<hitsound::HitsoundEvent>,
+    /// 下一个待触发事件的下标(播放推进/seek 时移动)。
+    hs_cursor: usize,
+    /// (bank, name) → Kira 采样数据(播放时 Clone),开启音效时懒加载。
+    hs_sounds: HashMap<(&'static str, &'static str), kira::sound::static_sound::StaticSoundData>,
+    /// 音效开关(LiveOptions.hitsounds 的当前值)。
+    hitsounds: bool,
+}
+
+impl Session {
+    /// 触发一个音效事件(音量 = 谱面音量(下限 5%)× Effect 0.6,
+    /// 声像按物件 X;与离线导出的音效总线同语义)。
+    fn fire_hitsound(&self, event: &hitsound::HitsoundEvent) {
+        let Some(data) = self.hs_sounds.get(&(event.bank, event.name)) else {
+            return;
+        };
+        let volume = event.volume.max(5) as f64 / 100.0 * EFFECT_VOLUME;
+        let mut data = data.clone();
+        data.settings = kira::sound::static_sound::StaticSoundSettings::new()
+            .volume(amplitude_to_decibels(volume))
+            .panning(kira::Panning(kira_panning(event.pan_x)));
+        if let Some(manager) = KIRA.lock().unwrap().as_mut() {
+            let _ = manager.play(data);
+        }
+    }
+
+    /// 开启音效:构建事件表并预加载用到的采样(已加载则跳过)。
+    fn ensure_hitsounds(&mut self) {
+        if !self.hs_sounds.is_empty() || self.hs_events.is_empty() {
+            return;
+        }
+        let mut sounds = HashMap::new();
+        for event in &self.hs_events {
+            let key = (event.bank, event.name);
+            if sounds.contains_key(&key) {
+                continue;
+            }
+            if let Some(handle) = load_kira_sound(event.bank, event.name) {
+                sounds.insert(key, handle);
+            }
+        }
+        self.hs_sounds = sounds;
+    }
 }
 
 impl Session {
@@ -514,27 +560,75 @@ impl Session {
         }
     }
 
-    /// 从当前 t 对应的音频位置重新起播(播放/seek 后调用)。
-    fn audio_restart(&mut self) {
-        let (Some(sink), Some(clip)) = (self.sink.as_ref(), self.clip.as_ref()) else {
-            return;
-        };
-        let offset_ms = (self.t - self.audio_offset).max(0.0);
-        let frame = (offset_ms / 1000.0 * clip.rate as f64) as usize;
-        let pos = (frame * clip.channels as usize).min(clip.samples.len());
-        sink.clear();
-        sink.append(ClipSource {
-            samples: std::sync::Arc::clone(&clip.samples),
-            pos,
-            rate: clip.rate,
-            channels: clip.channels,
-        });
-        sink.play();
+    /// BGM 文件位置(秒,按 audio_offset 换算,负位置钳 0)。
+    fn bgm_position(&self) -> f64 {
+        ((self.t - self.audio_offset).max(0.0)) / 1000.0
     }
 
-    fn audio_pause(&self) {
-        if let Some(sink) = self.sink.as_ref() {
-            sink.pause();
+    /// 从当前 t 对应的音频位置重新起播(首次播放/重新开启音频)。
+    /// BGM 以 game.rate 变速(速度+音调同变,游戏语义)。
+    fn audio_restart(&mut self) {
+        let Some(data) = self.bgm_data.clone() else {
+            return;
+        };
+        ensure_kira_manager();
+        let mut kira = KIRA.lock().unwrap();
+        let Some(manager) = kira.as_mut() else {
+            return;
+        };
+        if let Some(mut old) = self.bgm_handle.take() {
+            old.stop(kira::Tween::default());
+        }
+        let mut data = data;
+        data.settings = kira::sound::static_sound::StaticSoundSettings::new()
+            .start_position(kira::sound::PlaybackPosition::Seconds(self.bgm_position()))
+            .playback_rate(kira::PlaybackRate(self.game.rate))
+            .volume(amplitude_to_decibels(MUSIC_VOLUME));
+        match manager.play(data) {
+            Ok(handle) => self.bgm_handle = Some(handle),
+            Err(_) => eprintln!("live_render: BGM 起播失败"),
+        }
+    }
+
+    /// 继续播放:暂停中的句柄直接 resume(避免整段缓冲重新克隆),
+    /// 结束/未起播则从当前 t 重新起播。
+    fn audio_play(&mut self) {
+        match self.bgm_handle.as_ref().map(|h| h.state()) {
+            Some(kira::sound::PlaybackState::Paused)
+            | Some(kira::sound::PlaybackState::Pausing) => {
+                if let Some(handle) = self.bgm_handle.as_mut() {
+                    handle.resume(kira::Tween::default());
+                }
+            }
+            Some(kira::sound::PlaybackState::Playing) => {}
+            _ => self.audio_restart(),
+        }
+    }
+
+    /// 播放中 seek:直接把句柄跳到新位置(不重新克隆缓冲)。
+    fn audio_seek(&mut self) {
+        match self.bgm_handle.as_mut().map(|h| h.state()) {
+            Some(kira::sound::PlaybackState::Playing)
+            | Some(kira::sound::PlaybackState::Paused) => {
+                let position = self.bgm_position();
+                self.bgm_handle
+                    .as_mut()
+                    .unwrap()
+                    .seek_to(position);
+            }
+            _ => {}
+        }
+    }
+
+    fn audio_pause(&mut self) {
+        if let Some(handle) = self.bgm_handle.as_mut() {
+            handle.pause(kira::Tween::default());
+        }
+    }
+
+    fn audio_stop(&mut self) {
+        if let Some(mut handle) = self.bgm_handle.take() {
+            handle.stop(kira::Tween::default());
         }
     }
 
@@ -678,7 +772,9 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
 
         if s.playing {
             let now = Instant::now();
-            s.t += now.duration_since(s.clock).as_secs_f64() * 1000.0;
+            // 按游戏速率推进:DT/HT 回放以真实速度预览,与变速后的
+            // BGM(playback_rate)和音效事件(谱面时间轴)保持同步。
+            s.t += now.duration_since(s.clock).as_secs_f64() * 1000.0 * s.game.rate;
             s.clock = now;
             if s.t >= s.duration {
                 s.t = s.duration;
@@ -686,6 +782,19 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                 s.audio_pause();
             }
             s.dirty = true;
+            // 音效:播放头跨过的事件即触发(事件表按时间排序)。
+            if s.hitsounds && !s.hs_sounds.is_empty() {
+                loop {
+                    let Some(event) = s.hs_events.get(s.hs_cursor).copied() else {
+                        break;
+                    };
+                    if event.time > s.t {
+                        break;
+                    }
+                    s.fire_hitsound(&event);
+                    s.hs_cursor += 1;
+                }
+            }
         }
 
         #[cfg(windows)]
@@ -830,12 +939,16 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             }
         }
         Cmd::Seek(t) => {
+            // 音效游标重置:跳过 seek 点之前的所有事件。
+            if let Some(s) = session.as_mut() {
+                s.hs_cursor = s.hs_events.partition_point(|e| e.time <= t);
+            }
             if let Some(s) = session.as_mut() {
                 s.t = t.clamp(s.t0, s.duration);
                 s.clock = Instant::now();
                 s.dirty = true;
                 if s.playing {
-                    s.audio_restart();
+                    s.audio_seek();
                 }
             }
         }
@@ -843,10 +956,11 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             if let Some(s) = session.as_mut() {
                 if s.t >= s.duration {
                     s.t = s.t0;
+                    s.hs_cursor = 0;
                 }
                 s.playing = true;
                 s.clock = Instant::now();
-                s.audio_restart();
+                s.audio_play();
                 let _ = s.app.emit(
                     "live-render-time",
                     LiveRenderState { active: true, playing: true, time_ms: s.t, duration_ms: s.duration },
@@ -898,19 +1012,22 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 None
             };
 
-            // ---- 音频:开→懒解码(一次性);关→静音 ----
+            // ---- 音频:开→懒解码(一次性);关→停播 ----
             if options.audio {
-                if s.clip.is_none() && s.audio_path.is_some() {
-                    s.clip = load_audio(s.audio_path.as_ref().unwrap());
-                    if s.playing {
+                if s.bgm_data.is_none() && s.audio_path.is_some() {
+                    s.bgm_data = load_bgm(s.audio_path.as_ref().unwrap());
+                    if s.playing && s.bgm_data.is_some() {
                         s.audio_restart();
                     }
                 }
             } else {
-                s.audio_pause();
-                if let Some(sink) = s.sink.as_ref() {
-                    sink.clear();
-                }
+                s.audio_stop();
+            }
+
+            // ---- 音效:开→懒加载采样(事件表 open 时已建);关→停触发 ----
+            s.hitsounds = options.hitsounds;
+            if s.hitsounds {
+                s.ensure_hitsounds();
             }
             s.dirty = true;
         }
@@ -970,18 +1087,20 @@ fn open_session(
     let audio_path = osu_replay_render::osu_general_value(beatmap_path, "AudioFilename")
         .map(|name| map_dir.join(name))
         .filter(|p| p.exists());
-    let audio = if options.audio {
-        audio_path.as_deref().and_then(load_audio)
+    let bgm_data = if options.audio {
+        audio_path.as_deref().and_then(load_bgm)
     } else {
         None
     };
-    let (_stream, sink) = match rodio::OutputStream::try_default() {
-        Ok((stream, handle)) => (Some(stream), rodio::Sink::try_new(&handle).ok()),
-        Err(_) => (None, None),
-    };
-    if audio.is_some() && sink.is_none() {
-        eprintln!("live_render: 音频已解码但音频设备不可用,静音播放");
+    if options.audio && bgm_data.is_none() {
+        eprintln!("live_render: BGM 不可用(文件缺失或解码失败),静音播放");
     }
+
+    // 音效事件表(lazer 语义:命中判定触发、谱面音量/bank、combobreak)。
+    let hs_events = std::fs::read_to_string(beatmap_path)
+        .ok()
+        .map(|content| hitsound::collect_events(&game, &content))
+        .unwrap_or_default();
 
     // ---- 后端选择 ------------------------------------------------------------
     // Windows:原生子窗口直渲(高帧率,零拷贝 present);创建失败(驱动/
@@ -1069,7 +1188,7 @@ fn open_session(
         bgra_scratch: Vec::new(),
     };
 
-    Ok(Session {
+    let mut session = Session {
         app: app.clone(),
         beatmap_path: beatmap_path.to_string(),
         audio_path,
@@ -1089,11 +1208,18 @@ fn open_session(
         dirty: true,
         last_emit: Instant::now(),
         last_top_assert: Instant::now(),
-        _stream,
-        sink,
-        clip: audio,
+        bgm_data,
+        bgm_handle: None,
         audio_offset: options.audio_offset,
-    })
+        hs_events,
+        hs_cursor: 0,
+        hs_sounds: HashMap::new(),
+        hitsounds: options.hitsounds,
+    };
+    if session.hitsounds {
+        session.ensure_hitsounds();
+    }
+    Ok(session)
 }
 
 // ---- Tauri commands ----------------------------------------------------------
@@ -1196,12 +1322,19 @@ pub struct ExportParams {
     pub width: u32,
     pub height: u32,
     pub fps: u32,
-    /// "x264" | "x265" | "nvenc"。
+    /// "x264" | "x265" | "nvenc" | "hevc_nvenc"。
     pub encoder: String,
     /// crf(软件)/ cq(nvenc),默认 18。
     pub quality: u32,
     /// 混入 BGM(第二遍 ffmpeg:视频流拷贝 + AAC)。
     pub audio: bool,
+    /// 混入音效轨(离线合成 ArgonPro 音效,与 BGM amix 求和)。
+    #[serde(default = "default_true")]
+    pub hitsounds: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -1294,6 +1427,30 @@ pub fn live_render_get_ffmpeg_status(
     }
 }
 
+/// 检测 NVENC 硬件编码可用性(h264_nvenc / hevc_nvenc 各一次微型
+/// 测试编码);返回 [h264 可用, hevc 可用]。无 FFmpeg = 均不可用。
+#[tauri::command]
+pub fn live_render_check_nvenc(
+    state: tauri::State<'_, crate::app::state::AppState>,
+) -> CommandResult<[bool; 2]> {
+    let Some(path) = ffmpeg_path(&state) else {
+        return Ok([false, false]);
+    };
+    let probe = |codec: &str| {
+        std::process::Command::new(&path)
+            .args([
+                "-hide_banner", "-v", "error", "-f", "lavfi", "-i",
+                "nullsrc=s=256x256:d=0.04", "-c:v", codec, "-f", "null", "-",
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|st| st.success())
+            .unwrap_or(false)
+    };
+    Ok([probe("h264_nvenc"), probe("hevc_nvenc")])
+}
+
 /// 检测用户 FFmpeg(PATH 自动检测优先,danser 发行包兜底);
 /// 返回版本首行(None = 未找到)。
 #[tauri::command]
@@ -1384,6 +1541,52 @@ fn repack_tight(bgra: &[u8], width: u32, height: u32, padded_row: u32, tight: &m
     }
 }
 
+/// 编码器选择 → (rawvideo 输入像素格式, ffmpeg 参数)。
+/// NVENC 系列不接受带 alpha 的输入,统一喂 bgr0;x264/x265 走 bgra。
+/// 未知编码器名回退 libx264(与旧版行为一致)。
+fn ffmpeg_encoder_args(encoder: &str, quality: u32) -> (&'static str, Vec<String>) {
+    let quality = quality.to_string();
+    let mut args = match encoder {
+        "nvenc" | "hevc_nvenc" => {
+            let codec = if encoder == "hevc_nvenc" {
+                "hevc_nvenc"
+            } else {
+                "h264_nvenc"
+            };
+            vec![
+                "-c:v", codec, "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq",
+                quality.as_str(), "-b:v", "0",
+            ]
+        }
+        "x265" => {
+            vec![
+                "-c:v", "libx265", "-preset", "medium", "-crf", quality.as_str(), "-pix_fmt",
+                "yuv420p",
+            ]
+        }
+        _ => {
+            vec![
+                "-c:v", "libx264", "-preset", "medium", "-crf", quality.as_str(), "-pix_fmt",
+                "yuv420p",
+            ]
+        }
+    };
+    if encoder == "hevc_nvenc" {
+        // mp4 里 HEVC 默认 hev1 tag 在 QuickTime/部分系统播放器解不出,写 hvc1。
+        args.push("-tag:v".into());
+        args.push("hvc1".into());
+    }
+    args.push("-movflags".into());
+    args.push("+faststart".into());
+    let pix_fmt = if encoder == "nvenc" || encoder == "hevc_nvenc" {
+        "bgr0"
+    } else {
+        "bgra"
+    };
+    let args = args.into_iter().map(|s| s.to_string()).collect();
+    (pix_fmt, args)
+}
+
 fn run_export(
     app: &AppHandle,
     ffmpeg: &std::path::Path,
@@ -1458,54 +1661,7 @@ fn run_export(
     // ---- ffmpeg 视频轨 ----
     let tmp = format!("{}.video.tmp.mp4", params.out_path);
     let log_path = format!("{}.ffmpeg.log", params.out_path);
-    let (in_pix_fmt, encode_args): (&str, Vec<String>) = if params.encoder == "nvenc" {
-        (
-            "bgr0",
-            vec![
-                "-c:v",
-                "h264_nvenc",
-                "-preset",
-                "p5",
-                "-tune",
-                "hq",
-                "-rc",
-                "vbr",
-                "-cq",
-                &params.quality.to_string(),
-                "-b:v",
-                "0",
-                "-movflags",
-                "+faststart",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        )
-    } else {
-        let codec = if params.encoder == "x265" {
-            "libx265"
-        } else {
-            "libx264"
-        };
-        (
-            "bgra",
-            vec![
-                "-c:v",
-                codec,
-                "-preset",
-                "medium",
-                "-crf",
-                &params.quality.to_string(),
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        )
-    };
+    let (in_pix_fmt, encode_args) = ffmpeg_encoder_args(&params.encoder, params.quality);
     let log_file = std::fs::File::create(&log_path).map_err(|e| format!("无法写编码日志: {e}"))?;
     let mut command = std::process::Command::new(&ffmpeg);
     command
@@ -1621,47 +1777,91 @@ fn run_export(
     }
 
     // ---- 音频混流(可选,第二遍:视频流拷贝) ----
-    if params.audio {
-        let audio_path = osu_replay_render::osu_general_value(beatmap_path, "AudioFilename")
+    // 音量按 osu! 默认值(Music/Effect/Master 各 0.6,
+    // `OsuGame.GetFrameworkConfigDefaults`),与 CLI 导出语义一致:
+    // 通道 0.6 × 主音量 0.6。BGM 链同时处理 rate mod 的变速变调与
+    // 负偏移静音(asetrate/adelay),音效轨由 render_track_wav 在墙钟
+    // 时间轴上离线合成,直接 amix。
+    let bgm_path = if params.audio {
+        osu_replay_render::osu_general_value(beatmap_path, "AudioFilename")
             .map(|name| map_dir.join(name))
-            .filter(|p| p.exists());
-        if let Some(audio) = audio_path {
-            emit("mux", exported, total, "混入音频…".into());
-            let audio_start = ((t0 - options.audio_offset) / 1000.0).max(0.0);
-            let status = std::process::Command::new(&ffmpeg)
-                .args(["-y", "-v", "error"])
-                .arg("-i")
-                .arg(&tmp)
-                .arg("-ss")
-                .arg(format!("{audio_start:.3}"))
-                .arg("-i")
-                .arg(&audio)
-                .args([
-                    "-map",
-                    "0:v",
-                    "-map",
-                    "1:a",
-                    "-c:v",
-                    "copy",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "192k",
-                    "-shortest",
-                    "-movflags",
-                    "+faststart",
-                ])
-                .arg(&params.out_path)
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .map_err(|e| format!("音频混流启动失败: {e}"))?;
-            let _ = std::fs::remove_file(&tmp);
-            if !status.success() {
-                return Err("音频混流失败".into());
+            .filter(|p| p.exists())
+    } else {
+        None
+    };
+    let hits_path = if params.hitsounds {
+        std::fs::read_to_string(beatmap_path)
+            .ok()
+            .and_then(|content| {
+                let wall_secs = frame_times.len() as f64 / params.fps as f64;
+                let wav = hitsound::render_track_wav(&game, &content, t0, wall_secs, game.rate, 0.6);
+                let p = format!("{}.hits.wav", params.out_path);
+                std::fs::write(&p, wav).ok().map(|_| p)
+            })
+    } else {
+        None
+    };
+
+    if bgm_path.is_some() || hits_path.is_some() {
+        emit("mux", exported, total, "混入音频…".into());
+        let rate = game.rate;
+        let seek_ms = t0 - options.audio_offset * rate;
+        let mut cmd = std::process::Command::new(&ffmpeg);
+        cmd.args(["-y", "-v", "error"]).arg("-i").arg(&tmp);
+        let mut bgm_filters: Vec<String> = vec!["volume=0.6000".into()];
+        if let Some(bgm) = &bgm_path {
+            if (rate - 1.0).abs() > 1e-9 {
+                let sr = probe_sample_rate(ffmpeg, bgm);
+                bgm_filters.push(format!("asetrate={sr},aresample={sr}", sr = (sr as f64 * rate).round() as i64));
             }
-        } else {
-            std::fs::rename(&tmp, &params.out_path).map_err(|e| format!("无法写出文件: {e}"))?;
+            if seek_ms >= 0.0 {
+                cmd.arg("-ss").arg(format!("{:.3}", seek_ms / 1000.0));
+            } else {
+                bgm_filters.push(format!("adelay={}:all=1", (-seek_ms / rate).round() as i64));
+            }
+            cmd.arg("-i").arg(bgm);
+        }
+        match (&bgm_path, &hits_path) {
+            (Some(_), Some(hits)) => {
+                cmd.arg("-i").arg(hits);
+                cmd.arg("-filter_complex")
+                    .arg(format!("[1:a]{}[bgm];[bgm][2:a]amix=inputs=2:normalize=0,volume=0.6000[aout]", bgm_filters.join(",")));
+                cmd.args(["-map", "0:v", "-map", "[aout]"]);
+            }
+            (Some(_), None) => {
+                cmd.arg("-af").arg(format!("{},volume=0.6000", bgm_filters.join(",")));
+                cmd.args(["-map", "0:v", "-map", "1:a"]);
+            }
+            (None, Some(hits)) => {
+                cmd.arg("-i").arg(hits);
+                cmd.arg("-af").arg("volume=0.6000");
+                cmd.args(["-map", "0:v", "-map", "1:a"]);
+            }
+            (None, None) => unreachable!(),
+        }
+        let status = cmd
+            .args([
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(&params.out_path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|e| format!("音频混流启动失败: {e}"))?;
+        let _ = std::fs::remove_file(&tmp);
+        if let Some(hits) = &hits_path {
+            let _ = std::fs::remove_file(hits);
+        }
+        if !status.success() {
+            return Err("音频混流失败".into());
         }
     } else {
         std::fs::rename(&tmp, &params.out_path).map_err(|e| format!("无法写出文件: {e}"))?;
@@ -1669,4 +1869,71 @@ fn run_export(
 
     emit("done", exported, total, params.out_path.clone());
     Ok(params.out_path.clone())
+}
+
+/// 首个音频流的采样率(rate mod 的 asetrate 用)。优先取 ffmpeg 同目录
+/// 的 ffprobe(自定义路径/danser 包),否则 PATH;失败回退 44100。
+fn probe_sample_rate(ffmpeg: &std::path::Path, media: &std::path::Path) -> u32 {
+    let sibling = ffmpeg.with_file_name(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
+    let probe = if sibling.is_file() {
+        sibling
+    } else {
+        std::path::PathBuf::from("ffprobe")
+    };
+    std::process::Command::new(&probe)
+        .args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "csv=p=0"])
+        .arg(media)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(44_100)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ffmpeg_encoder_args;
+
+    fn joined(args: &[String]) -> String {
+        args.join(" ")
+    }
+
+    #[test]
+    fn software_encoders_use_crf_and_bgra() {
+        let (pix_fmt, args) = ffmpeg_encoder_args("x264", 18);
+        assert_eq!(pix_fmt, "bgra");
+        assert_eq!(
+            joined(&args),
+            "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart"
+        );
+        let (pix_fmt, args) = ffmpeg_encoder_args("x265", 22);
+        assert_eq!(pix_fmt, "bgra");
+        assert!(joined(&args).starts_with("-c:v libx265 -preset medium -crf 22"));
+    }
+
+    #[test]
+    fn nvenc_h264_uses_cq_and_bgr0() {
+        let (pix_fmt, args) = ffmpeg_encoder_args("nvenc", 19);
+        assert_eq!(pix_fmt, "bgr0");
+        assert_eq!(
+            joined(&args),
+            "-c:v h264_nvenc -preset p5 -tune hq -rc vbr -cq 19 -b:v 0 -movflags +faststart"
+        );
+    }
+
+    #[test]
+    fn nvenc_he264_hardware_maps_to_hevc_nvenc_with_hvc1_tag() {
+        let (pix_fmt, args) = ffmpeg_encoder_args("hevc_nvenc", 20);
+        assert_eq!(pix_fmt, "bgr0");
+        assert_eq!(
+            joined(&args),
+            "-c:v hevc_nvenc -preset p5 -tune hq -rc vbr -cq 20 -b:v 0 -tag:v hvc1 -movflags +faststart"
+        );
+    }
+
+    #[test]
+    fn unknown_encoder_falls_back_to_libx264() {
+        let (pix_fmt, args) = ffmpeg_encoder_args("nope", 18);
+        assert_eq!(pix_fmt, "bgra");
+        assert!(joined(&args).contains("libx264"));
+    }
 }

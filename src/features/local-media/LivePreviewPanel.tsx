@@ -27,6 +27,7 @@ const defaultOptions: LiveRenderOptions = {
   bgOpacity: 0.3,
   audio: true,
   audioOffset: 0,
+  hitsounds: true,
 };
 
 export function LivePreviewPanel() {
@@ -46,7 +47,9 @@ export function LivePreviewPanel() {
   const [error, setError] = useState<unknown>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [ffmpegVersion, setFfmpegVersion] = useState<string | null | undefined>(undefined);
-  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true });
+  // [h264_nvenc, hevc_nvenc] 可用性(undefined = 未探测)。
+  const [nvenc, setNvenc] = useState<[boolean, boolean] | undefined>(undefined);
+  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true });
   const [exporting, setExporting] = useState<{ phase: string; frame: number; total: number; message: string } | null>(null);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
@@ -253,6 +256,13 @@ export function LivePreviewPanel() {
     try {
       const version = await desktopApi.liveRenderCheckFfmpeg();
       setFfmpegVersion(version);
+      const [h264, hevc] = await desktopApi.liveRenderCheckNvenc();
+      setNvenc([h264, hevc]);
+      setExportForm((f) =>
+        (f.encoder === "nvenc" && !h264) || (f.encoder === "hevc_nvenc" && !hevc)
+          ? { ...f, encoder: "x264" }
+          : f,
+      );
       if (playing) {
         setPlaying(false);
         void desktopApi.liveRenderPause();
@@ -275,7 +285,7 @@ export function LivePreviewPanel() {
       const [width, height] = exportForm.resolution.split("x").map(Number);
       setExporting({ phase: "render", frame: 0, total: 0, message: "准备中…" });
       await desktopApi.liveRenderExport(beatmapPath, replayPath, options, {
-        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio,
+        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio, hitsounds: exportForm.hitsounds,
       });
     } catch (value) {
       setError(value);
@@ -352,6 +362,9 @@ export function LivePreviewPanel() {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">渲染选项(即时生效,无需重载)</h3>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM(谱面自带音频)
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
+              <input className="accent-cyan-400" type="checkbox" checked={options.hitsounds} onChange={(event) => update("hitsounds", event.target.checked)} />播放音效(命中音/combobreak,ArgonPro)
             </label>
             {options.audio ? <label className="block text-xs text-slate-400">音频偏移 {audioOffsetText === "" ? 0 : audioOffsetText} ms
               <input
@@ -438,15 +451,22 @@ export function LivePreviewPanel() {
               <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.encoder} onChange={(event) => setExportForm((f) => ({ ...f, encoder: event.target.value as LiveExportParams["encoder"] }))}>
                 <option value="x264">H.264(x264,兼容性最好)</option>
                 <option value="x265">H.265(x265,体积更小)</option>
-                <option value="nvenc">NVENC(NVIDIA 硬件编码,最快)</option>
+                <option value="nvenc" disabled={nvenc !== undefined && !nvenc[0]}>NVENC(NVIDIA 硬件编码,最快){nvenc !== undefined && !nvenc[0] ? "(不可用)" : ""}</option>
+                <option value="hevc_nvenc" disabled={nvenc !== undefined && !nvenc[1]}>H.265 NVENC(NVIDIA 硬件编码,快且体积小){nvenc !== undefined && !nvenc[1] ? "(不可用)" : ""}</option>
               </select>
             </label>
             <label className="block text-xs text-slate-400">质量(crf {exportForm.quality},越低画质越高)
               <input className="mt-3 w-full accent-cyan-400" type="range" min={14} max={28} value={exportForm.quality} onChange={(event) => setExportForm((f) => ({ ...f, quality: Number(event.target.value) }))} />
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM(谱面自带音频,AAC 192k)
-            </label>
+            <div className="space-y-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2">
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM(谱面自带音频,AAC 192k)
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效(命中音/combobreak,ArgonPro)
+              </label>
+              <p className="pl-6 text-[10px] leading-relaxed text-slate-500">音量按 osu! 默认值(Music/Effect/Master 各 60%),两者同时混入时自动混合为一条音轨</p>
+            </div>
             <Button className="w-full" variant="primary" loading={exportBusy} disabled={ffmpegVersion === null} onClick={() => void confirmExport()}><Film className="size-4" />选择保存位置并导出</Button>
           </div>}
         </Dialog.Content>
