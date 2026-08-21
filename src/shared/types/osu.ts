@@ -482,6 +482,7 @@ export interface DanserRenderPreferences {
 }
 
 export interface FfmpegStatusInfo {
+  path: string | null;
   version: string | null;
   source: "manual" | "path" | "danser" | "";
 }
