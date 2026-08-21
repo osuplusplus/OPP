@@ -33,6 +33,8 @@ export function LivePreviewPanel() {
   const { client } = useMode();
   const [replays, setReplays] = useState<GameMediaItem[]>([]);
   const [replayPath, setReplayPath] = useState("");
+  // 音频偏移的原始输入:text 框允许键入 "-" 等中间态,解析成功才提交数值。
+  const [audioOffsetText, setAudioOffsetText] = useState(String(defaultOptions.audioOffset));
   const [inspect, setInspect] = useState<{ path: string; info: ReplayMapInfo | null }>({ path: "", info: null });
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -351,8 +353,25 @@ export function LivePreviewPanel() {
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM(谱面自带音频)
             </label>
-            {options.audio ? <label className="block text-xs text-slate-400">音频偏移 {options.audioOffset} ms
-              <input className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" type="number" step={1} value={options.audioOffset} onChange={(event) => update("audioOffset", Number(event.target.value))} />
+            {options.audio ? <label className="block text-xs text-slate-400">音频偏移 {audioOffsetText === "" ? 0 : audioOffsetText} ms
+              <input
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
+                type="text"
+                inputMode="numeric"
+                value={audioOffsetText}
+                onChange={(event) => {
+                  const raw = event.target.value.replace(/[^\d.-]/g, "");
+                  setAudioOffsetText(raw);
+                  if (raw === "") {
+                    update("audioOffset", 0);
+                    return;
+                  }
+                  const parsed = Number(raw);
+                  if (raw !== "-" && Number.isFinite(parsed)) {
+                    update("audioOffset", parsed);
+                  }
+                }}
+              />
             </label> : null}
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.bg} onChange={(event) => update("bg", event.target.checked)} />谱面背景图
