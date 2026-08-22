@@ -220,16 +220,7 @@ pub fn find_in_path(command: &str) -> Option<PathBuf> {
                 }
             }
         }
-        // 兜底 where.exe(与 cmd 的查找行为一致)。
-        let output = std::process::Command::new("where.exe").arg(command).output().ok()?;
-        output.status.success().then(|| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(Into::into)
-        })?
+        None
     }
 }
 

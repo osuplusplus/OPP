@@ -46,6 +46,8 @@ OPP 是一个使用 Tauri、Rust 与 React 构建的跨平台 osu! 桌面工具�
 
 从仓库的 [Releases](https://github.com/osuplusplus/OPP/releases/latest) 页面下载最新的 Windows x64 EXE。`OPP-vX.Y.Z-windows-x64.exe` 无需安装，可直接运行；首次启动需要系统已安装 WebView2 Runtime。
 
+安装首个支持应用内更新的版本后，后续 Windows 便携版可在 OPP 内完成下载、原文件替换与自动重启，不需要改为安装包。
+
 ### Linux
 
 Release 提供对应的 Linux 构建，可直接下载使用，也可以参考 [Linux 使用与构建](./docs/Linux.md) 。桌面环境需要 WebKitGTK 4.1 和可用的 Secret Service（例如 GNOME Keyring 或 KWallet）。

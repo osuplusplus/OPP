@@ -57,7 +57,10 @@ osu-difficulty-runtime = { path = "crates/osu-difficulty-runtime" }
 netease-cloud-music = { path = "crates/netease-cloud-music" }
 osu-beatmap-preview = { git = "https://github.com/L1rics06/osu-beatmap-preview", version = "1.0.7" }
 osu_replay_render = { git = "https://github.com/Ohdmire/osu-replay-render" }
-rodio = { version = "0.20", default-features = false, features = ["symphonia-mp3", "symphonia-wav", "symphonia-flac", "symphonia-aac", "symphonia-vorbis"] }
+kira = "0.10"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

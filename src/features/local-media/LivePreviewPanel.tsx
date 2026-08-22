@@ -22,16 +22,20 @@ function formatTime(ms: number) {
 const defaultOptions: LiveRenderOptions = {
   urBar: true,
   followPoints: true,
+  keyOverlay: true,
   bg: false,
   bgOpacity: 0.3,
   audio: true,
-  audioOffset: 15,
+  audioOffset: 0,
+  hitsounds: true,
 };
 
 export function LivePreviewPanel() {
   const { client } = useMode();
   const [replays, setReplays] = useState<GameMediaItem[]>([]);
   const [replayPath, setReplayPath] = useState("");
+  // 音频偏移的原始输入:text 框允许键入 "-" 等中间态,解析成功才提交数值。
+  const [audioOffsetText, setAudioOffsetText] = useState(String(defaultOptions.audioOffset));
   const [inspect, setInspect] = useState<{ path: string; info: ReplayMapInfo | null }>({ path: "", info: null });
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -43,14 +47,14 @@ export function LivePreviewPanel() {
   const [error, setError] = useState<unknown>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [ffmpegVersion, setFfmpegVersion] = useState<string | null | undefined>(undefined);
-  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true });
+  // [h264_nvenc, hevc_nvenc] 可用性(undefined = 未探测)。
+  const [nvenc, setNvenc] = useState<[boolean, boolean] | undefined>(undefined);
+  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true });
   const [exporting, setExporting] = useState<{ phase: string; frame: number; total: number; message: string } | null>(null);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [options, setOptions] = useState<LiveRenderOptions>(defaultOptions);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [mode, setMode] = useState<"native" | "canvas">("canvas");
   const activeRef = useRef(false);
   const startedOptionsRef = useRef<string>("");
   const startedInputsRef = useRef<{ beatmap: string; replay: string }>({ beatmap: "", replay: "" });
@@ -106,42 +110,11 @@ export function LivePreviewPanel() {
     return () => { mounted = false; };
   }, [client, replayPath]);
 
-  // 帧拉取循环:按 requestAnimationFrame 向后端要最新帧画到 canvas。
-  // 页面隐藏时 rAF 自动暂停(后端也会因超时无拉帧而停 GPU 渲染)。
-  useEffect(() => {
-    if (!active || mode !== "canvas") return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const imageData = ctx.createImageData(1280, 720);
-    let stopped = false;
-    let raf = 0;
-    const pull = async () => {
-      if (stopped) return;
-      try {
-        const buffer = await desktopApi.liveRenderFrame();
-        if (buffer.byteLength === 1280 * 720 * 4) {
-          imageData.data.set(new Uint8Array(buffer));
-          ctx.putImageData(imageData, 0, 0);
-        }
-      } catch {
-        // 后端临时无帧(会话切换中),下一帧继续。
-      }
-      if (!stopped) raf = requestAnimationFrame(() => void pull());
-    };
-    raf = requestAnimationFrame(() => void pull());
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(raf);
-    };
-  }, [active, mode]);
-
   // 原生模式:上报预览区域位置,原生子窗口跟随 DOM 元素(滚动/缩放)。
   // 原生窗口压在 WebView 之上,会盖住应用内弹窗(对话框/确认框):
   // 检测到弹窗打开时附带 suppressed,后端临时隐藏预览窗口。
   useEffect(() => {
-    if (!active || mode !== "native") return;
+    if (!active) return;
     const element = containerRef.current;
     if (!element) return;
     let raf = 0;
@@ -153,8 +126,13 @@ export function LivePreviewPanel() {
     const push = () => {
       pending = false;
       const box = element.getBoundingClientRect();
+      // 物理像素:WebKitGTK 在 X11 小数缩放(Xft.dpi)下 devicePixelRatio
+      // 是小数(如 1.25),而后端能拿到的 tauri scale_factor 只是 GDK
+      // 整数缩放(=1)——坐标换算只能以 dpr 为准(Windows 的 WebView2
+      // 同样满足 dpr == scale_factor,行为不变)。
+      const d = window.devicePixelRatio || 1;
       void desktopApi
-        .liveRenderMove({ x: box.x, y: box.y, width: box.width, height: box.height, suppressed })
+        .liveRenderMove({ x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d, suppressed })
         .catch(() => undefined);
     };
     const schedule = () => {
@@ -184,7 +162,7 @@ export function LivePreviewPanel() {
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
     };
-  }, [active, mode]);
+  }, [active]);
 
   const stop = useCallback(() => {
     activeRef.current = false;
@@ -203,13 +181,13 @@ export function LivePreviewPanel() {
     try {
       const beatmapPath = await desktopApi.getLocalBeatmapPath(client, replayInfo.beatmap_resource_id);
       const box = containerRef.current?.getBoundingClientRect();
-      const rect = box ? { x: box.x, y: box.y, width: box.width, height: box.height } : { x: 0, y: 0, width: 0, height: 0 };
+      const d = window.devicePixelRatio || 1;
+      const rect = box ? { x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d } : { x: 0, y: 0, width: 0, height: 0 };
       const info = await desktopApi.liveRenderOpen(beatmapPath, replayPath, options, rect);
       startedOptionsRef.current = JSON.stringify(options);
       startedInputsRef.current = { beatmap: beatmapPath, replay: replayPath };
       activeRef.current = true;
       setActive(true);
-      setMode(info.mode);
       setDuration(info.durationMs);
       setTime(0);
     } catch (value) {
@@ -250,6 +228,13 @@ export function LivePreviewPanel() {
     try {
       const version = await desktopApi.liveRenderCheckFfmpeg();
       setFfmpegVersion(version);
+      const [h264, hevc] = await desktopApi.liveRenderCheckNvenc();
+      setNvenc([h264, hevc]);
+      setExportForm((f) =>
+        (f.encoder === "nvenc" && !h264) || (f.encoder === "hevc_nvenc" && !hevc)
+          ? { ...f, encoder: "x264" }
+          : f,
+      );
       if (playing) {
         setPlaying(false);
         void desktopApi.liveRenderPause();
@@ -272,7 +257,7 @@ export function LivePreviewPanel() {
       const [width, height] = exportForm.resolution.split("x").map(Number);
       setExporting({ phase: "render", frame: 0, total: 0, message: "准备中…" });
       await desktopApi.liveRenderExport(beatmapPath, replayPath, options, {
-        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio,
+        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio, hitsounds: exportForm.hitsounds,
       });
     } catch (value) {
       setError(value);
@@ -301,10 +286,9 @@ export function LivePreviewPanel() {
         <Card className="p-5">
           <SectionTitle
             title="预览区域"
-            description={mode === "native" ? "原生窗口直渲(Windows 高帧率模式),覆盖在下方区域。" : "GPU 渲染的帧通过二进制通道送到此 canvas;切走页面时自动暂停渲染。"}
+            description="原生窗口直渲(wgpu 直接呈现,高帧率),覆盖在下方区域。"
           />
           <div ref={containerRef} className="relative mt-5 aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-[#0e0e13]">
-            {mode === "canvas" ? <canvas ref={canvasRef} width={1280} height={720} className="h-full w-full" /> : null}
             {!active ? <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-600">开始预览后画面显示在这里</div> : null}
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -350,8 +334,28 @@ export function LivePreviewPanel() {
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM(谱面自带音频)
             </label>
-            {options.audio ? <label className="block text-xs text-slate-400">音频偏移 {options.audioOffset} ms
-              <input className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" type="number" step={1} value={options.audioOffset} onChange={(event) => update("audioOffset", Number(event.target.value))} />
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
+              <input className="accent-cyan-400" type="checkbox" checked={options.hitsounds} onChange={(event) => update("hitsounds", event.target.checked)} />播放音效(命中音/combobreak,ArgonPro)
+            </label>
+            {options.audio ? <label className="block text-xs text-slate-400">音频偏移 {audioOffsetText === "" ? 0 : audioOffsetText} ms
+              <input
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
+                type="text"
+                inputMode="numeric"
+                value={audioOffsetText}
+                onChange={(event) => {
+                  const raw = event.target.value.replace(/[^\d.-]/g, "");
+                  setAudioOffsetText(raw);
+                  if (raw === "") {
+                    update("audioOffset", 0);
+                    return;
+                  }
+                  const parsed = Number(raw);
+                  if (raw !== "-" && Number.isFinite(parsed)) {
+                    update("audioOffset", parsed);
+                  }
+                }}
+              />
             </label> : null}
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.bg} onChange={(event) => update("bg", event.target.checked)} />谱面背景图
@@ -363,6 +367,9 @@ export function LivePreviewPanel() {
               <input className="accent-cyan-400" type="checkbox" checked={options.urBar} onChange={(event) => update("urBar", event.target.checked)} />UR 显示(UR 条与数值)
             </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
+              <input className="accent-cyan-400" type="checkbox" checked={options.keyOverlay} onChange={(event) => update("keyOverlay", event.target.checked)} />按键输入展示(Z/X/C 键与计数)
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线(Follow points)
             </label>
           </div>
@@ -370,7 +377,7 @@ export function LivePreviewPanel() {
             <MonitorPlay className="size-4" />开始预览
           </Button>
         </Card>
-        {!active ? <Card className="p-5"><EmptyState icon={<MonitorPlay className="size-5" />} title="等待预览" description="选择回放并点击“开始预览”后,可播放、暂停并任意拖动进度条。" /></Card> : <Card className="p-5"><div className="flex items-center justify-between"><SectionTitle title="预览中" description="渲染在本机 GPU 上实时进行。" /><Badge tone="cyan">{mode === "native" ? "原生直渲" : "canvas"}</Badge></div></Card>}
+        {!active ? <Card className="p-5"><EmptyState icon={<MonitorPlay className="size-5" />} title="等待预览" description="选择回放并点击“开始预览”后,可播放、暂停并任意拖动进度条。" /></Card> : <Card className="p-5"><div className="flex items-center justify-between"><SectionTitle title="预览中" description="渲染在本机 GPU 上实时进行。" /><Badge tone="cyan">原生直渲</Badge></div></Card>}
       </div>
     </div>
     <Dialog.Root open={exportOpen} onOpenChange={(open) => { if (!exportBusy) setExportOpen(open); }}>
@@ -415,15 +422,22 @@ export function LivePreviewPanel() {
               <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.encoder} onChange={(event) => setExportForm((f) => ({ ...f, encoder: event.target.value as LiveExportParams["encoder"] }))}>
                 <option value="x264">H.264(x264,兼容性最好)</option>
                 <option value="x265">H.265(x265,体积更小)</option>
-                <option value="nvenc">NVENC(NVIDIA 硬件编码,最快)</option>
+                <option value="nvenc" disabled={nvenc !== undefined && !nvenc[0]}>NVENC(NVIDIA 硬件编码,最快){nvenc !== undefined && !nvenc[0] ? "(不可用)" : ""}</option>
+                <option value="hevc_nvenc" disabled={nvenc !== undefined && !nvenc[1]}>H.265 NVENC(NVIDIA 硬件编码,快且体积小){nvenc !== undefined && !nvenc[1] ? "(不可用)" : ""}</option>
               </select>
             </label>
             <label className="block text-xs text-slate-400">质量(crf {exportForm.quality},越低画质越高)
               <input className="mt-3 w-full accent-cyan-400" type="range" min={14} max={28} value={exportForm.quality} onChange={(event) => setExportForm((f) => ({ ...f, quality: Number(event.target.value) }))} />
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM(谱面自带音频,AAC 192k)
-            </label>
+            <div className="space-y-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2">
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM(谱面自带音频,AAC 192k)
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效(命中音/combobreak,ArgonPro)
+              </label>
+              <p className="pl-6 text-[10px] leading-relaxed text-slate-500">音量按 osu! 默认值(Music/Effect/Master 各 60%),两者同时混入时自动混合为一条音轨</p>
+            </div>
             <Button className="w-full" variant="primary" loading={exportBusy} disabled={ffmpegVersion === null} onClick={() => void confirmExport()}><Film className="size-4" />选择保存位置并导出</Button>
           </div>}
         </Dialog.Content>

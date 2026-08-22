@@ -115,6 +115,15 @@ export interface UpdateCheckResult {
   release_url: string;
   published_at: string | null;
   release_notes: string | null;
+  can_auto_update: boolean;
+  download_size: number | null;
+}
+
+export interface UpdateProgress {
+  phase: "downloading" | "preparing" | "restarting";
+  downloaded_bytes: number;
+  total_bytes: number;
+  message: string;
 }
 
 function normalizeError(error: unknown): CommandError {
@@ -195,6 +204,8 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     release_url: "https://github.com/osuplusplus/OPP/releases/latest",
     published_at: null,
     release_notes: "当前为浏览器预览版本。",
+    can_auto_update: false,
+    download_size: null,
   } as T;
   if (command === "get_similarity_index_status") return {
     ruleset: args?.ruleset === "mania" || args?.ruleset === "taiko" || args?.ruleset === "fruits" ? args.ruleset : "osu",
@@ -377,6 +388,8 @@ export const desktopApi = {
   exitApp: () => call<void>("exit_app"),
   clearProfileCache: () => call<void>("clear_profile_cache"),
   checkForUpdates: () => call<UpdateCheckResult>("check_for_updates"),
+  downloadAndInstallUpdate: (expectedVersion: string) =>
+    call<void>("download_and_install_update", { expectedVersion }),
   ignoreUpdateVersion: (version: string) =>
     call<AppSettings>("ignore_update_version", { version }),
   getSettings: () => call<AppSettings>("get_settings"),
@@ -624,6 +637,12 @@ export const desktopApi = {
     if (!isTauri()) return () => undefined;
     return listen<OAuthResult>("oauth-result", (event) => handler(event.payload));
   },
+  onUpdateProgress: async (
+    handler: (progress: UpdateProgress) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<UpdateProgress>("update-progress", (event) => handler(event.payload));
+  },
   onLocalScanProgress: async (
     handler: (progress: LocalScanProgress) => void,
   ): Promise<UnlistenFn> => {
@@ -671,19 +690,19 @@ export const desktopApi = {
     options: LiveRenderOptions,
     rect: { x: number; y: number; width: number; height: number },
   ) =>
-    call<{ durationMs: number; mode: "native" | "canvas" }>("live_render_open", {
+    call<{ durationMs: number }>("live_render_open", {
       beatmapPath,
       replayPath,
       options,
       rect,
     }),
-  liveRenderFrame: () => invoke<ArrayBuffer>("live_render_frame"),
   liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
     call<void>("live_render_move", { rect }),
   liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),
   liveRenderSetOptions: (options: LiveRenderOptions) =>
     call<void>("live_render_set_options", { options }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
+  liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {
     if (!isTauri()) return null;
@@ -796,16 +815,19 @@ export interface LiveExportParams {
   width: number;
   height: number;
   fps: number;
-  encoder: "x264" | "x265" | "nvenc";
+  encoder: "x264" | "x265" | "nvenc" | "hevc_nvenc";
   quality: number;
   audio: boolean;
+  hitsounds: boolean;
 }
 
 export interface LiveRenderOptions {
   urBar: boolean;
   followPoints: boolean;
+  keyOverlay: boolean;
   bg: boolean;
   bgOpacity: number;
   audio: boolean;
   audioOffset: number;
+  hitsounds: boolean;
 }
