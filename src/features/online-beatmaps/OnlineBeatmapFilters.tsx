@@ -13,9 +13,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function FilterRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-2 border-t border-[var(--line-subtle)] py-3 first:border-t-0 sm:grid-cols-[5.5rem_minmax(0,1fr)] sm:gap-4">
-      <div className="pt-1 text-xs font-semibold text-slate-500">{label}</div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">{children}</div>
+    <div className="grid gap-1.5 border-t border-[var(--line-subtle)] py-2.5 first:border-t-0 sm:grid-cols-[4.75rem_minmax(0,1fr)] sm:gap-3">
+      <div className="whitespace-nowrap pt-1 text-[11px] font-semibold text-slate-500">{label}</div>
+      <div aria-label={`${label}筛选`} className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]" role="group">{children}</div>
     </div>
   );
 }
@@ -24,11 +24,12 @@ function TextOption({ active, children, onClick }: { active: boolean; children: 
   return (
     <button
       aria-pressed={active}
-      className={`rounded-md px-2 py-1 text-left text-[13px] transition-colors ${active ? "bg-[var(--theme-primary-muted)] font-semibold text-[var(--theme-primary-light)]" : "font-normal text-slate-500 hover:bg-[var(--surface-interactive)] hover:text-slate-200"}`}
+      className={`shrink-0 whitespace-nowrap rounded-md px-1.5 py-1 text-left transition-colors ${active ? "bg-[var(--theme-primary-muted)] font-semibold text-[var(--theme-primary-light)]" : "font-normal text-slate-500 hover:bg-[var(--surface-interactive)] hover:text-slate-200"}`}
       onClick={onClick}
       type="button"
     >
-      {children}
+      {/* 文本节点独立控制字号，避免全局原生按钮字体继承规则覆盖组件排版。 */}
+      <span className="text-[11px] leading-4">{children}</span>
     </button>
   );
 }

@@ -45,7 +45,7 @@ export function MapCard({
       ) : null}
       <div className="absolute inset-0 z-[2] h-full w-full bg-[linear-gradient(90deg,rgba(16,19,24,.97),rgba(20,24,30,.77)_68%,rgba(20,24,30,.62))]" />
 
-      <div className="relative z-10 flex h-full min-w-0 flex-col p-3.5">
+      <div className="relative z-10 flex h-full min-w-0 flex-col p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-wrap gap-1.5">
             <Badge tone="cyan">{mode}</Badge>
@@ -70,7 +70,7 @@ export function MapCard({
         <div className="mt-auto min-w-0">
           <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-white" title={title}>{title}</h3>
           <p className="mt-0.5 truncate text-xs font-medium text-slate-300">{entry.artist || "未知艺术家"}</p>
-          <div className="mt-3 flex min-w-0 items-center gap-2 border-t border-white/10 pt-2.5">
+          <div className="mt-2 flex min-w-0 items-center gap-2 border-t border-white/10 pt-2">
             <span className="h-[1.05rem] w-[3px] shrink-0 rounded-full bg-[linear-gradient(180deg,var(--theme-primary-light),var(--theme-secondary))] shadow-[0_0_12px_var(--theme-primary-glow)]" />
             <strong className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white" title={difficulty}>{difficulty}</strong>
             <span className="shrink-0 text-[11px] text-slate-400">谱师 · {entry.creator || "未知"}</span>
@@ -80,7 +80,7 @@ export function MapCard({
 
       {/* 悬停层按比例定位，始终为具体难度信息保留稳定空间。 */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-[28.5%] z-20 translate-y-2 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.98),rgba(13,16,21,.99))] p-[15px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 motion-reduce:transition-none">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+        <div className="grid grid-cols-3 gap-x-3">
           <div>
             <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-[#7f8b9b]">难度 ID</p>
             <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[#eef2f7]">{entry.beatmap_id ? `#${entry.beatmap_id}` : "未解析"}</p>
@@ -89,7 +89,7 @@ export function MapCard({
             <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-[#7f8b9b]">谱面集 ID</p>
             <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[#eef2f7]">{entry.beatmapset_id ? `#${entry.beatmapset_id}` : "未解析"}</p>
           </div>
-          <div className="col-span-2">
+          <div className="min-w-0">
             <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-[#7f8b9b]">校验信息</p>
             <p className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[#eef2f7]"><Hash className="size-3" />{entry.checksum ? "已记录精确 MD5" : "等待本地谱面解析"}</p>
           </div>

@@ -100,6 +100,7 @@ function GlobalLocalScanAction({ client }: { client: OsuClient }) {
   const needsConfiguration = !source?.valid;
   return (
     <Button
+      className="shrink-0 whitespace-nowrap"
       disabled={scanning}
       loading={scanning}
       onClick={() => void scan()}
@@ -149,26 +150,29 @@ export function GlobalContextBar() {
   }, []);
 
   return (
-    <header className="theme-context-bar fixed left-[var(--sidebar-width)] right-0 top-11 z-30 h-16 border-b border-[var(--line-subtle)] px-7 xl:px-9">
-      <div className="mx-auto flex h-full max-w-[var(--content-width)] items-center gap-5">
-        <p className="min-w-0 truncate text-[15px] font-semibold text-slate-200">
+    <header className="theme-context-bar fixed left-[var(--sidebar-width)] right-0 top-11 z-30 h-16 border-b border-[var(--line-subtle)] px-4 lg:px-6 xl:px-9">
+      <div className="mx-auto flex h-full max-w-[var(--content-width)] items-center gap-2 min-[1280px]:gap-5">
+        {/* 窄窗口隐藏与页面标题重复的文字，为模式切换保留完整空间。 */}
+        <p className="hidden min-w-0 truncate text-[15px] font-semibold text-slate-200 min-[1280px]:block">
           {current[1]}
         </p>
         <div
-          className="flex min-h-8 items-center gap-2 border-l border-[var(--line-subtle)] px-3 text-xs font-medium text-slate-400"
+          className="flex min-h-8 shrink-0 items-center gap-2 border-l border-[var(--line-subtle)] px-2 text-xs font-medium text-slate-400 min-[1280px]:px-3"
           title={runningClients.map((item) => item.executable).filter(Boolean).join("\n") || "未检测到运行中的 osu! 客户端"}
         >
           <span
             aria-hidden="true"
             className={`size-2 rounded-full ${runningClients.length ? "bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.12)]" : "bg-slate-500"}`}
           />
-          {runningClients.length
-            ? `${runningClients.map((item) => item.client === "stable" ? "Stable" : "Lazer").join(" + ")} 运行中`
-            : "游戏未运行"}
+          <span className="hidden whitespace-nowrap min-[1280px]:inline">
+            {runningClients.length
+              ? `${runningClients.map((item) => item.client === "stable" ? "Stable" : "Lazer").join(" + ")} 运行中`
+              : "游戏未运行"}
+          </span>
         </div>
         <span className="ml-auto h-6 w-px bg-white/[0.08]" />
         <GlobalLocalScanAction client={client} />
-        <div className="flex items-center gap-5" data-onboarding="mode-and-client">
+        <div className="flex shrink-0 items-center gap-2 min-[1280px]:gap-5" data-onboarding="mode-and-client">
           <div aria-label="游戏模式" className="flex items-center">
             <ModeSwitch compact onChange={setRuleset} value={ruleset} />
           </div>

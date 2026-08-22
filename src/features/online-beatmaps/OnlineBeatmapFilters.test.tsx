@@ -25,6 +25,10 @@ describe("OnlineBeatmapFilters", () => {
     const summary = screen.getByText(/更多筛选/).closest("summary");
     const arrow = summary?.querySelector("svg");
     expect(arrow).toHaveClass("lucide-chevron-down", "group-open:rotate-180");
+    expect(screen.getByRole("group", { name: "状态筛选" })).toHaveClass("flex-nowrap", "overflow-x-auto");
+    const qualified = screen.getByRole("button", { name: "Qualified" });
+    expect(qualified).toHaveClass("shrink-0", "whitespace-nowrap");
+    expect(qualified.firstElementChild).toHaveClass("text-[11px]", "leading-4");
 
     await user.click(summary!);
     expect(summary?.parentElement).toHaveAttribute("open");

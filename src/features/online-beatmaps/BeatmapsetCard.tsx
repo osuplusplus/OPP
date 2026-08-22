@@ -98,10 +98,10 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
 
     {/* 悬停层随卡片比例定位，窗口缩放时保持一致的信息占比。 */}
     <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-[40%] z-20 translate-y-2.5 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.97),rgba(13,16,21,.99))] p-[14px_16px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
-      <div className="grid grid-cols-3 gap-x-4 gap-y-2.5">
+      <div className="grid grid-cols-6 gap-x-2">
         {[{ label: "星级", value: `${minStars.toFixed(2)}–${maxStars.toFixed(2)}★` }, { label: "BPM", value: String(Math.round(beatmapset.bpm ?? 0)) }, { label: "长度", value: durationLabel(longest) }, { label: "物件", value: fullNumber(objects) }, { label: "游玩", value: fullNumber(beatmapset.play_count ?? 0) }, { label: "上架", value: dateLabel(beatmapset.ranked_date) }].map((metric) => <div className="min-w-0" key={metric.label}><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{metric.label}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-100">{metric.value}</p></div>)}
       </div>
-      <div className="mt-3 flex max-h-[58px] flex-wrap content-start gap-1.5 overflow-hidden">
+      <div className="mt-3 flex max-h-[34%] flex-wrap content-start gap-1.5 overflow-hidden">
         {beatmaps.map((beatmap) => <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-white/10 bg-black/20 pr-2" key={beatmap.id}><DifficultyIcon className="border-0 bg-transparent px-1.5 py-1" mode={beatmap.mode} stars={beatmap.difficulty_rating} /><span className="max-w-28 truncate text-[11px] text-slate-200">{beatmap.version}</span></span>)}
       </div>
     </div>
