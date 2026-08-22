@@ -12,6 +12,7 @@ mod osekai;
 mod online_beatmaps;
 mod osu_api;
 mod platform;
+mod portable_update;
 
 mod app;
 mod replay_render;
@@ -112,7 +113,12 @@ use tosu::{
     stop_tosu,
 };
 use trainer::generate_trainer_beatmap;
-use update_check::{check_for_updates, ignore_update_version};
+use update_check::{check_for_updates, download_and_install_update, ignore_update_version};
+
+/// 主程序入口在初始化 Tauri 前调用，用于把临时 EXE 切换到无界面的更新助手模式。
+pub fn run_portable_update_helper_if_requested() -> bool {
+    portable_update::run_helper_if_requested()
+}
 
 #[tauri::command]
 /// 立即结束应用进程；仅由显式的退出操作调用，不参与窗口隐藏或托盘最小化逻辑。
@@ -189,6 +195,8 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            // 新版本稳定运行后再延迟清理更新助手与旧 EXE，保留早期崩溃恢复空间。
+            portable_update::schedule_stale_cleanup();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -345,6 +353,7 @@ pub fn run() {
             save_obs_connection,
             refresh_selected_obs_scene,
             check_for_updates,
+            download_and_install_update,
             ignore_update_version,
             exit_app,
         ])
