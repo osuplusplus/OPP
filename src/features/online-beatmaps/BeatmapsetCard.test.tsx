@@ -11,7 +11,15 @@ const beatmapset: OnlineBeatmapset = {
   title: "Daisuke",
   creator: "moph",
   status: "ranked",
-  beatmaps: [],
+  beatmaps: [{
+    id: 123,
+    beatmapset_id: 697087,
+    difficulty_rating: 4.52,
+    mode: "osu",
+    status: "ranked",
+    total_length: 128,
+    version: "Insane",
+  }],
 };
 
 describe("BeatmapsetCard", () => {
@@ -41,5 +49,31 @@ describe("BeatmapsetCard", () => {
     await user.click(screen.getByRole("button", { name: "加入下载队列" }));
     expect(onSelect).toHaveBeenCalledOnce();
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("shows the compact osu metadata and opens from the keyboard", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+
+    render(
+      <BeatmapsetCard
+        beatmapset={beatmapset}
+        downloading={false}
+        onDownload={vi.fn()}
+        onOpen={onOpen}
+        onPreview={vi.fn()}
+        onSelect={vi.fn()}
+        playing={false}
+        selected={false}
+      />,
+    );
+
+    expect(screen.getByText(/谱师 ·/)).toHaveTextContent("谱师 · moph");
+    expect(screen.getAllByText("Insane", { selector: "span" })).not.toHaveLength(0);
+    expect(screen.getAllByText("上架")).not.toHaveLength(0);
+
+    screen.getByRole("button", { name: "查看谱面 Daisuke" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 });

@@ -422,7 +422,7 @@ export function AppShell() {
   return (
     <div className="opp-app-shell min-h-screen">
       <a
-        className="fixed left-[264px] top-2 z-[200] -translate-y-20 rounded-lg bg-[var(--theme-primary)] px-4 py-2 text-sm font-semibold text-[var(--on-primary)] transition-transform focus:translate-y-0"
+        className="fixed left-[calc(var(--sidebar-width)+16px)] top-2 z-[200] -translate-y-20 rounded-lg bg-[var(--theme-primary)] px-4 py-2 text-sm font-semibold text-[var(--on-primary)] transition-transform focus:translate-y-0"
         href="#main-content"
       >
         跳到主要内容
@@ -432,9 +432,9 @@ export function AppShell() {
         profile={profileQuery.data?.data}
       />
       <GlobalContextBar />
-      <main className="ml-[248px] min-h-screen pt-[108px]" id="main-content" tabIndex={-1}>
+      <main className="ml-[var(--sidebar-width)] min-h-screen pt-[108px]" id="main-content" tabIndex={-1}>
         <div className="relative min-h-[calc(100vh-108px)] overflow-x-clip">
-        <div className="theme-content-frame relative mx-auto max-w-[1440px] p-7 xl:p-9" data-page-guide-content="true">
+        <div className="theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9" data-page-guide-content="true">
             <Outlet />
           </div>
         </div>

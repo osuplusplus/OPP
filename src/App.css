@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --surface: #0c0d10;
-  --surface-sidebar: #090a0d;
-  --surface-chrome: #0d0e12;
-  --surface-panel: #15161b;
-  --surface-panel-strong: #1a1b21;
-  --surface-raised: #15161b;
+  --sidebar-width: clamp(236px, 18vw, 276px);
+  --content-width: 1480px;
+  --surface: #111316;
+  --surface-sidebar: #0d0f12;
+  --surface-chrome: #0b0d10;
+  --surface-panel: #181b20;
+  --surface-panel-strong: #1d2026;
+  --surface-raised: #1a1d22;
   --text: #f4f2ee;
   --text-muted: #aaa6ae;
   --theme-primary: #67e8f9;
@@ -23,13 +25,13 @@
   --surface-interactive: rgba(255, 255, 255, 0.035);
   --surface-interactive-hover: rgba(255, 255, 255, 0.07);
   --surface-float: rgba(19, 21, 28, 0.96);
-  --control-radius: 7px;
+  --control-radius: 8px;
   --motion-fast: 160ms;
   --motion-base: 220ms;
   color: var(--text);
   background: var(--surface);
   font-family:
-    "Segoe UI Variable Text", "Noto Sans SC", "Source Han Sans SC", "思源黑体", Inter, "PingFang SC",
+    "Segoe UI Variable Text", "Noto Sans SC", "Source Han Sans SC", "思源黑体", "PingFang SC",
     "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -38,11 +40,11 @@
 }
 
 :root[data-theme-mode="light"] {
-  --surface: #eef0f5;
-  --surface-sidebar: #e6e8ee;
-  --surface-chrome: #f8f9fb;
+  --surface: #f7f7f5;
+  --surface-sidebar: #eeefed;
+  --surface-chrome: #fafaf9;
   --surface-panel: #ffffff;
-  --surface-panel-strong: #f3f5f8;
+  --surface-panel-strong: #f1f2f0;
   --surface-raised: #ffffff;
   --text: #17181c;
   --text-muted: #475569;
@@ -67,10 +69,10 @@
 :root[data-theme-mode="light"] body { background: var(--surface); }
 :root[data-theme-mode="light"] .bg-\[\#0a0e18\]\/94,
 :root[data-theme-mode="light"] .bg-\[\#101622\]\/90,
-:root[data-theme-mode="light"] .bg-\[\#111725\] { background-color: var(--surface-raised) !important; }
+:root[data-theme-mode="light"] .bg-\[\#111725\] { background-color: var(--surface-raised); }
 :root[data-theme-mode="light"] [class*="text-white"],
 :root[data-theme-mode="light"] [class*="text-slate-100"],
-:root[data-theme-mode="light"] [class*="text-slate-200"] { color: #172033 !important; }
+:root[data-theme-mode="light"] [class*="text-slate-200"] { color: #172033; }
 
 /* Light mode is a complete surface system. These selectors cover legacy utility
    classes still used by feature pages, dialogs, score cards and filters. */
@@ -78,44 +80,44 @@
 :root[data-theme-mode="light"] [class*="bg-black"],
 :root[data-theme-mode="light"] [class*="bg-white/[0."],
 :root[data-theme-mode="light"] [class*="bg-white/\[0."] {
-  background-color: #ffffff !important;
-  background-image: none !important;
+  background-color: #ffffff;
+  background-image: none;
 }
 :root[data-theme-mode="light"] [class*="bg-white/[0.025"],
 :root[data-theme-mode="light"] [class*="bg-white/[0.035"],
 :root[data-theme-mode="light"] [class*="bg-white/[0.055"] {
-  background-color: #f8fafc !important;
+  background-color: #f8fafc;
 }
-:root[data-theme-mode="light"] [class*="border-white"] { border-color: #d9dde6 !important; }
+:root[data-theme-mode="light"] [class*="border-white"] { border-color: #d9dde6; }
 :root[data-theme-mode="light"] [class*="text-slate-100"],
-:root[data-theme-mode="light"] [class*="text-slate-200"] { color: #172033 !important; }
-:root[data-theme-mode="light"] [class*="text-slate-300"] { color: #243149 !important; }
-:root[data-theme-mode="light"] [class*="text-slate-400"] { color: #334155 !important; }
-:root[data-theme-mode="light"] [class*="text-slate-500"] { color: #475569 !important; }
+:root[data-theme-mode="light"] [class*="text-slate-200"] { color: #172033; }
+:root[data-theme-mode="light"] [class*="text-slate-300"] { color: #243149; }
+:root[data-theme-mode="light"] [class*="text-slate-400"] { color: #334155; }
+:root[data-theme-mode="light"] [class*="text-slate-500"] { color: #475569; }
 :root[data-theme-mode="light"] [class*="text-slate-600"],
-:root[data-theme-mode="light"] [class*="text-slate-700"] { color: #526174 !important; }
-:root[data-theme-mode="light"] [class*="text-white"] { color: #172033 !important; }
-:root[data-theme-mode="light"] [class*="shadow-"] { box-shadow: 0 6px 18px rgba(24, 32, 54, 0.06) !important; }
-:root[data-theme-mode="light"] .theme-profile-overlay { background: linear-gradient(90deg, rgba(255,255,255,.58), rgba(255,255,255,.26) 58%, rgba(255,255,255,0)) !important; }
+:root[data-theme-mode="light"] [class*="text-slate-700"] { color: #526174; }
+:root[data-theme-mode="light"] [class*="text-white"] { color: #172033; }
+:root[data-theme-mode="light"] [class*="shadow-"] { box-shadow: 0 6px 18px rgba(24, 32, 54, 0.06); }
+:root[data-theme-mode="light"] .theme-profile-overlay { background: linear-gradient(90deg, rgba(255,255,255,.58), rgba(255,255,255,.26) 58%, rgba(255,255,255,0)); }
 :root[data-theme-mode="light"] .theme-profile-hero h2,
 :root[data-theme-mode="light"] .theme-profile-hero p,
-:root[data-theme-mode="light"] .theme-profile-hero span { color: #172033 !important; }
-:root[data-theme-mode="light"] [class*="text-cyan-"] { color: #0f4c75 !important; }
+:root[data-theme-mode="light"] .theme-profile-hero span { color: #172033; }
+:root[data-theme-mode="light"] [class*="text-cyan-"] { color: #0f4c75; }
 :root[data-theme-mode="light"] [class*="text-pink-"],
-:root[data-theme-mode="light"] [class*="text-rose-"] { color: #9f1239 !important; }
-:root[data-theme-mode="light"] [class*="text-violet-"] { color: #5b21b6 !important; }
+:root[data-theme-mode="light"] [class*="text-rose-"] { color: #9f1239; }
+:root[data-theme-mode="light"] [class*="text-violet-"] { color: #5b21b6; }
 :root[data-theme-mode="light"] [class*="text-emerald-"],
-:root[data-theme-mode="light"] [class*="text-green-"] { color: #166534 !important; }
+:root[data-theme-mode="light"] [class*="text-green-"] { color: #166534; }
 :root[data-theme-mode="light"] [class*="text-amber-"],
-:root[data-theme-mode="light"] [class*="text-orange-"] { color: #92400e !important; }
-:root[data-theme-mode="light"] .theme-beatmap-background { opacity: .42 !important; filter: saturate(.92) contrast(1.06); mix-blend-mode: multiply; }
+:root[data-theme-mode="light"] [class*="text-orange-"] { color: #92400e; }
+:root[data-theme-mode="light"] .theme-beatmap-background { opacity: .42; filter: saturate(.92) contrast(1.06); mix-blend-mode: multiply; }
 :root[data-theme-mode="light"] .theme-beatmap-overlay-primary {
-  background: linear-gradient(90deg, rgba(255,255,255,.62), rgba(255,255,255,.28) 58%, rgba(255,255,255,0)) !important;
+  background: linear-gradient(90deg, rgba(255,255,255,.62), rgba(255,255,255,.28) 58%, rgba(255,255,255,0));
 }
 :root[data-theme-mode="light"] .theme-beatmap-overlay-secondary {
-  background: linear-gradient(0deg, rgba(255,255,255,.26), rgba(255,255,255,0) 72%) !important;
+  background: linear-gradient(0deg, rgba(255,255,255,.26), rgba(255,255,255,0) 72%);
 }
-[class*="from-[#ff6aa7"] { background-image: linear-gradient(90deg, var(--theme-primary), var(--theme-secondary)) !important; }
+[class*="from-[#ff6aa7"] { background-image: linear-gradient(90deg, var(--theme-primary), var(--theme-secondary)); }
 :root[data-theme-mode="light"] input,
 :root[data-theme-mode="light"] select,
 :root[data-theme-mode="light"] textarea { color-scheme: light; color: #172033; background-color: #ffffff; }
@@ -126,21 +128,21 @@
 }
 :root[data-theme-mode="light"] .opp-input::placeholder { color: #64748b; }
 :root[data-theme-mode="light"] aside a[class] {
-  background-color: transparent !important;
-  box-shadow: none !important;
+  background-color: transparent;
+  box-shadow: none;
 }
 :root[data-theme-mode="light"] aside a[class][aria-current="page"] {
-  border-color: var(--theme-primary) !important;
-  background-color: transparent !important;
-  box-shadow: inset 0 0 0 999px var(--theme-primary-muted) !important;
-  color: var(--theme-primary) !important;
+  border-color: var(--theme-primary);
+  background-color: transparent;
+  box-shadow: inset 0 0 0 999px var(--theme-primary-muted);
+  color: var(--theme-primary);
 }
 
 /* Preserve hierarchy while keeping secondary copy readable in dark mode. */
-:root[data-theme-mode="dark"] [class*="text-slate-400"] { color: #aaa6ae !important; }
-:root[data-theme-mode="dark"] [class*="text-slate-500"] { color: #89858f !important; }
+:root[data-theme-mode="dark"] [class*="text-slate-400"] { color: #aaa6ae; }
+:root[data-theme-mode="dark"] [class*="text-slate-500"] { color: #89858f; }
 :root[data-theme-mode="dark"] [class*="text-slate-600"],
-:root[data-theme-mode="dark"] [class*="text-slate-700"] { color: #6f6b75 !important; }
+:root[data-theme-mode="dark"] [class*="text-slate-700"] { color: #6f6b75; }
 
 :root[data-theme-primary="blue"] { --theme-primary: #60a5fa; --theme-primary-strong: #93c5fd; --theme-primary-light: #dbeafe; --theme-primary-muted: rgba(96,165,250,.13); --theme-primary-soft: rgba(96,165,250,.30); --theme-primary-glow: rgba(96,165,250,.16); }
 :root[data-theme-primary="violet"] { --theme-primary: #a78bfa; --theme-primary-strong: #c4b5fd; --theme-primary-light: #ede9fe; --theme-primary-muted: rgba(167,139,250,.13); --theme-primary-soft: rgba(167,139,250,.30); --theme-primary-glow: rgba(167,139,250,.16); }
@@ -173,7 +175,7 @@ button[aria-pressed="true"],
 button[aria-selected="true"] {
   color: var(--theme-primary-light);
   background-image: linear-gradient(90deg, var(--theme-primary-muted), transparent 78%);
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
 html {
@@ -188,10 +190,8 @@ body {
   margin: 0;
   overflow-x: hidden;
   background: var(--surface);
-  background-image:
-    linear-gradient(var(--canvas-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px);
-  background-size: 32px 32px;
+  background-image: radial-gradient(circle at 82% 8%, var(--theme-primary-muted), transparent 26rem);
+  background-attachment: fixed;
 }
 
 button,
@@ -306,7 +306,7 @@ select option {
   border: 0;
   border-top: 1px solid transparent;
   border-radius: 0;
-  background: transparent !important;
+  background: transparent;
   box-shadow: none;
 }
 
@@ -317,8 +317,8 @@ select option {
 .opp-section[class*="shadow-"] {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
-  background: var(--surface-float) !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28) !important;
+  background: var(--surface-float);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
 }
 
 .opp-action {
@@ -349,10 +349,10 @@ select option {
 
 .opp-interactive-surface {
   position: relative;
-  border-color: transparent !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: inset 2px 0 0 transparent !important;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 2px 0 0 transparent;
 }
 
 .opp-interactive-surface::before {
@@ -368,7 +368,7 @@ select option {
 
 @media (hover: hover) {
   .opp-interactive-surface:hover {
-    background: linear-gradient(90deg, var(--surface-interactive-hover), transparent 68%) !important;
+    background: linear-gradient(90deg, var(--surface-interactive-hover), transparent 68%);
   }
   .opp-interactive-surface:hover::before {
     background: var(--theme-primary-soft);
@@ -377,8 +377,197 @@ select option {
 
 .opp-interactive-surface[aria-selected="true"],
 .opp-interactive-surface.selected-mask {
-  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 72%) !important;
-  box-shadow: inset 2px 0 0 var(--theme-primary) !important;
+  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 72%);
+  box-shadow: inset 2px 0 0 var(--theme-primary);
+}
+
+/* 在线谱面使用紧凑的 osu! 内容密度，同时保持桌面工具的克制边框。 */
+.opp-beatmap-filter,
+.opp-download-panel,
+.opp-beatmap-toolbar,
+.opp-beatmap-sortbar {
+  border: 1px solid var(--line-subtle);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.08);
+}
+
+.opp-beatmap-sortbar {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.opp-beatmap-sortbar__label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  border-right: 1px solid var(--line-subtle);
+  padding: 4px 12px 4px 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .04em;
+}
+
+.opp-beatmap-sortbar__option {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 9px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 560;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+
+.opp-beatmap-sortbar__option:hover {
+  color: var(--text);
+  background: var(--surface-interactive-hover);
+}
+
+.opp-beatmap-sortbar__option[aria-pressed="true"] {
+  color: var(--theme-primary-light);
+  background: var(--theme-primary-muted);
+  background-image: none;
+  box-shadow: inset 0 -2px 0 var(--theme-primary);
+}
+
+.opp-beatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(370px, 1fr));
+  gap: 14px;
+}
+
+.opp-beatmap-card {
+  position: relative;
+  height: 220px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: #1a1e24;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
+  isolation: isolate;
+  transition:
+    border-color var(--motion-base) ease,
+    box-shadow var(--motion-base) ease,
+    transform var(--motion-base) cubic-bezier(.2, .8, .2, 1);
+}
+
+.opp-beatmap-card::after {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border: 1px solid transparent;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+  transition: border-color var(--motion-base) ease;
+}
+
+.opp-beatmap-card__cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .58;
+  filter: saturate(.9) contrast(1.06);
+  transform: scale(1.015);
+  transition: transform 420ms cubic-bezier(.2, .8, .2, 1), opacity var(--motion-base) ease;
+}
+
+.opp-beatmap-card__shade {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    linear-gradient(90deg, rgba(17, 20, 25, .96), rgba(22, 26, 32, .82) 62%, rgba(22, 26, 32, .67)),
+    linear-gradient(0deg, rgba(10, 12, 16, .72), transparent 70%);
+}
+
+.opp-beatmap-card__difficulty-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.opp-beatmap-card__hover {
+  position: absolute;
+  inset: 88px 0 0;
+  z-index: 20;
+  padding: 14px 16px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(180deg, rgba(21, 25, 31, .97), rgba(13, 16, 21, .99));
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  transform: translateY(10px);
+  transition: opacity var(--motion-base) ease, transform var(--motion-base) cubic-bezier(.2, .8, .2, 1);
+}
+
+.opp-beatmap-card.is-selected {
+  border-color: var(--theme-primary-soft);
+  box-shadow: 0 0 0 1px var(--theme-primary-muted), 0 12px 28px rgba(0, 0, 0, .18);
+}
+
+@media (hover: hover) {
+  .opp-beatmap-card:hover {
+    border-color: var(--theme-primary-soft);
+    box-shadow: 0 16px 34px rgba(0, 0, 0, .22);
+    transform: translateY(-2px);
+  }
+
+  .opp-beatmap-card:hover::after {
+    border-color: color-mix(in srgb, var(--theme-primary) 42%, transparent);
+  }
+
+  .opp-beatmap-card:hover .opp-beatmap-card__cover {
+    opacity: .72;
+    transform: scale(1.045);
+  }
+
+  .opp-beatmap-card:hover .opp-beatmap-card__hover {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.opp-beatmap-card:focus-visible .opp-beatmap-card__hover,
+.opp-beatmap-card:focus-within .opp-beatmap-card__hover {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+:root[data-theme-mode="light"] .opp-beatmap-filter,
+:root[data-theme-mode="light"] .opp-download-panel,
+:root[data-theme-mode="light"] .opp-beatmap-toolbar,
+:root[data-theme-mode="light"] .opp-beatmap-sortbar {
+  box-shadow: 0 8px 24px rgba(24, 32, 54, .045);
+}
+
+/* 铺面封面始终使用深色信息层，避免浅色主题削弱封面文字对比度。 */
+:root[data-theme-mode="light"] .opp-beatmap-card [class*="text-white"],
+:root[data-theme-mode="light"] .opp-beatmap-card [class*="text-slate-"] {
+  color: #f4f6f8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opp-beatmap-card,
+  .opp-beatmap-card__cover,
+  .opp-beatmap-card__hover {
+    transition: none;
+  }
 }
 
 .opp-floating {
@@ -390,25 +579,132 @@ select option {
 }
 
 .collection-folder {
-  border: 1px solid var(--line-strong) !important;
-  border-radius: 8px !important;
-  background: linear-gradient(90deg, var(--surface-interactive), transparent 70%) !important;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-interactive), transparent 70%);
 }
 
 .collection-folder + .collection-folder {
   margin-top: 0.9rem;
 }
 
+/* 收藏夹按具体难度展示；视觉继承谱面集卡片，但信息层级以单张 map 为核心。 */
+.opp-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.opp-map-card {
+  position: relative;
+  height: 168px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #1a1e24;
+  box-shadow: 0 7px 18px rgba(0, 0, 0, .13);
+  isolation: isolate;
+  transition: border-color var(--motion-base) ease, box-shadow var(--motion-base) ease, transform var(--motion-base) cubic-bezier(.2, .8, .2, 1);
+}
+
+.opp-map-card__cover,
+.opp-map-card__shade {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.opp-map-card__cover {
+  object-fit: cover;
+  opacity: .52;
+  filter: saturate(.86) contrast(1.06);
+  transform: scale(1.02);
+  transition: opacity var(--motion-base) ease, transform 420ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.opp-map-card__shade {
+  z-index: 2;
+  background: linear-gradient(90deg, rgba(16, 19, 24, .97), rgba(20, 24, 30, .77) 68%, rgba(20, 24, 30, .62));
+}
+
+.opp-map-card__difficulty-dot {
+  width: 3px;
+  height: 1.05rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--theme-primary-light), var(--theme-secondary));
+  box-shadow: 0 0 12px var(--theme-primary-glow);
+}
+
+.opp-map-card__hover {
+  position: absolute;
+  inset: 48px 0 0;
+  z-index: 20;
+  padding: 15px;
+  pointer-events: none;
+  opacity: 0;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  background: linear-gradient(180deg, rgba(21, 25, 31, .98), rgba(13, 16, 21, .99));
+  transform: translateY(8px);
+  transition: opacity var(--motion-base) ease, transform var(--motion-base) cubic-bezier(.2, .8, .2, 1);
+}
+
+.opp-map-card__metric-label {
+  color: #7f8b9b;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.opp-map-card__metric-value {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #eef2f7;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  .opp-map-card:hover {
+    border-color: var(--theme-primary-soft);
+    box-shadow: 0 13px 28px rgba(0, 0, 0, .21);
+    transform: translateY(-2px);
+  }
+
+  .opp-map-card:hover .opp-map-card__cover {
+    opacity: .7;
+    transform: scale(1.055);
+  }
+
+  .opp-map-card:hover .opp-map-card__hover {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opp-map-card,
+  .opp-map-card__cover,
+  .opp-map-card__hover {
+    transition: none;
+  }
+}
+
 .opp-filter-drawer {
-  border: 1px solid var(--line-strong) !important;
-  border-radius: 10px !important;
-  background: var(--surface-float) !important;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.28) !important;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-float);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(18px);
 }
 
 .opp-filter-drawer:not(.is-open) {
-  width: 3rem !important;
+  width: 3rem;
   min-height: 3rem;
 }
 
@@ -420,11 +716,11 @@ select option {
 
 .opp-filter-drawer:not(.is-open) button[aria-expanded] {
   justify-content: center;
-  padding: 0.75rem !important;
+  padding: 0.75rem;
 }
 
 .opp-filter-drawer:not(.is-open) > div:first-child {
-  padding: 0.5rem !important;
+  padding: 0.5rem;
 }
 
 .opp-filter-drawer.is-open > div:first-child {
@@ -491,14 +787,14 @@ select option {
 }
 
 [role="dialog"].opp-onboarding-dialog {
-  width: min(400px, calc(100vw - 2rem)) !important;
-  max-height: calc(100vh - 2rem) !important;
+  width: min(400px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
   overflow-y: auto;
-  border-radius: 14px !important;
-  padding: 1.25rem !important;
+  border-radius: 14px;
+  padding: 1.25rem;
 }
 
-main .opp-section.overflow-hidden:not(.opp-interactive-surface) {
+main .opp-section.overflow-hidden:not(.opp-interactive-surface):not(.opp-beatmap-card):not(.opp-beatmap-filter):not(.opp-download-panel) {
   border: 1px solid var(--line-strong);
   border-radius: 8px;
 }
@@ -507,24 +803,24 @@ main .opp-section.overflow-hidden:not(.opp-interactive-surface) {
    blurred backdrop makes the current task clear without turning the page into
    another stack of panels. Radix exposes the dialog role on every Content. */
 [role="dialog"] {
-  width: min(720px, calc(100vw - 2rem)) !important;
-  max-height: min(720px, calc(100vh - 2rem)) !important;
-  border: 1px solid var(--line-strong) !important;
-  border-radius: 10px !important;
-  background: var(--surface-float) !important;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38) !important;
+  width: min(720px, calc(100vw - 2rem));
+  max-height: min(720px, calc(100vh - 2rem));
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-float);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
   backdrop-filter: blur(18px);
-  padding: 1rem !important;
+  padding: 1rem;
 }
 
 body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
-  background-color: rgba(3, 5, 10, 0.58) !important;
+  background-color: rgba(3, 5, 10, 0.58);
   backdrop-filter: blur(10px);
 }
 
 :root[data-theme-mode="light"] [role="dialog"] {
-  background: var(--surface-float) !important;
-  box-shadow: 0 24px 80px rgba(24, 32, 54, 0.18) !important;
+  background: var(--surface-float);
+  box-shadow: 0 24px 80px rgba(24, 32, 54, 0.18);
 }
 
 .opp-control-track {
@@ -536,9 +832,9 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 
 .opp-control-track [aria-selected="true"],
 .opp-control-track [aria-pressed="true"] {
-  color: var(--theme-primary-light) !important;
-  background: transparent !important;
-  box-shadow: inset 0 -2px 0 var(--theme-primary) !important;
+  color: var(--theme-primary-light);
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--theme-primary);
 }
 
 .opp-nav-item {
@@ -571,8 +867,8 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 
 .opp-nav-item[aria-current="page"] {
   border-left-color: var(--theme-primary);
-  color: var(--theme-primary-light) !important;
-  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 86%) !important;
+  color: var(--theme-primary-light);
+  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 86%);
 }
 
 .opp-nav-item[aria-current="page"]::after {
@@ -598,19 +894,19 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 :root[data-theme-mode="light"] .opp-section { border-color: var(--line-subtle); }
 :root[data-theme-mode="light"] .opp-floating { box-shadow: 0 20px 60px rgba(24, 32, 54, 0.14); }
 :root[data-theme-mode="light"] aside .opp-nav-item[aria-current="page"] {
-  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 86%) !important;
-  box-shadow: inset 2px 0 0 var(--theme-primary) !important;
+  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 86%);
+  box-shadow: inset 2px 0 0 var(--theme-primary);
 }
 
 .opp-app-shell,
 .theme-titlebar,
 .theme-context-bar {
-  background-color: var(--surface) !important;
+  background-color: var(--surface);
 }
 
 .theme-titlebar,
 .theme-context-bar {
-  border-color: var(--line-subtle) !important;
+  border-color: var(--line-subtle);
 }
 
 .opp-window-control {
@@ -651,21 +947,6 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   100% { transform: scale(1) rotate(0); }
 }
 
-/* Feature pages still contain a large amount of utility-era panel markup.
-   Flatten non-control containers at the content boundary so the new language
-   applies consistently while buttons, inputs and portal-based dialogs remain
-   deliberately surfaced. */
-.theme-content-frame :is(div, section, article, label)[class*="rounded-"]:not(.opp-interactive-surface):not(.opp-floating) {
-  border-radius: 0 !important;
-}
-
-.theme-content-frame :is(div, section, article, label)[class*="rounded-"][class*="border"]:not(.opp-interactive-surface):not(.opp-floating) {
-  border-right-color: transparent !important;
-  border-left-color: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
 .opp-input::placeholder {
   color: #94a3b8;
 }
@@ -701,10 +982,10 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 .opp-dual-range__input::-moz-range-thumb { width: 0.75rem; height: 0.75rem; border: 2px solid var(--surface-panel); border-radius: 999px; background: var(--theme-primary); box-shadow: 0 1px 4px rgba(0, 0, 0, .38); pointer-events: auto; }
 :root[data-theme-mode="light"] .opp-filter-number { border-color: #aab5c4; background: #fff; color: #172033; }
 :root[data-theme-mode="light"] .opp-dual-range__track { background: #b8c1ce; }
-:root[data-theme-mode="light"] .opp-dual-range__input { background: transparent !important; }
+:root[data-theme-mode="light"] .opp-dual-range__input { background: transparent; }
 :root[data-theme-mode="light"] .opp-dual-range__input::-webkit-slider-thumb { border-color: #64748b; background: var(--theme-primary); }
 :root[data-theme-mode="light"] .opp-dual-range__input::-moz-range-thumb { border-color: #64748b; background: var(--theme-primary); }
-:root[data-theme-mode="light"] .score-metric { background: #f8fafc !important; }
+:root[data-theme-mode="light"] .score-metric { background: #f8fafc; }
 .similarity-comparison-panel { max-height: calc(100vh - 140px); }
 
 .opp-auth-screen {
@@ -828,6 +1109,7 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 .reduce-motion *,
 .reduce-motion *::before,
 .reduce-motion *::after {
+  /* 无障碍降动效必须覆盖任意组件动画，这是全文件唯一保留强制级联的场景。 */
   scroll-behavior: auto !important;
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;

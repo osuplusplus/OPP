@@ -16,9 +16,9 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="mb-7 flex items-center justify-between gap-8 border-b border-white/[0.08] pb-5">
+    <header className="mb-6 flex items-center justify-between gap-8 border-b border-[var(--line-subtle)] pb-4">
       <div className="flex min-w-0 items-center gap-3" data-page-guide-title="true">
-        <h1 className="text-[30px] font-semibold leading-none tracking-[-0.035em] text-white">
+        <h1 className="text-[24px] font-semibold leading-none tracking-[-0.025em] text-white">
           {title}
         </h1>
         <button

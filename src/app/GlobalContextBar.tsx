@@ -16,6 +16,7 @@ const routeContexts = [
   ["/online/profile", "详细档案"],
   ["/online/beatmaps", "在线谱面"],
   ["/online/similar", "相似谱面"],
+  ["/collections", "谱面收藏夹"],
   ["/local/maps", "本地谱面"],
   ["/local/skins", "本地皮肤"],
   ["/local/media", "截图与回放"],
@@ -148,8 +149,8 @@ export function GlobalContextBar() {
   }, []);
 
   return (
-    <header className="theme-context-bar fixed left-[248px] right-0 top-11 z-30 h-16 border-b border-[var(--line-subtle)] px-7 xl:px-9">
-      <div className="mx-auto flex h-full max-w-[1440px] items-center gap-5">
+    <header className="theme-context-bar fixed left-[var(--sidebar-width)] right-0 top-11 z-30 h-16 border-b border-[var(--line-subtle)] px-7 xl:px-9">
+      <div className="mx-auto flex h-full max-w-[var(--content-width)] items-center gap-5">
         <p className="min-w-0 truncate text-[15px] font-semibold text-slate-200">
           {current[1]}
         </p>

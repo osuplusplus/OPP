@@ -27,6 +27,7 @@ import type {
 } from "../../shared/types/osu";
 import { resolveDefaultDownloadProvider } from "../online-beatmaps/downloadProvider";
 import { collectionsQueryKey, removeFromCollectionsSnapshot, useCollections, useRefreshCollections } from "./api";
+import { MapCard } from "./MapCard";
 import { beginCollectionTask, throwIfCollectionTaskCancelled, updateCollectionTask } from "./taskStatus";
 
 async function copy(value: string) {
@@ -138,8 +139,20 @@ function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolde
           <Button disabled={busy || folder.read_only} onClick={() => void remove()} size="icon" title="删除收藏夹" variant="ghost"><Trash2 className="size-4" /></Button>
         </div>
       </div>
-      <div className="max-h-64 divide-y divide-white/[0.05] overflow-y-auto">
-        {folder.entries.length ? folder.entries.map((entry) => <div className="flex items-center gap-3 px-5 py-3" key={entry.id}><span className={`size-2 rounded-full ${entry.resolved ? "bg-emerald-300" : "bg-amber-300"}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm text-slate-200">{entry.title} <span className="text-slate-500">[{entry.difficulty_name}]</span></p><p className="truncate text-xs text-slate-600">{entry.artist} · {entry.creator}{entry.beatmapset_id ? ` · #${entry.beatmapset_id}` : ""}</p></div>{!folder.read_only ? <Button disabled={busy} onClick={() => void remove(entry.id)} size="icon" variant="ghost"><Trash2 className="size-3.5" /></Button> : null}</div>) : <p className="px-5 py-8 text-center text-sm text-slate-600">还没有谱面</p>}
+      <div className="max-h-[34rem] overflow-y-auto p-3.5">
+        {folder.entries.length ? (
+          <div className="opp-map-grid">
+            {folder.entries.map((entry) => (
+              <MapCard
+                busy={busy}
+                entry={entry}
+                key={entry.id}
+                onRemove={() => void remove(entry.id)}
+                readOnly={folder.read_only}
+              />
+            ))}
+          </div>
+        ) : <p className="px-5 py-8 text-center text-sm text-slate-600">还没有谱面</p>}
       </div>
       {exported ? <div className="border-t border-white/[0.07] p-4"><p className="mb-2 text-xs text-emerald-200">分享码已复制。OPPC2 会紧凑保存在线谱面 ID。</p><textarea className="h-20 w-full rounded-lg border border-white/10 bg-black/20 p-2 font-mono text-[10px] text-slate-400" readOnly value={exported} /></div> : null}
       {error ? <p className="p-4 text-sm text-rose-200">{error}</p> : null}
