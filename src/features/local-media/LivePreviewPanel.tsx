@@ -54,9 +54,7 @@ export function LivePreviewPanel() {
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [options, setOptions] = useState<LiveRenderOptions>(defaultOptions);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [mode, setMode] = useState<"native" | "canvas">("canvas");
   const activeRef = useRef(false);
   const startedOptionsRef = useRef<string>("");
   const startedInputsRef = useRef<{ beatmap: string; replay: string }>({ beatmap: "", replay: "" });
@@ -112,42 +110,11 @@ export function LivePreviewPanel() {
     return () => { mounted = false; };
   }, [client, replayPath]);
 
-  // 帧拉取循环:按 requestAnimationFrame 向后端要最新帧画到 canvas。
-  // 页面隐藏时 rAF 自动暂停(后端也会因超时无拉帧而停 GPU 渲染)。
-  useEffect(() => {
-    if (!active || mode !== "canvas") return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const imageData = ctx.createImageData(1280, 720);
-    let stopped = false;
-    let raf = 0;
-    const pull = async () => {
-      if (stopped) return;
-      try {
-        const buffer = await desktopApi.liveRenderFrame();
-        if (buffer.byteLength === 1280 * 720 * 4) {
-          imageData.data.set(new Uint8Array(buffer));
-          ctx.putImageData(imageData, 0, 0);
-        }
-      } catch {
-        // 后端临时无帧(会话切换中),下一帧继续。
-      }
-      if (!stopped) raf = requestAnimationFrame(() => void pull());
-    };
-    raf = requestAnimationFrame(() => void pull());
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(raf);
-    };
-  }, [active, mode]);
-
   // 原生模式:上报预览区域位置,原生子窗口跟随 DOM 元素(滚动/缩放)。
   // 原生窗口压在 WebView 之上,会盖住应用内弹窗(对话框/确认框):
   // 检测到弹窗打开时附带 suppressed,后端临时隐藏预览窗口。
   useEffect(() => {
-    if (!active || mode !== "native") return;
+    if (!active) return;
     const element = containerRef.current;
     if (!element) return;
     let raf = 0;
@@ -159,8 +126,13 @@ export function LivePreviewPanel() {
     const push = () => {
       pending = false;
       const box = element.getBoundingClientRect();
+      // 物理像素:WebKitGTK 在 X11 小数缩放(Xft.dpi)下 devicePixelRatio
+      // 是小数(如 1.25),而后端能拿到的 tauri scale_factor 只是 GDK
+      // 整数缩放(=1)——坐标换算只能以 dpr 为准(Windows 的 WebView2
+      // 同样满足 dpr == scale_factor,行为不变)。
+      const d = window.devicePixelRatio || 1;
       void desktopApi
-        .liveRenderMove({ x: box.x, y: box.y, width: box.width, height: box.height, suppressed })
+        .liveRenderMove({ x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d, suppressed })
         .catch(() => undefined);
     };
     const schedule = () => {
@@ -190,7 +162,7 @@ export function LivePreviewPanel() {
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
     };
-  }, [active, mode]);
+  }, [active]);
 
   const stop = useCallback(() => {
     activeRef.current = false;
@@ -209,13 +181,13 @@ export function LivePreviewPanel() {
     try {
       const beatmapPath = await desktopApi.getLocalBeatmapPath(client, replayInfo.beatmap_resource_id);
       const box = containerRef.current?.getBoundingClientRect();
-      const rect = box ? { x: box.x, y: box.y, width: box.width, height: box.height } : { x: 0, y: 0, width: 0, height: 0 };
+      const d = window.devicePixelRatio || 1;
+      const rect = box ? { x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d } : { x: 0, y: 0, width: 0, height: 0 };
       const info = await desktopApi.liveRenderOpen(beatmapPath, replayPath, options, rect);
       startedOptionsRef.current = JSON.stringify(options);
       startedInputsRef.current = { beatmap: beatmapPath, replay: replayPath };
       activeRef.current = true;
       setActive(true);
-      setMode(info.mode);
       setDuration(info.durationMs);
       setTime(0);
     } catch (value) {
@@ -314,10 +286,9 @@ export function LivePreviewPanel() {
         <Card className="p-5">
           <SectionTitle
             title="预览区域"
-            description={mode === "native" ? "原生窗口直渲(Windows 高帧率模式),覆盖在下方区域。" : "GPU 渲染的帧通过二进制通道送到此 canvas;切走页面时自动暂停渲染。"}
+            description="原生窗口直渲(wgpu 直接呈现,高帧率),覆盖在下方区域。"
           />
           <div ref={containerRef} className="relative mt-5 aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-[#0e0e13]">
-            {mode === "canvas" ? <canvas ref={canvasRef} width={1280} height={720} className="h-full w-full" /> : null}
             {!active ? <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-600">开始预览后画面显示在这里</div> : null}
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -406,7 +377,7 @@ export function LivePreviewPanel() {
             <MonitorPlay className="size-4" />开始预览
           </Button>
         </Card>
-        {!active ? <Card className="p-5"><EmptyState icon={<MonitorPlay className="size-5" />} title="等待预览" description="选择回放并点击“开始预览”后,可播放、暂停并任意拖动进度条。" /></Card> : <Card className="p-5"><div className="flex items-center justify-between"><SectionTitle title="预览中" description="渲染在本机 GPU 上实时进行。" /><Badge tone="cyan">{mode === "native" ? "原生直渲" : "canvas"}</Badge></div></Card>}
+        {!active ? <Card className="p-5"><EmptyState icon={<MonitorPlay className="size-5" />} title="等待预览" description="选择回放并点击“开始预览”后,可播放、暂停并任意拖动进度条。" /></Card> : <Card className="p-5"><div className="flex items-center justify-between"><SectionTitle title="预览中" description="渲染在本机 GPU 上实时进行。" /><Badge tone="cyan">原生直渲</Badge></div></Card>}
       </div>
     </div>
     <Dialog.Root open={exportOpen} onOpenChange={(open) => { if (!exportBusy) setExportOpen(open); }}>

@@ -671,13 +671,12 @@ export const desktopApi = {
     options: LiveRenderOptions,
     rect: { x: number; y: number; width: number; height: number },
   ) =>
-    call<{ durationMs: number; mode: "native" | "canvas" }>("live_render_open", {
+    call<{ durationMs: number }>("live_render_open", {
       beatmapPath,
       replayPath,
       options,
       rect,
     }),
-  liveRenderFrame: () => invoke<ArrayBuffer>("live_render_frame"),
   liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
     call<void>("live_render_move", { rect }),
   liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),

@@ -1,8 +1,5 @@
-//! 实时回放预览,双后端:
-//!
-//! - **Windows(高帧率模式)**:`#[cfg(windows)]`wgpu 直接渲染到窗口 surface
-//! - **其他平台(canvas 模式)**
-//!
+//! 实时回放预览:wgpu 直接渲染到原生窗口 surface(高帧率,零拷贝 present)。
+//! Windows 用 WS_CHILD 子窗口(或属主弹出窗口兜底);Linux 用 X11 子窗口
 
 use crate::error::{CommandError, CommandResult};
 use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene};
@@ -10,10 +7,15 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
-
 #[cfg(windows)]
-use osu_replay_render::surface;
+use tauri::Manager;
+use tauri::{AppHandle, Emitter};
+
+// 窗口 surface 直渲(blit 管线)由 osu-replay-render 库提供,
+// 这里不再自带 wgpu 依赖。
+pub use osu_replay_render::surface;
+#[cfg(target_os = "linux")]
+mod x11;
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::POINT;
@@ -34,18 +36,17 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
 };
 
-/// 内部渲染分辨率(16:9,canvas/原生窗口均由 CSS 等比缩放)。
+/// 内部渲染分辨率(16:9;原生窗口上 letterbox 等比缩放)。
 const RENDER_W: u32 = 1280;
 const RENDER_H: u32 = 720;
 const CLEAR: [f64; 4] = [0.055, 0.055, 0.075, 1.0];
-/// canvas 模式:超过该时长没有前端拉帧(页面隐藏/切走)则暂停 GPU
-/// 渲染,音频照常。
-#[cfg(not(windows))]
-const FRAME_PULL_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PreviewRect {
-    /// CSS 像素,相对 WebView 视口左上角(仅 Windows 原生模式使用)。
+    /// 物理像素(= CSS px × window.devicePixelRatio),相对 WebView 视口
+    /// 左上角(原生窗口定位使用)。由前端换算:WebKitGTK 在 X11 小数
+    /// 缩放(Xft.dpi=120 → dpr 1.25)下,后端能拿到的 tauri
+    /// scale_factor 只是 GDK 整数缩放(=1),换算只能以 dpr 为准。
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -104,13 +105,11 @@ pub struct LiveRenderState {
     pub duration_ms: f64,
 }
 
-/// open 的返回:总时长与实际使用的后端模式。
+/// open 的返回:总时长。
 #[derive(Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveOpenInfo {
     pub duration_ms: f64,
-    /// "native"(Windows 直渲) | "canvas"(离屏 + IPC)。
-    pub mode: &'static str,
 }
 
 #[derive(Debug)]
@@ -119,15 +118,13 @@ enum Cmd {
         app: AppHandle,
         beatmap_path: String,
         replay_path: String,
-        /// 仅 Windows 原生模式使用;其他平台忽略。
+        /// 原生窗口初始定位(物理 px,相对 WebView 视口)。
         rect: PreviewRect,
-        scale: f64,
         options: LiveOptions,
         reply: Sender<Result<LiveOpenInfo, String>>,
     },
     Move {
         rect: PreviewRect,
-        scale: f64,
     },
     /// 渲染参数原地生效(零重载):即时字段直接改 SceneState;
     /// bg 重建图集并热替换纹理;audio 懒加载/静音。
@@ -146,11 +143,6 @@ static CHANNEL: LazyLock<Mutex<Sender<Cmd>>> = LazyLock::new(|| {
         .expect("spawn live-render thread");
     Mutex::new(tx)
 });
-
-/// canvas 模式的最新一帧(RGBA tight;空 = 尚无帧)。原生模式不使用。
-static LATEST_FRAME: LazyLock<Mutex<Vec<u8>>> = LazyLock::new(|| Mutex::new(Vec::new()));
-#[cfg(not(windows))]
-static LAST_PULL: LazyLock<Mutex<Instant>> = LazyLock::new(|| Mutex::new(Instant::now()));
 
 fn send(cmd: Cmd) {
     let _ = CHANNEL.lock().unwrap().send(cmd);
@@ -408,64 +400,62 @@ fn load_kira_sound(bank: &str, name: &str) -> Option<kira::sound::static_sound::
     Some(data)
 }
 
-// ---- BGRA(padded)→ RGBA(tight),canvas 模式 ---------------------------------
-
-fn to_rgba_tight(src: &[u8], width: u32, height: u32, padded_row: u32, dst: &mut [u8]) {
-    let stride = padded_row as usize;
-    for row in 0..height as usize {
-        let s = row * stride;
-        let d = row * width as usize * 4;
-        for px in 0..width as usize {
-            let si = s + px * 4;
-            let di = d + px * 4;
-            dst[di] = src[si + 2];
-            dst[di + 1] = src[si + 1];
-            dst[di + 2] = src[si];
-            dst[di + 3] = src[si + 3];
-        }
-    }
-}
-
 // ---- 会话 --------------------------------------------------------------------
 
-/// 渲染后端。Windows 用原生窗口直渲(高帧率),其他平台离屏 + IPC。
+/// 渲染后端:原生窗口直渲(高帧率,零拷贝 present)。
 enum Backend {
-    #[cfg(windows)]
     Native {
-        hwnd: isize,
-        /// 子窗口(随父窗口移动,零跟踪)或有属主的顶层弹出窗口
-        /// (任意线程可建,由渲染线程轮询跟踪位置)。
-        popup: bool,
-        /// popup 跟踪用:主窗口句柄 + 上次期望的 CSS rect 与缩放。
-        main_hwnd: isize,
-        last_rect: PreviewRect,
-        last_scale: f64,
         renderer: surface::SurfaceRenderer,
-        /// 上次 Move 的可见性(rect 非零 = 页面可见)。
+        /// 上次 Move 的可见性(rect 非零且未 suppressed = 预览可见)。
         visible: bool,
-    },
-    Offscreen {
-        renderer: Renderer,
-        bgra_scratch: Vec<u8>,
+        /// Windows:子窗口(随父窗口移动,零跟踪)或有属主的顶层弹出
+        /// 窗口(任意线程可建,由渲染线程轮询跟踪位置)。
+        #[cfg(windows)]
+        hwnd: isize,
+        #[cfg(windows)]
+        popup: bool,
+        /// popup 跟踪用:主窗口句柄 + 上次期望的物理 px rect。
+        #[cfg(windows)]
+        main_hwnd: isize,
+        #[cfg(windows)]
+        last_rect: PreviewRect,
+        /// Linux:X11 子窗口(主窗口 XID 之下,随父窗口移动,零跟踪)。
+        #[cfg(target_os = "linux")]
+        x11: x11::Window,
     },
 }
 
 impl Backend {
     fn destroy(self, app: &AppHandle) {
-        match self {
-            #[cfg(windows)]
-            // 子窗口由主线程创建,须回主线程销毁;popup 在渲染线程
-            // 创建,当前线程直接销毁。
-            Backend::Native {
-                hwnd, popup: false, ..
-            } => native::destroy_child_on_main(app, hwnd),
-            #[cfg(windows)]
-            Backend::Native {
-                hwnd, popup: true, ..
-            } => unsafe {
-                DestroyWindow(hwnd as HWND);
-            },
-            Backend::Offscreen { .. } => {}
+        // wgpu surface 引用着原生窗口,必须先于窗口本体销毁。
+        #[cfg(not(windows))]
+        let _ = app;
+        #[cfg(windows)]
+        {
+            // 子窗口由主线程创建,须回主线程销毁;popup 在渲染线程销毁。
+            let Backend::Native {
+                renderer,
+                hwnd,
+                popup,
+                ..
+            } = self;
+            drop(renderer);
+            if popup {
+                unsafe { DestroyWindow(hwnd as HWND) };
+            } else {
+                native::destroy_child_on_main(app, hwnd);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let Backend::Native { renderer, x11, .. } = self;
+            drop(renderer);
+            x11.destroy();
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
+        {
+            let Backend::Native { renderer, .. } = self;
+            drop(renderer);
         }
     }
 }
@@ -545,21 +535,10 @@ impl Session {
 }
 
 impl Session {
-    /// 两种后端各自热替换图集纹理。
+    /// 热替换图集纹理。
     fn set_atlas(&mut self, atlas: &draw::Atlas) {
-        match &mut self.backend {
-            #[cfg(windows)]
-            Backend::Native { renderer, .. } => renderer.set_atlas(atlas),
-            Backend::Offscreen { renderer, .. } => renderer.set_atlas(atlas),
-        }
-    }
-
-    fn mode(&self) -> &'static str {
-        match &self.backend {
-            #[cfg(windows)]
-            Backend::Native { .. } => "native",
-            Backend::Offscreen { .. } => "canvas",
-        }
+        let Backend::Native { renderer, .. } = &mut self.backend;
+        renderer.set_atlas(atlas);
     }
 
     /// BGM 文件位置(秒,按 audio_offset 换算,负位置钳 0)。
@@ -613,10 +592,7 @@ impl Session {
             Some(kira::sound::PlaybackState::Playing)
             | Some(kira::sound::PlaybackState::Paused) => {
                 let position = self.bgm_position();
-                self.bgm_handle
-                    .as_mut()
-                    .unwrap()
-                    .seek_to(position);
+                self.bgm_handle.as_mut().unwrap().seek_to(position);
             }
             _ => {}
         }
@@ -634,7 +610,7 @@ impl Session {
         }
     }
 
-    /// popup 模式:把期望位置(CSS rect × scale,相对主窗口客户区)换算
+    /// popup 模式:把期望位置(物理 px rect,相对主窗口客户区)换算
     /// 成屏幕坐标并贴到窗口上。主窗口被拖动/缩放时由渲染循环重复调用。
     #[cfg(windows)]
     fn enforce_native_position(&mut self) {
@@ -643,7 +619,6 @@ impl Session {
             popup: true,
             main_hwnd,
             last_rect,
-            last_scale,
             visible,
             ..
         } = &mut self.backend
@@ -655,11 +630,10 @@ impl Session {
             return;
         }
         let (ox, oy) = native::client_origin_on_screen(*main_hwnd);
-        let scale = *last_scale;
-        let x = ox + (last_rect.x * scale).round() as i32;
-        let y = oy + (last_rect.y * scale).round() as i32;
-        let w = (last_rect.width * scale).round() as i32;
-        let h = (last_rect.height * scale).round() as i32;
+        let x = ox + last_rect.x.round() as i32;
+        let y = oy + last_rect.y.round() as i32;
+        let w = last_rect.width.round() as i32;
+        let h = last_rect.height.round() as i32;
         let (l, t, r, b) = native::window_rect(*hwnd);
         if l != x || t != y || (r - l) != w || (b - t) != h {
             unsafe {
@@ -677,19 +651,14 @@ impl Session {
         }
     }
 
-    /// 当前是否需要渲染(原生模式 = 窗口可见;canvas 模式 = 前端在拉帧)。
+    /// 当前是否需要渲染(预览窗口可见)。
     fn visible_now(&self) -> bool {
         match &self.backend {
-            #[cfg(windows)]
             Backend::Native { visible, .. } => *visible,
-            #[cfg(not(windows))]
-            Backend::Offscreen { .. } => LAST_PULL.lock().unwrap().elapsed() < FRAME_PULL_TIMEOUT,
-            #[cfg(windows)]
-            Backend::Offscreen { .. } => true,
         }
     }
 
-    /// 渲染当前 t 的一帧并呈现(原生 present / canvas 发布帧缓冲)。
+    /// 渲染当前 t 的一帧并 present。
     fn draw_frame(&mut self) {
         let t = self.t;
         let snap = game::snapshot_at(&self.game, t);
@@ -702,34 +671,11 @@ impl Session {
         self.state
             .build_frame(&self.game, &assets, &snap, &mut self.list);
         self.list.finish();
-        match &mut self.backend {
-            #[cfg(windows)]
-            Backend::Native {
-                renderer, visible, ..
-            } => {
-                if *visible {
-                    renderer.render(&self.list, CLEAR);
-                }
-            }
-            Backend::Offscreen {
-                renderer,
-                bgra_scratch,
-            } => {
-                // 流水线:本帧提交后取上一帧的读回(GPU 不空转)。
-                renderer.render_deferred(&self.list, CLEAR);
-                if renderer.pending_len() > 0 {
-                    renderer.read_oldest_into(bgra_scratch);
-                    let mut frame = LATEST_FRAME.lock().unwrap();
-                    frame.resize((RENDER_W * RENDER_H * 4) as usize, 0);
-                    to_rgba_tight(
-                        bgra_scratch,
-                        RENDER_W,
-                        RENDER_H,
-                        renderer.padded_row,
-                        &mut frame,
-                    );
-                }
-            }
+        let Backend::Native {
+            renderer, visible, ..
+        } = &mut self.backend;
+        if *visible {
+            renderer.render(&self.list, CLEAR);
         }
         let _ = self.app.emit(
             "live-render-time",
@@ -754,10 +700,10 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                     Ok(cmd) => handle_cmd(cmd, &mut session),
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
-                        if let Some(s) = session.take() {
+                        if let Some(mut s) = session.take() {
+                            s.audio_stop();
                             s.backend.destroy(&s.app);
                         }
-                        *LATEST_FRAME.lock().unwrap() = Vec::new();
                         return;
                     }
                 }
@@ -799,10 +745,15 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
             }
         }
 
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
+            // Windows popup 模式:主窗口被拖动/缩放时轮询贴回屏幕位置。
+            #[cfg(windows)]
             s.enforce_native_position();
+            // 周期性压回兄弟栈顶:WebView(WebView2/GdkWindow)激活/重排
+            // 时会把自己抬到我们之上。
             if s.last_top_assert.elapsed() >= Duration::from_millis(400) {
+                #[cfg(windows)]
                 if let Backend::Native {
                     hwnd,
                     visible: true,
@@ -810,6 +761,13 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                 } = &s.backend
                 {
                     native::bring_to_top(*hwnd);
+                }
+                #[cfg(target_os = "linux")]
+                if let Backend::Native {
+                    x11, visible: true, ..
+                } = &mut s.backend
+                {
+                    x11.bring_to_top();
                 }
                 s.last_top_assert = Instant::now();
             }
@@ -843,18 +801,19 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             beatmap_path,
             replay_path,
             rect,
-            scale,
             options,
             reply,
         } => {
-            if let Some(s) = session.take() {
+            if let Some(mut s) = session.take() {
+                // Kira 的声音归混音器所有:丢弃句柄不会停播,必须显式
+                // stop,否则旧会话的 BGM 一直响(与新会话叠音)。
+                s.audio_stop();
                 s.backend.destroy(&s.app);
             }
-            *LATEST_FRAME.lock().unwrap() = Vec::new();
             // catch_unwind:初始化失败(如驱动/wgpu panic)不能拖死整个
             // 渲染线程,否则后续所有命令都会"渲染线程无响应"。
             let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                open_session(&app, &beatmap_path, &replay_path, &options, rect, scale)
+                open_session(&app, &beatmap_path, &replay_path, &options, rect)
             }));
             let opened = match opened {
                 Ok(r) => r,
@@ -882,11 +841,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         },
                     );
                     s.draw_frame(); // 首帧
-                    let mode = s.mode();
                     *session = Some(s);
                     let _ = reply.send(Ok(LiveOpenInfo {
                         duration_ms: duration,
-                        mode,
                     }));
                 }
                 Err(e) => {
@@ -894,50 +851,57 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 }
             }
         }
-        Cmd::Move { rect, scale } => {
-            #[cfg(windows)]
+        Cmd::Move { rect } => {
+            #[cfg(any(windows, target_os = "linux"))]
             if let Some(s) = session.as_mut() {
-                if let Backend::Native {
-                    hwnd,
-                    popup,
-                    main_hwnd: _,
-                    renderer,
-                    last_rect,
-                    last_scale,
-                    visible,
-                } = &mut s.backend
+                let show = rect.width > 0.0 && rect.height > 0.0 && !rect.suppressed;
+                let (x, y) = (rect.x.round() as i32, rect.y.round() as i32);
+                let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
+                #[cfg(windows)]
                 {
-                    let show = rect.width > 0.0 && rect.height > 0.0 && !rect.suppressed;
+                    let Backend::Native {
+                        hwnd,
+                        popup,
+                        last_rect,
+                        visible,
+                        ..
+                    } = &mut s.backend;
                     if !*popup {
-                        // 子窗口:客户区坐标,立即生效。
-                        let (x, y) = (
-                            (rect.x * scale).round() as i32,
-                            (rect.y * scale).round() as i32,
-                        );
-                        let (w, h) = (
-                            (rect.width * scale).round() as i32,
-                            (rect.height * scale).round() as i32,
-                        );
+                        // 子窗口:父窗口客户区坐标,立即生效。
                         native::place(*hwnd, x, y, w, h, show);
                     }
                     // popup:只记录期望位置,渲染循环换算屏幕坐标并跟踪。
                     *last_rect = rect;
-                    *last_scale = scale;
                     *visible = show;
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let Backend::Native { x11, visible, .. } = &mut s.backend;
+                    // X11 子窗口:父窗口局部坐标,立即生效。
+                    x11.place(x, y, w, h, show);
+                    *visible = show;
+                }
+                {
+                    let Backend::Native { renderer, .. } = &mut s.backend;
                     if show {
-                        renderer.resize(
-                            (rect.width * scale).round().max(1.0) as u32,
-                            (rect.height * scale).round().max(1.0) as u32,
-                        );
+                        renderer.resize(w.max(1) as u32, h.max(1) as u32);
                     } else {
                         renderer.resize(0, 0);
                     }
                     s.dirty = true;
                 }
+                // 面板被切走(容器 display:none → rect 归零)时暂停
+                // 播放;仅 suppressed(应用内弹窗临时遮挡)不打断。
+                if rect.width <= 0.0 || rect.height <= 0.0 {
+                    if s.playing {
+                        s.playing = false;
+                        s.audio_pause();
+                    }
+                }
             }
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, target_os = "linux")))]
             {
-                let _ = (rect, scale);
+                let _ = rect;
             }
         }
         Cmd::Seek(t) => {
@@ -965,7 +929,12 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 s.audio_play();
                 let _ = s.app.emit(
                     "live-render-time",
-                    LiveRenderState { active: true, playing: true, time_ms: s.t, duration_ms: s.duration },
+                    LiveRenderState {
+                        active: true,
+                        playing: true,
+                        time_ms: s.t,
+                        duration_ms: s.duration,
+                    },
                 );
             }
         }
@@ -975,7 +944,12 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 s.audio_pause();
                 let _ = s.app.emit(
                     "live-render-time",
-                    LiveRenderState { active: true, playing: false, time_ms: s.t, duration_ms: s.duration },
+                    LiveRenderState {
+                        active: true,
+                        playing: false,
+                        time_ms: s.t,
+                        duration_ms: s.duration,
+                    },
                 );
             }
         }
@@ -1034,10 +1008,12 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             s.dirty = true;
         }
         Cmd::Close => {
-            if let Some(s) = session.take() {
+            if let Some(mut s) = session.take() {
+                // Kira 的声音归混音器所有:丢弃句柄不会停播(切走页面/
+                // 关闭预览后 BGM 一直响),必须显式 stop。
+                s.audio_stop();
                 s.backend.destroy(&s.app);
             }
-            *LATEST_FRAME.lock().unwrap() = Vec::new();
         }
     }
 }
@@ -1048,7 +1024,6 @@ fn open_session(
     replay_path: &str,
     options: &LiveOptions,
     rect: PreviewRect,
-    scale: f64,
 ) -> Result<Session, String> {
     let game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
 
@@ -1104,91 +1079,105 @@ fn open_session(
         .map(|content| hitsound::collect_events(&game, &content))
         .unwrap_or_default();
 
-    // ---- 后端选择 ------------------------------------------------------------
-    // Windows:原生子窗口直渲(高帧率,零拷贝 present);创建失败(驱动/
-    // 窗口环境异常)自动回退 canvas 模式,功能不中断。
+    // ---- 原生直渲后端 --------------------------------------------------------
+    // Windows:首选 WS_CHILD 子窗口(随父窗口移动,零跟踪,主线程创建),
+    // 失败改用有属主的顶层弹出窗口(无线程限制,渲染线程轮询跟踪)。
+    // Linux:X11 子窗口(主窗口 XID 之下,同样零跟踪)。失败直接报错。
     #[cfg(windows)]
-    let backend = {
-        let make_offscreen = || Backend::Offscreen {
-            renderer: Renderer::new(RENDER_W, RENDER_H, &atlas),
-            bgra_scratch: Vec::new(),
-        };
-        let build_native = |main_hwnd: isize| -> Backend {
-            let (x, y) = (
-                (rect.x * scale).round() as i32,
-                (rect.y * scale).round() as i32,
-            );
-            let (w, h) = (
-                (rect.width * scale).round() as i32,
-                (rect.height * scale).round() as i32,
-            );
-            let visible = rect.width > 0.0 && rect.height > 0.0;
-
-            // 首选:WS_CHILD 子窗口(随父窗口移动,零跟踪),主线程创建。
-            // 次选:有属主的顶层弹出窗口(无线程限制),渲染线程创建并轮询跟踪位置。
-            let (hwnd, popup) = match native::create_child_on_main(app, main_hwnd, x, y, w, h) {
-                Ok(hwnd) => (hwnd, false),
-                Err(e) => {
-                    eprintln!("live_render: 子窗口创建失败({e}),改用属主弹出窗口");
-                    let (ox, oy) = native::client_origin_on_screen(main_hwnd);
-                    match native::create_popup(ox + x, oy + y, w, h) {
-                        Ok(hwnd) => {
-                            native::set_owner(hwnd, main_hwnd);
-                            (hwnd, true)
-                        }
-                        Err(e) => {
-                            eprintln!("live_render: 原生直渲不可用({e}),回退 canvas 模式");
-                            return make_offscreen();
-                        }
-                    }
-                }
-            };
-
-            match surface::SurfaceRenderer::new(RENDER_W, RENDER_H, &atlas, hwnd) {
-                Ok(mut renderer) => {
-                    if visible {
-                        renderer.resize(w.max(1) as u32, h.max(1) as u32);
-                    } else {
-                        renderer.resize(0, 0);
-                    }
-                    Backend::Native {
-                        hwnd,
-                        popup,
-                        main_hwnd,
-                        last_rect: rect,
-                        last_scale: scale,
-                        renderer,
-                        visible,
-                    }
-                }
-                Err(e) => {
-                    eprintln!("live_render: 初始化渲染器失败({e}),回退 canvas 模式");
-                    if popup {
-                        unsafe { DestroyWindow(hwnd as HWND) };
-                    } else {
-                        native::destroy_child_on_main(app, hwnd);
-                    }
-                    make_offscreen()
-                }
-            }
-        };
-        match app
+    let backend = (|| -> Result<Backend, String> {
+        let main_hwnd = app
             .get_webview_window("main")
             .and_then(|w| w.hwnd().ok())
             .map(|h| h.0 as isize)
-        {
-            Some(main_hwnd) => build_native(main_hwnd),
-            None => {
-                eprintln!("live_render: 无法获取主窗口句柄,回退 canvas 模式");
-                make_offscreen()
+            .ok_or("无法获取主窗口句柄")?;
+        let (x, y) = (rect.x.round() as i32, rect.y.round() as i32);
+        let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
+        let visible = rect.width > 0.0 && rect.height > 0.0;
+
+        let (hwnd, popup) = match native::create_child_on_main(app, main_hwnd, x, y, w, h) {
+            Ok(hwnd) => (hwnd, false),
+            Err(e) => {
+                eprintln!("live_render: 子窗口创建失败({e}),改用属主弹出窗口");
+                let (ox, oy) = native::client_origin_on_screen(main_hwnd);
+                let hwnd = native::create_popup(ox + x, oy + y, w, h)
+                    .map_err(|e| format!("原生直渲不可用:无法创建预览窗口({e})"))?;
+                native::set_owner(hwnd, main_hwnd);
+                (hwnd, true)
             }
+        };
+
+        let mut renderer = surface::SurfaceRenderer::new(
+            RENDER_W,
+            RENDER_H,
+            &atlas,
+            osu_replay_render::raw_window_handle::RawDisplayHandle::Windows(
+                osu_replay_render::raw_window_handle::WindowsDisplayHandle::new(),
+            ),
+            osu_replay_render::raw_window_handle::RawWindowHandle::Win32(
+                osu_replay_render::raw_window_handle::Win32WindowHandle::new(
+                    std::num::NonZeroIsize::new(hwnd).ok_or("无效的窗口句柄")?,
+                ),
+            ),
+        )
+        .map_err(|e| {
+            if popup {
+                unsafe { DestroyWindow(hwnd as HWND) };
+            } else {
+                native::destroy_child_on_main(app, hwnd);
+            }
+            format!("初始化渲染器失败: {e}")
+        })?;
+        if visible {
+            renderer.resize(w.max(1) as u32, h.max(1) as u32);
+        } else {
+            renderer.resize(0, 0);
         }
-    };
-    #[cfg(not(windows))]
-    let backend = Backend::Offscreen {
-        renderer: Renderer::new(RENDER_W, RENDER_H, &atlas),
-        bgra_scratch: Vec::new(),
-    };
+        Ok(Backend::Native {
+            hwnd,
+            popup,
+            main_hwnd,
+            last_rect: rect,
+            renderer,
+            visible,
+        })
+    })();
+    #[cfg(target_os = "linux")]
+    let backend = (|| -> Result<Backend, String> {
+        let main_xid = x11::Window::main_window_xid_on_main(app)?;
+        let (x, y) = (rect.x.round() as i32, rect.y.round() as i32);
+        let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
+        let visible = rect.width > 0.0 && rect.height > 0.0;
+
+        let window = x11::Window::new_child(main_xid, x, y, w, h)
+            .map_err(|e| format!("无法创建 X11 预览子窗口: {e}"))?;
+        let (raw_display, raw_window) = window.raw_handles();
+        let mut renderer = match surface::SurfaceRenderer::new(
+            RENDER_W,
+            RENDER_H,
+            &atlas,
+            raw_display,
+            raw_window,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                window.destroy();
+                return Err(format!("初始化渲染器失败: {e}"));
+            }
+        };
+        if visible {
+            renderer.resize(w.max(1) as u32, h.max(1) as u32);
+        } else {
+            renderer.resize(0, 0);
+        }
+        Ok(Backend::Native {
+            renderer,
+            visible,
+            x11: window,
+        })
+    })();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let backend: Result<Backend, String> = Err("实时预览仅支持 Windows / Linux(X11)".into());
+    let backend = backend?;
 
     let mut session = Session {
         app: app.clone(),
@@ -1234,21 +1223,14 @@ pub fn live_render_open(
     rect: PreviewRect,
     options: LiveOptions,
 ) -> CommandResult<LiveOpenInfo> {
-    // Windows 原生模式需要主窗口缩放比(物理坐标 = CSS px × scale)。
-    #[cfg(windows)]
-    let scale = app
-        .get_webview_window("main")
-        .and_then(|w| w.scale_factor().ok())
-        .unwrap_or(1.0);
-    #[cfg(not(windows))]
-    let scale = 1.0;
+    // rect 已是物理 px(前端 × devicePixelRatio):WebKitGTK 的 X11 小数
+    // 缩放(dpr 1.25)后端拿不到,见 PreviewRect 注释。
     let (tx, rx) = channel();
     send(Cmd::Open {
         app,
         beatmap_path,
         replay_path,
         rect,
-        scale,
         options,
         reply: tx,
     });
@@ -1257,32 +1239,11 @@ pub fn live_render_open(
         .map_err(|e| CommandError::new("LIVE_RENDER", e))
 }
 
-/// 最新一帧(RGBA,RENDER_W×RENDER_H×4);空 payload 表示尚无帧。
-/// canvas 模式专用;原生模式不产生帧数据。
+/// 预览区域位置(物理 px = CSS px × devicePixelRatio)。原生窗口跟随
+/// 该 rect;无会话时 no-op。
 #[tauri::command]
-pub fn live_render_frame() -> tauri::ipc::Response {
-    #[cfg(not(windows))]
-    {
-        *LAST_PULL.lock().unwrap() = Instant::now();
-    }
-    tauri::ipc::Response::new(LATEST_FRAME.lock().unwrap().clone())
-}
-
-/// 预览区域位置(CSS px)。仅 Windows 原生模式消费;其他平台 no-op。
-#[tauri::command]
-pub fn live_render_move(app: AppHandle, rect: PreviewRect) -> CommandResult<()> {
-    #[cfg(windows)]
-    {
-        let scale = app
-            .get_webview_window("main")
-            .and_then(|w| w.scale_factor().ok())
-            .unwrap_or(1.0);
-        send(Cmd::Move { rect, scale });
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (app, rect);
-    }
+pub fn live_render_move(rect: PreviewRect) -> CommandResult<()> {
+    send(Cmd::Move { rect });
     Ok(())
 }
 
@@ -1314,6 +1275,154 @@ pub fn live_render_close() {
 }
 
 // NULTEST-MARKER-X
+
+#[cfg(test)]
+mod repro_tests {
+    use super::*;
+
+    /// 复现 "attempt to multiply with overflow":遍历本地 Replays × Songs
+    /// (MD5 匹配),跑 open_session 的全部初始化段(判定/图集/场景/
+    /// wgpu/音效事件),定位 panic 位置。BEATMAPS/REPLAYS 环境变量可覆盖目录。
+    #[test]
+    fn repro_init_overflow() {
+        use md5::{Digest, Md5};
+        let replay_dir = std::env::var("REPLAYS")
+            .unwrap_or_else(|_| "/home/xiaobing/osu-test/osu!/Replays".into());
+        let songs_dir =
+            std::env::var("SONGS").unwrap_or_else(|_| "/home/xiaobing/osu-test/osu!/Songs".into());
+
+        // .osr 头里的谱面 MD5(第 2 个字符串字段)。
+        struct Osr<'a> {
+            d: &'a [u8],
+            off: usize,
+        }
+        impl Osr<'_> {
+            fn u8(&mut self) -> u8 {
+                let v = self.d[self.off];
+                self.off += 1;
+                v
+            }
+            fn u32(&mut self) -> u32 {
+                let arr: [u8; 4] = self.d[self.off..self.off + 4].try_into().unwrap();
+                self.off += 4;
+                u32::from_le_bytes(arr)
+            }
+            fn s(&mut self) -> Option<String> {
+                if self.u8() == 0 {
+                    return Some(String::new());
+                }
+                let mut len = 0usize;
+                let mut shift = 0;
+                loop {
+                    let b = self.d[self.off];
+                    self.off += 1;
+                    len |= ((b & 0x7f) as usize) << shift;
+                    if b & 0x80 == 0 {
+                        break;
+                    }
+                    shift += 7;
+                }
+                let v = self.d.get(self.off..self.off + len)?.to_vec();
+                self.off += len;
+                Some(String::from_utf8_lossy(&v).into_owned())
+            }
+        }
+        let beatmap_hash = |data: &[u8]| -> Option<String> {
+            let mut p = Osr { d: data, off: 0 };
+            let _ = p.u8();
+            let _ = p.u32();
+            p.s()
+        };
+
+        let mut maps = HashMap::new();
+        for entry in std::fs::read_dir(&songs_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let dir = entry.path();
+            let Ok(files) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for f in files.flatten() {
+                let p = f.path();
+                if p.extension().and_then(|x| x.to_str()) == Some("osu") {
+                    if let Ok(bytes) = std::fs::read(&p) {
+                        let mut h = Md5::new();
+                        h.update(&bytes);
+                        maps.insert(format!("{:x}", h.finalize()), p);
+                    }
+                }
+            }
+        }
+
+        let replays: Vec<_> = std::fs::read_dir(&replay_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("osr"))
+            .collect();
+        eprintln!(
+            "replays: {}, md5-mapped beatmaps: {}",
+            replays.len(),
+            maps.len()
+        );
+
+        let mut ran = 0usize;
+        for replay in replays {
+            let Ok(bytes) = std::fs::read(&replay) else {
+                continue;
+            };
+            let Some(hash) = beatmap_hash(&bytes) else {
+                continue;
+            };
+            let Some(beatmap) = maps.get(&hash) else {
+                continue;
+            };
+            ran += 1;
+            eprintln!("[{ran}] {}", replay.display());
+
+            // ---- open_session 各段(与 open_session 顺序一致) ----
+            let game = game::load(beatmap.to_str().unwrap(), replay.to_str().unwrap()).unwrap();
+            let (atlas, _bold, _semibold) = build_atlas(None);
+            let mut state = scene::SceneState::new(&game, 1280, 720);
+            state.pro_skin = true;
+            let content = std::fs::read_to_string(beatmap).unwrap();
+            let _events = hitsound::collect_events(&game, &content);
+            let mut renderer = Renderer::new(1280, 720, &atlas);
+            let mut list = draw::DrawList::new();
+            let t = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
+            let snap = game::snapshot_at(&game, t);
+            state.build_frame(
+                &game,
+                &scene::Assets {
+                    atlas: &atlas,
+                    bold: &_bold,
+                    semibold: &_semibold,
+                },
+                &snap,
+                &mut list,
+            );
+            list.finish();
+            let _ = renderer.render(&list, CLEAR);
+            // BGM 解码(kira/symphonia)也是 open 的一部分(audio 默认开)。
+            if let Some(name) =
+                osu_replay_render::osu_general_value(beatmap.to_str().unwrap(), "AudioFilename")
+            {
+                let audio = beatmap.parent().unwrap().join(name);
+                if audio.exists() {
+                    if let Some(bytes) = std::fs::read(&audio).ok() {
+                        let _ = kira::sound::static_sound::StaticSoundData::from_cursor(
+                            std::io::Cursor::new(bytes),
+                        );
+                    }
+                }
+            }
+        }
+        assert!(ran > 0, "没有匹配到任何回放");
+    }
+}
 
 // ---- 视频导出(离屏渲染 → ffmpeg 管道 → mp4) --------------------------------
 
@@ -1441,8 +1550,18 @@ pub fn live_render_check_nvenc(
     let probe = |codec: &str| {
         std::process::Command::new(&path)
             .args([
-                "-hide_banner", "-v", "error", "-f", "lavfi", "-i",
-                "nullsrc=s=256x256:d=0.04", "-c:v", codec, "-f", "null", "-",
+                "-hide_banner",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "nullsrc=s=256x256:d=0.04",
+                "-c:v",
+                codec,
+                "-f",
+                "null",
+                "-",
             ])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -1556,19 +1675,41 @@ fn ffmpeg_encoder_args(encoder: &str, quality: u32) -> (&'static str, Vec<String
                 "h264_nvenc"
             };
             vec![
-                "-c:v", codec, "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq",
-                quality.as_str(), "-b:v", "0",
+                "-c:v",
+                codec,
+                "-preset",
+                "p5",
+                "-tune",
+                "hq",
+                "-rc",
+                "vbr",
+                "-cq",
+                quality.as_str(),
+                "-b:v",
+                "0",
             ]
         }
         "x265" => {
             vec![
-                "-c:v", "libx265", "-preset", "medium", "-crf", quality.as_str(), "-pix_fmt",
+                "-c:v",
+                "libx265",
+                "-preset",
+                "medium",
+                "-crf",
+                quality.as_str(),
+                "-pix_fmt",
                 "yuv420p",
             ]
         }
         _ => {
             vec![
-                "-c:v", "libx264", "-preset", "medium", "-crf", quality.as_str(), "-pix_fmt",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                quality.as_str(),
+                "-pix_fmt",
                 "yuv420p",
             ]
         }
@@ -1796,7 +1937,8 @@ fn run_export(
             .ok()
             .and_then(|content| {
                 let wall_secs = frame_times.len() as f64 / params.fps as f64;
-                let wav = hitsound::render_track_wav(&game, &content, t0, wall_secs, game.rate, 0.6);
+                let wav =
+                    hitsound::render_track_wav(&game, &content, t0, wall_secs, game.rate, 0.6);
                 let p = format!("{}.hits.wav", params.out_path);
                 std::fs::write(&p, wav).ok().map(|_| p)
             })
@@ -1814,7 +1956,10 @@ fn run_export(
         if let Some(bgm) = &bgm_path {
             if (rate - 1.0).abs() > 1e-9 {
                 let sr = probe_sample_rate(ffmpeg, bgm);
-                bgm_filters.push(format!("asetrate={sr},aresample={sr}", sr = (sr as f64 * rate).round() as i64));
+                bgm_filters.push(format!(
+                    "asetrate={sr},aresample={sr}",
+                    sr = (sr as f64 * rate).round() as i64
+                ));
             }
             if seek_ms >= 0.0 {
                 cmd.arg("-ss").arg(format!("{:.3}", seek_ms / 1000.0));
@@ -1826,12 +1971,15 @@ fn run_export(
         match (&bgm_path, &hits_path) {
             (Some(_), Some(hits)) => {
                 cmd.arg("-i").arg(hits);
-                cmd.arg("-filter_complex")
-                    .arg(format!("[1:a]{}[bgm];[bgm][2:a]amix=inputs=2:normalize=0,volume=0.6000[aout]", bgm_filters.join(",")));
+                cmd.arg("-filter_complex").arg(format!(
+                    "[1:a]{}[bgm];[bgm][2:a]amix=inputs=2:normalize=0,volume=0.6000[aout]",
+                    bgm_filters.join(",")
+                ));
                 cmd.args(["-map", "0:v", "-map", "[aout]"]);
             }
             (Some(_), None) => {
-                cmd.arg("-af").arg(format!("{},volume=0.6000", bgm_filters.join(",")));
+                cmd.arg("-af")
+                    .arg(format!("{},volume=0.6000", bgm_filters.join(",")));
                 cmd.args(["-map", "0:v", "-map", "1:a"]);
             }
             (None, Some(hits)) => {
@@ -1876,14 +2024,27 @@ fn run_export(
 /// 首个音频流的采样率(rate mod 的 asetrate 用)。优先取 ffmpeg 同目录
 /// 的 ffprobe(自定义路径/danser 包),否则 PATH;失败回退 44100。
 fn probe_sample_rate(ffmpeg: &std::path::Path, media: &std::path::Path) -> u32 {
-    let sibling = ffmpeg.with_file_name(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
+    let sibling = ffmpeg.with_file_name(if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    });
     let probe = if sibling.is_file() {
         sibling
     } else {
         std::path::PathBuf::from("ffprobe")
     };
     std::process::Command::new(&probe)
-        .args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "csv=p=0"])
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=sample_rate",
+            "-of",
+            "csv=p=0",
+        ])
         .arg(media)
         .output()
         .ok()

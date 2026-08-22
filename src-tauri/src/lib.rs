@@ -57,7 +57,6 @@ use danser::{
 };
 use live_render::{
     live_render_check_ffmpeg, live_render_check_nvenc, live_render_close, live_render_export, live_render_export_cancel,
-    live_render_frame,
     live_render_move, live_render_open, live_render_open_export_output, live_render_pause,
     live_render_get_ffmpeg_status, live_render_play, live_render_seek, live_render_set_options,
 };
@@ -254,7 +253,6 @@ pub fn run() {
             submit_replay_render,
             get_danser_status,
             live_render_close,
-            live_render_frame,
             live_render_move,
             live_render_open,
             live_render_pause,
