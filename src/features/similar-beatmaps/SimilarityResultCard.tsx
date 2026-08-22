@@ -104,6 +104,7 @@ export function SimilarityResultCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="normal-case text-xs tracking-normal" tone="cyan">难度 · {result.version}</Badge>
+            {result.ruleset === "mania" ? <Badge className="normal-case text-xs tracking-normal" tone="pink">{result.game_mod}</Badge> : null}
             <span className="truncate text-sm text-slate-500">#{result.beatmap_id}</span>
           </div>
           <h3 className="mt-2 truncate text-base font-semibold text-white">{result.artist} - {result.title}</h3>

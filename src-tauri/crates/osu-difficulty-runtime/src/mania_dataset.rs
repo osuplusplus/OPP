@@ -10,13 +10,15 @@ use rusqlite::{Connection, OpenFlags};
 use crate::{
     MANIA_ANALYZER_ALGORITHM_ID, MANIA_ANALYZER_SNAPSHOT, MANIA_ANALYZER_VERSION,
     MANIA_NORMALIZATION_VERSION, ManiaAnalyzer, ManiaBeatmapMetadata, ManiaDatasetInfo,
-    ManiaFeatureRecord, ManiaModeFamily, ManiaNormalizer, ManiaPattern, ManiaQueryOptions,
-    ManiaQueryResult, ManiaQueryTarget, RuntimeError,
-    mania_index::{ManiaBucketIndex, distance_components, final_distance},
+    ManiaFeatureRecord, ManiaGameMod, ManiaModFeatureRecord, ManiaModeFamily, ManiaNormalizer,
+    ManiaPattern, ManiaQueryOptions, ManiaQueryResult, ManiaQueryTarget, RuntimeError,
+    mania_index::{ManiaBucketIndex, classification_tier, distance_components, final_distance},
 };
 
 const FEATURE_HEADER: &[u8; 8] = b"ODLMAN1\0";
 const FEATURE_HEADER_LEN: usize = FEATURE_HEADER.len();
+const MOD_FEATURE_HEADER: &[u8; 8] = b"ODLMMV1\0";
+const MOD_FEATURE_HEADER_LEN: usize = MOD_FEATURE_HEADER.len();
 
 #[derive(Debug)]
 pub struct ManiaDataset {
@@ -24,10 +26,12 @@ pub struct ManiaDataset {
     record_size: usize,
     offsets: HashMap<u64, usize>,
     metadata: HashMap<u64, ManiaBeatmapMetadata>,
+    checksum_ids: HashMap<String, u64>,
     index: ManiaBucketIndex,
     normalizer: ManiaNormalizer,
     analyzer: ManiaAnalyzer,
     info: ManiaDatasetInfo,
+    mod_records: HashMap<(u64, ManiaGameMod), ManiaFeatureRecord>,
 }
 
 impl ManiaDataset {
@@ -93,10 +97,30 @@ impl ManiaDataset {
         }
         let file_record_count = (feature_map.len() - FEATURE_HEADER_LEN) / record_size;
 
+        let mod_records = read_mod_records(root)?;
+
         let connection = open_immutable(&metadata_path)?;
         validate_schema(&connection)?;
         validate_state(&connection, file_record_count)?;
         let (metadata, data_cutoff_at) = read_metadata(&connection)?;
+        for ((beatmap_id, game_mod), record) in &mod_records {
+            let metadata = metadata.get(beatmap_id).ok_or_else(|| {
+                RuntimeError::invalid("Mania mod feature references unknown beatmap")
+            })?;
+            if *game_mod == ManiaGameMod::Nm
+                || record.beatmap_id != *beatmap_id
+                || record.beatmapset_id != metadata.beatmapset_id
+                || record.key_count != metadata.key_count
+            {
+                return Err(RuntimeError::invalid(
+                    "Mania mod feature metadata does not match the dataset",
+                ));
+            }
+        }
+        let checksum_ids = metadata
+            .values()
+            .map(|metadata| (metadata.checksum.to_ascii_lowercase(), metadata.beatmap_id))
+            .collect();
         let analysis_rows = read_analysis_rows(&connection)?;
         if metadata.len() != file_record_count || analysis_rows.len() != file_record_count {
             return Err(RuntimeError::invalid(
@@ -184,6 +208,7 @@ impl ManiaDataset {
             record_size,
             offsets,
             metadata,
+            checksum_ids,
             index,
             normalizer,
             analyzer: ManiaAnalyzer::new(),
@@ -196,6 +221,7 @@ impl ManiaDataset {
                 data_cutoff_at,
                 supports_dynamic_weighting: false,
             },
+            mod_records,
         })
     }
 
@@ -207,7 +233,26 @@ impl ManiaDataset {
         self.offsets.contains_key(&beatmap_id)
     }
 
+    pub fn contains_mod(&self, beatmap_id: u64, game_mod: ManiaGameMod) -> bool {
+        game_mod == ManiaGameMod::Nm && self.contains(beatmap_id)
+            || self.mod_records.contains_key(&(beatmap_id, game_mod))
+    }
+
+    pub fn beatmap_id_for_checksum(&self, checksum: &str) -> Option<u64> {
+        self.checksum_ids
+            .get(&checksum.to_ascii_lowercase())
+            .copied()
+    }
+
     pub fn target_for_id(&self, beatmap_id: u64) -> Result<ManiaQueryTarget, RuntimeError> {
+        self.target_for_id_with_mod(beatmap_id, ManiaGameMod::Nm)
+    }
+
+    pub fn target_for_id_with_mod(
+        &self,
+        beatmap_id: u64,
+        game_mod: ManiaGameMod,
+    ) -> Result<ManiaQueryTarget, RuntimeError> {
         let metadata = self
             .metadata
             .get(&beatmap_id)
@@ -217,9 +262,27 @@ impl ManiaDataset {
             .offsets
             .get(&beatmap_id)
             .ok_or_else(RuntimeError::unknown)?;
+        let record = if game_mod == ManiaGameMod::Nm {
+            self.record_at_offset(offset)?
+        } else {
+            *self
+                .mod_records
+                .get(&(beatmap_id, game_mod))
+                .ok_or_else(|| {
+                    RuntimeError::analysis(format!(
+                        "Mania {} variant {} is missing from the dataset",
+                        beatmap_id,
+                        game_mod.as_str()
+                    ))
+                })?
+        };
+        let mut metadata = metadata;
+        metadata.mode_family = record.mode_family;
+        metadata.dominant_pattern = record.dominant_pattern;
         Ok(ManiaQueryTarget {
             metadata,
-            record: self.record_at_offset(offset)?,
+            record,
+            game_mod,
         })
     }
 
@@ -233,11 +296,20 @@ impl ManiaDataset {
         bytes: &[u8],
         source_beatmap_id: Option<u64>,
     ) -> Result<ManiaQueryTarget, RuntimeError> {
+        self.analyze_target_with_mod(bytes, source_beatmap_id, ManiaGameMod::Nm)
+    }
+
+    pub fn analyze_target_with_mod(
+        &self,
+        bytes: &[u8],
+        source_beatmap_id: Option<u64>,
+        game_mod: ManiaGameMod,
+    ) -> Result<ManiaQueryTarget, RuntimeError> {
         let analyzed = match source_beatmap_id {
             Some(beatmap_id) => self
                 .analyzer
-                .analyze_bytes_with_beatmap_id(bytes, beatmap_id),
-            None => self.analyzer.analyze_bytes(bytes),
+                .analyze_bytes_with_beatmap_id_and_mod(bytes, beatmap_id, game_mod),
+            None => self.analyzer.analyze_bytes_with_mod(bytes, game_mod),
         };
         let (metadata, raw) = analyzed
             .map_err(|error| RuntimeError::analysis(format!("Mania analysis failed: {error}")))?;
@@ -245,7 +317,11 @@ impl ManiaDataset {
             .normalizer
             .transform(&raw)
             .map_err(|error| RuntimeError::analysis(error.to_string()))?;
-        Ok(ManiaQueryTarget { metadata, record })
+        Ok(ManiaQueryTarget {
+            metadata,
+            record,
+            game_mod,
+        })
     }
 
     pub fn query(
@@ -270,44 +346,68 @@ impl ManiaDataset {
             ));
         }
 
-        let selected = self.index.candidates(&target.record, options);
-        let mut ranked = Vec::with_capacity(selected.len());
-        for entry in selected {
-            let offset = usize::try_from(entry.normalized_offset)
-                .map_err(|_| RuntimeError::invalid("Mania index offset is out of range"))?;
-            let candidate = self.record_at_offset(offset)?;
-            if candidate.beatmap_id != entry.beatmap_id
-                || candidate.beatmapset_id != entry.beatmapset_id
-                || candidate.key_count != target.record.key_count
-                || candidate.mode_family != entry.mode_family
-            {
-                return Err(RuntimeError::invalid(format!(
-                    "Mania index entry {} does not match its feature record",
-                    entry.beatmap_id
-                )));
+        if options.candidate_mods.is_empty()
+            || options
+                .candidate_mods
+                .iter()
+                .any(|game_mod| !ManiaGameMod::ALL.contains(game_mod))
+        {
+            return Err(RuntimeError::invalid(
+                "Mania candidate mod pool is empty or invalid",
+            ));
+        }
+        let mut ranked = Vec::new();
+        let mut seen = HashSet::new();
+        for game_mod in options.candidate_mods.iter().copied() {
+            let mut lookup = target.record;
+            lookup.difficulty_band = (target.record.difficulty_band as i16
+                - game_mod.difficulty_band_offset())
+            .clamp(0, 9) as u8;
+            for entry in self.index.candidates(&lookup, options) {
+                if !seen.insert((entry.beatmap_id, game_mod)) {
+                    continue;
+                }
+                let Ok(variant) = self.target_for_id_with_mod(entry.beatmap_id, game_mod) else {
+                    // A dataset may legitimately contain NoMod records for maps
+                    // whose source file was unavailable during the DT/HT build.
+                    // Omit that variant instead of failing the entire query.
+                    continue;
+                };
+                let candidate = variant.record;
+                if candidate.beatmap_id != entry.beatmap_id
+                    || candidate.beatmapset_id != entry.beatmapset_id
+                    || candidate.key_count != target.record.key_count
+                {
+                    return Err(RuntimeError::invalid(format!(
+                        "Mania index entry {} does not match its feature record",
+                        entry.beatmap_id
+                    )));
+                }
+                let components = distance_components(target.record, candidate);
+                ranked.push((variant, components, final_distance(components)));
             }
-            let components = distance_components(target.record, candidate);
-            ranked.push((candidate, components, final_distance(components)));
         }
         ranked.sort_by(|left, right| {
             left.2
                 .total_cmp(&right.2)
-                .then_with(|| left.0.beatmap_id.cmp(&right.0.beatmap_id))
+                .then_with(|| left.1.skill.total_cmp(&right.1.skill))
+                .then_with(|| {
+                    classification_tier(target.record, left.0.record)
+                        .cmp(&classification_tier(target.record, right.0.record))
+                })
+                .then_with(|| left.0.record.beatmap_id.cmp(&right.0.record.beatmap_id))
+                .then_with(|| (left.0.game_mod as u8).cmp(&(right.0.game_mod as u8)))
         });
         ranked.truncate(options.result_limit);
         ranked
             .into_iter()
-            .map(|(record, components, final_distance)| {
-                let metadata = self
-                    .metadata
-                    .get(&record.beatmap_id)
-                    .cloned()
-                    .ok_or_else(|| RuntimeError::invalid("Mania result metadata is missing"))?;
+            .map(|(variant, components, final_distance)| {
                 Ok(ManiaQueryResult {
-                    metadata,
-                    record,
+                    metadata: variant.metadata,
+                    record: variant.record,
                     final_distance,
                     components,
+                    game_mod: variant.game_mod,
                 })
             })
             .collect()
@@ -340,6 +440,63 @@ fn deserialize_record(
     validate_offset(offset, record_size, feature_map.len())?;
     bincode::deserialize(&feature_map[offset..offset + record_size])
         .map_err(|_| RuntimeError::invalid("normalized Mania feature record is invalid"))
+}
+
+fn read_mod_records(
+    root: &Path,
+) -> Result<HashMap<(u64, ManiaGameMod), ManiaFeatureRecord>, RuntimeError> {
+    let path = root.join("mania-mod-features-v1.bin");
+    if !path.is_file() {
+        return Ok(HashMap::new());
+    }
+    let bytes = std::fs::read(&path)
+        .map_err(|_| RuntimeError::invalid("Mania mod feature file cannot be read"))?;
+    if bytes.len() < MOD_FEATURE_HEADER_LEN
+        || bytes[..MOD_FEATURE_HEADER_LEN] != *MOD_FEATURE_HEADER
+    {
+        return Err(RuntimeError::invalid(
+            "Mania mod feature file has an invalid header",
+        ));
+    }
+    let record_size = bincode::serialized_size(&ManiaModFeatureRecord {
+        beatmap_id: 1,
+        game_mod: ManiaGameMod::Nm,
+        record: ManiaFeatureRecord::default(),
+    })
+    .map_err(|_| RuntimeError::invalid("Mania mod feature record format is invalid"))?
+        as usize;
+    if (bytes.len() - MOD_FEATURE_HEADER_LEN) % record_size != 0 {
+        return Err(RuntimeError::invalid(
+            "Mania mod feature file has a truncated record",
+        ));
+    }
+    let mut records = HashMap::new();
+    for chunk in bytes[MOD_FEATURE_HEADER_LEN..].chunks_exact(record_size) {
+        let entry: ManiaModFeatureRecord = bincode::deserialize(chunk)
+            .map_err(|_| RuntimeError::invalid("Mania mod feature record is invalid"))?;
+        if entry.beatmap_id == 0 || entry.game_mod == ManiaGameMod::Nm {
+            return Err(RuntimeError::invalid(
+                "Mania mod feature record has an invalid mod",
+            ));
+        }
+        validate_record(&entry.record)?;
+        if entry.record.beatmap_id != entry.beatmap_id
+            || entry.record.key_count != 4
+                && entry.record.key_count != 6
+                && entry.record.key_count != 7
+        {
+            return Err(RuntimeError::invalid(
+                "Mania mod feature metadata does not match record",
+            ));
+        }
+        if records
+            .insert((entry.beatmap_id, entry.game_mod), entry.record)
+            .is_some()
+        {
+            return Err(RuntimeError::invalid("duplicate Mania mod feature record"));
+        }
+    }
+    Ok(records)
 }
 
 fn validate_record(record: &ManiaFeatureRecord) -> Result<(), RuntimeError> {
@@ -787,8 +944,23 @@ mod tests {
 
     fn build_fixture(root: &Path) -> Vec<u8> {
         fs::create_dir_all(root.join("indexes")).unwrap();
+        fs::create_dir_all(root.join("beatmaps")).unwrap();
         fixture_normalizer(root);
         let source = mania_map(10, 1, 4);
+        for (id, set, keys) in [
+            (10, 1, 4),
+            (11, 1, 4),
+            (20, 2, 4),
+            (30, 3, 4),
+            (60, 6, 6),
+            (70, 7, 7),
+        ] {
+            fs::write(
+                root.join("beatmaps").join(format!("{id}.osu")),
+                mania_map(id, set, keys),
+            )
+            .unwrap();
+        }
         let (source_metadata, raw) = ManiaAnalyzer::new().analyze_bytes(&source).unwrap();
         let normalizer = ManiaNormalizer::load(root).unwrap();
         let source_record = normalizer.transform(&raw).unwrap();
@@ -838,6 +1010,26 @@ mod tests {
             offsets.insert(record.beatmap_id, offset);
         }
         feature_file.sync_all().unwrap();
+
+        let mut mod_file = File::create(root.join("mania-mod-features-v1.bin")).unwrap();
+        mod_file.write_all(MOD_FEATURE_HEADER).unwrap();
+        for record in records.iter().copied() {
+            for (game_mod, scale) in [(ManiaGameMod::Dt, 1.5_f32), (ManiaGameMod::Ht, 0.75_f32)] {
+                let mut variant = record;
+                variant.base.bpm *= scale;
+                variant.base.avg_nps *= scale;
+                bincode::serialize_into(
+                    &mut mod_file,
+                    &ManiaModFeatureRecord {
+                        beatmap_id: variant.beatmap_id,
+                        game_mod,
+                        record: variant,
+                    },
+                )
+                .unwrap();
+            }
+        }
+        mod_file.sync_all().unwrap();
 
         let mut buckets = BTreeMap::<(u8, u8), Vec<FixtureBucketEntry>>::new();
         for record in &records {
@@ -969,6 +1161,7 @@ mod tests {
         let options = ManiaQueryOptions {
             result_limit: 2,
             include_same_set: false,
+            ..ManiaQueryOptions::default()
         };
         let indexed_results = dataset.query(&indexed, &options).unwrap();
         assert_eq!(
@@ -1000,6 +1193,7 @@ mod tests {
                 &ManiaQueryOptions {
                     result_limit: 2,
                     include_same_set: true,
+                    ..ManiaQueryOptions::default()
                 },
             )
             .unwrap();
@@ -1018,6 +1212,38 @@ mod tests {
     }
 
     #[test]
+    fn mixed_mod_pool_returns_distinct_recomputed_variants() {
+        let temp = tempdir().unwrap();
+        build_fixture(temp.path());
+        let dataset = ManiaDataset::open(temp.path()).unwrap();
+        let target = dataset.target_for_id(10).unwrap();
+        let results = dataset
+            .query(
+                &target,
+                &ManiaQueryOptions {
+                    result_limit: 6,
+                    include_same_set: false,
+                    candidate_mods: ManiaGameMod::ALL.to_vec(),
+                },
+            )
+            .unwrap();
+        assert_eq!(results.len(), 6);
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.game_mod)
+                .collect::<HashSet<_>>(),
+            ManiaGameMod::ALL.into_iter().collect()
+        );
+        assert!(results.iter().any(|result| {
+            result.game_mod == ManiaGameMod::Dt && result.record.base.bpm > target.record.base.bpm
+        }));
+        assert!(results.iter().any(|result| {
+            result.game_mod == ManiaGameMod::Ht && result.record.base.bpm < target.record.base.bpm
+        }));
+    }
+
+    #[test]
     fn query_limit_accepts_150_and_rejects_out_of_range_values() {
         let temp = tempdir().unwrap();
         build_fixture(temp.path());
@@ -1030,6 +1256,7 @@ mod tests {
                     &ManiaQueryOptions {
                         result_limit: 150,
                         include_same_set: false,
+                        ..ManiaQueryOptions::default()
                     },
                 )
                 .is_ok()
@@ -1041,6 +1268,7 @@ mod tests {
                     &ManiaQueryOptions {
                         result_limit,
                         include_same_set: false,
+                        ..ManiaQueryOptions::default()
                     },
                 )
                 .unwrap_err();
@@ -1157,6 +1385,7 @@ mod tests {
                 &ManiaQueryOptions {
                     result_limit: 20,
                     include_same_set: false,
+                    ..ManiaQueryOptions::default()
                 },
             )
             .unwrap();

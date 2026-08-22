@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use osu_difficulty_runtime::{
-    DifficultyWeights, ManiaBeatmapMetadata, ManiaFeatureRecord, ManiaQueryOptions,
+    DifficultyWeights, ManiaBeatmapMetadata, ManiaFeatureRecord, ManiaGameMod, ManiaQueryOptions,
     ManiaQueryResult as RuntimeManiaQueryResult, ManiaQueryTarget as RuntimeManiaQueryTarget,
     QueryFilters, QueryOptions, QueryResponse as RuntimeQueryResponse,
     QueryTarget as RuntimeQueryTarget, RuntimeError, RuntimeErrorKind, WeightingMode,
@@ -39,16 +39,23 @@ pub fn options_from_request(request: &SimilarityQueryRequest) -> CommandResult<Q
 pub fn mania_options_from_request(
     request: &SimilarityQueryRequest,
 ) -> CommandResult<ManiaQueryOptions> {
-    let SimilarityQueryRequest::Mania { result_limit, .. } = request else {
+    let SimilarityQueryRequest::Mania {
+        result_limit,
+        candidate_mods,
+        ..
+    } = request
+    else {
         return Err(CommandError::new(
             "SIMILARITY_RULESET_MISMATCH",
             "osu!standard 查询不能使用 Mania 查询选项",
         ));
     };
     validate_result_limit(*result_limit)?;
+    validate_mania_mods(candidate_mods)?;
     Ok(ManiaQueryOptions {
         result_limit: *result_limit,
         include_same_set: false,
+        candidate_mods: candidate_mods.clone(),
     })
 }
 
@@ -79,6 +86,7 @@ pub fn mania_options_from_recommendation_request(
     let SimilarityRecommendationRequest::Mania {
         result_limit,
         excluded_beatmap_ids,
+        candidate_mods,
         ..
     } = request
     else {
@@ -88,10 +96,29 @@ pub fn mania_options_from_recommendation_request(
         ));
     };
     validate_result_limit(*result_limit)?;
+    validate_mania_mods(candidate_mods)?;
     Ok(ManiaQueryOptions {
         result_limit: expanded_candidate_limit(*result_limit, excluded_beatmap_ids.len()),
         include_same_set: false,
+        candidate_mods: candidate_mods.clone(),
     })
+}
+
+fn validate_mania_mods(mods: &[ManiaGameMod]) -> CommandResult<()> {
+    if mods.is_empty() || mods.len() > ManiaGameMod::ALL.len() {
+        return Err(CommandError::new(
+            "INVALID_MANIA_MOD_POOL",
+            "Mania Mod 池必须至少包含 NM、DT、HT 中的一项",
+        ));
+    }
+    let mut unique = HashSet::new();
+    if !mods.iter().all(|game_mod| unique.insert(*game_mod)) {
+        return Err(CommandError::new(
+            "INVALID_MANIA_MOD_POOL",
+            "Mania Mod 池不能包含重复项",
+        ));
+    }
+    Ok(())
 }
 
 fn expanded_candidate_limit(result_limit: usize, excluded_count: usize) -> usize {
@@ -155,16 +182,11 @@ fn options_from_parts(
             difficulty_weights,
             parameter_weight,
         } => validate_weights(difficulty_weights, parameter_weight)?,
-        WeightingMode::Dynamic {
-            lower_sections,
-            upper_sections,
-        } => {
-            if lower_sections > 20 || upper_sections > 20 {
-                return Err(CommandError::new(
-                    "INVALID_DYNAMIC_SECTION_RANGE",
-                    "动态星数范围必须在 0 到 20 段之间",
-                ));
-            }
+        WeightingMode::Dynamic { .. } => {
+            return Err(CommandError::new(
+                "DYNAMIC_WEIGHTING_REMOVED",
+                "Standard 动态难度权重已停用，请使用固定权重排序",
+            ));
         }
     }
     Ok(QueryOptions {
@@ -252,12 +274,12 @@ pub fn mania_response_from_runtime(
             analyzer_version: target.record.analyzer_version,
             normalization_version: target.record.normalization_version,
             source: source.into(),
-            beatmap: mania_beatmap_from_parts(target.metadata, target.record),
+            beatmap: mania_beatmap_from_parts(target.metadata, target.record, target.game_mod),
         },
         results: results
             .into_iter()
             .map(|result| ManiaSimilarityResult {
-                beatmap: mania_beatmap_from_parts(result.metadata, result.record),
+                beatmap: mania_beatmap_from_parts(result.metadata, result.record, result.game_mod),
                 final_distance: result.final_distance,
                 distance_components: result.components,
             })
@@ -354,7 +376,8 @@ pub fn mania_recommendation_response_from_runtime(
     for (target, results) in batches {
         let key_count = target.record.key_count;
         *seeds_by_key.entry(key_count).or_default() += 1;
-        let recommended_by = mania_beatmap_from_parts(target.metadata, target.record);
+        let recommended_by =
+            mania_beatmap_from_parts(target.metadata, target.record, target.game_mod);
         let nearest_by_set = nearest_by_key.entry(key_count).or_default();
         for result in results {
             if result.record.key_count != key_count
@@ -368,7 +391,11 @@ pub fn mania_recommendation_response_from_runtime(
             let key = recommendation_key(result.record.beatmapset_id, result.record.beatmap_id);
             let recommendation = ManiaSimilarityRecommendationResult {
                 result: ManiaSimilarityResult {
-                    beatmap: mania_beatmap_from_parts(result.metadata, result.record),
+                    beatmap: mania_beatmap_from_parts(
+                        result.metadata,
+                        result.record,
+                        result.game_mod,
+                    ),
                     final_distance: result.final_distance,
                     distance_components: result.components,
                 },
@@ -452,10 +479,29 @@ fn compare_mania_recommendations(
         .total_cmp(&right.result.final_distance)
         .then_with(|| {
             left.result
+                .distance_components
+                .skill
+                .total_cmp(&right.result.distance_components.skill)
+        })
+        .then_with(|| mania_recommendation_tier(left).cmp(&mania_recommendation_tier(right)))
+        .then_with(|| {
+            left.result
                 .beatmap
                 .beatmap_id
                 .cmp(&right.result.beatmap.beatmap_id)
         })
+}
+
+fn mania_recommendation_tier(value: &ManiaSimilarityRecommendationResult) -> u8 {
+    match (
+        value.result.beatmap.family == value.recommended_by.family,
+        value.result.beatmap.pattern == value.recommended_by.pattern,
+    ) {
+        (true, true) => 0,
+        (true, false) => 1,
+        (false, true) => 2,
+        (false, false) => 3,
+    }
 }
 
 fn beatmap_from_parts(
@@ -480,6 +526,7 @@ fn beatmap_from_parts(
 fn mania_beatmap_from_parts(
     metadata: ManiaBeatmapMetadata,
     record: ManiaFeatureRecord,
+    game_mod: ManiaGameMod,
 ) -> ManiaSimilarityBeatmap {
     ManiaSimilarityBeatmap {
         ruleset: Ruleset::Mania,
@@ -498,6 +545,7 @@ fn mania_beatmap_from_parts(
         base: record.base,
         difficulty_percentile: record.difficulty_percentile,
         difficulty_band: record.difficulty_band,
+        game_mod,
     }
 }
 
@@ -528,6 +576,11 @@ fn map_analysis_error(detail: String) -> CommandError {
         CommandError::new(
             "UNSUPPORTED_MANIA_KEY_COUNT",
             "osu!mania 相似谱面首版仅支持 4K、6K 和 7K",
+        )
+    } else if detail.contains("variant") && detail.contains("missing from the dataset") {
+        CommandError::new(
+            "MANIA_MOD_SOURCE_MISSING",
+            "当前 Mania 数据集没有预计算的 DT / HT 特征表，请使用包含 mania-mod-features-v1.bin 的完整数据集",
         )
     } else {
         CommandError::new("BEATMAP_ANALYSIS_FAILED", detail)
@@ -662,6 +715,8 @@ mod tests {
         let request = SimilarityQueryRequest::Mania {
             source: SimilaritySource::BeatmapId { value: "1".into() },
             result_limit: 20,
+            target_mod: ManiaGameMod::Nm,
+            candidate_mods: vec![ManiaGameMod::Nm],
         };
         let options = mania_options_from_request(&request).expect("mania options");
         assert_eq!(options.result_limit, 20);
@@ -685,7 +740,10 @@ mod tests {
     fn recommendation_uses_a_larger_internal_candidate_pool_per_ruleset() {
         let standard = SimilarityRecommendationRequest::Osu {
             kind: SimilarityRecommendationKind::Recent,
-            weighting: WeightingMode::default(),
+            weighting: WeightingMode::Manual {
+                difficulty_weights: DifficultyWeights::default(),
+                parameter_weight: 1.0,
+            },
             filters: QueryFilters::default(),
             result_limit: 20,
             seed_limit: None,
@@ -702,6 +760,7 @@ mod tests {
             result_limit: 20,
             seed_limit: None,
             excluded_beatmap_ids: Vec::new(),
+            candidate_mods: vec![ManiaGameMod::Nm],
         };
         assert_eq!(
             mania_options_from_recommendation_request(&mania)
@@ -847,6 +906,7 @@ mod tests {
         RuntimeManiaQueryTarget {
             metadata: mania_metadata(id, set, key_count),
             record: mania_record(id, set, key_count),
+            game_mod: ManiaGameMod::Nm,
         }
     }
 
@@ -859,6 +919,7 @@ mod tests {
                 skill: distance,
                 ..ManiaDistanceComponents::default()
             },
+            game_mod: ManiaGameMod::Nm,
         }
     }
 

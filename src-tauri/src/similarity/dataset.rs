@@ -63,7 +63,7 @@ impl SimilarityRuntime {
                         normalization_version: Some(info.normalization_version),
                         algorithm_id: Some(info.algorithm_id.clone()),
                         data_cutoff_at: info.data_cutoff_at,
-                        supports_dynamic_weighting: info.supports_dynamic_weighting,
+                        supports_dynamic_weighting: false,
                     }
                 }
                 Err(error) => status_from_error(ruleset, directory, &error),
@@ -266,6 +266,7 @@ mod tests {
                 &osu_difficulty_runtime::ManiaQueryOptions {
                     result_limit: 20,
                     include_same_set: false,
+                    ..osu_difficulty_runtime::ManiaQueryOptions::default()
                 },
             )
             .expect("query known Mania target");

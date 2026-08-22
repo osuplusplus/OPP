@@ -107,6 +107,7 @@ const target = {
   base,
   difficulty_percentile: 0.78,
   difficulty_band: 7,
+  game_mod: "NM" as const,
 };
 
 function maniaResult(beatmapId: number, keyCount: 4 | 6 | 7, title: string) {
@@ -207,6 +208,8 @@ describe("Mania similarity", () => {
     expect(screen.queryByText("展开高级参数")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /候选谱面筛选/ })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Beatmap ID 或 osu! 链接"), "3001");
+    await user.click(screen.getByRole("button", { name: "DT" }));
+    await user.click(screen.getByLabelText("NM / DT / HT 多 Mod 混池"));
     await user.click(screen.getByRole("button", { name: "查找相似谱面" }));
 
     expect(await screen.findByText("Reference - Stream Candidate")).toBeInTheDocument();
@@ -215,7 +218,7 @@ describe("Mania similarity", () => {
     expect(screen.getByLabelText("Mania 距离分量")).toHaveTextContent("总距 0.0540");
     expect(screen.getByLabelText("Mania 距离分量")).toHaveTextContent("上下文 0.050");
     expect(screen.getByTestId("comparison-radar")).toBeInTheDocument();
-    expect(query).toHaveBeenCalledWith(expect.objectContaining({ ruleset: "mania", source: { kind: "beatmap_id", value: "3001" }, result_limit: 50 }));
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ ruleset: "mania", source: { kind: "beatmap_id", value: "3001" }, result_limit: 50, target_mod: "DT", candidate_mods: ["NM", "DT", "HT"] }));
 
     await user.click(screen.getByRole("button", { name: "加入收藏夹" }));
     expect(collectionEvents).toEqual([[expect.objectContaining({ ruleset: "mania", beatmap_id: 3101 })]]);

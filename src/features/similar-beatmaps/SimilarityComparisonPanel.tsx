@@ -11,6 +11,7 @@ import type {
   SimilarityResult,
 } from "../../shared/types/osu";
 import { DynamicWeightProfileCard } from "./DynamicWeightProfile";
+import { maniaSkillProfile } from "./maniaDifficulty";
 import { SimilarityRadar } from "./SimilarityRadar";
 
 const difficultyDimensions = [
@@ -140,18 +141,20 @@ function ManiaComparison({
   recommendedBy: ManiaSimilarityBeatmap | null;
   onOpen: () => void;
 }) {
+  const targetSkillProfile = maniaSkillProfile(target.difficulty);
+  const selectedSkillProfile = maniaSkillProfile(selected.difficulty);
   return (
     <aside className="sticky top-[120px] self-start">
       <Card className="similarity-comparison-panel max-h-[calc(100vh-140px)] overflow-y-auto p-5">
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">Mania 特征对比</span>
-        <h2 className="mt-2 text-base font-semibold text-white">{selected.key_count}K · {selected.version}</h2>
+        <h2 className="mt-2 text-base font-semibold text-white">{selected.key_count}K · {selected.game_mod} · {selected.version}</h2>
         <p className="mt-1 truncate text-xs text-slate-400">{selected.artist} — {selected.title}</p>
         {recommendedBy ? <p className="mt-2 text-xs text-cyan-200">由 {recommendedBy.artist} - {recommendedBy.title} [{recommendedBy.version}] 推荐</p> : null}
         <SimilarityRadar target={target.difficulty} comparison={selected.difficulty} />
 
         <section className="mb-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">八维强度</p>
-          <FeatureRows dimensions={maniaDifficultyDimensions} selected={selected.difficulty} target={target.difficulty} />
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">八维相对强项</p>
+          <FeatureRows dimensions={maniaDifficultyDimensions} selected={selectedSkillProfile} target={targetSkillProfile} />
         </section>
         <section className="mb-4 border-t border-white/[0.07] pt-3">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">键型分布</p>

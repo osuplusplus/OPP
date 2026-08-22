@@ -156,6 +156,7 @@ export type SimilarityIndexState =
 
 export type SimilarityRuleset = Extract<Ruleset, "osu" | "mania">;
 export type ManiaKeyCount = 4 | 6 | 7;
+export type ManiaGameMod = "NM" | "DT" | "HT";
 
 export interface SimilarityIndexStatus {
   ruleset: Ruleset;
@@ -240,6 +241,8 @@ export interface ManiaSimilarityQueryRequest {
   ruleset: "mania";
   source: SimilaritySource;
   result_limit: number;
+  target_mod: ManiaGameMod;
+  candidate_mods: ManiaGameMod[];
 }
 
 export type SimilarityQueryRequest =
@@ -387,6 +390,7 @@ export interface ManiaSimilarityBeatmap {
   base: ManiaBaseFeatures;
   difficulty_percentile: number;
   difficulty_band: number;
+  game_mod: ManiaGameMod;
 }
 
 export interface ManiaSimilarityTarget extends ManiaSimilarityBeatmap {
@@ -436,6 +440,7 @@ export interface ManiaSimilarityRecommendationRequest {
   result_limit: number;
   seed_limit?: number;
   excluded_beatmap_ids?: number[];
+  candidate_mods: ManiaGameMod[];
 }
 
 export type SimilarityRecommendationRequest =

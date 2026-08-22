@@ -22,7 +22,7 @@ use crate::{
             map_runtime_error, options_from_recommendation_request, options_from_request,
             recommendation_response_from_runtime, response_from_runtime,
         },
-        recommendation::{mania_seed_ids, requested_seed_limit, seed_ids},
+        recommendation::{ManiaSeed, mania_seed_ids, requested_seed_limit, seed_ids},
         source::{fetch_online_osu, parse_beatmap_id, read_local_osu},
     },
 };
@@ -110,15 +110,28 @@ async fn query_mania(
     state: &AppState,
 ) -> CommandResult<SimilarityQueryResponse> {
     let options = mania_options_from_request(&request)?;
+    let SimilarityQueryRequest::Mania { target_mod, .. } = &request else {
+        unreachable!("routed Mania request")
+    };
+    let target_mod = *target_mod;
     let dataset = load_mania_dataset(state.similarity.clone(), directory).await?;
-    let (indexed_id, bytes, source_beatmap_id, source_label) =
-        resolve_mania_source(request.source(), state, &dataset).await?;
+    let (indexed_id, bytes, source_beatmap_id, source_label) = resolve_mania_source(
+        request.source(),
+        state,
+        &dataset,
+        target_mod,
+    )
+    .await?;
 
     tauri::async_runtime::spawn_blocking(move || {
         let target = if let Some(beatmap_id) = indexed_id {
-            dataset.target_for_id(beatmap_id)
+            dataset.target_for_id_with_mod(beatmap_id, target_mod)
         } else {
-            dataset.analyze_target(bytes.as_deref().unwrap_or_default(), source_beatmap_id)
+            dataset.analyze_target_with_mod(
+                bytes.as_deref().unwrap_or_default(),
+                source_beatmap_id,
+                target_mod,
+            )
         }
         .map_err(map_runtime_error)?;
         let results = dataset
@@ -164,20 +177,22 @@ pub async fn recommend_similar_beatmaps(
         }
     };
     let requested_seed_limit = requested_seed_limit(request.seed_limit());
-    let (seed_ids, initially_skipped_seed_count) = if ruleset == Ruleset::Mania {
-        mania_seed_ids(&scores, requested_seed_limit)
-    } else {
-        (seed_ids(&scores, requested_seed_limit), 0)
-    };
-    if seed_ids.is_empty() {
+    let (standard_seed_ids, mania_seeds, initially_skipped_seed_count) =
+        if ruleset == Ruleset::Mania {
+            let (seeds, skipped) = mania_seed_ids(&scores, requested_seed_limit);
+            (Vec::new(), seeds, skipped)
+        } else {
+            (seed_ids(&scores, requested_seed_limit), Vec::new(), 0)
+        };
+    if standard_seed_ids.is_empty() && mania_seeds.is_empty() {
         return Err(CommandError::new(
             "NO_RECOMMENDATION_SEEDS",
             match (ruleset, kind) {
                 (Ruleset::Mania, SimilarityRecommendationKind::Recent) => {
-                    "没有可用于推荐的 NoMod Mania 最近通过成绩"
+                    "没有可用于推荐的 NM / DT / HT Mania 最近通过成绩"
                 }
                 (Ruleset::Mania, SimilarityRecommendationKind::Best) => {
-                    "没有可用于推荐的 NoMod Mania BP 成绩"
+                    "没有可用于推荐的 NM / DT / HT Mania BP 成绩"
                 }
                 (_, SimilarityRecommendationKind::Recent) => "没有可用于推荐的最近通过成绩",
                 (_, SimilarityRecommendationKind::Best) => "没有可用于推荐的 BP 成绩",
@@ -187,12 +202,12 @@ pub async fn recommend_similar_beatmaps(
 
     match request {
         request @ SimilarityRecommendationRequest::Osu { .. } => {
-            recommend_standard(request, seed_ids, directory, &state).await
+            recommend_standard(request, standard_seed_ids, directory, &state).await
         }
         request @ SimilarityRecommendationRequest::Mania { .. } => {
             recommend_mania(
                 request,
-                seed_ids,
+                mania_seeds,
                 initially_skipped_seed_count,
                 directory,
                 &state,
@@ -262,23 +277,25 @@ async fn recommend_standard(
 
 async fn recommend_mania(
     request: SimilarityRecommendationRequest,
-    seed_ids: Vec<u64>,
+    seeds: Vec<ManiaSeed>,
     initially_skipped_seed_count: usize,
     directory: String,
     state: &AppState,
 ) -> CommandResult<SimilarityRecommendationResponse> {
     let dataset = load_mania_dataset(state.similarity.clone(), directory).await?;
     let options = mania_options_from_recommendation_request(&request)?;
-    let mut targets = Vec::with_capacity(seed_ids.len());
+    let mut targets = Vec::with_capacity(seeds.len());
     let mut skipped_seed_count = initially_skipped_seed_count;
-    for beatmap_id in seed_ids {
-        let target = if dataset.contains(beatmap_id) {
-            dataset.target_for_id(beatmap_id).map_err(map_runtime_error)
+    for seed in seeds {
+        let target = if dataset.contains_mod(seed.beatmap_id, seed.game_mod) {
+            dataset
+                .target_for_id_with_mod(seed.beatmap_id, seed.game_mod)
+                .map_err(map_runtime_error)
         } else {
-            match fetch_online_osu(&state.providers, beatmap_id).await {
+            match fetch_online_osu(&state.providers, seed.beatmap_id).await {
                 // 下载文件中的旧 BeatmapID 可能错误，成绩中的 ID 才是权威来源。
                 Ok(bytes) => dataset
-                    .analyze_target(&bytes, Some(beatmap_id))
+                    .analyze_target_with_mod(&bytes, Some(seed.beatmap_id), seed.game_mod)
                     .map_err(map_runtime_error),
                 Err(_) => {
                     skipped_seed_count += 1;
@@ -348,11 +365,12 @@ async fn resolve_mania_source(
     source: &SimilaritySource,
     state: &AppState,
     dataset: &ManiaDataset,
+    target_mod: osu_difficulty_runtime::ManiaGameMod,
 ) -> CommandResult<(Option<u64>, Option<Vec<u8>>, Option<u64>, &'static str)> {
     match source {
         SimilaritySource::BeatmapId { value } => {
             let beatmap_id = parse_beatmap_id(value)?;
-            if dataset.contains(beatmap_id) {
+            if dataset.contains_mod(beatmap_id, target_mod) {
                 Ok((Some(beatmap_id), None, None, "index"))
             } else {
                 let bytes = fetch_online_osu(&state.providers, beatmap_id).await?;
@@ -509,6 +527,7 @@ mod tests {
             result_limit: 20,
             seed_limit: Some(5),
             excluded_beatmap_ids: vec![],
+            candidate_mods: vec![osu_difficulty_runtime::ManiaGameMod::Nm],
         };
         assert_eq!(request.ruleset(), Ruleset::Mania);
         assert_eq!(request.kind(), SimilarityRecommendationKind::Recent);

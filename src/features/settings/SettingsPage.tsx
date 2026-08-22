@@ -450,7 +450,7 @@ export function SettingsPage() {
             <div className="mt-5 space-y-3">
               <Toggle
                 checked={settings.similarity_preferences.advanced_enabled}
-                description="开启后可在 osu!standard 相似谱面中切换动态或手动模式，并调整星数范围及六组推荐权重；Mania 使用固定权重。"
+                description="开启后可调整 osu!standard 的六组固定推荐权重；Mania 使用 Analyzer 分类优先排序与 NM / DT / HT Mod 池。"
                 label="相似谱面高级设置"
                 onChange={(value) => void save({
                   ...settings,

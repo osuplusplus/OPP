@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use osu_difficulty_runtime::{
     BaseFeatures, DifficultyVector, DynamicWeightProfile, ManiaBaseFeatures, ManiaDifficultyVector,
-    ManiaDistanceComponents, ManiaModeFamily, ManiaPattern, ManiaStyleVector, QueryFilters,
-    WeightingMode,
+    ManiaDistanceComponents, ManiaGameMod, ManiaModeFamily, ManiaPattern, ManiaStyleVector,
+    QueryFilters, WeightingMode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -94,7 +94,15 @@ pub enum SimilarityQueryRequest {
     Mania {
         source: SimilaritySource,
         result_limit: usize,
+        #[serde(default)]
+        target_mod: ManiaGameMod,
+        #[serde(default = "default_mania_candidate_mods")]
+        candidate_mods: Vec<ManiaGameMod>,
     },
+}
+
+fn default_mania_candidate_mods() -> Vec<ManiaGameMod> {
+    vec![ManiaGameMod::Nm]
 }
 
 impl SimilarityQueryRequest {
@@ -163,6 +171,7 @@ pub struct ManiaSimilarityBeatmap {
     pub base: ManiaBaseFeatures,
     pub difficulty_percentile: f32,
     pub difficulty_band: u8,
+    pub game_mod: ManiaGameMod,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -224,6 +233,8 @@ pub enum SimilarityRecommendationRequest {
         seed_limit: Option<usize>,
         #[serde(default)]
         excluded_beatmap_ids: Vec<u64>,
+        #[serde(default = "default_mania_candidate_mods")]
+        candidate_mods: Vec<ManiaGameMod>,
     },
 }
 

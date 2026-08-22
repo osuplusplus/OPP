@@ -8,6 +8,45 @@ pub const MANIA_STRUCTURE_DIMENSIONS: usize = 10;
 pub const MANIA_STYLE_DIMENSIONS: usize = MANIA_PATTERN_DIMENSIONS + MANIA_STRUCTURE_DIMENSIONS;
 pub const MANIA_VECTOR_DIMENSIONS: usize = MANIA_DIFFICULTY_DIMENSIONS + MANIA_STYLE_DIMENSIONS;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ManiaGameMod {
+    #[default]
+    #[serde(rename = "NM")]
+    Nm,
+    #[serde(rename = "DT")]
+    Dt,
+    #[serde(rename = "HT")]
+    Ht,
+}
+
+impl ManiaGameMod {
+    pub const ALL: [Self; 3] = [Self::Nm, Self::Dt, Self::Ht];
+
+    pub const fn clock_rate(self) -> f64 {
+        match self {
+            Self::Nm => 1.0,
+            Self::Dt => 1.5,
+            Self::Ht => 0.75,
+        }
+    }
+
+    pub const fn difficulty_band_offset(self) -> i16 {
+        match self {
+            Self::Nm => 0,
+            Self::Dt => 2,
+            Self::Ht => -2,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Nm => "NM",
+            Self::Dt => "DT",
+            Self::Ht => "HT",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
 pub struct ManiaDifficultyVector {
@@ -242,6 +281,18 @@ pub struct ManiaFeatureRecord {
     pub normalization_version: u32,
 }
 
+/// Precomputed DT/HT variant emitted by the Mania dataset builder.
+///
+/// The normalized feature payload is kept separate from the NoMod bucket file
+/// so the immutable runtime never has to reopen source `.osu` files while
+/// searching a candidate pool.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ManiaModFeatureRecord {
+    pub beatmap_id: u64,
+    pub game_mod: ManiaGameMod,
+    pub record: ManiaFeatureRecord,
+}
+
 impl ManiaFeatureRecord {
     pub fn searchable_vector(self) -> [f32; MANIA_VECTOR_DIMENSIONS] {
         let difficulty = self.difficulty.as_array();
@@ -253,10 +304,11 @@ impl ManiaFeatureRecord {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManiaSimilarityQuery {
     pub result_limit: usize,
     pub include_same_set: bool,
+    pub candidate_mods: Vec<ManiaGameMod>,
 }
 
 impl Default for ManiaSimilarityQuery {
@@ -264,6 +316,7 @@ impl Default for ManiaSimilarityQuery {
         Self {
             result_limit: 20,
             include_same_set: false,
+            candidate_mods: vec![ManiaGameMod::Nm],
         }
     }
 }
@@ -301,6 +354,7 @@ pub type ManiaQueryOptions = ManiaSimilarityQuery;
 pub struct ManiaQueryTarget {
     pub metadata: ManiaBeatmapMetadata,
     pub record: ManiaFeatureRecord,
+    pub game_mod: ManiaGameMod,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -309,6 +363,7 @@ pub struct ManiaQueryResult {
     pub record: ManiaFeatureRecord,
     pub final_distance: f32,
     pub components: ManiaDistanceComponents,
+    pub game_mod: ManiaGameMod,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

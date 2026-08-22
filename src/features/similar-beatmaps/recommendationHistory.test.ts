@@ -46,6 +46,7 @@ const maniaResult: ManiaSimilarityResult = {
   base: { bpm: 180, length_seconds: 120, active_length_seconds: 110, note_count: 800, row_count: 700, avg_nps: 7, peak_nps: 12, break_density: 0.1, sv_change_rate: 0 },
   difficulty_percentile: 0.75,
   difficulty_band: 7,
+  game_mod: "NM",
   final_distance: 0.08,
   distance_components: { skill: 0.1, pattern: 0.1, structure: 0.1, difficulty: 0.1, context: 0.1 },
 };

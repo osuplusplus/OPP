@@ -5,10 +5,7 @@ import type {
   OsuSimilarityQueryRequest,
   SimilarityPreferences,
 } from "../../shared/types/osu";
-import {
-  defaultDynamicWeighting,
-  manualWeightingFromPreferences,
-} from "./defaults";
+import { manualWeightingFromPreferences } from "./defaults";
 import { APP_TIME_ZONE } from "../../shared/lib/format";
 
 export const similarityIndexStateCopy: Record<
@@ -67,16 +64,11 @@ export function matchesCandidateFilters(
 export function resolveSimilarityWeighting(
   request: OsuSimilarityQueryRequest,
   preferences: SimilarityPreferences,
-  supportsDynamicWeighting: boolean,
 ) {
-  if (!preferences.advanced_enabled) {
-    return supportsDynamicWeighting
-      ? { ...defaultDynamicWeighting }
-      : manualWeightingFromPreferences();
-  }
-  if (request.weighting.mode === "manual" || supportsDynamicWeighting) {
+  if (preferences.advanced_enabled && preferences.mode === "manual" && request.weighting.mode === "manual") {
     return request.weighting;
   }
+  // Also migrates old saved dynamic preferences without resetting the user settings.
   return manualWeightingFromPreferences(preferences);
 }
 

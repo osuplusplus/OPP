@@ -10,6 +10,7 @@ import { APP_TIME_ZONE, errorMessage } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   ManiaKeyCount,
+  ManiaGameMod,
   ManiaSimilarityQueryRequest,
   ManiaSimilarityQueryResponse,
   ManiaSimilarityRecommendationResponse,
@@ -46,6 +47,7 @@ import { SimilarityResultCard } from "./SimilarityResultCard";
 import { formatDataCutoff, similarityIndexStateCopy } from "./viewModel";
 
 const KEY_COUNTS = [4, 6, 7] as const;
+const MANIA_MODS: ManiaGameMod[] = ["NM", "DT", "HT"];
 const DEFAULT_RESULTS_PER_PAGE = 5;
 const ALLOWED_RESULTS_PER_PAGE = [5, 10, 15, 20] as const;
 
@@ -53,7 +55,7 @@ interface ManiaSimilaritySession {
   request: ManiaSimilarityQueryRequest;
   response: ManiaSimilarityQueryResponse | null;
   recommendationResponse: ManiaSimilarityRecommendationResponse | null;
-  selectedResultId: number | null;
+  selectedResultKey: string | null;
   activeKeyCount: ManiaKeyCount;
   batches: Record<ManiaKeyCount, number>;
   scrollY: number | null;
@@ -72,6 +74,10 @@ function durationLabel(seconds: number) {
 
 function percentileLabel(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function maniaResultKey(result: { beatmap_id: number; game_mod: ManiaGameMod }) {
+  return `${result.beatmap_id}:${result.game_mod}`;
 }
 
 function ManiaIndexUnavailable({
@@ -109,7 +115,7 @@ export function ManiaSimilarBeatmapsPage() {
   );
   const [response, setResponse] = useState<ManiaSimilarityQueryResponse | null>(() => maniaSimilaritySession?.response ?? null);
   const [recommendationResponse, setRecommendationResponse] = useState<ManiaSimilarityRecommendationResponse | null>(() => maniaSimilaritySession?.recommendationResponse ?? null);
-  const [selectedResultId, setSelectedResultId] = useState<number | null>(() => maniaSimilaritySession?.selectedResultId ?? null);
+  const [selectedResultKey, setSelectedResultKey] = useState<string | null>(() => maniaSimilaritySession?.selectedResultKey ?? null);
   const [activeKeyCount, setActiveKeyCount] = useState<ManiaKeyCount>(() => maniaSimilaritySession?.activeKeyCount ?? 4);
   const [batches, setBatches] = useState<Record<ManiaKeyCount, number>>(() => maniaSimilaritySession?.batches ?? { 4: 0, 6: 0, 7: 0 });
   const [configuring, setConfiguring] = useState(false);
@@ -162,10 +168,10 @@ export function ManiaSimilarBeatmapsPage() {
   );
   const selected = useMemo(() => {
     if (!visibleResults.length) return null;
-    return visibleResults.find((result) => result.beatmap_id === selectedResultId) ?? visibleResults[0];
-  }, [selectedResultId, visibleResults]);
+    return visibleResults.find((result) => maniaResultKey(result) === selectedResultKey) ?? visibleResults[0];
+  }, [selectedResultKey, visibleResults]);
   const recommendedBy = selected && recommendationResponse
-    ? activeGroup?.results.find((result) => result.beatmap_id === selected.beatmap_id)?.recommended_by ?? null
+    ? activeGroup?.results.find((result) => maniaResultKey(result) === maniaResultKey(selected))?.recommended_by ?? null
     : null;
   const comparisonTarget = recommendedBy ?? response?.target ?? null;
 
@@ -175,8 +181,8 @@ export function ManiaSimilarBeatmapsPage() {
   }, [recommendationResponse, resultsPerPage, visibleResults]);
 
   useEffect(() => {
-    saveManiaSimilaritySession({ request, response, recommendationResponse, selectedResultId, activeKeyCount, batches, scrollY: restoreScrollY.current });
-  }, [activeKeyCount, batches, recommendationResponse, request, response, selectedResultId]);
+    saveManiaSimilaritySession({ request, response, recommendationResponse, selectedResultKey, activeKeyCount, batches, scrollY: restoreScrollY.current });
+  }, [activeKeyCount, batches, recommendationResponse, request, response, selectedResultKey]);
 
   useLayoutEffect(() => {
     const scrollY = restoreScrollY.current;
@@ -205,7 +211,7 @@ export function ManiaSimilarBeatmapsPage() {
       setRequest(nextRequest);
       setResponse(null);
       setRecommendationResponse(null);
-      setSelectedResultId(null);
+      setSelectedResultKey(null);
       similarityQuery.mutate(nextRequest, { onSuccess: (nextResponse) => {
         if (nextResponse.ruleset !== "mania") return;
         setResponse(nextResponse);
@@ -229,7 +235,7 @@ export function ManiaSimilarBeatmapsPage() {
       similarityRecommendation.reset();
       setResponse(null);
       setRecommendationResponse(null);
-      setSelectedResultId(null);
+      setSelectedResultKey(null);
     } catch (error) {
       setConfigurationError(errorMessage(error));
     } finally {
@@ -244,13 +250,28 @@ export function ManiaSimilarBeatmapsPage() {
     similarityRecommendation.reset();
     setResponse(null);
     setRecommendationResponse(null);
-    setSelectedResultId(null);
+    setSelectedResultKey(null);
     setBatches({ 4: 0, 6: 0, 7: 0 });
   }
 
   function switchSource(kind: "beatmap_id" | "local_file") {
     resetResults();
     setRequest((current) => ({ ...current, source: kind === "beatmap_id" ? { kind: "beatmap_id", value: "" } : { kind: "local_file", path: "" } }));
+  }
+
+  function selectTargetMod(targetMod: ManiaGameMod) {
+    setRequest((current) => ({
+      ...current,
+      target_mod: targetMod,
+      candidate_mods: current.candidate_mods.length > 1 ? current.candidate_mods : [targetMod],
+    }));
+  }
+
+  function setMixedModPool(enabled: boolean) {
+    setRequest((current) => ({
+      ...current,
+      candidate_mods: enabled ? [...MANIA_MODS] : [current.target_mod],
+    }));
   }
 
   async function chooseOsuFile() {
@@ -280,7 +301,7 @@ export function ManiaSimilarBeatmapsPage() {
     setConfigurationError(null);
     setResponse(null);
     setRecommendationResponse(null);
-    setSelectedResultId(null);
+    setSelectedResultKey(null);
     setBatches({ 4: 0, 6: 0, 7: 0 });
     setRecommendationCompleting(false);
     similarityQuery.reset();
@@ -308,7 +329,7 @@ export function ManiaSimilarBeatmapsPage() {
       setRecommendationResponse(visible);
       setActiveKeyCount(firstVisibleGroup?.key_count ?? 4);
     };
-    const fullRequest = { ruleset: "mania" as const, kind, result_limit: request.result_limit, excluded_beatmap_ids: excludedBeatmapIds };
+    const fullRequest = { ruleset: "mania" as const, kind, result_limit: request.result_limit, excluded_beatmap_ids: excludedBeatmapIds, candidate_mods: request.candidate_mods };
     const fullCacheKey = similarityRecommendationKey(fullRequest);
     const complete = (nextResponse: ManiaSimilarityRecommendationResponse) => {
       if (recommendationRun.current !== run) return;
@@ -376,7 +397,7 @@ export function ManiaSimilarBeatmapsPage() {
   }
 
   function openOnlineBeatmap(result: ManiaSimilarityResult) {
-    saveManiaSimilaritySession({ request, response, recommendationResponse, selectedResultId, activeKeyCount, batches, scrollY: window.scrollY || null });
+    saveManiaSimilaritySession({ request, response, recommendationResponse, selectedResultKey, activeKeyCount, batches, scrollY: window.scrollY || null });
     navigate(onlineBeatmapRouteForSimilarityResult(result), { state: { returnTo: "/online/similar" } });
   }
 
@@ -409,7 +430,8 @@ export function ManiaSimilarBeatmapsPage() {
   function showNextBatch() {
     const nextBatch = (activeResultBatch + 1) % resultBatchCount;
     setBatches((current) => ({ ...current, [activeKeyCount]: nextBatch }));
-    setSelectedResultId(allResults[nextBatch * resultsPerPage]?.beatmap_id ?? null);
+    const next = allResults[nextBatch * resultsPerPage];
+    setSelectedResultKey(next ? maniaResultKey(next) : null);
   }
 
   if (statusQuery.isLoading) {
@@ -432,8 +454,8 @@ export function ManiaSimilarBeatmapsPage() {
 
       <PageHeader
         title="相似谱面"
-        description="使用独立的 osu!mania Analyzer v1 索引，按同键数比较强度、键型、结构、难度分位及基础上下文。"
-        actions={<div className="flex items-center gap-2"><Button onClick={() => navigate("/local/maps")} size="sm" variant="secondary"><MapIcon className="size-3.5" />前往本地谱面</Button><InfoTip text="首版仅支持 NoMod 4K、6K 与 7K；难度分位表示同键数 Ranked 谱面中的相对位置，并非官方星数。" /></div>}
+        description="先按 Analyzer 的键数、family 与 pattern 分类，再在分类内排序；支持 NM / DT / HT 同池检索。"
+        actions={<div className="flex items-center gap-2"><Button onClick={() => navigate("/local/maps")} size="sm" variant="secondary"><MapIcon className="size-3.5" />前往本地谱面</Button><InfoTip text="DT / HT 会从索引目录 beatmaps 下的 .osu 源文件重算时间轴与特征；难度分位不是官方星数。" /></div>}
       />
 
       {configurationError ? <div className="mb-5 rounded-xl border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">{configurationError}</div> : null}
@@ -460,6 +482,11 @@ export function ManiaSimilarBeatmapsPage() {
                 {request.source.kind === "local_file" ? <Button type="button" onClick={() => void chooseOsuFile()}><Upload size={16} />选择文件</Button> : null}
                 <Button variant="primary" type="submit" disabled={!(request.source.kind === "beatmap_id" ? request.source.value : request.source.path).trim() || similarityQuery.isPending || similarityRecommendation.isPending}><Search size={16} />{similarityQuery.isPending ? "检索中…" : "查找相似谱面"}</Button>
               </div>
+              <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-white/[0.07] bg-black/10 px-4 py-3">
+                <div className="flex items-center gap-2"><span className="text-xs text-slate-500">参考 Mod</span>{MANIA_MODS.map((gameMod) => <Button aria-pressed={request.target_mod === gameMod} key={gameMod} onClick={() => selectTargetMod(gameMod)} size="sm" type="button" variant={request.target_mod === gameMod ? "primary" : "ghost"}>{gameMod}</Button>)}</div>
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300"><input checked={request.candidate_mods.length > 1} className="accent-[var(--theme-primary)]" onChange={(event) => setMixedModPool(event.target.checked)} type="checkbox" />NM / DT / HT 多 Mod 混池</label>
+                <span className="text-xs text-slate-500">当前候选：{request.candidate_mods.join(" + ")}</span>
+              </div>
             </form>
           </Card>
 
@@ -471,14 +498,14 @@ export function ManiaSimilarBeatmapsPage() {
                 {recommendationResponse ? (
                   <Card className="mb-5 p-5"><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">Mania 个性化推荐</span><h2 className="mt-2 text-lg font-semibold text-white">{recommendationResponse.kind === "recent" ? "根据最近游玩生成" : "根据你的 BP 生成"}</h2><p className="mt-1 text-sm text-slate-400">已使用 {recommendationResponse.seed_count} 张参考谱面{recommendationResponse.skipped_seed_count ? `，跳过 ${recommendationResponse.skipped_seed_count} 张不支持或无法读取的谱面` : ""}</p>{recommendationCompleting ? <p className="mt-3 flex items-center gap-2 text-xs text-[var(--theme-primary-light)]"><LoaderCircle className="size-3.5 animate-spin" />已按键数优先展示首批结果，正在后台完善更多推荐</p> : null}</Card>
                 ) : response ? (
-                  <Card className="similarity-reference-summary mb-4 grid items-center gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_230px]"><div><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">Mania 参考谱面</span><h2 className="mt-2 text-lg font-semibold text-white">{response.target.key_count}K · {response.target.version || "本地谱面"}</h2><p className="mt-1 text-sm text-slate-400">{response.target.artist} — {response.target.title}</p><div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400"><span>{response.target.family.toUpperCase()} / {response.target.pattern}</span><span>同键数难度分位 {percentileLabel(response.target.difficulty_percentile)}</span><span>BPM {Math.round(response.target.base.bpm)}</span><span>有效长度 {durationLabel(response.target.base.active_length_seconds)}</span></div></div><SimilarityRadar compact target={response.target.difficulty} /></Card>
+                  <Card className="similarity-reference-summary mb-4 grid items-center gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_230px]"><div><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">Mania 参考谱面</span><h2 className="mt-2 text-lg font-semibold text-white">{response.target.key_count}K · {response.target.game_mod} · {response.target.version || "本地谱面"}</h2><p className="mt-1 text-sm text-slate-400">{response.target.artist} — {response.target.title}</p><div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400"><span>{response.target.family.toUpperCase()} / {response.target.pattern}</span><span>同键数难度分位 {percentileLabel(response.target.difficulty_percentile)}</span><span>BPM {Math.round(response.target.base.bpm)}</span><span>有效长度 {durationLabel(response.target.base.active_length_seconds)}</span></div></div><SimilarityRadar compact target={response.target.difficulty} /></Card>
                 ) : null}
 
-                {recommendationResponse ? <div className="mb-4 inline-flex rounded-lg border border-white/[0.08] bg-black/15 p-1" role="tablist" aria-label="Mania 键数分组">{KEY_COUNTS.map((keyCount) => { const group = recommendationResponse.groups.find((item) => item.key_count === keyCount); return <Button aria-selected={activeKeyCount === keyCount} key={keyCount} onClick={() => { setActiveKeyCount(keyCount); setSelectedResultId(group?.results[0]?.beatmap_id ?? null); }} role="tab" size="sm" type="button" variant={activeKeyCount === keyCount ? "primary" : "ghost"}>{keyCount}K · {group?.results.length ?? 0}<span className="ml-1 text-[10px] opacity-60">({group?.seed_count ?? 0} seeds)</span></Button>; })}</div> : null}
+                {recommendationResponse ? <div className="mb-4 inline-flex rounded-lg border border-white/[0.08] bg-black/15 p-1" role="tablist" aria-label="Mania 键数分组">{KEY_COUNTS.map((keyCount) => { const group = recommendationResponse.groups.find((item) => item.key_count === keyCount); const first = group?.results[0]; return <Button aria-selected={activeKeyCount === keyCount} key={keyCount} onClick={() => { setActiveKeyCount(keyCount); setSelectedResultKey(first ? maniaResultKey(first) : null); }} role="tab" size="sm" type="button" variant={activeKeyCount === keyCount ? "primary" : "ghost"}>{keyCount}K · {group?.results.length ?? 0}<span className="ml-1 text-[10px] opacity-60">({group?.seed_count ?? 0} seeds)</span></Button>; })}</div> : null}
 
                 <div className="mb-3 flex items-end justify-between gap-3"><div><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">推荐结果</span><h2 className="mt-1 text-base font-semibold text-white">{allResults.length} 个 {activeKeyCount}K 相似谱面集</h2></div><div className="flex flex-wrap items-center justify-end gap-2"><span className="text-sm text-slate-500">第 {activeResultBatch + 1} / {resultBatchCount} 批</span>{allResults.length > resultsPerPage ? <Button disabled={quickDownloadId !== null} onClick={showNextBatch} size="sm"><RefreshCw className="size-3.5" />换一批</Button> : null}<Button disabled={!visibleResults.length || quickDownloadId !== null} loading={quickDownloadId === -1} onClick={() => void downloadResults(visibleResults)} size="sm" variant="primary"><Download className="size-3.5" />下载本批</Button></div></div>
 
-                {allResults.length ? <div className="space-y-3">{visibleResults.map((result) => <SimilarityResultCard key={result.beatmap_id} result={result} recommendedBy={activeGroup?.results.find((item) => item.beatmap_id === result.beatmap_id)?.recommended_by} selected={selected?.beatmap_id === result.beatmap_id} onSelect={() => setSelectedResultId(result.beatmap_id)} onDownload={() => void downloadResults([result])} onAddToCollection={() => openCollectionDialog([{ beatmap_id: result.beatmap_id, beatmapset_id: result.beatmapset_id, checksum: null, ruleset: result.ruleset, difficulty_name: result.version, title: result.title, artist: result.artist, creator: result.creator }])} downloading={quickDownloadId === result.beatmap_id} downloadDisabled={quickDownloadId !== null} onOpen={() => openOnlineBeatmap(result)} onPreview={() => void togglePreview(result)} playing={playingId === result.beatmap_id} previewLoading={previewLoadingId === result.beatmap_id} />)}</div> : <EmptyState title={`没有可展示的 ${activeKeyCount}K 推荐`} description="该键数组可能没有可用参考成绩，或今天已展示过全部候选；可切换其他键数组。" />}
+                {allResults.length ? <div className="space-y-3">{visibleResults.map((result) => <SimilarityResultCard key={maniaResultKey(result)} result={result} recommendedBy={activeGroup?.results.find((item) => maniaResultKey(item) === maniaResultKey(result))?.recommended_by} selected={selected ? maniaResultKey(selected) === maniaResultKey(result) : false} onSelect={() => setSelectedResultKey(maniaResultKey(result))} onDownload={() => void downloadResults([result])} onAddToCollection={() => openCollectionDialog([{ beatmap_id: result.beatmap_id, beatmapset_id: result.beatmapset_id, checksum: null, ruleset: result.ruleset, difficulty_name: `${result.version} +${result.game_mod}`, title: result.title, artist: result.artist, creator: result.creator }])} downloading={quickDownloadId === result.beatmap_id} downloadDisabled={quickDownloadId !== null} onOpen={() => openOnlineBeatmap(result)} onPreview={() => void togglePreview(result)} playing={playingId === result.beatmap_id} previewLoading={previewLoadingId === result.beatmap_id} />)}</div> : <EmptyState title={`没有可展示的 ${activeKeyCount}K 推荐`} description="该键数组可能没有可用参考成绩，或今天已展示过全部候选；可切换其他键数组。" />}
               </div>
 
               {selected && comparisonTarget ? <SimilarityComparisonPanel selected={selected} target={comparisonTarget} recommendedBy={recommendedBy} dynamicProfile={null} onOpen={() => openOnlineBeatmap(selected)} /> : null}

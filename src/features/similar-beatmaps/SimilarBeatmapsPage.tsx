@@ -29,7 +29,6 @@ import {
 } from "./api";
 import {
   createSimilarityRequest,
-  defaultDynamicWeighting,
   defaultSimilarityPreferences,
   manualWeightingFromPreferences,
 } from "./defaults";
@@ -206,11 +205,7 @@ function StandardSimilarBeatmapsPage() {
       )?.recommended_by ?? null
     : null;
   const comparisonTarget = recommendedBy ?? response?.target ?? null;
-  const selectedDynamicProfile = selected
-    ? response?.dynamic_profile ?? recommendationResponse?.dynamic_profiles.find(
-        (profile) => profile.seed_beatmap_id === recommendedBy?.beatmap_id,
-      ) ?? null
-    : null;
+  const selectedDynamicProfile = null;
 
   const status =
     statusQuery.data ??
@@ -230,7 +225,6 @@ function StandardSimilarBeatmapsPage() {
   const effectiveWeighting = resolveSimilarityWeighting(
     request,
     preferences,
-    status.supports_dynamic_weighting,
   );
 
   useEffect(() => () => {
@@ -306,16 +300,8 @@ function StandardSimilarBeatmapsPage() {
               path: await desktopApi.getLocalBeatmapPath(launch.client, launch.resourceId),
             };
       const launchWeighting = preferences.advanced_enabled
-        ? preferences.mode === "dynamic" && status.supports_dynamic_weighting
-          ? {
-              mode: "dynamic" as const,
-              lower_sections: preferences.lower_sections,
-              upper_sections: preferences.upper_sections,
-            }
-          : manualWeightingFromPreferences(preferences)
-        : status.supports_dynamic_weighting
-          ? { ...defaultDynamicWeighting }
-          : manualWeighting();
+        ? manualWeightingFromPreferences(preferences)
+        : manualWeighting();
       const nextRequest = {
         ...createSimilarityRequest(source),
         weighting: launchWeighting,
@@ -332,7 +318,7 @@ function StandardSimilarBeatmapsPage() {
       setSearchParams(new URLSearchParams(), { replace: true });
     };
     void run().catch((error) => setConfigurationError(errorMessage(error)));
-  }, [preferences, searchParams, setSearchParams, settings.isLoading, similarityQuery, status.state, status.supports_dynamic_weighting]);
+  }, [preferences, searchParams, setSearchParams, settings.isLoading, similarityQuery, status.state]);
 
   async function chooseIndexDirectory() {
     setConfigurationError(null);
@@ -837,7 +823,7 @@ function StandardSimilarBeatmapsPage() {
             </Button> : null}
 
             {preferences.advanced_enabled && advancedOpen ? (
-              <SimilarityAdvancedPanel request={{ ...request, weighting: effectiveWeighting }} preferences={preferences} supportsDynamicWeighting={status.supports_dynamic_weighting} onChange={changeAdvancedRequest} />
+              <SimilarityAdvancedPanel request={{ ...request, weighting: effectiveWeighting }} preferences={preferences} onChange={changeAdvancedRequest} />
             ) : null}
           </form>
           </Card>

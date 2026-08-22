@@ -367,7 +367,7 @@ impl Default for SimilarityPreferences {
     fn default() -> Self {
         Self {
             advanced_enabled: false,
-            mode: SimilarityWeightingPreference::Dynamic,
+            mode: SimilarityWeightingPreference::Manual,
             lower_sections: default_similarity_section_range(),
             upper_sections: default_similarity_section_range(),
             manual_weights: SimilarityManualWeights::default(),

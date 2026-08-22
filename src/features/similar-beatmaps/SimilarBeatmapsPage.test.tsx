@@ -47,7 +47,7 @@ const ready: SimilarityIndexStatus = {
   normalization_version: 1,
   algorithm_id: "five-dimension-slider-rosu-reading-v4",
   data_cutoff_at: 1_785_140_308,
-  supports_dynamic_weighting: true,
+  supports_dynamic_weighting: false,
   records_by_key_count: {},
 };
 
@@ -228,9 +228,8 @@ describe("SimilarBeatmapsPage", () => {
     await user.type(input, "https://osu.ppy.sh/beatmaps/10");
     await user.click(screen.getByRole("button", { name: "展开高级参数" }));
     expect(screen.getByLabelText("结果数量")).toHaveValue("50");
-    expect(screen.getByRole("tab", { name: "动态" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("向下范围")).toHaveValue("4");
-    expect(screen.getByLabelText("向上范围")).toHaveValue("4");
+    expect(screen.queryByRole("tab", { name: "动态" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Speed 权重")).toHaveValue("2");
     await user.click(screen.getByRole("button", { name: "查找相似谱面" }));
 
     expect(await screen.findByText("Signal - Candidate")).toBeInTheDocument();
@@ -240,13 +239,11 @@ describe("SimilarBeatmapsPage", () => {
           kind: "beatmap_id",
           value: "https://osu.ppy.sh/beatmaps/10",
         },
-        weighting: { mode: "dynamic", lower_sections: 4, upper_sections: 4 },
+        weighting: expect.objectContaining({ mode: "manual", parameter_weight: 1 }),
         result_limit: 50,
       }),
     );
-    expect(screen.getByText("动态权重档案")).toBeInTheDocument();
-    expect(screen.getByText(/候选 5.7–6.5★/)).toBeInTheDocument();
-    expect(screen.getByText(/AR、CS、OD/)).toBeInTheDocument();
+    expect(screen.queryByText("动态权重档案")).not.toBeInTheDocument();
     expect(screen.getByTestId("comparison-radar")).toBeInTheDocument();
 
     await user.click(screen.getByLabelText(/Candidate/));
@@ -264,7 +261,7 @@ describe("SimilarBeatmapsPage", () => {
     );
   });
 
-  it("falls back to manual weighting when the index lacks dynamic statistics", async () => {
+  it("uses fixed weighting when the index lacks dynamic statistics", async () => {
     const user = userEvent.setup();
     vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue({
       ...ready,
@@ -272,11 +269,11 @@ describe("SimilarBeatmapsPage", () => {
     });
 
     renderPage(true);
-    expect(await screen.findByText(/已切换为手动权重/)).toBeInTheDocument();
-    const advancedToggle = screen.queryByRole("button", { name: "展开高级参数" });
-    if (advancedToggle) await user.click(advancedToggle);
-    expect(screen.getByRole("tab", { name: "手动" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "动态" })).toBeDisabled();
+    await screen.findByText("索引已就绪");
+    const advancedToggle = screen.getByRole("button", { name: /(展开|收起)高级参数/ });
+    if (advancedToggle.textContent?.includes("展开")) await user.click(advancedToggle);
+    expect(screen.getByLabelText("Aim 权重")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "动态" })).not.toBeInTheDocument();
   });
 
   it("accepts a local osu file through the desktop picker", async () => {

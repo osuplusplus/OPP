@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { DifficultyFeatureVector, ManiaDifficultyVector } from "../../shared/types/osu";
+import { maniaSkillProfile } from "./maniaDifficulty";
 
 const dimensions: Array<{
   key: keyof DifficultyFeatureVector;
@@ -44,11 +45,13 @@ export function SimilarityRadar({
   compact?: boolean;
 }) {
   const mania = "hand_stream" in target;
+  const targetProfile = mania ? maniaSkillProfile(target) : null;
+  const comparisonProfile = comparison && "hand_stream" in comparison ? maniaSkillProfile(comparison) : null;
   const data = mania
     ? maniaDimensions.map(({ key, label }) => ({
         dimension: label,
-        target: target[key],
-        comparison: comparison && "hand_stream" in comparison ? comparison[key] : 0,
+        target: Number(targetProfile?.[key] ?? 0),
+        comparison: Number(comparisonProfile?.[key] ?? 0),
       }))
     : dimensions.map(({ key, label }) => ({
         dimension: label,

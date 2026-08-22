@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    MANIA_ANALYZER_VERSION, MANIA_NORMALIZATION_VERSION, ManiaDistanceComponents,
-    ManiaFeatureRecord, ManiaModeFamily, ManiaQueryOptions,
+    ManiaDistanceComponents, ManiaFeatureRecord, ManiaModeFamily, ManiaQueryOptions,
+    MANIA_ANALYZER_VERSION, MANIA_NORMALIZATION_VERSION,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,10 +170,7 @@ pub(crate) fn distance_components(
     candidate: ManiaFeatureRecord,
 ) -> ManiaDistanceComponents {
     ManiaDistanceComponents {
-        skill: hellinger(
-            &target.difficulty.as_array(),
-            &candidate.difficulty.as_array(),
-        ),
+        skill: hellinger(&skill_shape(target), &skill_shape(candidate)),
         pattern: hellinger(
             &target.style.pattern_array(),
             &candidate.style.pattern_array(),
@@ -193,12 +190,36 @@ pub(crate) fn distance_components(
     }
 }
 
+/// Convert cohort percentiles into an intra-map skill profile. Absolute intensity
+/// is already represented by `difficulty_percentile`; centering here prevents a
+/// high-end map whose eight axes all reached percentile 1.0 from becoming an
+/// indistinguishable full vector.
+fn skill_shape(record: ManiaFeatureRecord) -> [f32; 8] {
+    let values = record.difficulty.as_array();
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    values.map(|value| ((value - mean) * 4.0).exp())
+}
+
+pub(crate) fn classification_tier(target: ManiaFeatureRecord, candidate: ManiaFeatureRecord) -> u8 {
+    match (
+        target.mode_family == candidate.mode_family,
+        target.dominant_pattern == candidate.dominant_pattern,
+    ) {
+        (true, true) => 0,
+        (true, false) => 1,
+        (false, true) => 2,
+        (false, false) => 3,
+    }
+}
+
 pub(crate) fn final_distance(components: ManiaDistanceComponents) -> f32 {
-    0.35 * components.skill
-        + 0.30 * components.pattern
-        + 0.20 * components.structure
-        + 0.10 * components.difficulty
-        + 0.05 * components.context
+    // The intra-map skill profile is the shape users see in the radar. Keep it
+    // dominant, while pattern and structure provide the next level of coupling.
+    0.50 * components.skill
+        + 0.25 * components.pattern
+        + 0.17 * components.structure
+        + 0.05 * components.difficulty
+        + 0.03 * components.context
 }
 
 fn hellinger<const N: usize>(left: &[f32; N], right: &[f32; N]) -> f32 {
@@ -233,4 +254,49 @@ fn rms_distance<const N: usize>(left: &[f32; N], right: &[f32; N]) -> f32 {
 fn log_ratio_distance(left: f32, right: f32, maximum_ratio: f32) -> f32 {
     (((left.max(0.0) + 1.0) / (right.max(0.0) + 1.0)).ln().abs() / maximum_ratio.ln())
         .clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ManiaPattern;
+
+    fn classified(family: ManiaModeFamily, pattern: ManiaPattern) -> ManiaFeatureRecord {
+        ManiaFeatureRecord {
+            mode_family: family,
+            dominant_pattern: pattern,
+            ..ManiaFeatureRecord::default()
+        }
+    }
+
+    #[test]
+    fn classification_tiers_precede_distance_ranking() {
+        let target = classified(ManiaModeFamily::Rc, ManiaPattern::Stream);
+        assert_eq!(classification_tier(target, target), 0);
+        assert_eq!(
+            classification_tier(target, classified(ManiaModeFamily::Rc, ManiaPattern::Jacks)),
+            1
+        );
+        assert_eq!(
+            classification_tier(
+                target,
+                classified(ManiaModeFamily::Ln, ManiaPattern::Stream)
+            ),
+            2
+        );
+        assert_eq!(
+            classification_tier(target, classified(ManiaModeFamily::Ln, ManiaPattern::Jacks)),
+            3
+        );
+    }
+
+    #[test]
+    fn saturated_skill_vectors_remain_finite() {
+        let record = ManiaFeatureRecord {
+            difficulty: crate::ManiaDifficultyVector::from_array([1.0; 8]),
+            ..ManiaFeatureRecord::default()
+        };
+        assert!(skill_shape(record).into_iter().all(f32::is_finite));
+        assert_eq!(distance_components(record, record).skill, 0.0);
+    }
 }

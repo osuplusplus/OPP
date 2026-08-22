@@ -76,7 +76,7 @@ OPP 在 Linux 上通过 PATH 中的 `osu-wine` 与 `osu-lazer` 命令启动客�
 2. 将 standard 与 mania 数据集分别完整解压到本地目录。
 3. 在 OPP 顶部选择 osu! 或 Mania，再到“相似谱面”页面选择该模式的索引根目录。应用会分别记住两套路径。
 
-Standard 当前要求 Analyzer v4，根目录应包含 `metadata.sqlite`、`features-v*.bin`、`indexes/` 和 `normalizers/`；Mania 当前要求 Analyzer v1，根目录应包含 `mania-metadata.sqlite`、`mania-features-v1.bin`、`normalizers/mania-v1.bin` 和 `indexes/mania-v1.buckets(.sha256)`。如果解压后出现两层同名目录，请选择实际直接包含 metadata 文件的内层目录。更多说明见 [相似谱面数据集](./docs/similarity-dataset.md)。
+Standard 当前要求 Analyzer v4，根目录应包含 `metadata.sqlite`、`features-v*.bin`、`indexes/` 和 `normalizers/`；Mania 当前要求 Analyzer v1，根目录应包含 `mania-metadata.sqlite`、`mania-features-v1.bin`、`normalizers/mania-v1.bin` 和 `indexes/mania-v1.buckets(.sha256)`。Mania 的 DT/HT 混池还要求 `beatmaps/<BeatmapID>.osu`。如果解压后出现两层同名目录，请选择实际直接包含 metadata 文件的内层目录。更多说明见 [相似谱面数据集](./docs/similarity-dataset.md)。
 
 ## 本地开发
 
@@ -140,8 +140,7 @@ OPP/
 
 欢迎通过 [Issues](https://github.com/osuplusplus/OPP/issues) 提交问题、功能建议和可复现步骤。提交代码前请先阅读 [架构与开发](./docs/架构与开发.md)，并确保前后端质量检查全部通过。
 
-- 本地 pp 计算基于固定的 `rosu-pp` 算法快照，可能与 osu! 在线服务当前版本存在差异。
-- 相似谱面结果取决于本地 standard Analyzer v4 或 mania Analyzer v1 数据集的覆盖范围，不代表实时数据库。Mania 首版仅支持 NoMod 4K/6K/7K，难度 percentile 不是官方星数。
+- 相似谱面结果取决于本地 standard Analyzer v4 或 mania Analyzer v1 数据集的覆盖范围，不代表实时数据库。Mania 支持 4K/6K/7K 的 NM、DT、HT 单池或混池，难度 percentile 不是官方星数。
 - o!rdr、谱面镜像、网易云音乐、tosu 与 OBS 等外部服务或应用的可用性不由 OPP 保证。
 
 ### 关联仓库
@@ -156,6 +155,7 @@ OPP/
 - [Tauri](https://github.com/tauri-apps/tauri)
 - [Ohdmire/osu-lazer-space-statistics](https://github.com/Ohdmire/osu-lazer-space-statistics)
 - [Ohdmire/realm-db-reader](https://github.com/Ohdmire/realm-db-reader)
+- [Ohdmire/osu-replay-render](https://github.com/Ohdmire/osu-replay-render)
 
 ## 特别鸣谢
 

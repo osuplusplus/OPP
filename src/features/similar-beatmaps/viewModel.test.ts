@@ -37,7 +37,7 @@ describe("similarity view model", () => {
       upper_sections: 4,
       manual_weights: { aim: 0.5, speed: 1, reading: 1, slider: 0, overlap: 0, parameters: 0.75 },
       results_per_page: 5,
-    }, false);
+    });
 
     expect(weighting).toMatchObject({ mode: "manual", parameter_weight: 0.75 });
   });

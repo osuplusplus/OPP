@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use osu_difficulty_runtime::ManiaGameMod;
+
 use crate::app::models::Score;
 
 pub const MAX_RECOMMENDATION_SEEDS: usize = 50;
@@ -20,9 +22,13 @@ pub fn seed_ids(scores: &[Score], limit: usize) -> Vec<u64> {
         .collect()
 }
 
-/// Mania v1 is a NoMod, 1.0x snapshot. Modded plays must not silently become
-/// seeds for a chart analysis that cannot represent their rate/key/random changes.
-pub fn mania_seed_ids(scores: &[Score], limit: usize) -> (Vec<u64>, usize) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ManiaSeed {
+    pub beatmap_id: u64,
+    pub game_mod: ManiaGameMod,
+}
+
+pub fn mania_seed_ids(scores: &[Score], limit: usize) -> (Vec<ManiaSeed>, usize) {
     let mut accepted = HashSet::new();
     let mut skipped_modded_ids = HashSet::new();
     let mut ids = Vec::with_capacity(limit);
@@ -36,17 +42,19 @@ pub fn mania_seed_ids(scores: &[Score], limit: usize) -> (Vec<u64>, usize) {
         else {
             continue;
         };
-        if accepted.contains(&beatmap_id) {
-            continue;
-        }
-        if !is_no_mod_score(score) {
+        let Some(game_mod) = supported_mania_mod(score) else {
             if skipped_modded_ids.insert(beatmap_id) {
                 skipped_modded += 1;
             }
             continue;
+        };
+        if !accepted.insert((beatmap_id, game_mod)) {
+            continue;
         }
-        accepted.insert(beatmap_id);
-        ids.push(beatmap_id);
+        ids.push(ManiaSeed {
+            beatmap_id,
+            game_mod,
+        });
         if ids.len() == limit {
             break;
         }
@@ -54,16 +62,28 @@ pub fn mania_seed_ids(scores: &[Score], limit: usize) -> (Vec<u64>, usize) {
     (ids, skipped_modded)
 }
 
-fn is_no_mod_score(score: &Score) -> bool {
-    score.mods.is_empty()
-        || score.mods.iter().all(|value| {
-            let acronym = value
-                .as_str()
-                .or_else(|| value.get("acronym").and_then(serde_json::Value::as_str));
-            acronym.is_some_and(|value| {
-                value.eq_ignore_ascii_case("NM") || value.eq_ignore_ascii_case("NO_MOD")
-            })
-        })
+fn supported_mania_mod(score: &Score) -> Option<ManiaGameMod> {
+    let mut game_mod = ManiaGameMod::Nm;
+    for value in &score.mods {
+        let acronym = value
+            .as_str()
+            .or_else(|| value.get("acronym").and_then(serde_json::Value::as_str))?;
+        if acronym.eq_ignore_ascii_case("NM") || acronym.eq_ignore_ascii_case("NO_MOD") {
+            continue;
+        }
+        let next = if acronym.eq_ignore_ascii_case("DT") || acronym.eq_ignore_ascii_case("NC") {
+            ManiaGameMod::Dt
+        } else if acronym.eq_ignore_ascii_case("HT") {
+            ManiaGameMod::Ht
+        } else {
+            return None;
+        };
+        if game_mod != ManiaGameMod::Nm && game_mod != next {
+            return None;
+        }
+        game_mod = next;
+    }
+    Some(game_mod)
 }
 
 #[cfg(test)]
@@ -105,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn mania_seeds_accept_only_no_mod_and_count_modded_scores_as_skipped() {
+    fn mania_seeds_accept_nm_dt_ht_and_skip_other_mods() {
         let scores = vec![
             score_with_mods(Some(1), json!([{ "acronym": "DT" }])),
             score_with_mods(Some(2), json!([])),
@@ -114,8 +134,28 @@ mod tests {
             score_with_mods(Some(5), json!([{ "acronym": "K4" }])),
         ];
         let (ids, skipped) = mania_seed_ids(&scores, 50);
-        assert_eq!(ids, vec![2, 3, 4]);
-        assert_eq!(skipped, 2);
+        assert_eq!(
+            ids,
+            vec![
+                ManiaSeed {
+                    beatmap_id: 1,
+                    game_mod: ManiaGameMod::Dt
+                },
+                ManiaSeed {
+                    beatmap_id: 2,
+                    game_mod: ManiaGameMod::Nm
+                },
+                ManiaSeed {
+                    beatmap_id: 3,
+                    game_mod: ManiaGameMod::Nm
+                },
+                ManiaSeed {
+                    beatmap_id: 4,
+                    game_mod: ManiaGameMod::Nm
+                },
+            ]
+        );
+        assert_eq!(skipped, 1);
     }
 
     #[test]
@@ -126,18 +166,26 @@ mod tests {
             score(Some(3)),
         ];
         let (ids, skipped) = mania_seed_ids(&scores, 1);
-        assert_eq!(ids, vec![2]);
-        assert_eq!(skipped, 1);
+        assert_eq!(
+            ids,
+            vec![ManiaSeed {
+                beatmap_id: 1,
+                game_mod: ManiaGameMod::Ht
+            }]
+        );
+        assert_eq!(skipped, 0);
     }
 
     #[test]
-    fn a_modded_score_does_not_hide_a_later_no_mod_score_for_the_same_map() {
+    fn different_supported_mods_of_the_same_map_are_distinct_seeds() {
         let scores = vec![
             score_with_mods(Some(1), json!([{ "acronym": "DT" }])),
             score_with_mods(Some(1), json!([])),
         ];
         let (ids, skipped) = mania_seed_ids(&scores, 50);
-        assert_eq!(ids, vec![1]);
-        assert_eq!(skipped, 1);
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0].game_mod, ManiaGameMod::Dt);
+        assert_eq!(ids[1].game_mod, ManiaGameMod::Nm);
+        assert_eq!(skipped, 0);
     }
 }
