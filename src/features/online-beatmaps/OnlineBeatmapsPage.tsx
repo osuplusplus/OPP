@@ -172,7 +172,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
 
     <div className="space-y-5">
       <OnlineBeatmapFilters loading={search.isFetching && !search.isFetchingNextPage} onChange={setDraft} onReset={reset} onSubmit={(next) => setActiveQuery({ ...next, cursor_string: null })} query={draft} suggestions={searchSuggestions} />
-      <div className="grid grid-cols-[minmax(0,1fr)_286px] items-start gap-5">
+      <div className="grid grid-cols-1 items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_286px]">
         <section className="min-w-0" data-page-guide-online-results="true">
           <OnlineBeatmapSortBar onChange={changeSort} sort={activeQuery.sort} />
           <div className="opp-online-panel mb-4 flex min-h-12 items-center justify-between rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] px-4 shadow-[0_14px_34px_rgba(0,0,0,0.08)]">
@@ -180,9 +180,9 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
             <Button disabled={!items.length} onClick={() => setQueue((current) => { const next = new Map(current); items.forEach((item) => { if (!item.availability?.download_disabled) next.set(item.id, item); }); return next; })} size="sm" variant="ghost"><CheckSquare2 className="size-4" />将当前结果全部加入队列</Button>
           </div>
           {directDownloadError ? <div className="mb-4 rounded-xl border border-amber-300/10 bg-amber-300/[0.05] px-4 py-3 text-sm text-amber-100">{directDownloadError}</div> : null}
-          {search.isLoading ? <div className="grid grid-cols-[repeat(auto-fit,minmax(370px,1fr))] gap-3.5">{Array.from({ length: 6 }, (_, index) => <Skeleton className="h-[220px] rounded-xl" key={index} />)}</div> : search.error ? <ErrorPanel error={search.error} onRetry={() => search.refetch()} /> : !items.length ? <EmptyState action={<Button onClick={reset}><Music2 className="size-4" />查看近期 Ranked</Button>} description="请放宽筛选条件，或更换内容筛选标签。" icon={<SearchX className="size-5" />} title="没有找到匹配的谱面" /> : <>
-            {/* 自动列宽保证宽窗口一行多张卡片，窄窗口自然回落为单列。 */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(370px,1fr))] gap-3.5">{items.map((beatmapset) => <BeatmapsetCard beatmapset={beatmapset} downloading={directDownloadId === beatmapset.id} key={beatmapset.id} onAddToCollection={() => openCollectionDialog(collectionCandidates(beatmapset))} onDownload={() => void downloadBeatmapset(beatmapset)} onOpen={() => setManualDetailId(beatmapset.id)} onPreview={() => togglePreview(beatmapset)} onSelect={() => toggleQueue(beatmapset)} playing={playingId === beatmapset.id} selected={queue.has(beatmapset.id)} />)}</div>
+          {search.isLoading ? <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">{Array.from({ length: 6 }, (_, index) => <Skeleton className="aspect-[136/55] rounded-xl" key={index} />)}</div> : search.error ? <ErrorPanel error={search.error} onRetry={() => search.refetch()} /> : !items.length ? <EmptyState action={<Button onClick={reset}><Music2 className="size-4" />查看近期 Ranked</Button>} description="请放宽筛选条件，或更换内容筛选标签。" icon={<SearchX className="size-5" />} title="没有找到匹配的谱面" /> : <>
+            {/* 常用桌面窗口保持双列，卡片尺寸随结果区宽度按比例缩放。 */}
+            <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">{items.map((beatmapset) => <BeatmapsetCard beatmapset={beatmapset} downloading={directDownloadId === beatmapset.id} key={beatmapset.id} onAddToCollection={() => openCollectionDialog(collectionCandidates(beatmapset))} onDownload={() => void downloadBeatmapset(beatmapset)} onOpen={() => setManualDetailId(beatmapset.id)} onPreview={() => togglePreview(beatmapset)} onSelect={() => toggleQueue(beatmapset)} playing={playingId === beatmapset.id} selected={queue.has(beatmapset.id)} />)}</div>
             {search.hasNextPage ? <Button className="mt-5 w-full" loading={search.isFetchingNextPage} onClick={() => search.fetchNextPage()}><ChevronDown className="size-4" />加载下一页</Button> : <p className="py-8 text-center text-sm text-slate-600">已到达搜索结果末尾</p>}
           </>}
         </section>

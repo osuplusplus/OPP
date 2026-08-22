@@ -27,7 +27,9 @@ describe("MapCard", () => {
     expect(screen.getByText("osu!")).toBeInTheDocument();
     expect(screen.getByText("已在本地")).toBeInTheDocument();
     expect(screen.getByText("#123")).toBeInTheDocument();
-    expect(container.querySelector("[data-slot='card']")).toHaveClass("h-[168px]", "rounded-[10px]");
+    const card = container.querySelector("[data-slot='card']");
+    expect(card).toHaveClass("aspect-[31/16]", "rounded-[10px]");
+    expect(card).not.toHaveClass("h-[168px]");
   });
 
   it("keeps removal available only for writable collections", async () => {

@@ -2,7 +2,8 @@
 
 :root {
   --sidebar-width: clamp(236px, 18vw, 276px);
-  --content-width: 1480px;
+  /* 内容区按可用空间等比伸缩，避免固定像素上限在宽屏两侧形成失衡留白。 */
+  --content-width: 94%;
   --surface: #111316;
   --surface-sidebar: #0d0f12;
   --surface-chrome: #0b0d10;

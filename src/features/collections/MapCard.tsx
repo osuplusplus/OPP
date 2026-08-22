@@ -32,7 +32,7 @@ export function MapCard({
 
   return (
     <Card
-      className="opp-map-card group relative isolate h-[168px] min-w-0 overflow-hidden rounded-[10px] border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_7px_18px_rgba(0,0,0,.13)] [transition:border-color_var(--motion-base)_ease,box-shadow_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] hover:-translate-y-0.5 hover:border-[var(--theme-primary-soft)] hover:shadow-[0_13px_28px_rgba(0,0,0,.21)] motion-reduce:transition-none"
+      className="opp-map-card group relative isolate aspect-[31/16] min-w-0 overflow-hidden rounded-[10px] border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_7px_18px_rgba(0,0,0,.13)] [transition:border-color_var(--motion-base)_ease,box-shadow_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] hover:-translate-y-0.5 hover:border-[var(--theme-primary-soft)] hover:shadow-[0_13px_28px_rgba(0,0,0,.21)] motion-reduce:transition-none"
       unstyled
     >
       {cover ? (
@@ -78,8 +78,8 @@ export function MapCard({
         </div>
       </div>
 
-      {/* 悬停时只补充具体难度的技术标识，不改变卡片尺寸。 */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-12 z-20 translate-y-2 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.98),rgba(13,16,21,.99))] p-[15px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 motion-reduce:transition-none">
+      {/* 悬停层按比例定位，始终为具体难度信息保留稳定空间。 */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-[28.5%] z-20 translate-y-2 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.98),rgba(13,16,21,.99))] p-[15px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 motion-reduce:transition-none">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <div>
             <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-[#7f8b9b]">难度 ID</p>

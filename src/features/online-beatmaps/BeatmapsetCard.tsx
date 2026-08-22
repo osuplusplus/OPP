@@ -44,7 +44,7 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
   return <Card
     aria-label={`查看谱面 ${beatmapset.title}`}
     className={cn(
-      "opp-beatmap-card group relative isolate h-[220px] min-w-0 cursor-pointer overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline-none",
+      "opp-beatmap-card group relative isolate aspect-[136/55] min-w-0 cursor-pointer overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline-none",
       "transition-[border-color,box-shadow,transform] duration-[var(--motion-base)] ease-[cubic-bezier(.2,.8,.2,1)]",
       "after:pointer-events-none after:absolute after:inset-0 after:z-[6] after:rounded-[inherit] after:border after:border-transparent after:content-[''] after:transition-colors after:duration-[var(--motion-base)]",
       "hover:-translate-y-0.5 hover:border-[var(--theme-primary-soft)] hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] hover:after:border-[color-mix(in_srgb,var(--theme-primary)_42%,transparent)]",
@@ -96,8 +96,8 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
       </div>
     </div>
 
-    {/* 悬停层不改变卡片高度，避免多列列表出现布局跳动。 */}
-    <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-[88px] z-20 translate-y-2.5 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.97),rgba(13,16,21,.99))] p-[14px_16px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
+    {/* 悬停层随卡片比例定位，窗口缩放时保持一致的信息占比。 */}
+    <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-[40%] z-20 translate-y-2.5 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.97),rgba(13,16,21,.99))] p-[14px_16px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
       <div className="grid grid-cols-3 gap-x-4 gap-y-2.5">
         {[{ label: "星级", value: `${minStars.toFixed(2)}–${maxStars.toFixed(2)}★` }, { label: "BPM", value: String(Math.round(beatmapset.bpm ?? 0)) }, { label: "长度", value: durationLabel(longest) }, { label: "物件", value: fullNumber(objects) }, { label: "游玩", value: fullNumber(beatmapset.play_count ?? 0) }, { label: "上架", value: dateLabel(beatmapset.ranked_date) }].map((metric) => <div className="min-w-0" key={metric.label}><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{metric.label}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-100">{metric.value}</p></div>)}
       </div>

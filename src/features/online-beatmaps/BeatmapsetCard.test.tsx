@@ -73,7 +73,8 @@ describe("BeatmapsetCard", () => {
     expect(screen.getAllByText("上架")).not.toHaveLength(0);
 
     const card = screen.getByRole("button", { name: "查看谱面 Daisuke" });
-    expect(card).toHaveClass("h-[220px]", "rounded-xl");
+    expect(card).toHaveClass("aspect-[136/55]", "rounded-xl");
+    expect(card).not.toHaveClass("h-[220px]");
     card.focus();
     await user.keyboard("{Enter}");
     expect(onOpen).toHaveBeenCalledOnce();
