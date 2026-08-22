@@ -12,7 +12,7 @@ describe("OnlineBeatmapFilters", () => {
     const onChange = vi.fn();
     const onSubmit = vi.fn();
 
-    render(
+    const { container } = render(
       <OnlineBeatmapFilters
         loading={false}
         onChange={onChange}
@@ -22,16 +22,18 @@ describe("OnlineBeatmapFilters", () => {
       />,
     );
 
-    const summary = screen.getByText(/更多筛选/).closest("summary");
-    const arrow = summary?.querySelector("svg");
-    expect(arrow).toHaveClass("lucide-chevron-down", "group-open:rotate-180");
+    const moreFilters = screen.getByRole("button", { name: /更多筛选/ });
+    expect(moreFilters.querySelector("svg")).toHaveClass("lucide-chevron-down");
     expect(screen.getByRole("group", { name: "状态筛选" })).toHaveClass("flex-nowrap", "overflow-x-auto");
     const qualified = screen.getByRole("button", { name: "Qualified" });
     expect(qualified).toHaveClass("shrink-0", "whitespace-nowrap");
     expect(qualified.firstElementChild).toHaveClass("text-[11px]", "leading-4");
 
-    await user.click(summary!);
-    expect(summary?.parentElement).toHaveAttribute("open");
+    await user.click(moreFilters);
+    const collapseFilters = screen.getByRole("button", { name: "收起筛选" });
+    expect(collapseFilters.querySelector("svg")).toHaveClass("lucide-chevron-up");
+    expect(container.querySelector("[data-page-guide-online-advanced]")?.lastElementChild).toBe(collapseFilters);
+    expect(screen.queryByText(/离散筛选|文本与日期|数值范围/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Loved" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ status: "loved" }));
@@ -54,7 +56,7 @@ describe("OnlineBeatmapFilters", () => {
       />,
     );
 
-    await user.click(screen.getByText(/更多筛选/).closest("summary")!);
+    await user.click(screen.getByRole("button", { name: /更多筛选/ }));
     const minimumStars = screen.getAllByPlaceholderText("最小")[0];
     fireEvent.change(minimumStars, { target: { value: "4.5" } });
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ stars_min: 4.5 }));

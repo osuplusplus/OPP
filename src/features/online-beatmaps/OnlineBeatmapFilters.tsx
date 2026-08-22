@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { ChevronDown, Filter, RotateCcw } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ChevronDown, ChevronUp, Filter, RotateCcw } from "lucide-react";
 import { Badge, Button, Card, InfoTip, Input } from "../../shared/components/ui";
 import type { OnlineBeatmapSearchQuery, Ruleset } from "../../shared/types/osu";
 import { SearchAutocomplete, type SearchSuggestion } from "../../shared/components/SearchAutocomplete";
@@ -53,6 +53,7 @@ const gradeOptions = [["", "全部"], ["XH", "银 SS"], ["X", "SS"], ["SH", "银
 const playedOptions = [["", "全部"], ["played", "玩过"], ["unplayed", "没玩过"]] as const;
 
 export function OnlineBeatmapFilters({ query, loading, onChange, onReset, onSubmit, suggestions = [] }: { query: OnlineBeatmapSearchQuery; loading: boolean; onChange: (query: OnlineBeatmapSearchQuery) => void; onReset: () => void; onSubmit: (query: OnlineBeatmapSearchQuery) => void; suggestions?: SearchSuggestion[] }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const patch = (value: Partial<OnlineBeatmapSearchQuery>, submit = false) => {
     const sort = Object.prototype.hasOwnProperty.call(value, "query")
       ? value.query?.trim() ? "relevance_desc" : "ranked_desc"
@@ -85,29 +86,37 @@ export function OnlineBeatmapFilters({ query, loading, onChange, onReset, onSubm
             <FilterRow label="状态">{statusOptions.map((option) => <TextOption active={query.status === option.value} key={option.value} onClick={() => select({ status: option.value })}>{option.value === "any" ? "全部" : option.label}</TextOption>)}</FilterRow>
           </div>
 
-          <details className="group" data-page-guide-online-advanced="true">
-            <summary className="flex cursor-pointer list-none items-center justify-center gap-2 py-3.5 text-xs font-semibold text-slate-500 transition hover:text-white">
-              <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-              更多筛选{count ? ` · ${count}` : ""}
-            </summary>
-            <div className="space-y-5 pb-5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">离散筛选 · 选择后立即应用</p>
-              <div className="border-y border-[var(--line-subtle)]">
-                <FilterRow label="流派">{genreOptions.map((option) => <TextOption active={query.genre === option.value} key={option.value ?? "all"} onClick={() => select({ genre: option.value })}>{option.value === null ? "全部" : option.label}</TextOption>)}</FilterRow>
-                <FilterRow label="语言">{languageOptions.map((option) => <TextOption active={query.language === option.value} key={option.value ?? "all"} onClick={() => select({ language: option.value })}>{option.value === null ? "全部" : option.label}</TextOption>)}</FilterRow>
-                {query.ruleset === "mania" ? <FilterRow label="键数"><TextOption active={query.keys_min === null && query.keys_max === null} onClick={() => select({ keys_min: null, keys_max: null })}>全部</TextOption>{maniaKeyOptions.map((keys) => <TextOption active={query.keys_min === keys && query.keys_max === keys} key={keys} onClick={() => select({ keys_min: keys, keys_max: keys })}>{keys}K</TextOption>)}</FilterRow> : null}
-                <FilterRow label="内容">{contentOptions.map(([value, label]) => <TextOption active={query.content_filter === value} key={value || "all"} onClick={() => select({ content_filter: value })}>{label}</TextOption>)}</FilterRow>
-                <FilterRow label="成绩">{gradeOptions.map(([value, label]) => <TextOption active={query.grade === value} key={value || "all"} onClick={() => select({ grade: value })}>{label}</TextOption>)}</FilterRow>
-                <FilterRow label="游玩状态">{playedOptions.map(([value, label]) => <TextOption active={query.played === value} key={value || "all"} onClick={() => select({ played: value })}>{label}</TextOption>)}</FilterRow>
-                <FilterRow label="附加内容"><TextOption active={!query.include_nsfw} onClick={() => select({ include_nsfw: false })}>安全内容</TextOption><TextOption active={query.include_nsfw} onClick={() => select({ include_nsfw: true })}>包括成人内容</TextOption><TextOption active={query.extras.includes("video")} onClick={() => toggleExtra("video")}>有视频</TextOption><TextOption active={query.extras.includes("storyboard")} onClick={() => toggleExtra("storyboard")}>有故事板</TextOption></FilterRow>
-              </div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">文本与日期 · 应用筛选或回车提交</p>
-              <div className="grid gap-4 md:grid-cols-2"><Field label="艺术家"><Input className={inputClass} onChange={(event) => patch({ artist: event.target.value })} value={query.artist} /></Field><Field label="标题"><Input className={inputClass} onChange={(event) => patch({ title: event.target.value })} value={query.title} /></Field><Field label="Mapper"><Input className={inputClass} onChange={(event) => patch({ mapper: event.target.value })} value={query.mapper} /></Field><Field label="来源"><Input className={inputClass} onChange={(event) => patch({ source: event.target.value })} value={query.source} /></Field><Field label="标签"><Input className={inputClass} onChange={(event) => patch({ tags: event.target.value })} placeholder="逗号分隔" value={query.tags} /></Field></div>
-              <div className="grid gap-4 md:grid-cols-2"><Field label="Rank 日期范围"><div className="grid grid-cols-2 gap-2"><Input className={inputClass} onChange={(event) => patch({ ranked_from: event.target.value })} type="date" value={query.ranked_from} /><Input className={inputClass} onChange={(event) => patch({ ranked_to: event.target.value })} type="date" value={query.ranked_to} /></div></Field><Field label="提交日期范围"><div className="grid grid-cols-2 gap-2"><Input className={inputClass} onChange={(event) => patch({ submitted_from: event.target.value })} type="date" value={query.submitted_from} /><Input className={inputClass} onChange={(event) => patch({ submitted_to: event.target.value })} type="date" value={query.submitted_to} /></div></Field></div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">数值范围 · 应用筛选或回车提交</p>
-              <div className="grid gap-4 md:grid-cols-2"><Range label="星数" max={query.stars_max} min={query.stars_min} onMax={(stars_max) => patch({ stars_max })} onMin={(stars_min) => patch({ stars_min })} /><Range label="BPM" max={query.bpm_max} min={query.bpm_min} onMax={(bpm_max) => patch({ bpm_max })} onMin={(bpm_min) => patch({ bpm_min })} /><Range label="长度（秒）" max={query.length_max} min={query.length_min} onMax={(length_max) => patch({ length_max })} onMin={(length_min) => patch({ length_min })} /><Range label="收藏数" max={query.favourites_max} min={query.favourites_min} onMax={(favourites_max) => patch({ favourites_max })} onMin={(favourites_min) => patch({ favourites_min })} /><Range label="AR" max={query.ar_max} min={query.ar_min} onMax={(ar_max) => patch({ ar_max })} onMin={(ar_min) => patch({ ar_min })} /><Range label="CS" max={query.cs_max} min={query.cs_min} onMax={(cs_max) => patch({ cs_max })} onMin={(cs_min) => patch({ cs_min })} /><Range label="OD" max={query.od_max} min={query.od_min} onMax={(od_max) => patch({ od_max })} onMin={(od_min) => patch({ od_min })} /><Range label="HP" max={query.hp_max} min={query.hp_min} onMax={(hp_max) => patch({ hp_max })} onMin={(hp_min) => patch({ hp_min })} /></div>
-            </div>
-          </details>
+          <div data-page-guide-online-advanced="true">
+            {!advancedOpen ? (
+              <button aria-expanded="false" className="flex w-full items-center justify-center gap-2 py-3.5 text-slate-500 transition hover:text-white" onClick={() => setAdvancedOpen(true)} type="button">
+                <ChevronDown className="size-4" />
+                <span className="text-xs font-semibold">更多筛选{count ? ` · ${count}` : ""}</span>
+              </button>
+            ) : (
+              <>
+                <div className="space-y-5 pt-4">
+                  <div className="border-y border-[var(--line-subtle)]">
+                    <FilterRow label="流派">{genreOptions.map((option) => <TextOption active={query.genre === option.value} key={option.value ?? "all"} onClick={() => select({ genre: option.value })}>{option.value === null ? "全部" : option.label}</TextOption>)}</FilterRow>
+                    <FilterRow label="语言">{languageOptions.map((option) => <TextOption active={query.language === option.value} key={option.value ?? "all"} onClick={() => select({ language: option.value })}>{option.value === null ? "全部" : option.label}</TextOption>)}</FilterRow>
+                    {query.ruleset === "mania" ? <FilterRow label="键数"><TextOption active={query.keys_min === null && query.keys_max === null} onClick={() => select({ keys_min: null, keys_max: null })}>全部</TextOption>{maniaKeyOptions.map((keys) => <TextOption active={query.keys_min === keys && query.keys_max === keys} key={keys} onClick={() => select({ keys_min: keys, keys_max: keys })}>{keys}K</TextOption>)}</FilterRow> : null}
+                    <FilterRow label="内容">{contentOptions.map(([value, label]) => <TextOption active={query.content_filter === value} key={value || "all"} onClick={() => select({ content_filter: value })}>{label}</TextOption>)}</FilterRow>
+                    <FilterRow label="成绩">{gradeOptions.map(([value, label]) => <TextOption active={query.grade === value} key={value || "all"} onClick={() => select({ grade: value })}>{label}</TextOption>)}</FilterRow>
+                    <FilterRow label="游玩状态">{playedOptions.map(([value, label]) => <TextOption active={query.played === value} key={value || "all"} onClick={() => select({ played: value })}>{label}</TextOption>)}</FilterRow>
+                    <FilterRow label="附加内容"><TextOption active={!query.include_nsfw} onClick={() => select({ include_nsfw: false })}>安全内容</TextOption><TextOption active={query.include_nsfw} onClick={() => select({ include_nsfw: true })}>包括成人内容</TextOption><TextOption active={query.extras.includes("video")} onClick={() => toggleExtra("video")}>有视频</TextOption><TextOption active={query.extras.includes("storyboard")} onClick={() => toggleExtra("storyboard")}>有故事板</TextOption></FilterRow>
+                  </div>
+                  <div className="space-y-4 border-b border-[var(--line-subtle)] pb-5">
+                    <div className="grid gap-4 md:grid-cols-2"><Field label="艺术家"><Input className={inputClass} onChange={(event) => patch({ artist: event.target.value })} value={query.artist} /></Field><Field label="标题"><Input className={inputClass} onChange={(event) => patch({ title: event.target.value })} value={query.title} /></Field><Field label="Mapper"><Input className={inputClass} onChange={(event) => patch({ mapper: event.target.value })} value={query.mapper} /></Field><Field label="来源"><Input className={inputClass} onChange={(event) => patch({ source: event.target.value })} value={query.source} /></Field><Field label="标签"><Input className={inputClass} onChange={(event) => patch({ tags: event.target.value })} placeholder="逗号分隔" value={query.tags} /></Field></div>
+                    <div className="grid gap-4 md:grid-cols-2"><Field label="Rank 日期范围"><div className="grid grid-cols-2 gap-2"><Input className={inputClass} onChange={(event) => patch({ ranked_from: event.target.value })} type="date" value={query.ranked_from} /><Input className={inputClass} onChange={(event) => patch({ ranked_to: event.target.value })} type="date" value={query.ranked_to} /></div></Field><Field label="提交日期范围"><div className="grid grid-cols-2 gap-2"><Input className={inputClass} onChange={(event) => patch({ submitted_from: event.target.value })} type="date" value={query.submitted_from} /><Input className={inputClass} onChange={(event) => patch({ submitted_to: event.target.value })} type="date" value={query.submitted_to} /></div></Field></div>
+                  </div>
+                  <div className="grid gap-4 pb-1 md:grid-cols-2"><Range label="星数" max={query.stars_max} min={query.stars_min} onMax={(stars_max) => patch({ stars_max })} onMin={(stars_min) => patch({ stars_min })} /><Range label="BPM" max={query.bpm_max} min={query.bpm_min} onMax={(bpm_max) => patch({ bpm_max })} onMin={(bpm_min) => patch({ bpm_min })} /><Range label="长度（秒）" max={query.length_max} min={query.length_min} onMax={(length_max) => patch({ length_max })} onMin={(length_min) => patch({ length_min })} /><Range label="收藏数" max={query.favourites_max} min={query.favourites_min} onMax={(favourites_max) => patch({ favourites_max })} onMin={(favourites_min) => patch({ favourites_min })} /><Range label="AR" max={query.ar_max} min={query.ar_min} onMax={(ar_max) => patch({ ar_max })} onMin={(ar_min) => patch({ ar_min })} /><Range label="CS" max={query.cs_max} min={query.cs_min} onMax={(cs_max) => patch({ cs_max })} onMin={(cs_min) => patch({ cs_min })} /><Range label="OD" max={query.od_max} min={query.od_min} onMax={(od_max) => patch({ od_max })} onMin={(od_min) => patch({ od_min })} /><Range label="HP" max={query.hp_max} min={query.hp_min} onMax={(hp_max) => patch({ hp_max })} onMin={(hp_min) => patch({ hp_min })} /></div>
+                </div>
+                <button aria-expanded="true" className="mt-4 flex w-full items-center justify-center gap-2 border-t border-[var(--line-subtle)] py-3.5 text-slate-500 transition hover:text-white" onClick={() => setAdvancedOpen(false)} type="button">
+                  <ChevronUp className="size-4" />
+                  <span className="text-xs font-semibold">收起筛选</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </form>
     </Card>

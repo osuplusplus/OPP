@@ -49,6 +49,8 @@ describe("BeatmapsetCard", () => {
     await user.click(screen.getByRole("button", { name: "加入下载队列" }));
     expect(onSelect).toHaveBeenCalledOnce();
     expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "试听" })).toHaveClass("hidden", "min-[1440px]:inline-flex");
+    expect(screen.getByRole("button", { name: "预览详情" })).toHaveClass("hidden", "min-[1440px]:inline-flex");
   });
 
   it("shows the compact osu metadata and opens from the keyboard", async () => {

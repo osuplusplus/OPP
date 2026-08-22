@@ -172,7 +172,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
 
     <div className="space-y-5">
       <OnlineBeatmapFilters loading={search.isFetching && !search.isFetchingNextPage} onChange={setDraft} onReset={reset} onSubmit={(next) => setActiveQuery({ ...next, cursor_string: null })} query={draft} suggestions={searchSuggestions} />
-      <div className="grid grid-cols-1 items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_clamp(16rem,15vw,18rem)]">
+      <div className="grid grid-cols-[minmax(0,1fr)_clamp(14rem,20vw,17rem)] items-start gap-5">
         <section className="min-w-0" data-page-guide-online-results="true">
           <OnlineBeatmapSortBar onChange={changeSort} sort={activeQuery.sort} />
           <div className="opp-online-panel mb-4 flex min-h-12 items-center justify-between rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] px-4 shadow-[0_14px_34px_rgba(0,0,0,0.08)]">
