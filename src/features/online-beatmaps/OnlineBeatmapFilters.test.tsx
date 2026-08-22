@@ -33,7 +33,8 @@ describe("OnlineBeatmapFilters", () => {
     expect(screen.queryByRole("group", { name: "流派筛选" })).not.toBeInTheDocument();
     const qualified = screen.getByRole("button", { name: "Qualified" });
     expect(qualified).toHaveClass("shrink-0", "whitespace-nowrap");
-    expect(qualified.firstElementChild).toHaveClass("text-[11px]", "leading-4");
+    expect(qualified.firstElementChild).toHaveClass("text-[clamp(11px,calc(8px+0.3vw),14px)]", "leading-[1.25]");
+    expect(screen.getByText("分类")).toHaveClass("text-[clamp(11px,calc(8px+0.3vw),14px)]", "whitespace-nowrap");
 
     await user.click(moreFilters);
     const collapseFilters = screen.getByRole("button", { name: "收起筛选" });

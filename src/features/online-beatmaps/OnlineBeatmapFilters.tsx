@@ -13,8 +13,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function FilterRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1.5 border-t border-[var(--line-subtle)] py-2.5 first:border-t-0 sm:grid-cols-[4.75rem_minmax(0,1fr)] sm:gap-3">
-      <div className="whitespace-nowrap pt-1 text-[11px] font-semibold text-slate-500">{label}</div>
+    <div className="grid gap-1.5 border-t border-[var(--line-subtle)] py-2.5 first:border-t-0 sm:grid-cols-[clamp(4.75rem,calc(3.25rem+2vw),6.25rem)_minmax(0,1fr)] sm:gap-3">
+      <div className="whitespace-nowrap pt-1 text-[clamp(11px,calc(8px+0.3vw),14px)] font-semibold leading-[1.25] text-slate-500">{label}</div>
       <div aria-label={`${label}筛选`} className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]" role="group">{children}</div>
     </div>
   );
@@ -29,7 +29,7 @@ function TextOption({ active, children, onClick }: { active: boolean; children: 
       type="button"
     >
       {/* 文本节点独立控制字号，避免全局原生按钮字体继承规则覆盖组件排版。 */}
-      <span className="text-[11px] leading-4">{children}</span>
+      <span className="text-[clamp(11px,calc(8px+0.3vw),14px)] leading-[1.25]">{children}</span>
     </button>
   );
 }
@@ -72,13 +72,13 @@ export function OnlineBeatmapFilters({ query, loading, onChange, onReset, onSubm
       <form onSubmit={(event) => { event.preventDefault(); onSubmit(query); }}>
         <div className="flex items-center gap-3 border-b border-[var(--line-subtle)] px-5 py-3.5">
           <Filter className="size-4 text-[var(--theme-primary)]" />
-          <h2 className="text-sm font-semibold text-white">搜索与筛选</h2>
+          <h2 className="text-[clamp(14px,calc(11px+0.2vw),15px)] font-semibold text-white">搜索与筛选</h2>
           {count ? <Badge tone="cyan">{count} 项条件</Badge> : null}
           <div className="ml-auto flex gap-2"><Button aria-label="重置筛选" onClick={onReset} size="icon" type="button" variant="ghost"><RotateCcw className="size-4" /></Button><Button loading={loading} size="sm" type="submit">应用筛选</Button></div>
         </div>
 
         <div className="px-5 pb-1">
-          <div className="relative py-4" data-page-guide-online-search="true"><SearchAutocomplete ariaLabel="搜索在线谱面" className="w-full" inputClassName={`opp-input ${inputClass} py-3 pl-11 pr-10 text-[15px]`} onChange={(value) => patch({ query: value })} placeholder="搜索标题、艺术家、谱师、标签或谱面 ID" suggestions={suggestions} value={query.query} /><span className="absolute right-3 top-1/2 z-20 -translate-y-1/2"><InfoTip text="自动补全只基于当前已加载的搜索结果。输入后点击“应用筛选”进行完整的在线搜索。" /></span></div>
+          <div className="relative py-4" data-page-guide-online-search="true"><SearchAutocomplete ariaLabel="搜索在线谱面" className="w-full" inputClassName={`opp-input ${inputClass} py-3 pl-11 pr-10 text-[clamp(14px,calc(10px+0.3vw),16px)]`} onChange={(value) => patch({ query: value })} placeholder="搜索标题、艺术家、谱师、标签或谱面 ID" suggestions={suggestions} value={query.query} /><span className="absolute right-3 top-1/2 z-20 -translate-y-1/2"><InfoTip text="自动补全只基于当前已加载的搜索结果。输入后点击“应用筛选”进行完整的在线搜索。" /></span></div>
 
           {/* 首屏只保留最常用条件，其余能力继续复用原有查询字段。 */}
           <div className="border-y border-[var(--line-subtle)]" data-page-guide-online-core-filters="true">
@@ -92,7 +92,7 @@ export function OnlineBeatmapFilters({ query, loading, onChange, onReset, onSubm
             {!advancedOpen ? (
               <button aria-expanded="false" className="flex w-full items-center justify-center gap-2 py-3.5 text-slate-500 transition hover:text-white" onClick={() => setAdvancedOpen(true)} type="button">
                 <ChevronDown className="size-4" />
-                <span className="text-xs font-semibold">更多筛选{count ? ` · ${count}` : ""}</span>
+                <span className="text-[clamp(12px,calc(9px+0.2vw),13px)] font-semibold">更多筛选{count ? ` · ${count}` : ""}</span>
               </button>
             ) : (
               <>
@@ -112,7 +112,7 @@ export function OnlineBeatmapFilters({ query, loading, onChange, onReset, onSubm
                 </div>
                 <button aria-expanded="true" className="mt-4 flex w-full items-center justify-center gap-2 border-t border-[var(--line-subtle)] py-3.5 text-slate-500 transition hover:text-white" onClick={() => setAdvancedOpen(false)} type="button">
                   <ChevronUp className="size-4" />
-                  <span className="text-xs font-semibold">收起筛选</span>
+                  <span className="text-[clamp(12px,calc(9px+0.2vw),13px)] font-semibold">收起筛选</span>
                 </button>
               </>
             )}
