@@ -6,7 +6,7 @@ const sortFields = [
   { key: "title", label: "标题", defaultDirection: "asc", fixed: false },
   { key: "artist", label: "艺术家", defaultDirection: "asc", fixed: false },
   { key: "difficulty", label: "难度", defaultDirection: "desc", fixed: false },
-  { key: "ranked", label: "上架时间", defaultDirection: "desc", fixed: false },
+  { key: "ranked", label: "上架 (Ranked) 时间", defaultDirection: "desc", fixed: false },
   { key: "rating", label: "评分", defaultDirection: "desc", fixed: false },
   { key: "plays", label: "游玩次数", defaultDirection: "desc", fixed: false },
   { key: "favourites", label: "收藏量", defaultDirection: "desc", fixed: false },
@@ -28,7 +28,7 @@ export function OnlineBeatmapSortBar({
 }) {
   return (
     <div aria-label="谱面排序方式" className="opp-online-panel mb-4 flex min-h-12 items-center gap-2.5 rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] p-[7px_10px] shadow-[0_14px_34px_rgba(0,0,0,0.08)]" role="toolbar">
-      <span className="inline-flex shrink-0 items-center gap-1.5 border-r border-[var(--line-subtle)] p-[4px_12px_4px_3px] text-[11px] font-[650] tracking-[.04em] text-[var(--text-muted)]"><ListFilter className="size-3.5" />排序</span>
+      <span className="inline-flex shrink-0 items-center gap-1.5 border-r border-[var(--line-subtle)] p-[4px_12px_4px_3px] text-[11px] font-[650] tracking-[.04em] text-[var(--text-muted)]"><ListFilter className="size-3.5" />排序方式</span>
       <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]">
         {sortFields.map((field) => {
           const ascending = sort === `${field.key}_asc`;
