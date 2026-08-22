@@ -31,9 +31,16 @@ jobs:
             asset_name: "OPP_[version]_linux_[arch][ext]"
           - name: Windows (portable exe)
             platform: windows-latest
+            kind: portable
             args: "--no-bundle"
             upload_plain_binary: true
             asset_name: "OPP_[version]_windows_[arch]_portable[ext]"
+          - name: Windows (NSIS installer)
+            platform: windows-latest
+            kind: nsis
+            args: "--bundles nsis"
+            upload_plain_binary: false
+            asset_name: "OPP_[version]_windows_[arch]_setup[ext]"
 
     runs-on: ${{ matrix.platform }}
 
@@ -81,7 +88,7 @@ jobs:
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "OPP ${{ env.RELEASE_TAG }}"
-          releaseBody: "Download AppImage or deb for Linux, or the portable exe for Windows."
+          releaseBody: "Download AppImage or deb for Linux, or the NSIS installer / portable exe for Windows."
           # 所有平台和 latest.json 上传完成后再发布，避免固定地址指向半成品。
           releaseDraft: true
           prerelease: false
@@ -96,7 +103,7 @@ jobs:
           retryAttempts: 3
 
       - name: Create and upload portable update manifest
-        if: matrix.platform == 'windows-latest'
+        if: matrix.platform == 'windows-latest' && matrix.kind == 'portable'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
