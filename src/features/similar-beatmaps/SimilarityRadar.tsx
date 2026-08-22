@@ -7,7 +7,8 @@ import {
   RadarChart,
   ResponsiveContainer,
 } from "recharts";
-import type { DifficultyFeatureVector } from "../../shared/types/osu";
+import type { DifficultyFeatureVector, ManiaDifficultyVector } from "../../shared/types/osu";
+import { maniaSkillProfile } from "./maniaDifficulty";
 
 const dimensions: Array<{
   key: keyof DifficultyFeatureVector;
@@ -20,20 +21,43 @@ const dimensions: Array<{
   { key: "overlap", label: "Overlap" },
 ];
 
+const maniaDimensions: Array<{
+  key: keyof ManiaDifficultyVector;
+  label: string;
+}> = [
+  { key: "speed", label: "Speed" },
+  { key: "hand_stream", label: "Hand" },
+  { key: "jack", label: "Jack" },
+  { key: "chordjack", label: "Chordjack" },
+  { key: "technical", label: "Technical" },
+  { key: "stamina", label: "Stamina" },
+  { key: "long_note", label: "LN" },
+  { key: "course", label: "Course" },
+];
+
 export function SimilarityRadar({
   target,
   comparison,
   compact = false,
 }: {
-  target: DifficultyFeatureVector;
-  comparison?: DifficultyFeatureVector | null;
+  target: DifficultyFeatureVector | ManiaDifficultyVector;
+  comparison?: DifficultyFeatureVector | ManiaDifficultyVector | null;
   compact?: boolean;
 }) {
-  const data = dimensions.map(({ key, label }) => ({
-    dimension: label,
-    target: target[key],
-    comparison: comparison?.[key] ?? 0,
-  }));
+  const mania = "hand_stream" in target;
+  const targetProfile = mania ? maniaSkillProfile(target) : null;
+  const comparisonProfile = comparison && "hand_stream" in comparison ? maniaSkillProfile(comparison) : null;
+  const data = mania
+    ? maniaDimensions.map(({ key, label }) => ({
+        dimension: label,
+        target: Number(targetProfile?.[key] ?? 0),
+        comparison: Number(comparisonProfile?.[key] ?? 0),
+      }))
+    : dimensions.map(({ key, label }) => ({
+        dimension: label,
+        target: target[key],
+        comparison: comparison && "aim" in comparison ? comparison[key] : 0,
+      }));
 
   return (
     <div className={compact ? "h-40 sm:h-44" : "h-72"}>

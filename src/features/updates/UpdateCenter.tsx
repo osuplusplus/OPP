@@ -13,7 +13,11 @@ import {
 import { settingsQueryKey } from "../settings/api";
 import { Badge, Button } from "../../shared/components/ui";
 import { APP_TIME_ZONE } from "../../shared/lib/format";
-import { desktopApi, type UpdateCheckResult } from "../../shared/lib/tauri";
+import {
+  desktopApi,
+  type UpdateCheckResult,
+  type UpdateProgress,
+} from "../../shared/lib/tauri";
 import type { AppSettings, CommandError } from "../../shared/types/osu";
 import {
   MANUAL_UPDATE_CHECK_EVENT,
@@ -46,21 +50,33 @@ function publishedDate(value: string | null) {
   }).format(date);
 }
 
+function formatMegabytes(value: number) {
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function UpdateAnnouncementDialog({
   state,
   ignoring,
   ignoreError,
   checking,
+  installing,
+  progress,
+  updateError,
   onClose,
   onIgnore,
+  onInstall,
   onRetry,
 }: {
   state: UpdateDialogState;
   ignoring: boolean;
   ignoreError: string | null;
   checking: boolean;
+  installing: boolean;
+  progress: UpdateProgress | null;
+  updateError: string | null;
   onClose: () => void;
   onIgnore: () => void;
+  onInstall: () => void;
   onRetry: () => void;
 }) {
   const { result, error } = state;
@@ -73,7 +89,7 @@ function UpdateAnnouncementDialog({
   };
 
   return (
-    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog.Root open onOpenChange={(open) => { if (!open && !installing) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[270] bg-black/65 backdrop-blur-sm" data-testid="update-dialog-overlay" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[280] max-h-[82vh] w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-white/10 bg-[var(--surface-panel)] shadow-2xl focus:outline-none">
@@ -94,7 +110,7 @@ function UpdateAnnouncementDialog({
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <button aria-label="下次再说" className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-white/[0.06] hover:text-white" type="button">
+              <button aria-label="下次再说" className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40" disabled={installing} type="button">
                 <X className="size-5" />
               </button>
             </Dialog.Close>
@@ -119,6 +135,35 @@ function UpdateAnnouncementDialog({
                     {result.release_notes ?? "本次 Release 暂未提供更新说明，请前往发布页面查看详情。"}
                   </div>
                 </section>
+                {installing || progress ? (
+                  <section className="mt-5 rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] p-4" aria-label="更新进度">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-cyan-100">{progress?.message ?? "正在准备更新"}</span>
+                      {progress?.total_bytes ? (
+                        <span className="font-mono text-xs text-slate-400">
+                          {Math.min(100, (progress.downloaded_bytes / progress.total_bytes) * 100).toFixed(0)}%
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.08]">
+                      <div
+                        className="h-full rounded-full bg-[var(--theme-primary)] transition-all"
+                        style={{
+                          width: `${progress?.total_bytes
+                            ? Math.min(100, (progress.downloaded_bytes / progress.total_bytes) * 100)
+                            : 0}%`,
+                        }}
+                      />
+                    </div>
+                    {progress?.total_bytes ? (
+                      <p className="mt-2 text-xs text-slate-500">
+                        {formatMegabytes(progress.downloaded_bytes)} / {formatMegabytes(progress.total_bytes)}
+                      </p>
+                    ) : result.download_size ? (
+                      <p className="mt-2 text-xs text-slate-500">更新包约 {formatMegabytes(result.download_size)}</p>
+                    ) : null}
+                  </section>
+                ) : null}
               </>
             ) : result ? (
               <div className="rounded-xl border border-emerald-300/15 bg-emerald-300/[0.05] p-4 text-sm leading-6 text-emerald-100">
@@ -126,6 +171,7 @@ function UpdateAnnouncementDialog({
               </div>
             ) : null}
             {ignoreError ? <p className="mt-3 text-sm text-rose-200">{ignoreError}</p> : null}
+            {updateError ? <p className="mt-3 text-sm text-rose-200">{updateError}</p> : null}
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-white/[0.08] px-6 py-4">
@@ -136,9 +182,13 @@ function UpdateAnnouncementDialog({
               </>
             ) : hasUpdate ? (
               <>
-                <Button disabled={ignoring} onClick={onClose} variant="ghost">下次再说</Button>
-                <Button loading={ignoring} onClick={onIgnore} variant="secondary">忽略此版本</Button>
-                <Button onClick={openRelease} variant="primary"><ExternalLink className="size-4" />前往更新</Button>
+                <Button disabled={ignoring || installing} onClick={onClose} variant="ghost">下次再说</Button>
+                <Button disabled={installing} loading={ignoring} onClick={onIgnore} variant="secondary">忽略此版本</Button>
+                {result?.can_auto_update ? (
+                  <Button loading={installing} onClick={onInstall} variant="primary">{installing ? null : <Rocket className="size-4" />}{installing ? "正在更新" : "立即更新"}</Button>
+                ) : (
+                  <Button disabled={installing} onClick={openRelease} variant="primary"><ExternalLink className="size-4" />前往更新</Button>
+                )}
               </>
             ) : (
               <Button onClick={onClose} variant="primary">知道了</Button>
@@ -165,6 +215,22 @@ export function UpdateCenter({
   const [checking, setChecking] = useState(false);
   const [ignoring, setIgnoring] = useState(false);
   const [ignoreError, setIgnoreError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let dispose: () => void = () => undefined;
+    void desktopApi.onUpdateProgress(setProgress).then((unlisten) => {
+      if (active) dispose = unlisten;
+      else unlisten();
+    });
+    return () => {
+      active = false;
+      dispose();
+    };
+  }, []);
 
   const runCheck = useCallback(async (
     source: CheckSource,
@@ -172,6 +238,8 @@ export function UpdateCenter({
   ) => {
     setChecking(true);
     setIgnoreError(null);
+    setUpdateError(null);
+    setProgress(null);
     try {
       const result = source === "startup"
         ? await getStartupUpdateCheck()
@@ -208,8 +276,26 @@ export function UpdateCenter({
   }, [runCheck]);
 
   const close = () => {
+    if (installing) return;
     setDialog(null);
     setIgnoreError(null);
+    setUpdateError(null);
+    setProgress(null);
+  };
+
+  const install = async () => {
+    const version = dialog?.result?.latest_version;
+    if (!version || installing) return;
+    setInstalling(true);
+    setUpdateError(null);
+    setProgress(null);
+    try {
+      await desktopApi.downloadAndInstallUpdate(version);
+    } catch (error) {
+      setUpdateError(errorMessage(error));
+    } finally {
+      setInstalling(false);
+    }
   };
 
   const ignore = async () => {
@@ -238,10 +324,14 @@ export function UpdateCenter({
       checking={checking}
       ignoreError={ignoreError}
       ignoring={ignoring}
+      installing={installing}
       onClose={close}
       onIgnore={() => void ignore()}
+      onInstall={() => void install()}
       onRetry={() => void runCheck("manual")}
+      progress={progress}
       state={dialog}
+      updateError={updateError}
     />
   );
 }

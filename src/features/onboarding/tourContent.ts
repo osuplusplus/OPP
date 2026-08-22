@@ -27,7 +27,7 @@ export const onboardingSteps: OnboardingStep[] = [
   },
   {
     title: "相似谱面",
-    description: "以指定谱面、最近成绩或 BP 为种子，从本地索引中寻找相似谱面。首次使用前需要准备 Analyzer v3 数据集。",
+    description: "以指定谱面、最近成绩或 BP 为种子，从本地索引中寻找相似谱面。standard 使用 Analyzer v4，Mania 使用独立 Analyzer v1 数据集。",
     target: '[data-onboarding="similar-beatmaps"]',
   },
   {

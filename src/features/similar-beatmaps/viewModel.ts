@@ -2,13 +2,10 @@ import type {
   SimilarityBaseFeatures,
   SimilarityFilters,
   SimilarityIndexStatus,
+  OsuSimilarityQueryRequest,
   SimilarityPreferences,
-  SimilarityQueryRequest,
 } from "../../shared/types/osu";
-import {
-  defaultDynamicWeighting,
-  manualWeightingFromPreferences,
-} from "./defaults";
+import { manualWeightingFromPreferences } from "./defaults";
 import { APP_TIME_ZONE } from "../../shared/lib/format";
 
 export const similarityIndexStateCopy: Record<
@@ -25,11 +22,15 @@ export const similarityIndexStateCopy: Record<
   },
   invalid: {
     title: "本地索引校验失败",
-    description: "目录中的必要文件缺失、校验值不一致，或索引内容已损坏。请点击上方按钮跳转Release页面下载最新版本的索引，或重新校验。",
+    description: "目录中的必要文件缺失、校验值不一致，或索引内容已损坏。请查看索引说明并取得与当前运行时匹配的版本，或重新校验。",
   },
   incompatible: {
     title: "本地索引版本不兼容",
     description: "该索引使用的分析器、归一化器或索引格式与当前版本不兼容。",
+  },
+  unsupported: {
+    title: "当前模式暂不支持相似谱面",
+    description: "请切换到 osu!standard 或 osu!mania 后再使用相似谱面。",
   },
 };
 
@@ -61,18 +62,13 @@ export function matchesCandidateFilters(
 }
 
 export function resolveSimilarityWeighting(
-  request: SimilarityQueryRequest,
+  request: OsuSimilarityQueryRequest,
   preferences: SimilarityPreferences,
-  supportsDynamicWeighting: boolean,
 ) {
-  if (!preferences.advanced_enabled) {
-    return supportsDynamicWeighting
-      ? { ...defaultDynamicWeighting }
-      : manualWeightingFromPreferences();
-  }
-  if (request.weighting.mode === "manual" || supportsDynamicWeighting) {
+  if (preferences.advanced_enabled && preferences.mode === "manual" && request.weighting.mode === "manual") {
     return request.weighting;
   }
+  // Also migrates old saved dynamic preferences without resetting the user settings.
   return manualWeightingFromPreferences(preferences);
 }
 

@@ -201,7 +201,25 @@ pub fn find_in_path(command: &str) -> Option<PathBuf> {
     }
     #[cfg(windows)]
     {
-        let _ = command;
+        // 按真实 shell 语义扫描进程 PATH:先试原名(可能已带扩展),
+        // 再按 PATHEXT(.EXE/.CMD/.BAT…)逐个拼接。
+        let exts: Vec<String> = env::var("PATHEXT")
+            .map(|v| v.split(';').map(str::to_string).collect())
+            .unwrap_or_else(|_| vec![".exe".into(), ".cmd".into(), ".bat".into()]);
+        if let Some(path) = env::var_os("PATH") {
+            for dir in env::split_paths(&path) {
+                let direct = dir.join(command);
+                if direct.is_file() {
+                    return Some(direct);
+                }
+                for ext in &exts {
+                    let candidate = dir.join(format!("{command}{ext}"));
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
         None
     }
 }

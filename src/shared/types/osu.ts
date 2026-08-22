@@ -89,12 +89,14 @@ export interface AppSettings {
   ignored_update_version?: string | null;
   reduce_motion: boolean;
   similarity_index_directory: string | null;
+  mania_similarity_index_directory: string | null;
   beatmap_download_directory: string | null;
   default_beatmap_download_provider: BeatmapDownloadProvider;
   include_video_in_beatmap_downloads: boolean;
   open_downloaded_beatmaps_after_download: boolean;
   replay_export_directory: string | null;
   danser_executable_path?: string | null;
+  ffmpeg_executable_path?: string | null;
   auto_export_new_replays_with_danser?: boolean;
   danser_render_preferences?: DanserRenderPreferences;
   tosu_executable_path: string | null;
@@ -149,9 +151,15 @@ export type SimilarityIndexState =
   | "missing"
   | "invalid"
   | "incompatible"
+  | "unsupported"
   | "ready";
 
+export type SimilarityRuleset = Extract<Ruleset, "osu" | "mania">;
+export type ManiaKeyCount = 4 | 6 | 7;
+export type ManiaGameMod = "NM" | "DT" | "HT";
+
 export interface SimilarityIndexStatus {
+  ruleset: Ruleset;
   state: SimilarityIndexState;
   directory: string | null;
   message: string;
@@ -161,6 +169,7 @@ export interface SimilarityIndexStatus {
   algorithm_id: string | null;
   data_cutoff_at: number | null;
   supports_dynamic_weighting: boolean;
+  records_by_key_count: Partial<Record<ManiaKeyCount, number>> | null;
 }
 
 export interface DifficultyFeatureVector {
@@ -220,12 +229,25 @@ export type SimilaritySource =
   | { kind: "beatmap_id"; value: string }
   | { kind: "local_file"; path: string };
 
-export interface SimilarityQueryRequest {
+export interface OsuSimilarityQueryRequest {
+  ruleset: "osu";
   source: SimilaritySource;
   weighting: SimilarityWeighting;
   filters: SimilarityFilters;
   result_limit: number;
 }
+
+export interface ManiaSimilarityQueryRequest {
+  ruleset: "mania";
+  source: SimilaritySource;
+  result_limit: number;
+  target_mod: ManiaGameMod;
+  candidate_mods: ManiaGameMod[];
+}
+
+export type SimilarityQueryRequest =
+  | OsuSimilarityQueryRequest
+  | ManiaSimilarityQueryRequest;
 
 export type SimilarityWeighting =
   | {
@@ -268,6 +290,7 @@ export interface SimilarityDynamicWeightProfile {
 }
 
 export interface SimilarityBeatmap {
+  ruleset: "osu";
   beatmap_id: number;
   beatmapset_id: number;
   artist: string;
@@ -292,15 +315,117 @@ export interface SimilarityResult extends SimilarityBeatmap {
   base_distance: number;
 }
 
-export interface SimilarityQueryResponse {
+export interface OsuSimilarityQueryResponse {
+  ruleset: "osu";
   target: SimilarityTarget;
   results: SimilarityResult[];
   dynamic_profile: SimilarityDynamicWeightProfile | null;
 }
 
+export interface ManiaDifficultyVector {
+  speed: number;
+  hand_stream: number;
+  jack: number;
+  chordjack: number;
+  technical: number;
+  stamina: number;
+  long_note: number;
+  course: number;
+}
+
+export interface ManiaStyleVector {
+  stream: number;
+  chordstream: number;
+  jacks: number;
+  coordination: number;
+  density: number;
+  wildcard: number;
+  chord_rate: number;
+  large_chord_rate: number;
+  rotation_rate: number;
+  anchor_rate: number;
+  rhythm_entropy: number;
+  transition_entropy: number;
+  ln_note_ratio: number;
+  hold_occupancy: number;
+  hybrid_row_ratio: number;
+  peak_to_sustain_gap: number;
+}
+
+export interface ManiaBaseFeatures {
+  bpm: number;
+  length_seconds: number;
+  active_length_seconds: number;
+  note_count: number;
+  row_count: number;
+  avg_nps: number;
+  peak_nps: number;
+  break_density: number;
+  sv_change_rate: number;
+}
+
+export type ManiaModeFamily = "rc" | "hb" | "mix" | "ln";
+export type ManiaPattern =
+  | "stream"
+  | "chordstream"
+  | "jacks"
+  | "coordination"
+  | "density"
+  | "wildcard";
+
+export interface ManiaSimilarityBeatmap {
+  ruleset: "mania";
+  beatmap_id: number;
+  beatmapset_id: number;
+  artist: string;
+  title: string;
+  version: string;
+  creator: string;
+  online_url: string;
+  key_count: ManiaKeyCount;
+  family: ManiaModeFamily;
+  pattern: ManiaPattern;
+  difficulty: ManiaDifficultyVector;
+  style: ManiaStyleVector;
+  base: ManiaBaseFeatures;
+  difficulty_percentile: number;
+  difficulty_band: number;
+  game_mod: ManiaGameMod;
+}
+
+export interface ManiaSimilarityTarget extends ManiaSimilarityBeatmap {
+  source: "index" | "online" | "local_file";
+  analyzer_version: number;
+  normalization_version: number;
+}
+
+export interface ManiaDistanceComponents {
+  skill: number;
+  pattern: number;
+  structure: number;
+  difficulty: number;
+  context: number;
+}
+
+export interface ManiaSimilarityResult extends ManiaSimilarityBeatmap {
+  final_distance: number;
+  distance_components: ManiaDistanceComponents;
+}
+
+export interface ManiaSimilarityQueryResponse {
+  ruleset: "mania";
+  target: ManiaSimilarityTarget;
+  results: ManiaSimilarityResult[];
+}
+
+export type SimilarityQueryResponse =
+  | OsuSimilarityQueryResponse
+  | ManiaSimilarityQueryResponse;
+
 export type SimilarityRecommendationKind = "recent" | "best";
 
-export interface SimilarityRecommendationRequest {
+export interface OsuSimilarityRecommendationRequest {
+  ruleset: "osu";
   kind: SimilarityRecommendationKind;
   weighting: SimilarityWeighting;
   filters: SimilarityFilters;
@@ -309,17 +434,59 @@ export interface SimilarityRecommendationRequest {
   excluded_beatmap_ids?: number[];
 }
 
+export interface ManiaSimilarityRecommendationRequest {
+  ruleset: "mania";
+  kind: SimilarityRecommendationKind;
+  result_limit: number;
+  seed_limit?: number;
+  excluded_beatmap_ids?: number[];
+  candidate_mods: ManiaGameMod[];
+}
+
+export type SimilarityRecommendationRequest =
+  | OsuSimilarityRecommendationRequest
+  | ManiaSimilarityRecommendationRequest;
+
 export interface SimilarityRecommendationResult extends SimilarityResult {
   recommended_by: SimilarityBeatmap;
 }
 
-export interface SimilarityRecommendationResponse {
+export interface OsuSimilarityRecommendationResponse {
+  ruleset: "osu";
   kind: SimilarityRecommendationKind;
   seed_count: number;
   skipped_seed_count: number;
   results: SimilarityRecommendationResult[];
   dynamic_profiles: SimilarityDynamicWeightProfile[];
 }
+
+export interface ManiaSimilarityRecommendationResult extends ManiaSimilarityResult {
+  recommended_by: ManiaSimilarityBeatmap;
+}
+
+export interface ManiaSimilarityRecommendationGroup {
+  key_count: ManiaKeyCount;
+  seed_count: number;
+  results: ManiaSimilarityRecommendationResult[];
+}
+
+export interface ManiaSimilarityRecommendationResponse {
+  ruleset: "mania";
+  kind: SimilarityRecommendationKind;
+  seed_count: number;
+  skipped_seed_count: number;
+  groups: ManiaSimilarityRecommendationGroup[];
+}
+
+export type SimilarityRecommendationResponse =
+  | OsuSimilarityRecommendationResponse
+  | ManiaSimilarityRecommendationResponse;
+
+export type AnySimilarityBeatmap = SimilarityBeatmap | ManiaSimilarityBeatmap;
+export type AnySimilarityResult = SimilarityResult | ManiaSimilarityResult;
+export type AnySimilarityRecommendationResult =
+  | SimilarityRecommendationResult
+  | ManiaSimilarityRecommendationResult;
 
 export type ThemeColor = "cyan" | "blue" | "violet" | "pink" | "orange" | "green";
 export type ThemeMode = "dark" | "light";
@@ -478,6 +645,12 @@ export interface DanserRenderPreferences {
   quality: number;
   motion_blur: boolean;
   motion_blur_oversample: number;
+}
+
+export interface FfmpegStatusInfo {
+  path: string | null;
+  version: string | null;
+  source: "manual" | "path" | "danser" | "";
 }
 
 export interface DanserStatus {

@@ -4,6 +4,7 @@ mod collections;
 mod danser;
 mod error;
 mod game_session;
+mod live_render;
 mod local_analysis;
 mod netease_music;
 mod obs;
@@ -11,6 +12,7 @@ mod osekai;
 mod online_beatmaps;
 mod osu_api;
 mod platform;
+mod portable_update;
 
 mod app;
 mod replay_render;
@@ -53,6 +55,11 @@ use collections::{
 use danser::{
     cancel_danser_render, enqueue_danser_renders, get_danser_render_queue, get_danser_status,
     list_danser_profiles, open_danser_output, start_danser_render_queue,
+};
+use live_render::{
+    live_render_check_ffmpeg, live_render_check_nvenc, live_render_close, live_render_export, live_render_export_cancel,
+    live_render_move, live_render_open, live_render_open_export_output, live_render_pause,
+    live_render_get_ffmpeg_status, live_render_play, live_render_seek, live_render_set_options,
 };
 use game_session::{
     get_game_session_status, get_game_status, inspect_game_replay, list_game_media,
@@ -106,7 +113,12 @@ use tosu::{
     stop_tosu,
 };
 use trainer::generate_trainer_beatmap;
-use update_check::{check_for_updates, ignore_update_version};
+use update_check::{check_for_updates, download_and_install_update, ignore_update_version};
+
+/// 主程序入口在初始化 Tauri 前调用，用于把临时 EXE 切换到无界面的更新助手模式。
+pub fn run_portable_update_helper_if_requested() -> bool {
+    portable_update::run_helper_if_requested()
+}
 
 #[tauri::command]
 /// 立即结束应用进程；仅由显式的退出操作调用，不参与窗口隐藏或托盘最小化逻辑。
@@ -183,6 +195,8 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            // 新版本稳定运行后再延迟清理更新助手与旧 EXE，保留早期崩溃恢复空间。
+            portable_update::schedule_stale_cleanup();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -246,6 +260,19 @@ pub fn run() {
             calculate_beatmap_pp,
             submit_replay_render,
             get_danser_status,
+            live_render_close,
+            live_render_move,
+            live_render_open,
+            live_render_pause,
+            live_render_play,
+            live_render_seek,
+            live_render_set_options,
+            live_render_check_ffmpeg,
+            live_render_check_nvenc,
+            live_render_export,
+            live_render_export_cancel,
+            live_render_get_ffmpeg_status,
+            live_render_open_export_output,
             list_danser_profiles,
             enqueue_danser_renders,
             start_danser_render_queue,
@@ -326,6 +353,7 @@ pub fn run() {
             save_obs_connection,
             refresh_selected_obs_scene,
             check_for_updates,
+            download_and_install_update,
             ignore_update_version,
             exit_app,
         ])
