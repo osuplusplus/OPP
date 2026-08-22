@@ -1,5 +1,6 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
-import * as Tooltip from "@radix-ui/react-tooltip";
+import { forwardRef } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cva, type VariantProps } from "class-variance-authority";
 import { AlertCircle, CircleHelp, LoaderCircle } from "lucide-react";
 import { cn } from "../lib/cn";
@@ -34,6 +35,22 @@ export interface ButtonProps
   loading?: boolean;
 }
 
+export type InputProps = InputHTMLAttributes<HTMLInputElement>;
+
+// 复用旧的 opp-input 样式契约，公共组件迁移不会迫使现有页面同步修改。
+export const Input = forwardRef<HTMLInputElement, InputProps>(({ className, ...props }, ref) => (
+  <input className={cn("opp-input", className)} data-slot="input" ref={ref} {...props} />
+));
+Input.displayName = "Input";
+
+export type SelectProps = SelectHTMLAttributes<HTMLSelectElement>;
+
+// Select 与 Input 保持相同的尺寸、焦点环和主题适配。
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(({ className, ...props }, ref) => (
+  <select className={cn("opp-input", className)} data-slot="select" ref={ref} {...props} />
+));
+Select.displayName = "Select";
+
 export function Button({
   className,
   variant,
@@ -46,6 +63,7 @@ export function Button({
   return (
     <button
       className={cn(buttonVariants({ variant, size }), className)}
+      data-slot="button"
       disabled={disabled || loading}
       {...props}
     >
@@ -55,30 +73,39 @@ export function Button({
   );
 }
 
+export interface CardProps extends HTMLAttributes<HTMLDivElement> {
+  unstyled?: boolean;
+}
+
 export function Card({
   className,
+  unstyled = false,
   ...props
-}: HTMLAttributes<HTMLDivElement>) {
+}: CardProps) {
   return (
     <div
       className={cn(
-        "opp-section",
+        // 新卡片可以完全使用 Tailwind；旧页面继续继承 opp-section，避免批量迁移。
+        !unstyled && "opp-section",
         className,
       )}
+      data-slot="card"
       {...props}
     />
   );
+}
+
+export interface BadgeProps {
+  children: ReactNode;
+  tone?: "neutral" | "pink" | "cyan" | "warning" | "success";
+  className?: string;
 }
 
 export function Badge({
   children,
   tone = "neutral",
   className,
-}: {
-  children: ReactNode;
-  tone?: "neutral" | "pink" | "cyan" | "warning" | "success";
-  className?: string;
-}) {
+}: BadgeProps) {
   const tones = {
     neutral: "border-white/10 bg-white/[0.055] text-slate-200",
     pink: "border-pink-400/20 bg-pink-400/10 text-pink-200",
@@ -93,6 +120,7 @@ export function Badge({
         tones[tone],
         className,
       )}
+      data-slot="badge"
     >
       {children}
     </span>
@@ -170,15 +198,41 @@ export function SectionTitle({
   );
 }
 
+export interface TooltipProps {
+  children: ReactElement;
+  content: ReactNode;
+  side?: "top" | "right" | "bottom" | "left";
+}
+
+export function Tooltip({
+  children,
+  content,
+  side = "top",
+}: TooltipProps) {
+  return (
+    <TooltipPrimitive.Provider delayDuration={300}>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
+            className="opp-floating z-[200] max-w-xs px-3 py-2 text-xs leading-5 text-slate-200"
+            data-slot="tooltip-content"
+            side={side}
+            sideOffset={7}
+          >
+            {content}
+            <TooltipPrimitive.Arrow className="fill-[var(--surface-float)]" />
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
+  );
+}
+
 export function InfoTip({ text }: { text: string }) {
   return (
-    <Tooltip.Provider delayDuration={300}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button aria-label={text} className="opp-action inline-grid size-4 shrink-0 cursor-help place-items-center rounded-full border border-current/35 text-slate-500 hover:text-slate-200" type="button"><CircleHelp className="size-3" /></button>
-        </Tooltip.Trigger>
-        <Tooltip.Portal><Tooltip.Content className="opp-floating z-[200] max-w-xs px-3 py-2 text-xs leading-5 text-slate-200" sideOffset={7}>{text}<Tooltip.Arrow className="fill-[var(--surface-float)]" /></Tooltip.Content></Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
+    <Tooltip content={text}>
+      <button aria-label={text} className="opp-action inline-grid size-4 shrink-0 cursor-help place-items-center rounded-full border border-current/35 text-slate-500 hover:text-slate-200" type="button"><CircleHelp className="size-3" /></button>
+    </Tooltip>
   );
 }

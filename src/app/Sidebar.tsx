@@ -86,7 +86,7 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
   };
 
   return (
-    <aside className="fixed bottom-0 left-0 top-11 z-40 flex w-[248px] flex-col overflow-hidden border-r border-[var(--line-subtle)] bg-[var(--surface-sidebar)] px-3 pb-3 pt-4">
+    <aside className="fixed bottom-0 left-0 top-11 z-40 flex w-[var(--sidebar-width)] flex-col overflow-hidden border-r border-[var(--line-subtle)] bg-[var(--surface-sidebar)] px-3 pb-3 pt-4">
       <div className="mb-4 border-b border-[var(--line-subtle)] px-2 pb-4"><div className="flex items-center gap-3"><img alt="OPP" className="opp-brand-mark size-10" src="/03.png" /><p className="text-sm font-semibold tracking-wide text-white">OSU! Plus Plus</p></div></div>
       <nav aria-label="主导航" className="min-h-0 flex-1 overflow-y-auto pr-1">
         <NavGroup label="核心功能">
