@@ -21,6 +21,9 @@ use crate::{
 
 const LATEST_MANIFEST_URL: &str =
     "https://github.com/osuplusplus/OPP/releases/latest/download/latest.json";
+const GITHUB_TAGS_URL: &str = "https://api.github.com/repos/osuplusplus/OPP/tags?per_page=100";
+/// 国内 GitHub Release 镜像。版本检查仍直接访问 GitHub Tags API，只有大文件下载走镜像。
+const RELEASE_MIRROR_PREFIX: &str = "https://gh-proxy.com/";
 const MAX_UPDATE_BYTES: u64 = 1024 * 1024 * 1024;
 const UPDATE_PROGRESS_EVENT: &str = "update-progress";
 
@@ -30,6 +33,11 @@ static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 struct UpdateManifest {
     version: String,
     url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubTag {
+    name: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -125,6 +133,14 @@ fn validate_download_url(value: &str) -> CommandResult<()> {
     Ok(())
 }
 
+fn mirror_download_url(value: &str) -> CommandResult<String> {
+    validate_download_url(value)?;
+    if value.starts_with(RELEASE_MIRROR_PREFIX) {
+        return Ok(value.to_string());
+    }
+    Ok(format!("{RELEASE_MIRROR_PREFIX}{value}"))
+}
+
 fn http_client(current_version: &str) -> CommandResult<reqwest::Client> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
@@ -154,12 +170,48 @@ async fn fetch_manifest(client: &reqwest::Client) -> CommandResult<UpdateManifes
     })
 }
 
+async fn fetch_latest_tag(client: &reqwest::Client) -> CommandResult<String> {
+    let response = client
+        .get(GITHUB_TAGS_URL)
+        .header(ACCEPT, "application/vnd.github+json")
+        .header(CACHE_CONTROL, "no-cache")
+        .send()
+        .await
+        .map_err(|error| CommandError::network(format!("无法连接 GitHub Tags：{error}")))?;
+    if !response.status().is_success() {
+        return Err(CommandError::network(format!(
+            "GitHub Tags 读取失败（HTTP {}）",
+            response.status()
+        )));
+    }
+    let tags = response.json::<Vec<GithubTag>>().await.map_err(|error| {
+        CommandError::new(
+            "INVALID_RELEASE_DATA",
+            format!("无法读取 GitHub Tags：{error}"),
+        )
+    })?;
+    tags.into_iter()
+        .filter_map(|tag| {
+            parse_release_version(&tag.name)
+                .ok()
+                .map(|version| (version, tag.name))
+        })
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, name)| name)
+        .ok_or_else(|| CommandError::new("NO_RELEASE_TAG", "GitHub 没有可用的版本 Tag"))
+}
+
 #[tauri::command]
-/// 读取固定 Release 清单并比较当前版本；启动检查失败不会阻塞其他功能。
+/// 读取 GitHub Tags 并比较当前版本；启动检查失败不会阻塞其他功能。
 pub async fn check_for_updates(app: AppHandle) -> CommandResult<UpdateCheckResult> {
     let current_version = app.package_info().version.to_string();
     let client = http_client(&current_version)?;
-    let manifest = fetch_manifest(&client).await?;
+    // 版本判断只依赖 GitHub Tags；下载清单在用户确认安装时再读取。
+    let latest_tag = fetch_latest_tag(&client).await?;
+    let manifest = UpdateManifest {
+        version: latest_tag.clone(),
+        url: format!("https://github.com/osuplusplus/OPP/releases/tag/{latest_tag}"),
+    };
     build_update_result(&current_version, manifest, supports_auto_update())
 }
 
@@ -180,7 +232,8 @@ pub async fn download_and_install_update(
     let current_version = app.package_info().version.to_string();
     let client = http_client(&current_version)?;
     // 安装前重新读取清单，避免检查后 latest 指向了另一个版本。
-    let manifest = fetch_manifest(&client).await?;
+    let mut manifest = fetch_manifest(&client).await?;
+    manifest.version = fetch_latest_tag(&client).await?;
     let latest = parse_release_version(&manifest.version)
         .map_err(|_| CommandError::new("INVALID_RELEASE_TAG", "更新清单版本号无效"))?;
     let expected = parse_release_version(&expected_version)
@@ -193,7 +246,7 @@ pub async fn download_and_install_update(
             "最新版本已经变化，请重新检查更新",
         ));
     }
-    validate_download_url(&manifest.url)?;
+    let download_url = mirror_download_url(&manifest.url)?;
 
     let current_exe = env::current_exe().map_err(|error| {
         CommandError::new("UPDATE_PATH_ERROR", format!("无法定位当前程序：{error}"))
@@ -205,7 +258,7 @@ pub async fn download_and_install_update(
     remove_file_if_exists(&partial).await?;
     remove_file_if_exists(&paths.staged).await?;
 
-    let downloaded = match download_asset(&app, &client, &manifest.url, &partial).await {
+    let downloaded = match download_asset(&app, &client, &download_url, &partial).await {
         Ok(downloaded) => downloaded,
         Err(error) => {
             let _ = fs::remove_file(&partial).await;
@@ -429,6 +482,24 @@ mod tests {
             .expect_err("non-HTTPS URL must fail");
 
         assert_eq!(error.code, "INVALID_UPDATE_URL");
+    }
+
+    #[test]
+    fn prefixes_release_downloads_with_domestic_mirror() {
+        let mirrored = mirror_download_url(
+            "https://github.com/osuplusplus/OPP/releases/download/v1.2.3/OPP.exe",
+        )
+        .expect("valid GitHub URL should be mirrored");
+        assert_eq!(
+            mirrored,
+            "https://gh-proxy.com/https://github.com/osuplusplus/OPP/releases/download/v1.2.3/OPP.exe"
+        );
+    }
+
+    #[test]
+    fn does_not_double_prefix_mirrored_downloads() {
+        let url = "https://gh-proxy.com/https://github.com/osuplusplus/OPP/releases/download/v1.2.3/OPP.exe";
+        assert_eq!(mirror_download_url(url).unwrap(), url);
     }
 
     #[test]
