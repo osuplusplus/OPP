@@ -2,6 +2,7 @@ import { Check, Download, Headphones, Heart, Info, ListPlus, Pause } from "lucid
 import { Badge, Button, Card } from "../../shared/components/ui";
 import { DifficultyIcon } from "../../shared/components/DifficultyIcon";
 import { APP_TIME_ZONE, fullNumber } from "../../shared/lib/format";
+import { cn } from "../../shared/lib/cn";
 import type { OnlineBeatmapset } from "../../shared/types/osu";
 import { durationLabel, normalizePreviewUrl } from "./filters";
 
@@ -42,14 +43,22 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
 
   return <Card
     aria-label={`查看谱面 ${beatmapset.title}`}
-    className={`opp-beatmap-card group cursor-pointer overflow-hidden ${selected ? "is-selected" : ""}`}
+    className={cn(
+      "opp-beatmap-card group relative isolate h-[220px] min-w-0 cursor-pointer overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline-none",
+      "transition-[border-color,box-shadow,transform] duration-[var(--motion-base)] ease-[cubic-bezier(.2,.8,.2,1)]",
+      "after:pointer-events-none after:absolute after:inset-0 after:z-[6] after:rounded-[inherit] after:border after:border-transparent after:content-[''] after:transition-colors after:duration-[var(--motion-base)]",
+      "hover:-translate-y-0.5 hover:border-[var(--theme-primary-soft)] hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] hover:after:border-[color-mix(in_srgb,var(--theme-primary)_42%,transparent)]",
+      "focus-visible:ring-2 focus-visible:ring-[var(--theme-primary-soft)] motion-reduce:transition-none",
+      selected && "border-[var(--theme-primary-soft)] shadow-[0_0_0_1px_var(--theme-primary-muted),0_12px_28px_rgba(0,0,0,.18)]",
+    )}
     onClick={onOpen}
     onKeyDown={(event) => { if (event.key === "Enter" && event.target === event.currentTarget) onOpen(); }}
     role="button"
     tabIndex={0}
+    unstyled
   >
-    {cover ? <img alt="" className="opp-beatmap-card__cover" src={cover} /> : null}
-    <div className="opp-beatmap-card__shade" />
+    {cover ? <img alt="" className="absolute inset-0 h-full w-full scale-[1.015] object-cover opacity-[.58] saturate-[.9] contrast-[1.06] [transition:transform_420ms_cubic-bezier(.2,.8,.2,1),opacity_var(--motion-base)_ease] group-hover:scale-[1.045] group-hover:opacity-[.72] motion-reduce:transition-none" src={cover} /> : null}
+    <div className="absolute inset-0 z-[2] bg-[linear-gradient(90deg,rgba(17,20,25,.96),rgba(22,26,32,.82)_62%,rgba(22,26,32,.67)),linear-gradient(0deg,rgba(10,12,16,.72),transparent_70%)]" />
 
     <div className="relative z-10 flex h-full flex-col p-4">
       <div className="flex items-start gap-3">
@@ -79,7 +88,7 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
           {beatmapset.video ? <Badge>VIDEO</Badge> : null}
           {disabled ? <Badge tone="warning">禁止下载</Badge> : null}
         </div>
-        <div className="opp-beatmap-card__difficulty-summary">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
           <span className="mr-1 shrink-0 text-[11px] font-semibold text-slate-400">难度</span>
           {beatmaps.slice(0, 5).map((beatmap) => <span className="inline-flex min-w-0 items-center gap-1.5" key={beatmap.id}><DifficultyIcon className="px-1.5 py-0.5" mode={beatmap.mode} stars={beatmap.difficulty_rating} /><span className="max-w-24 truncate text-[11px] text-slate-200">{beatmap.version}</span></span>)}
           {beatmaps.length > 5 ? <span className="text-[11px] font-medium text-slate-400">+{beatmaps.length - 5}</span> : null}
@@ -88,7 +97,7 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
     </div>
 
     {/* 悬停层不改变卡片高度，避免多列列表出现布局跳动。 */}
-    <div aria-hidden="true" className="opp-beatmap-card__hover">
+    <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-[88px] z-20 translate-y-2.5 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.97),rgba(13,16,21,.99))] p-[14px_16px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
       <div className="grid grid-cols-3 gap-x-4 gap-y-2.5">
         {[{ label: "星级", value: `${minStars.toFixed(2)}–${maxStars.toFixed(2)}★` }, { label: "BPM", value: String(Math.round(beatmapset.bpm ?? 0)) }, { label: "长度", value: durationLabel(longest) }, { label: "物件", value: fullNumber(objects) }, { label: "游玩", value: fullNumber(beatmapset.play_count ?? 0) }, { label: "上架", value: dateLabel(beatmapset.ranked_date) }].map((metric) => <div className="min-w-0" key={metric.label}><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{metric.label}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-100">{metric.value}</p></div>)}
       </div>

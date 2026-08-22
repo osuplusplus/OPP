@@ -10,6 +10,8 @@ describe("OnlineBeatmapSortBar", () => {
     const onChange = vi.fn();
     render(<OnlineBeatmapSortBar onChange={onChange} sort="ranked_desc" />);
 
+    expect(screen.getByRole("toolbar", { name: "谱面排序方式" })).toHaveClass("min-h-12", "rounded-[11px]");
+
     await user.click(screen.getByRole("button", { name: "按标题排序" }));
     expect(onChange).toHaveBeenCalledWith("title_asc");
 

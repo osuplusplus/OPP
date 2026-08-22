@@ -141,7 +141,7 @@ function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolde
       </div>
       <div className="max-h-[34rem] overflow-y-auto p-3.5">
         {folder.entries.length ? (
-          <div className="opp-map-grid">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2.5">
             {folder.entries.map((entry) => (
               <MapCard
                 busy={busy}

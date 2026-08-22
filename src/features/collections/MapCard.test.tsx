@@ -20,13 +20,14 @@ const entry: CollectionEntry = {
 
 describe("MapCard", () => {
   it("renders one concrete map instead of a beatmapset summary", () => {
-    render(<MapCard busy={false} entry={entry} onRemove={vi.fn()} readOnly={false} />);
+    const { container } = render(<MapCard busy={false} entry={entry} onRemove={vi.fn()} readOnly={false} />);
 
     expect(screen.getByText("Daisuke")).toBeInTheDocument();
     expect(screen.getByText("Insane")).toBeInTheDocument();
     expect(screen.getByText("osu!")).toBeInTheDocument();
     expect(screen.getByText("已在本地")).toBeInTheDocument();
     expect(screen.getByText("#123")).toBeInTheDocument();
+    expect(container.querySelector("[data-slot='card']")).toHaveClass("h-[168px]", "rounded-[10px]");
   });
 
   it("keeps removal available only for writable collections", async () => {

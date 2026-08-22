@@ -72,7 +72,9 @@ describe("BeatmapsetCard", () => {
     expect(screen.getAllByText("Insane", { selector: "span" })).not.toHaveLength(0);
     expect(screen.getAllByText("上架")).not.toHaveLength(0);
 
-    screen.getByRole("button", { name: "查看谱面 Daisuke" }).focus();
+    const card = screen.getByRole("button", { name: "查看谱面 Daisuke" });
+    expect(card).toHaveClass("h-[220px]", "rounded-xl");
+    card.focus();
     await user.keyboard("{Enter}");
     expect(onOpen).toHaveBeenCalledOnce();
   });

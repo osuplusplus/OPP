@@ -201,7 +201,7 @@ export function BeatmapDownloadPanel({
 
   return (
     <>
-      <Card className="opp-download-panel sticky top-[120px] overflow-hidden" data-page-guide-online-download="true">
+      <Card className="opp-download-panel opp-online-panel sticky top-[120px] overflow-hidden rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] shadow-[0_14px_34px_rgba(0,0,0,0.08)]" data-page-guide-online-download="true" unstyled>
         <div className="border-b border-white/[0.08] px-5 py-4"><div className="flex items-center justify-between"><h2 className="text-base font-semibold text-white">批量下载队列</h2><Badge tone={queue.length ? "pink" : "neutral"}>{queue.length}</Badge></div></div>
         <div className="space-y-5 p-5">
           <button className="flex w-full items-center gap-3 rounded-xl border border-white/[0.09] bg-black/15 px-3 py-3 text-left text-base text-slate-300 transition hover:border-white/20" disabled={busy || collecting} onClick={() => void chooseDirectory()} type="button"><FolderOpen className="size-5 shrink-0 text-cyan-200" /><span className="min-w-0 flex-1 truncate">{effectiveDestination || "选择保存目录"}</span></button>
