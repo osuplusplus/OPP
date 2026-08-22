@@ -13,6 +13,9 @@ describe("OnlineBeatmapSortBar", () => {
     const toolbar = screen.getByRole("toolbar", { name: "谱面排序方式" });
     expect(toolbar).toHaveClass("min-h-12", "rounded-[11px]");
     expect(toolbar.children[1]).toHaveClass("flex-nowrap", "overflow-x-auto");
+    expect(screen.getByText("排序方式")).toBeVisible();
+    // “相关度”是 OPP 的补充能力，不因官网文案同步而移除。
+    expect(screen.getByRole("button", { name: "按相关度排序" })).toBeVisible();
     expect(screen.getByRole("button", { name: "按标题排序" }).firstElementChild).toHaveClass("text-[11px]", "leading-4");
 
     await user.click(screen.getByRole("button", { name: "按标题排序" }));
@@ -27,7 +30,7 @@ describe("OnlineBeatmapSortBar", () => {
     const onChange = vi.fn();
     render(<OnlineBeatmapSortBar onChange={onChange} sort="ranked_desc" />);
 
-    await user.click(screen.getByRole("button", { name: "上架时间，当前降序，点击切换" }));
+    await user.click(screen.getByRole("button", { name: "上架 (Ranked) 时间，当前降序，点击切换" }));
     expect(onChange).toHaveBeenCalledWith("ranked_asc");
   });
 });
