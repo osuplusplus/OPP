@@ -227,6 +227,53 @@ impl BeatmapHubService {
 
     async fn get_anonymous_pack(&self, id: &str) -> CommandResult<Pack> {
         let cached = self.cached_pack(id)?;
+        // The hash endpoint is intentionally checked first.  It avoids downloading
+        // the full pack (and its viewer-independent metadata) when our local copy
+        // still represents the same ordered beatmapset manifest.
+        let mut hash_request = self.client.get(format!("{BASE_URL}/packs/{id}/hash"));
+        if let Some(cache) = &cached {
+            hash_request =
+                hash_request.header(IF_NONE_MATCH, format!("\"{}\"", cache.manifest_hash));
+        }
+        let hash_response = hash_request.send().await.map_err(|error| {
+            CommandError::network(format!(
+                "无法连接 BeatmapHub：{}",
+                reqwest_error_details(&error)
+            ))
+        });
+        let hash_response = match hash_response {
+            Ok(response) => response,
+            Err(error) => return cached.map(|cache| cache.pack).ok_or(error),
+        };
+        if hash_response.status() == StatusCode::NOT_MODIFIED {
+            return cached.map(|cache| cache.pack).ok_or_else(|| {
+                CommandError::new("HUB_CACHE_ERROR", "服务器返回了无对应内容的缓存验证结果")
+            });
+        }
+        if !hash_response.status().is_success() {
+            return Err(response_error(hash_response).await);
+        }
+        #[derive(serde::Deserialize)]
+        struct ManifestResponse {
+            manifest_hash: String,
+        }
+        let remote_manifest_hash = hash_response
+            .json::<ManifestResponse>()
+            .await
+            .map_err(|error| {
+                CommandError::new(
+                    "INVALID_HUB_RESPONSE",
+                    format!("BeatmapHub hash 响应格式无效：{error}"),
+                )
+            })?
+            .manifest_hash;
+        if let Some(cache) = cached
+            .as_ref()
+            .filter(|cache| cache.manifest_hash == remote_manifest_hash)
+        {
+            return Ok(cache.pack.clone());
+        }
+
         let mut request = self.client.get(format!("{BASE_URL}/packs/{id}"));
         if let Some(cache) = &cached {
             request = request.header(IF_NONE_MATCH, &cache.etag);
@@ -266,6 +313,12 @@ impl BeatmapHubService {
                 format!("BeatmapHub 响应格式无效：{error}"),
             )
         })?;
+        if pack.manifest_hash != remote_manifest_hash {
+            return Err(CommandError::new(
+                "HUB_CACHE_ERROR",
+                "BeatmapHub 返回的曲包 hash 前后不一致",
+            ));
+        }
         if let (Some(etag), Some(manifest_hash)) = (etag, manifest_hash)
             && manifest_hash == pack.manifest_hash
         {

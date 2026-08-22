@@ -4,7 +4,14 @@ import { ArrowRight, Download, Headphones, Heart, Pause } from "lucide-react";
 import { Badge, Button, Card } from "../../shared/components/ui";
 import { DifficultyIcon } from "../../shared/components/DifficultyIcon";
 import { desktopApi, isTauri } from "../../shared/lib/tauri";
-import type { SimilarityBeatmap, SimilarityResult } from "../../shared/types/osu";
+import type { AnySimilarityBeatmap, AnySimilarityResult, ManiaModeFamily } from "../../shared/types/osu";
+
+const maniaFamilyLabels: Record<ManiaModeFamily, string> = {
+  rc: "RC",
+  hb: "HB",
+  mix: "Mix",
+  ln: "LN",
+};
 
 function durationLabel(seconds: number) {
   const rounded = Math.max(0, Math.round(seconds));
@@ -54,8 +61,8 @@ export function SimilarityResultCard({
   downloading,
   downloadDisabled,
 }: {
-  result: SimilarityResult;
-  recommendedBy?: SimilarityBeatmap;
+  result: AnySimilarityResult;
+  recommendedBy?: AnySimilarityBeatmap;
   selected: boolean;
   onSelect: () => void;
   onOpen: () => void;
@@ -68,7 +75,7 @@ export function SimilarityResultCard({
   downloadDisabled: boolean;
 }) {
   const beatmapset = useQuery({
-    queryKey: ["similarity-result-beatmapset", result.beatmapset_id],
+    queryKey: ["similarity-result-beatmapset", result.ruleset, result.beatmapset_id],
     queryFn: () => desktopApi.getOnlineBeatmapset(result.beatmapset_id),
     enabled: isTauri(),
     staleTime: Infinity,
@@ -91,12 +98,13 @@ export function SimilarityResultCard({
       <div className="relative flex items-start gap-4">
         <DifficultyIcon
           className="bg-[#0a0f1a]/85 shadow-lg backdrop-blur-sm"
-          mode="osu"
-          stars={result.star_rating}
+          mode={result.ruleset}
+          stars={result.ruleset === "osu" ? result.star_rating : null}
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="normal-case text-xs tracking-normal" tone="cyan">难度 · {result.version}</Badge>
+            {result.ruleset === "mania" ? <Badge className="normal-case text-xs tracking-normal" tone="pink">{result.game_mod}</Badge> : null}
             <span className="truncate text-sm text-slate-500">#{result.beatmap_id}</span>
           </div>
           <h3 className="mt-2 truncate text-base font-semibold text-white">{result.artist} - {result.title}</h3>
@@ -107,16 +115,39 @@ export function SimilarityResultCard({
             </p>
           ) : null}
 
-          <div className="mt-3 grid grid-cols-4 gap-2">
-            <Metric label="AR" tone={osuTone(result.base.ar)} value={result.base.ar.toFixed(1)} />
-            <Metric label="CS" tone={osuTone(result.base.cs)} value={result.base.cs.toFixed(1)} />
-            <Metric label="OD" tone={osuTone(result.base.od)} value={result.base.od.toFixed(1)} />
-            <Metric label="HP" tone={osuTone(result.base.hp)} value={result.base.hp.toFixed(1)} />
-            <Metric label="BPM" tone={osuTone(result.base.bpm, 300)} value={Math.round(result.base.bpm).toString()} />
-            <Metric label="长度" tone={osuTone(result.base.length_seconds, 360)} value={durationLabel(result.base.length_seconds)} />
-            <Metric label="密度" tone={osuTone(result.base.object_density)} value={result.base.object_density.toFixed(2)} />
-            <Metric label="物件" tone={osuTone(result.base.object_count, 1600)} value={Math.round(result.base.object_count).toString()} />
-          </div>
+          {result.ruleset === "mania" ? (
+            <>
+              <div className="mt-3 grid grid-cols-4 gap-2">
+                <Metric label="键数" tone={osuTone(result.key_count, 10)} value={`${result.key_count}K`} />
+                <Metric label="键型" tone={osuTone(result.style.chord_rate)} value={maniaFamilyLabels[result.family]} />
+                <Metric label="主模式" tone={osuTone(result.style.stream)} value={result.pattern} />
+                <Metric label="难度分位" tone={osuTone(result.difficulty_percentile, 1)} value={`${Math.round(result.difficulty_percentile * 100)}%`} />
+                <Metric label="BPM" tone={osuTone(result.base.bpm, 300)} value={Math.round(result.base.bpm).toString()} />
+                <Metric label="有效长度" tone={osuTone(result.base.active_length_seconds, 360)} value={durationLabel(result.base.active_length_seconds)} />
+                <Metric label="平均 NPS" tone={osuTone(result.base.avg_nps, 15)} value={result.base.avg_nps.toFixed(2)} />
+                <Metric label="LN 比例" tone={osuTone(result.style.ln_note_ratio, 1)} value={`${Math.round(result.style.ln_note_ratio * 100)}%`} />
+              </div>
+              <div aria-label="Mania 距离分量" className="mt-2 flex flex-wrap gap-x-3 gap-y-1 rounded-md border border-white/[0.06] bg-black/[0.12] px-3 py-2 font-mono text-[10px] text-slate-400">
+                <span className="text-slate-300">总距 {result.final_distance.toFixed(4)}</span>
+                <span>强度 {result.distance_components.skill.toFixed(3)}</span>
+                <span>键型 {result.distance_components.pattern.toFixed(3)}</span>
+                <span>结构 {result.distance_components.structure.toFixed(3)}</span>
+                <span>分位 {result.distance_components.difficulty.toFixed(3)}</span>
+                <span>上下文 {result.distance_components.context.toFixed(3)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              <Metric label="AR" tone={osuTone(result.base.ar)} value={result.base.ar.toFixed(1)} />
+              <Metric label="CS" tone={osuTone(result.base.cs)} value={result.base.cs.toFixed(1)} />
+              <Metric label="OD" tone={osuTone(result.base.od)} value={result.base.od.toFixed(1)} />
+              <Metric label="HP" tone={osuTone(result.base.hp)} value={result.base.hp.toFixed(1)} />
+              <Metric label="BPM" tone={osuTone(result.base.bpm, 300)} value={Math.round(result.base.bpm).toString()} />
+              <Metric label="长度" tone={osuTone(result.base.length_seconds, 360)} value={durationLabel(result.base.length_seconds)} />
+              <Metric label="密度" tone={osuTone(result.base.object_density)} value={result.base.object_density.toFixed(2)} />
+              <Metric label="物件" tone={osuTone(result.base.object_count, 1600)} value={Math.round(result.base.object_count).toString()} />
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button aria-label="加入收藏夹" onClick={(event) => { event.stopPropagation(); onAddToCollection(); }} size="icon" variant="ghost"><Heart className="size-4" /></Button>

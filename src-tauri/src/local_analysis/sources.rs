@@ -260,6 +260,17 @@ fn resolve_stable(configured_path: Option<&Path>) -> ResolvedSource {
 }
 
 fn resolve_lazer(configured_path: Option<&Path>) -> ResolvedSource {
+    resolve_lazer_with_ini(configured_path, crate::platform::resolve_lazer_data_root())
+}
+
+/// `ini_data_root` 为 `storage.ini` 的 `FullPath` 解析结果（无 ini 时为默认
+/// 数据根）：仅在自动检测（未手动选择目录）时生效，只要 ini 存在就无条件
+/// 作为数据根。手动选择优先于自动检测；仅当手动选择的是安装目录时，数据
+/// 根仍走自动检测。
+fn resolve_lazer_with_ini(
+    configured_path: Option<&Path>,
+    ini_data_root: Option<PathBuf>,
+) -> ResolvedSource {
     // lazer 的数据根目录与安装目录不同；优先识别含 client.realm 的数据根目录。
     let mode = if configured_path.is_some() {
         SourceMode::Override
@@ -269,16 +280,15 @@ fn resolve_lazer(configured_path: Option<&Path>) -> ResolvedSource {
     let registry_install = crate::platform::lazer_install_candidates()
         .into_iter()
         .find(|path| looks_like_lazer_install(path));
-    let default_data = crate::platform::lazer_data_root();
     let configured_path_string = configured_path.map(display_path);
 
     let (install_root, data_candidate) = match configured_path {
         Some(path) if is_lazer_data_root(path) => {
             (registry_install.clone(), Some(path.to_path_buf()))
         }
-        Some(path) if looks_like_lazer_install(path) => (Some(path.to_path_buf()), default_data),
+        Some(path) if looks_like_lazer_install(path) => (Some(path.to_path_buf()), ini_data_root),
         Some(path) => (registry_install.clone(), Some(path.to_path_buf())),
-        None => (registry_install.clone(), default_data),
+        None => (registry_install.clone(), ini_data_root),
     };
 
     let mut errors = Vec::new();
@@ -377,9 +387,12 @@ fn is_lazer_data_root(path: &Path) -> bool {
 }
 
 fn looks_like_lazer_install(path: &Path) -> bool {
-    path.join("current").is_dir()
-        && (path.join("current").join("osu!.exe").is_file()
-            || path.join("current").join("sq.version").is_file())
+    // Windows 安装器把 osu!.exe 直接放在安装目录；带 current/ 子目录的是
+    // 自更新布局，两者都认。
+    path.join("osu!.exe").is_file()
+        || (path.join("current").is_dir()
+            && (path.join("current").join("osu!.exe").is_file()
+                || path.join("current").join("sq.version").is_file()))
 }
 
 fn read_lazer_version(root: &Path) -> Option<String> {
@@ -439,7 +452,35 @@ mod tests {
         let lazer = tempfile::tempdir().expect("lazer");
         fs::write(lazer.path().join("client.realm"), []).expect("realm");
         fs::create_dir(lazer.path().join("files")).expect("files");
-        assert!(resolve_lazer(Some(lazer.path())).status.valid);
+        assert!(resolve_lazer_with_ini(Some(lazer.path()), None).status.valid);
+    }
+
+    /// 自动检测时 storage.ini 指向的目录无条件作为数据根（默认目录即便残留
+    /// client.realm 也不用）；手动选择则优先于 ini。
+    #[test]
+    fn auto_detection_follows_ini_and_manual_selection_wins() {
+        let manual = tempfile::tempdir().expect("manual");
+        fs::write(manual.path().join("client.realm"), []).expect("realm");
+        fs::create_dir(manual.path().join("files")).expect("files");
+
+        let ini_target = tempfile::tempdir().expect("ini target");
+        fs::write(ini_target.path().join("client.realm"), []).expect("realm");
+        fs::create_dir(ini_target.path().join("files")).expect("files");
+
+        let auto = resolve_lazer_with_ini(None, Some(ini_target.path().to_path_buf()));
+        assert!(auto.status.valid);
+        assert_eq!(
+            auto.status.data_root,
+            Some(display_path(&ini_target.path().canonicalize().unwrap()))
+        );
+
+        let manual_resolved =
+            resolve_lazer_with_ini(Some(manual.path()), Some(ini_target.path().to_path_buf()));
+        assert!(manual_resolved.status.valid);
+        assert_eq!(
+            manual_resolved.status.data_root,
+            Some(display_path(&manual.path().canonicalize().unwrap()))
+        );
     }
 
     #[test]

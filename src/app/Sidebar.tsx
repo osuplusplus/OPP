@@ -35,7 +35,8 @@ interface NavItemProps {
 
 function NavItem({ to, label, icon: Icon, emphasis, onboarding }: NavItemProps) {
   const location = useLocation();
-  const active = location.pathname === to;
+  // Keep the parent section selected while browsing any of its nested routes.
+  const active = location.pathname === to || location.pathname.startsWith(`${to}/`);
   const linkRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
@@ -51,7 +52,7 @@ function NavItem({ to, label, icon: Icon, emphasis, onboarding }: NavItemProps) 
         emphasis && "min-h-11",
         active && "text-white",
       )}
-      end
+      end={to !== "/data"}
       data-onboarding={onboarding}
       ref={linkRef}
       to={to}

@@ -13,7 +13,7 @@ import {
 import { Badge, Button, DataLine } from "../../shared/components/ui";
 import { APP_TIME_ZONE, fullNumber } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
-import type { OnlineBeatmapset } from "../../shared/types/osu";
+import type { OnlineBeatmapset, Ruleset } from "../../shared/types/osu";
 import { useOnlineBeatmapsetDetail } from "./api";
 import { DifficultyIcon, ModIcon, ModeIcon, modeMods } from "./BeatmapVisuals";
 import {
@@ -36,7 +36,7 @@ export function BeatmapsetDetailDialog({
   fallback: OnlineBeatmapset | null;
   initialBeatmapId?: number | null;
   onAddToCollection: (beatmapset: OnlineBeatmapset) => void;
-  onFindSimilar: (beatmapId: number) => void;
+  onFindSimilar: (beatmapId: number, ruleset: Ruleset) => void;
   playing: boolean;
   onClose: () => void;
   onPreview: (beatmapset: OnlineBeatmapset) => void;
@@ -202,7 +202,7 @@ export function BeatmapsetDetailDialog({
                             <Button
                               onClick={(event) => {
                                 event.stopPropagation();
-                                onFindSimilar(beatmap.id);
+                                onFindSimilar(beatmap.id, beatmap.mode);
                               }}
                               size="sm"
                               variant="ghost"

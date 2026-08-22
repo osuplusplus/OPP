@@ -21,7 +21,6 @@ pub enum Ruleset {
     Mania,
 }
 
-
 impl fmt::Display for Ruleset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = match self {
@@ -157,6 +156,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub similarity_index_directory: Option<String>,
     #[serde(default)]
+    pub mania_similarity_index_directory: Option<String>,
+    #[serde(default)]
     pub similarity_preferences: SimilarityPreferences,
     #[serde(default)]
     pub beatmap_download_directory: Option<String>,
@@ -170,6 +171,9 @@ pub struct AppSettings {
     pub replay_export_directory: Option<String>,
     #[serde(default)]
     pub danser_executable_path: Option<String>,
+    /// FFmpeg 可执行文件路径
+    #[serde(default)]
+    pub ffmpeg_executable_path: Option<String>,
     #[serde(default)]
     pub auto_export_new_replays_with_danser: bool,
     #[serde(default)]
@@ -363,7 +367,7 @@ impl Default for SimilarityPreferences {
     fn default() -> Self {
         Self {
             advanced_enabled: false,
-            mode: SimilarityWeightingPreference::Dynamic,
+            mode: SimilarityWeightingPreference::Manual,
             lower_sections: default_similarity_section_range(),
             upper_sections: default_similarity_section_range(),
             manual_weights: SimilarityManualWeights::default(),
@@ -390,6 +394,7 @@ impl Default for AppSettings {
             ignored_update_version: None,
             reduce_motion: false,
             similarity_index_directory: None,
+            mania_similarity_index_directory: None,
             similarity_preferences: SimilarityPreferences::default(),
             beatmap_download_directory: None,
             default_beatmap_download_provider: BeatmapDownloadProvider::default(),
@@ -397,6 +402,7 @@ impl Default for AppSettings {
             open_downloaded_beatmaps_after_download: false,
             replay_export_directory: None,
             danser_executable_path: None,
+            ffmpeg_executable_path: None,
             auto_export_new_replays_with_danser: false,
             danser_render_preferences: DanserRenderPreferences::default(),
             tosu_executable_path: None,

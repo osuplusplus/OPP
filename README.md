@@ -46,6 +46,8 @@ OPP 是一个使用 Tauri、Rust 与 React 构建的跨平台 osu! 桌面工具�
 
 从仓库的 [Releases](https://github.com/osuplusplus/OPP/releases/latest) 页面下载最新的 Windows x64 EXE。`OPP-vX.Y.Z-windows-x64.exe` 无需安装，可直接运行；首次启动需要系统已安装 WebView2 Runtime。
 
+安装首个支持应用内更新的版本后，后续 Windows 便携版可在 OPP 内完成下载、原文件替换与自动重启，不需要改为安装包。
+
 ### Linux
 
 Release 提供对应的 Linux 构建，可直接下载使用，也可以参考 [Linux 使用与构建](./docs/Linux.md) 。桌面环境需要 WebKitGTK 4.1 和可用的 Secret Service（例如 GNOME Keyring 或 KWallet）。
@@ -72,11 +74,11 @@ OPP 在 Linux 上通过 PATH 中的 `osu-wine` 与 `osu-lazer` 命令启动客�
 
 ### 配置相似谱面
 
-1. 从 [`osu-difficulty-lab` Releases](https://github.com/osuplusplus/osu-difficulty-lab/releases) 下载与 Analyzer v3 兼容的数据集。
-2. 将数据集完整解压到本地目录。
-3. 在 OPP 的“相似谱面”页面选择数据集根目录。该目录应直接包含 `metadata.sqlite`、`features-v*.bin`、`indexes/` 和 `normalizers/`。
+1. 取得由兼容版本的 [`osu-difficulty-lab`](https://github.com/osuplusplus/osu-difficulty-lab) 生成的数据集；Mania 必须匹配提交 [`1fa21fa6`](https://github.com/osuplusplus/osu-difficulty-lab/commit/1fa21fa6a5144992df58efe7ce9d96019981fad3)，上游 `v0.3.0` tag 不含 Mania。
+2. 将 standard 与 mania 数据集分别完整解压到本地目录。
+3. 在 OPP 顶部选择 osu! 或 Mania，再到“相似谱面”页面选择该模式的索引根目录。应用会分别记住两套路径。
 
-如果解压后出现两层同名目录，请选择内层、实际包含上述文件的目录。旧版 Analyzer v2 数据集无法直接迁移，需要重新下载或生成 v3 数据集。更多说明见 [相似谱面数据集](./docs/similarity-dataset.md)。
+Standard 当前要求 Analyzer v4，根目录应包含 `metadata.sqlite`、`features-v*.bin`、`indexes/` 和 `normalizers/`；Mania 当前要求 Analyzer v1，根目录应包含 `mania-metadata.sqlite`、`mania-features-v1.bin`、`normalizers/mania-v1.bin` 和 `indexes/mania-v1.buckets(.sha256)`。Mania 的 DT/HT 混池还要求 `beatmaps/<BeatmapID>.osu`。如果解压后出现两层同名目录，请选择实际直接包含 metadata 文件的内层目录。更多说明见 [相似谱面数据集](./docs/similarity-dataset.md)。
 
 ## 本地开发
 
@@ -140,8 +142,7 @@ OPP/
 
 欢迎通过 [Issues](https://github.com/osuplusplus/OPP/issues) 提交问题、功能建议和可复现步骤。提交代码前请先阅读 [架构与开发](./docs/架构与开发.md)，并确保前后端质量检查全部通过。
 
-- 本地 pp 计算基于固定的 `rosu-pp` 算法快照，可能与 osu! 在线服务当前版本存在差异。
-- 相似谱面结果取决于本地 Analyzer v3 数据集的覆盖范围与截止时间，不代表实时数据库。
+- 相似谱面结果取决于本地 standard Analyzer v4 或 mania Analyzer v1 数据集的覆盖范围，不代表实时数据库。Mania 支持 4K/6K/7K 的 NM、DT、HT 单池或混池，难度 percentile 不是官方星数。
 - o!rdr、谱面镜像、网易云音乐、tosu 与 OBS 等外部服务或应用的可用性不由 OPP 保证。
 
 ### 关联仓库
@@ -156,6 +157,7 @@ OPP/
 - [Tauri](https://github.com/tauri-apps/tauri)
 - [Ohdmire/osu-lazer-space-statistics](https://github.com/Ohdmire/osu-lazer-space-statistics)
 - [Ohdmire/realm-db-reader](https://github.com/Ohdmire/realm-db-reader)
+- [Ohdmire/osu-replay-render](https://github.com/Ohdmire/osu-replay-render)
 
 ## 特别鸣谢
 

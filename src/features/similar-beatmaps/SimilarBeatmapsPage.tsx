@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FolderOpen, History, LoaderCircle, Map as MapIcon, RefreshCw, Search, Trophy, Upload, X } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import { useMode } from "../../app/ModeContext";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { Button, Card, EmptyState, InfoTip } from "../../shared/components/ui";
 import { APP_TIME_ZONE, errorMessage } from "../../shared/lib/format";
@@ -11,11 +12,12 @@ import { settingsQueryKey, useSettings } from "../settings/api";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   SimilarityIndexStatus,
-  SimilarityQueryRequest,
-  SimilarityQueryResponse,
+  OsuSimilarityQueryRequest,
+  OsuSimilarityQueryResponse,
+  OsuSimilarityRecommendationResponse,
+  Ruleset,
   SimilarityRecommendationKind,
   SimilarityRecommendationResult,
-  SimilarityRecommendationResponse,
   SimilarityResult,
 } from "../../shared/types/osu";
 import {
@@ -27,7 +29,6 @@ import {
 } from "./api";
 import {
   createSimilarityRequest,
-  defaultDynamicWeighting,
   defaultSimilarityPreferences,
   manualWeightingFromPreferences,
 } from "./defaults";
@@ -36,6 +37,7 @@ import { SimilarityFilterSliders } from "./SimilarityFilterSliders";
 import { SimilarityRadar } from "./SimilarityRadar";
 import { SimilarityResultCard } from "./SimilarityResultCard";
 import { SimilarityComparisonPanel } from "./SimilarityComparisonPanel";
+import { ManiaSimilarBeatmapsPage } from "./ManiaSimilarBeatmapsPage";
 import {
   onlineBeatmapRouteForSimilarityResult,
   parseSimilarityLaunch,
@@ -51,6 +53,7 @@ import {
   similarityIndexStateCopy,
 } from "./viewModel";
 import {
+  excludeTodayRecommendedResults,
   getTodayRecommendationHistory,
   getTodayRecommendedBeatmapIds,
   recordDisplayedRecommendationBatch,
@@ -65,18 +68,18 @@ function manualWeighting() {
 }
 
 interface SimilaritySession {
-  request: SimilarityQueryRequest;
-  response: SimilarityQueryResponse | null;
-  recommendationResponse: SimilarityRecommendationResponse | null;
+  request: OsuSimilarityQueryRequest;
+  response: OsuSimilarityQueryResponse | null;
+  recommendationResponse: OsuSimilarityRecommendationResponse | null;
   selectedResultId: number | null;
   advancedOpen: boolean;
   scrollY: number | null;
 }
 
-let similaritySession: SimilaritySession | null = null;
+let standardSimilaritySession: SimilaritySession | null = null;
 
 function saveSimilaritySession(session: SimilaritySession) {
-  similaritySession = session;
+  standardSimilaritySession = session;
 }
 
 function IndexUnavailable({
@@ -113,18 +116,18 @@ function IndexUnavailable({
   );
 }
 
-export function SimilarBeatmapsPage() {
+function StandardSimilarBeatmapsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const statusQuery = useSimilarityIndexStatus();
-  const similarityQuery = useSimilarityQuery();
-  const similarityRecommendation = useSimilarityRecommendation();
+  const statusQuery = useSimilarityIndexStatus("osu");
+  const similarityQuery = useSimilarityQuery("osu");
+  const similarityRecommendation = useSimilarityRecommendation("osu");
   const settings = useSettings();
-  const [request, setRequest] = useState<SimilarityQueryRequest>(() =>
-    similaritySession?.request ?? createSimilarityRequest({ kind: "beatmap_id", value: "" }),
+  const [request, setRequest] = useState<OsuSimilarityQueryRequest>(() =>
+    standardSimilaritySession?.request ?? createSimilarityRequest({ kind: "beatmap_id", value: "" }),
   );
-  const [advancedOpen, setAdvancedOpen] = useState(() => similaritySession?.advancedOpen ?? false);
+  const [advancedOpen, setAdvancedOpen] = useState(() => standardSimilaritySession?.advancedOpen ?? false);
   const [configuring, setConfiguring] = useState(false);
   const [configurationError, setConfigurationError] = useState<string | null>(null);
   const [quickDownloadId, setQuickDownloadId] = useState<number | null>(null);
@@ -132,24 +135,24 @@ export function SimilarBeatmapsPage() {
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<number | null>(null);
-  const [response, setResponse] = useState<SimilarityQueryResponse | null>(
-    () => similaritySession?.response ?? null,
+  const [response, setResponse] = useState<OsuSimilarityQueryResponse | null>(
+    () => standardSimilaritySession?.response ?? null,
   );
   const [recommendationResponse, setRecommendationResponse] =
-    useState<SimilarityRecommendationResponse | null>(
-      () => similaritySession?.recommendationResponse ?? null,
+    useState<OsuSimilarityRecommendationResponse | null>(
+      () => standardSimilaritySession?.recommendationResponse ?? null,
     );
   const [recommendationCompleting, setRecommendationCompleting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [recommendationHistory, setRecommendationHistory] = useState<RecommendationHistoryEntry[]>(
-    () => getTodayRecommendationHistory(),
+    () => getTodayRecommendationHistory("osu"),
   );
   const [selectedResultId, setSelectedResultId] = useState<number | null>(
-    () => similaritySession?.selectedResultId ?? null,
+    () => standardSimilaritySession?.selectedResultId ?? null,
   );
   const [resultBatch, setResultBatch] = useState(0);
   const handledLaunch = useRef<string | null>(null);
-  const restoreScrollY = useRef(similaritySession?.scrollY ?? null);
+  const restoreScrollY = useRef(standardSimilaritySession?.scrollY ?? null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const preferenceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recommendationRun = useRef(0);
@@ -184,7 +187,7 @@ export function SimilarBeatmapsPage() {
 
   useEffect(() => {
     if (!recommendationResponse || visibleResults.length !== resultsPerPage) return;
-    recordDisplayedRecommendationBatch(visibleResults as SimilarityRecommendationResult[]);
+    recordDisplayedRecommendationBatch(visibleResults as SimilarityRecommendationResult[], "osu", resultsPerPage);
   }, [recommendationResponse, resultsPerPage, visibleResults]);
 
   const selected = useMemo(() => {
@@ -202,15 +205,12 @@ export function SimilarBeatmapsPage() {
       )?.recommended_by ?? null
     : null;
   const comparisonTarget = recommendedBy ?? response?.target ?? null;
-  const selectedDynamicProfile = selected
-    ? response?.dynamic_profile ?? recommendationResponse?.dynamic_profiles.find(
-        (profile) => profile.seed_beatmap_id === recommendedBy?.beatmap_id,
-      ) ?? null
-    : null;
+  const selectedDynamicProfile = null;
 
   const status =
     statusQuery.data ??
     ({
+      ruleset: "osu",
       state: "unconfigured",
       directory: null,
       record_count: null,
@@ -219,19 +219,19 @@ export function SimilarBeatmapsPage() {
       algorithm_id: null,
       data_cutoff_at: null,
       supports_dynamic_weighting: false,
+      records_by_key_count: {},
       message: statusQuery.error ? errorMessage(statusQuery.error) : "",
     } satisfies SimilarityIndexStatus);
   const effectiveWeighting = resolveSimilarityWeighting(
     request,
     preferences,
-    status.supports_dynamic_weighting,
   );
 
   useEffect(() => () => {
     if (preferenceSaveTimer.current) clearTimeout(preferenceSaveTimer.current);
   }, []);
 
-  function changeAdvancedRequest(next: SimilarityQueryRequest) {
+  function changeAdvancedRequest(next: OsuSimilarityQueryRequest) {
     setRequest(next);
     if (!settings.data || !preferences.advanced_enabled) return;
     const nextPreferences = next.weighting.mode === "dynamic"
@@ -279,8 +279,12 @@ export function SimilarBeatmapsPage() {
   useEffect(() => {
     const launch = parseSimilarityLaunch(searchParams);
     const launchKey = searchParams.toString();
+    if (!launch) {
+      handledLaunch.current = null;
+      return;
+    }
     if (
-      !launch ||
+      launch.ruleset !== "osu" ||
       settings.isLoading ||
       status.state !== "ready" ||
       handledLaunch.current === launchKey
@@ -296,16 +300,8 @@ export function SimilarBeatmapsPage() {
               path: await desktopApi.getLocalBeatmapPath(launch.client, launch.resourceId),
             };
       const launchWeighting = preferences.advanced_enabled
-        ? preferences.mode === "dynamic" && status.supports_dynamic_weighting
-          ? {
-              mode: "dynamic" as const,
-              lower_sections: preferences.lower_sections,
-              upper_sections: preferences.upper_sections,
-            }
-          : manualWeightingFromPreferences(preferences)
-        : status.supports_dynamic_weighting
-          ? { ...defaultDynamicWeighting }
-          : manualWeighting();
+        ? manualWeightingFromPreferences(preferences)
+        : manualWeighting();
       const nextRequest = {
         ...createSimilarityRequest(source),
         weighting: launchWeighting,
@@ -314,11 +310,15 @@ export function SimilarBeatmapsPage() {
       setResponse(null);
       setRecommendationResponse(null);
       setSelectedResultId(null);
-      similarityQuery.mutate(nextRequest, { onSuccess: setResponse });
+      similarityQuery.mutate(nextRequest, {
+        onSuccess: (nextResponse) => {
+          if (nextResponse.ruleset === "osu") setResponse(nextResponse);
+        },
+      });
       setSearchParams(new URLSearchParams(), { replace: true });
     };
     void run().catch((error) => setConfigurationError(errorMessage(error)));
-  }, [preferences, searchParams, setSearchParams, settings.isLoading, similarityQuery, status.state, status.supports_dynamic_weighting]);
+  }, [preferences, searchParams, setSearchParams, settings.isLoading, similarityQuery, status.state]);
 
   async function chooseIndexDirectory() {
     setConfigurationError(null);
@@ -330,8 +330,8 @@ export function SimilarBeatmapsPage() {
 
     setConfiguring(true);
     try {
-      const status = await desktopApi.configureSimilarityIndex(selectedDirectory);
-      queryClient.setQueryData(similarityIndexStatusKey, status);
+      const status = await desktopApi.configureSimilarityIndex("osu", selectedDirectory);
+      queryClient.setQueryData(similarityIndexStatusKey("osu"), status);
       await queryClient.invalidateQueries({ queryKey: settingsQueryKey });
       similarityQuery.reset();
       similarityRecommendation.reset();
@@ -481,7 +481,11 @@ export function SimilarBeatmapsPage() {
         request.source.kind === "beatmap_id"
           ? { kind: "beatmap_id", value }
           : { kind: "local_file", path: value },
-    }, { onSuccess: setResponse });
+    }, {
+      onSuccess: (nextResponse) => {
+        if (nextResponse.ruleset === "osu") setResponse(nextResponse);
+      },
+    });
   }
 
   function recommend(kind: SimilarityRecommendationKind) {
@@ -494,14 +498,26 @@ export function SimilarBeatmapsPage() {
     setRecommendationResponse(null);
     setRecommendationCompleting(false);
     similarityQuery.reset();
-    const excludedBeatmapIds = [...getTodayRecommendedBeatmapIds()];
-    const withoutTodayHistory = (nextResponse: SimilarityRecommendationResponse) => ({
+    const excludedBeatmapIds = [...getTodayRecommendedBeatmapIds("osu")];
+    const quickDisplayedBeatmapIds = new Set<number>();
+    const withoutTodayHistory = (nextResponse: OsuSimilarityRecommendationResponse) => ({
       ...nextResponse,
-      results: nextResponse.results.filter(
-        (result) => !excludedBeatmapIds.includes(result.beatmap_id),
+      results: excludeTodayRecommendedResults(
+        nextResponse.results,
+        "osu",
+        quickDisplayedBeatmapIds,
       ),
     });
+    const showQuickResponse = (nextResponse: OsuSimilarityRecommendationResponse) => {
+      const visible = withoutTodayHistory(nextResponse);
+      const displayed = visible.results
+        .filter((result) => matchesCandidateFilters(result.base, result.star_rating, request.filters))
+        .slice(0, resultsPerPage);
+      for (const result of displayed) quickDisplayedBeatmapIds.add(result.beatmap_id);
+      setRecommendationResponse(visible);
+    };
     const fullRequest = {
+      ruleset: "osu" as const,
       kind,
       weighting: effectiveWeighting,
       filters: { ...request.filters },
@@ -509,13 +525,13 @@ export function SimilarBeatmapsPage() {
       excluded_beatmap_ids: excludedBeatmapIds,
     };
     const fullCacheKey = similarityRecommendationKey(fullRequest);
-    const complete = (nextResponse: SimilarityRecommendationResponse) => {
+    const complete = (nextResponse: OsuSimilarityRecommendationResponse) => {
       if (recommendationRun.current !== run) return;
       queryClient.setQueryData(fullCacheKey, nextResponse);
       setRecommendationResponse(withoutTodayHistory(nextResponse));
       setRecommendationCompleting(false);
     };
-    const cached = queryClient.getQueryData<SimilarityRecommendationResponse>(fullCacheKey);
+    const cached = queryClient.getQueryData<OsuSimilarityRecommendationResponse>(fullCacheKey);
     if (cached) {
       complete(cached);
       return;
@@ -527,22 +543,24 @@ export function SimilarBeatmapsPage() {
       if (fullRequest.result_limit <= 5) return;
       setRecommendationCompleting(true);
       void desktopApi.recommendSimilarBeatmaps(fullRequest)
-        .then(complete)
+        .then((nextResponse) => {
+          if (nextResponse.ruleset === "osu") complete(nextResponse);
+        })
         .catch(() => {
           if (recommendationRun.current === run) setRecommendationCompleting(false);
         });
     };
-    const quickCached = queryClient.getQueryData<SimilarityRecommendationResponse>(quickCacheKey);
+    const quickCached = queryClient.getQueryData<OsuSimilarityRecommendationResponse>(quickCacheKey);
     if (quickCached) {
-      if (recommendationRun.current === run) setRecommendationResponse(withoutTodayHistory(quickCached));
+      if (recommendationRun.current === run) showQuickResponse(quickCached);
       finishInBackground();
       return;
     }
     similarityRecommendation.mutate(quickRequest, {
       onSuccess: (nextResponse) => {
-        if (recommendationRun.current !== run) return;
+        if (recommendationRun.current !== run || nextResponse.ruleset !== "osu") return;
         queryClient.setQueryData(quickCacheKey, nextResponse);
-        setRecommendationResponse(withoutTodayHistory(nextResponse));
+        showQuickResponse(nextResponse);
         finishInBackground();
       },
     });
@@ -571,7 +589,7 @@ export function SimilarBeatmapsPage() {
     <>
       <Dialog.Root open={historyOpen} onOpenChange={(open) => {
         setHistoryOpen(open);
-        if (open) setRecommendationHistory(getTodayRecommendationHistory());
+        if (open) setRecommendationHistory(getTodayRecommendationHistory("osu"));
       }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[260] bg-black/70 backdrop-blur-sm" />
@@ -596,13 +614,13 @@ export function SimilarBeatmapsPage() {
                       key={result.beatmap_id}
                       onClick={() => {
                         setHistoryOpen(false);
-                        openOnlineBeatmap(result);
+                        if (result.ruleset === "osu") openOnlineBeatmap(result);
                       }}
                       type="button"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-slate-100">{result.artist} - {result.title}</p>
-                        <p className="mt-1 truncate text-xs text-slate-500">[{result.version}] · {result.creator} · {result.star_rating == null ? "星数未知" : `${result.star_rating.toFixed(2)}★`}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">[{result.version}] · {result.creator} · {result.ruleset === "osu" && result.star_rating != null ? `${result.star_rating.toFixed(2)}★` : "星数未知"}</p>
                       </div>
                       <time className="shrink-0 text-xs text-slate-500">{new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: APP_TIME_ZONE }).format(new Date(displayed_at))}</time>
                     </button>
@@ -710,7 +728,7 @@ export function SimilarBeatmapsPage() {
                 type="button"
                 variant="ghost"
                 onClick={() => {
-                  setRecommendationHistory(getTodayRecommendationHistory());
+                  setRecommendationHistory(getTodayRecommendationHistory("osu"));
                   setHistoryOpen(true);
                 }}
               >
@@ -805,7 +823,7 @@ export function SimilarBeatmapsPage() {
             </Button> : null}
 
             {preferences.advanced_enabled && advancedOpen ? (
-              <SimilarityAdvancedPanel request={{ ...request, weighting: effectiveWeighting }} preferences={preferences} supportsDynamicWeighting={status.supports_dynamic_weighting} onChange={changeAdvancedRequest} />
+              <SimilarityAdvancedPanel request={{ ...request, weighting: effectiveWeighting }} preferences={preferences} onChange={changeAdvancedRequest} />
             ) : null}
           </form>
           </Card>
@@ -876,7 +894,7 @@ export function SimilarBeatmapsPage() {
                         selected={selected?.beatmap_id === result.beatmap_id}
                         onSelect={() => setSelectedResultId(result.beatmap_id)}
                         onDownload={() => void downloadResult(result)}
-                        onAddToCollection={() => openCollectionDialog([{ beatmap_id: result.beatmap_id, beatmapset_id: result.beatmapset_id, checksum: null, ruleset: "osu", difficulty_name: result.version, title: result.title, artist: result.artist, creator: result.creator }])}
+                        onAddToCollection={() => openCollectionDialog([{ beatmap_id: result.beatmap_id, beatmapset_id: result.beatmapset_id, checksum: null, ruleset: result.ruleset, difficulty_name: result.version, title: result.title, artist: result.artist, creator: result.creator }])}
                         downloading={quickDownloadId === result.beatmap_id}
                         downloadDisabled={quickDownloadId !== null}
                         onOpen={() => openOnlineBeatmap(result)}
@@ -907,6 +925,51 @@ export function SimilarBeatmapsPage() {
           ) : null}
         </>
       )}
+    </>
+  );
+}
+
+export function SimilarBeatmapsPage() {
+  const { ruleset, setRuleset } = useMode();
+  const [searchParams] = useSearchParams();
+  const launch = parseSimilarityLaunch(searchParams);
+  const launchKey = launch ? searchParams.toString() : null;
+  const observedLaunchKey = useRef<string | null>(launchKey);
+  const [pendingLaunchRuleset, setPendingLaunchRuleset] = useState<Ruleset | null>(() => launch?.ruleset ?? null);
+  const pageRuleset = pendingLaunchRuleset ?? ruleset;
+
+  useEffect(() => {
+    if (launchKey === null) {
+      observedLaunchKey.current = null;
+      return;
+    }
+    if (observedLaunchKey.current === launchKey) return;
+    observedLaunchKey.current = launchKey;
+    setPendingLaunchRuleset(launch?.ruleset ?? "osu");
+  }, [launch?.ruleset, launchKey]);
+
+  useEffect(() => {
+    if (pendingLaunchRuleset === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (pendingLaunchRuleset !== ruleset) setRuleset(pendingLaunchRuleset);
+      setPendingLaunchRuleset(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingLaunchRuleset, ruleset, setRuleset]);
+
+  if (pageRuleset === "mania") return <ManiaSimilarBeatmapsPage />;
+  if (pageRuleset === "osu") return <StandardSimilarBeatmapsPage />;
+
+  return (
+    <>
+      <PageHeader
+        title="相似谱面"
+        description="相似谱面目前支持 osu!standard 与 osu!mania。"
+      />
+      <EmptyState
+        title={`${pageRuleset === "taiko" ? "osu!taiko" : "osu!catch"} 暂不支持相似谱面`}
+        description="请在顶部全局模式中切换到 osu!standard 或 osu!mania。"
+      />
     </>
   );
 }

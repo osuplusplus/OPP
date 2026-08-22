@@ -13,6 +13,7 @@ export function useSettings() {
       ignored_update_version: null,
       reduce_motion: false,
       similarity_index_directory: null,
+      mania_similarity_index_directory: null,
       beatmap_download_directory: null,
       default_beatmap_download_provider: "sayobot" as const,
       include_video_in_beatmap_downloads: true,

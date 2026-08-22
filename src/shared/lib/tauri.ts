@@ -5,6 +5,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   AppSettings,
+  FfmpegStatusInfo,
   AuthStatus,
   BeatmapHubAuthStatus,
   BeatmapHubComment,
@@ -96,7 +97,6 @@ import type {
   TrainerResult,
   ObsRefreshResult,
   LazerDiskUsage,
-  LazerRealmReadResult,
   LazerDedupeProgress,
   LazerDedupeResult,
   ObsStatus,
@@ -115,6 +115,15 @@ export interface UpdateCheckResult {
   release_url: string;
   published_at: string | null;
   release_notes: string | null;
+  can_auto_update: boolean;
+  download_size: number | null;
+}
+
+export interface UpdateProgress {
+  phase: "downloading" | "preparing" | "restarting";
+  downloaded_bytes: number;
+  total_bytes: number;
+  message: string;
 }
 
 function normalizeError(error: unknown): CommandError {
@@ -161,7 +170,6 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_beatmaphub_recommendations") return [] as T;
   if (command === "list_collections") return { folders: [], sources: [] } as T;
   if (command === "get_lazer_disk_usage") return { path: "C:\\osu!", total_size: 1610612736, unique_size: 536870912, file_count: 4096 } as T;
-  if (command === "read_lazer_realm_beatmap_sets") return { realm_path: "C:\\osu!\\client.realm", table_count: 16, beatmap_set_count: 2, beatmap_sets: [{ id: "fc56eb02bba7428499af65e5c2c80c73", online_id: -1, artist: "cYsmix", title: "triangles", creator: "peppy", beatmap_count: 1, delete_pending: false, files: [{ filename: "audio.mp3", hash: "47b895484e7751f3ab429694ff6dbf21e774ab023e4f6c5b481476f04ff22f0f" }, { filename: "cYsmix - triangles (peppy) [peppy].osu", hash: "a1556d0801b3a6b175dda32ef546f0ec812b400499f575c44fccbe9c67f9b1e5" }] }] } as T;
   if (command === "export_local_beatmap_set") return `${args?.outDir ?? "C:\\Export"}/export.osz` as T;
   if (command === "export_local_skin") return `${args?.outDir ?? "C:\\Export"}/export.osk` as T;
   if (command === "dedupe_lazer_files") return { dry_run: args?.dryRun !== false, cancelled: false, lazer_files_root: "C:\\osu\\files", stable_roots: ["C:\\osu!\\Songs"], lazer_file_count: 4096, lazer_total_size: 1610612736, already_linked_count: 1024, already_linked_size: 402653184, hashed_stable_count: 2048, candidate_count: 819, reclaimable_size: 645922816, linked_count: 0, linked_size: 0, skipped_cross_volume_count: 0, skipped_cross_volume_size: 0, failed_count: 0, failed: [] } as T;
@@ -174,6 +182,9 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     }, statistics_rulesets: null,
   };
   if (command === "get_own_profile") return { data: profile, fetched_at: new Date().toISOString(), stale: false } as T;
+  if (command === "get_osekai_medals") return { content: [{ Medal_ID: 1, Name: "Preview Medal", Description: "完成一次练习", Instructions: "在 osu! 中完成目标。", Link: "all-secret-jackpot.png" }] } as T;
+  if (command === "get_osekai_medal_detail") return { content: [{ Medal_ID: Number(args?.medalId ?? 1), Name: "Preview Medal", Description: "完成一次练习", Instructions: "在 osu! 中完成目标。", Solution: "完成目标即可解锁。", Link: "all-secret-jackpot.png" }] } as T;
+  if (command === "get_osekai_medal_beatmaps") return { content: [] } as T;
   if (command === "get_scores") return { data: [], fetched_at: new Date().toISOString(), stale: false } as T;
   if (command === "get_game_status") return { clients: [{ client: "stable", running: false, executable: null, detected_at: new Date().toISOString() }, { client: "lazer", running: false, executable: null, detected_at: new Date().toISOString() }] } as T;
   if (command === "get_game_session_status") return null as T;
@@ -193,44 +204,65 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     release_url: "https://github.com/osuplusplus/OPP/releases/latest",
     published_at: null,
     release_notes: "当前为浏览器预览版本。",
+    can_auto_update: false,
+    download_size: null,
   } as T;
   if (command === "get_similarity_index_status") return {
-    state: "unconfigured",
+    ruleset: args?.ruleset === "mania" || args?.ruleset === "taiko" || args?.ruleset === "fruits" ? args.ruleset : "osu",
+    state: args?.ruleset === "taiko" || args?.ruleset === "fruits" ? "unsupported" : "unconfigured",
     directory: null,
-    message: "尚未配置本地相似谱面索引。",
+    message: args?.ruleset === "taiko" || args?.ruleset === "fruits" ? "当前模式暂不支持相似谱面。" : "尚未配置本地相似谱面索引。",
     record_count: null,
     analyzer_version: null,
     normalization_version: null,
     algorithm_id: null,
     data_cutoff_at: null,
     supports_dynamic_weighting: false,
+    records_by_key_count: null,
   } as T;
   if (command === "configure_similarity_index") return {
-    state: args?.directory ? "ready" : "unconfigured",
-    directory: args?.directory ?? null,
-    message: args?.directory ? "本地索引已就绪。" : "尚未配置本地相似谱面索引。",
+    ruleset: args?.ruleset === "mania" || args?.ruleset === "taiko" || args?.ruleset === "fruits" ? args.ruleset : "osu",
+    state: args?.ruleset === "taiko" || args?.ruleset === "fruits" ? "unsupported" : args?.directory ? "ready" : "unconfigured",
+    directory: args?.ruleset === "taiko" || args?.ruleset === "fruits" ? null : args?.directory ?? null,
+    message: args?.ruleset === "taiko" || args?.ruleset === "fruits" ? "当前模式暂不支持相似谱面。" : args?.directory ? "本地索引已就绪。" : "尚未配置本地相似谱面索引。",
     record_count: null,
     analyzer_version: null,
     normalization_version: null,
     algorithm_id: null,
     data_cutoff_at: null,
-    supports_dynamic_weighting: Boolean(args?.directory),
+    supports_dynamic_weighting: (args?.ruleset == null || args.ruleset === "osu") && Boolean(args?.directory),
+    records_by_key_count: args?.ruleset === "mania" && args?.directory ? { 4: 18550, 6: 800, 7: 4201 } : null,
   } as T;
   if (command === "query_similar_beatmaps" || command === "recommend_similar_beatmaps") {
+    const similarityRequest = args?.request as SimilarityQueryRequest | SimilarityRecommendationRequest | undefined;
+    if (similarityRequest?.ruleset === "mania") {
+      const difficulty = { speed: 0.72, hand_stream: 0.68, jack: 0.44, chordjack: 0.61, technical: 0.57, stamina: 0.64, long_note: 0.18, course: 0.51 };
+      const style = { stream: 0.72, chordstream: 0.58, jacks: 0.37, coordination: 0.49, density: 0.66, wildcard: 0.21, chord_rate: 0.34, large_chord_rate: 0.12, rotation_rate: 0.48, anchor_rate: 0.22, rhythm_entropy: 0.59, transition_entropy: 0.54, ln_note_ratio: 0.08, hold_occupancy: 0.06, hybrid_row_ratio: 0.04, peak_to_sustain_gap: 0.31 };
+      const base = { bpm: 180, length_seconds: 132, active_length_seconds: 116, note_count: 812, row_count: 687, avg_nps: 7, peak_nps: 12.4, break_density: 0.12, sv_change_rate: 0 };
+      const target = { ruleset: "mania" as const, beatmap_id: 3001, beatmapset_id: 701, artist: "Synthetic Artist", title: "Key Reference", version: "4K Another", creator: "Preview Mapper", online_url: "https://osu.ppy.sh/beatmaps/3001", key_count: 4 as const, family: "rc" as const, pattern: "stream" as const, difficulty, style, base, difficulty_percentile: 0.78, difficulty_band: 7 };
+      const results = [
+        { ...target, beatmap_id: 3101, beatmapset_id: 711, artist: "Parallel Keys", title: "Stream Motion", version: "4K Hyper", difficulty: { ...difficulty, speed: 0.7 }, final_distance: 0.054, distance_components: { skill: 0.04, pattern: 0.06, structure: 0.08, difficulty: 0.03, context: 0.05 } },
+        { ...target, beatmap_id: 3102, beatmapset_id: 712, artist: "Night Matrix", title: "Hand Balance", version: "4K Another", family: "hb" as const, pattern: "coordination" as const, final_distance: 0.089, distance_components: { skill: 0.07, pattern: 0.09, structure: 0.11, difficulty: 0.05, context: 0.08 } },
+      ];
+      if (command === "recommend_similar_beatmaps") {
+        return { ruleset: "mania", kind: "kind" in similarityRequest ? similarityRequest.kind : "recent", seed_count: 12, skipped_seed_count: 1, groups: [{ key_count: 4, seed_count: 12, results: results.map((result) => ({ ...result, recommended_by: target })) }] } as T;
+      }
+      return { ruleset: "mania", target: { ...target, source: "index", analyzer_version: 1, normalization_version: 1 }, results } as T;
+    }
     const feature = { aim: 0.72, speed: 0.64, reading: 0.81, slider: 0.28, overlap: 0.57 };
     const base = { bpm: 186, ar: 9.2, od: 8.6, cs: 4, hp: 6, length_seconds: 124, object_count: 612, object_density: 4.94, circle_ratio: 0.58, slider_ratio: 0.4, spinner_ratio: 0.02, max_combo: 902 };
-    const target = { beatmap_id: 1001, beatmapset_id: 501, artist: "Synthetic Artist", title: "Reference Pattern", version: "Insane", creator: "Preview Mapper", online_url: "https://osu.ppy.sh/b/1001", star_rating: 6.1, difficulty: feature, base };
+    const target = { ruleset: "osu" as const, beatmap_id: 1001, beatmapset_id: 501, artist: "Synthetic Artist", title: "Reference Pattern", version: "Insane", creator: "Preview Mapper", online_url: "https://osu.ppy.sh/b/1001", star_rating: 6.1, difficulty: feature, base };
     const dynamicProfile = { target_star_rating: 6.1, candidate_min_section: 57, candidate_max_section: 65, stats_min_section: 57, stats_max_section: 65, sample_count: 842, mean: { aim: 0.5, speed: 0.5, reading: 0.5, slider: 0.5, overlap: 0.5 }, stddev: { aim: 0.12, speed: 0.12, reading: 0.12, slider: 0.12, overlap: 0.12 }, delta: { aim: 0.22, speed: 0.14, reading: 0.31, slider: -0.22, overlap: 0.07 }, z_score: { aim: 1.83, speed: 1.17, reading: 2.58, slider: 1.83, overlap: 0.58 }, weights: { aim: 1.63, speed: 1.13, reading: 2, slider: 1.63, overlap: 0.69 }, parameter_mean: { ar: 9, cs: 4, od: 8.4 }, parameter_stddev: { ar: 0.5, cs: 0.4, od: 0.6 }, parameter_delta: { ar: 0.2, cs: 0, od: 0.2 }, parameter_z_score: { ar: 0.4, cs: 0, od: 0.33 }, parameter_group_z_score: 0.3, parameter_weight: 0.48, fallback_reason: null };
     const results = [
-      { beatmap_id: 2001, beatmapset_id: 601, artist: "Signal Garden", title: "Parallel Motion", version: "Another", creator: "Mapper A", online_url: "https://osu.ppy.sh/b/2001", star_rating: 6.0, difficulty: { ...feature, aim: 0.7, reading: 0.78 }, base: { ...base, bpm: 184 }, final_distance: 0.0462, difficulty_distance: 0.041, base_distance: 0.067 },
-      { beatmap_id: 2002, beatmapset_id: 602, artist: "Night Circuit", title: "Crossing Lines", version: "Extra", creator: "Mapper B", online_url: "https://osu.ppy.sh/b/2002", star_rating: 6.3, difficulty: { ...feature, speed: 0.69, overlap: 0.61 }, base: { ...base, bpm: 192, ar: 9.4 }, final_distance: 0.0824, difficulty_distance: 0.074, base_distance: 0.116 },
-      { beatmap_id: 2003, beatmapset_id: 603, artist: "Blue Window", title: "Readable Noise", version: "Expert", creator: "Mapper C", online_url: "https://osu.ppy.sh/b/2003", star_rating: 5.9, difficulty: { ...feature, slider: 0.34, reading: 0.75 }, base: { ...base, bpm: 178, length_seconds: 138 }, final_distance: 0.1197, difficulty_distance: 0.108, base_distance: 0.166 },
+      { ruleset: "osu" as const, beatmap_id: 2001, beatmapset_id: 601, artist: "Signal Garden", title: "Parallel Motion", version: "Another", creator: "Mapper A", online_url: "https://osu.ppy.sh/b/2001", star_rating: 6.0, difficulty: { ...feature, aim: 0.7, reading: 0.78 }, base: { ...base, bpm: 184 }, final_distance: 0.0462, difficulty_distance: 0.041, base_distance: 0.067 },
+      { ruleset: "osu" as const, beatmap_id: 2002, beatmapset_id: 602, artist: "Night Circuit", title: "Crossing Lines", version: "Extra", creator: "Mapper B", online_url: "https://osu.ppy.sh/b/2002", star_rating: 6.3, difficulty: { ...feature, speed: 0.69, overlap: 0.61 }, base: { ...base, bpm: 192, ar: 9.4 }, final_distance: 0.0824, difficulty_distance: 0.074, base_distance: 0.116 },
+      { ruleset: "osu" as const, beatmap_id: 2003, beatmapset_id: 603, artist: "Blue Window", title: "Readable Noise", version: "Expert", creator: "Mapper C", online_url: "https://osu.ppy.sh/b/2003", star_rating: 5.9, difficulty: { ...feature, slider: 0.34, reading: 0.75 }, base: { ...base, bpm: 178, length_seconds: 138 }, final_distance: 0.1197, difficulty_distance: 0.108, base_distance: 0.166 },
     ];
     if (command === "recommend_similar_beatmaps") {
       const request = args?.request as SimilarityRecommendationRequest | undefined;
-      return { kind: request?.kind ?? "recent", seed_count: 20, skipped_seed_count: 0, results: results.map((result) => ({ ...result, recommended_by: target })), dynamic_profiles: [{ ...dynamicProfile, seed_beatmap_id: target.beatmap_id }] } as T;
+      return { ruleset: "osu", kind: request?.kind ?? "recent", seed_count: 20, skipped_seed_count: 0, results: results.map((result) => ({ ...result, recommended_by: target })), dynamic_profiles: [{ ...dynamicProfile, seed_beatmap_id: target.beatmap_id }] } as T;
     }
-    return { target: { ...target, source: "index", analyzer_version: 3, normalization_version: 1 }, results, dynamic_profile: dynamicProfile } as T;
+    return { ruleset: "osu", target: { ...target, source: "index", analyzer_version: 4, normalization_version: 1 }, results, dynamic_profile: dynamicProfile } as T;
   }
   if (command === "update_settings") return args?.settings as T;
   if (command === "ignore_update_version") return {
@@ -273,8 +305,6 @@ export const desktopApi = {
     call<BeatmapHubImportResult>("import_beatmaphub_pack", { shareId, resolved }),
   getCapabilities: () => call<PlatformCapabilities>("get_capabilities"),
   getLazerDiskUsage: () => call<LazerDiskUsage>("get_lazer_disk_usage"),
-  readLazerRealmBeatmapSets: () =>
-    call<LazerRealmReadResult>("read_lazer_realm_beatmap_sets"),
   dedupeLazerFiles: (dryRun: boolean) =>
     call<LazerDedupeResult>("dedupe_lazer_files", { dryRun }),
   cancelLazerDedupe: () => call<void>("cancel_lazer_dedupe"),
@@ -304,6 +334,9 @@ export const desktopApi = {
       ruleset,
       forceRefresh,
     }),
+  getOsekaiMedals: () => call<{ content?: unknown[] }>("get_osekai_medals"),
+  getOsekaiMedalDetail: (medalId: number) => call<{ content?: unknown[] }>("get_osekai_medal_detail", { medalId }),
+  getOsekaiMedalBeatmaps: (medalId: number) => call<{ content?: unknown[] }>("get_osekai_medal_beatmaps", { medalId }),
   getScores: (ruleset: Ruleset, category: ScoreCategory, offset = 0, limit = 100, forceRefresh = false) =>
     call<Cached<Score[]>>("get_scores", {
       ruleset,
@@ -355,6 +388,8 @@ export const desktopApi = {
   exitApp: () => call<void>("exit_app"),
   clearProfileCache: () => call<void>("clear_profile_cache"),
   checkForUpdates: () => call<UpdateCheckResult>("check_for_updates"),
+  downloadAndInstallUpdate: (expectedVersion: string) =>
+    call<void>("download_and_install_update", { expectedVersion }),
   ignoreUpdateVersion: (version: string) =>
     call<AppSettings>("ignore_update_version", { version }),
   getSettings: () => call<AppSettings>("get_settings"),
@@ -416,10 +451,10 @@ export const desktopApi = {
     call<LocalSourceStatus[]>("get_local_sources"),
   getLocalIndexStatus: () =>
     call<LocalIndexLoadStatus>("get_local_index_status"),
-  getSimilarityIndexStatus: () =>
-    call<SimilarityIndexStatus>("get_similarity_index_status"),
-  configureSimilarityIndex: (directory: string | null) =>
-    call<SimilarityIndexStatus>("configure_similarity_index", { directory }),
+  getSimilarityIndexStatus: (ruleset: Ruleset) =>
+    call<SimilarityIndexStatus>("get_similarity_index_status", { ruleset }),
+  configureSimilarityIndex: (ruleset: Ruleset, directory: string | null) =>
+    call<SimilarityIndexStatus>("configure_similarity_index", { ruleset, directory }),
   querySimilarBeatmaps: (request: SimilarityQueryRequest) =>
     call<SimilarityQueryResponse>("query_similar_beatmaps", { request }),
   recommendSimilarBeatmaps: (request: SimilarityRecommendationRequest) =>
@@ -602,6 +637,12 @@ export const desktopApi = {
     if (!isTauri()) return () => undefined;
     return listen<OAuthResult>("oauth-result", (event) => handler(event.payload));
   },
+  onUpdateProgress: async (
+    handler: (progress: UpdateProgress) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<UpdateProgress>("update-progress", (event) => handler(event.payload));
+  },
   onLocalScanProgress: async (
     handler: (progress: LocalScanProgress) => void,
   ): Promise<UnlistenFn> => {
@@ -641,6 +682,85 @@ export const desktopApi = {
     if (!isTauri()) return () => undefined;
     return listen<ReplayRenderProgress>("ordr-render-progress", (event) =>
       handler(event.payload),
+    );
+  },
+  liveRenderOpen: (
+    beatmapPath: string,
+    replayPath: string,
+    options: LiveRenderOptions,
+    rect: { x: number; y: number; width: number; height: number },
+  ) =>
+    call<{ durationMs: number }>("live_render_open", {
+      beatmapPath,
+      replayPath,
+      options,
+      rect,
+    }),
+  liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
+    call<void>("live_render_move", { rect }),
+  liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),
+  liveRenderSetOptions: (options: LiveRenderOptions) =>
+    call<void>("live_render_set_options", { options }),
+  liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
+  liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
+  liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
+  chooseFfmpegExecutable: async (defaultPath?: string | null) => {
+    if (!isTauri()) return null;
+    const isWindows = navigator.userAgent.includes("Windows");
+    const selected = await openDialog({
+      directory: false,
+      multiple: false,
+      defaultPath: defaultPath ?? undefined,
+      title: isWindows ? "选择 ffmpeg.exe" : "选择 ffmpeg 可执行文件",
+      ...(isWindows ? { filters: [{ name: "FFmpeg", extensions: ["exe"] }] } : {}),
+    });
+    return typeof selected === "string" ? selected : null;
+  },
+  liveRenderExport: (
+    beatmapPath: string,
+    replayPath: string,
+    options: LiveRenderOptions,
+    params: LiveExportParams,
+  ) =>
+    call<string>("live_render_export", {
+      beatmapPath,
+      replayPath,
+      options,
+      params,
+    }),
+  liveRenderExportCancel: () => call<void>("live_render_export_cancel"),
+  liveRenderOpenExportOutput: (path: string) =>
+    call<void>("live_render_open_export_output", { path }),
+  onLiveRenderExport: async (
+    handler: (progress: { phase: string; frame: number; total: number; message: string }) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<{
+      phase: string;
+      frame: number;
+      total: number;
+      message: string;
+    }>("live-render-export", (event) => handler(event.payload));
+  },
+  liveRenderPlay: () => call<void>("live_render_play"),
+  liveRenderPause: () => call<void>("live_render_pause"),
+  liveRenderClose: () => call<void>("live_render_close"),
+  onLiveRenderTime: async (
+    handler: (state: { active: boolean; playing: boolean; timeMs: number; durationMs: number }) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<{
+      active: boolean;
+      playing: boolean;
+      time_ms: number;
+      duration_ms: number;
+    }>("live-render-time", (event) =>
+      handler({
+        active: event.payload.active,
+        playing: event.payload.playing,
+        timeMs: event.payload.time_ms,
+        durationMs: event.payload.duration_ms,
+      }),
     );
   },
   onDanserRenderProgress: async (
@@ -688,4 +808,26 @@ export function useCapabilities() {
     staleTime: Infinity,
     retry: false,
   });
+}
+
+export interface LiveExportParams {
+  outPath: string;
+  width: number;
+  height: number;
+  fps: number;
+  encoder: "x264" | "x265" | "nvenc" | "hevc_nvenc";
+  quality: number;
+  audio: boolean;
+  hitsounds: boolean;
+}
+
+export interface LiveRenderOptions {
+  urBar: boolean;
+  followPoints: boolean;
+  keyOverlay: boolean;
+  bg: boolean;
+  bgOpacity: number;
+  audio: boolean;
+  audioOffset: number;
+  hitsounds: boolean;
 }

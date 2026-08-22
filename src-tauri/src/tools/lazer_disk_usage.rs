@@ -25,7 +25,7 @@ pub struct LazerDiskUsage {
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_lazer_disk_usage() -> CommandResult<LazerDiskUsage> {
-    let root = platform::lazer_files_root()
+    let root = platform::resolve_lazer_data_root()
         .ok_or_else(|| CommandError::new("LAZER_NOT_FOUND", "未找到 osu!lazer 数据目录"))?;
     let path = root.display().to_string();
     let (total_size, unique_size, file_count) =

@@ -21,16 +21,44 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::{
-    error::{CommandError, CommandResult},
-    game_session::load_game_replay_file,
     app::models::DanserRenderPreferences,
     app::state::AppState,
+    error::{CommandError, CommandResult},
+    game_session::load_game_replay_file,
 };
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 use discovery::{ffmpeg_available, find_danser, list_profiles_for, resolve_danser_path};
+
+/// 返回可用的 FFmpeg 可执行文件路径解析
+pub fn resolve_ffmpeg_path(
+    saved_ffmpeg: Option<&str>,
+    saved_danser: Option<&str>,
+) -> Option<std::path::PathBuf> {
+    if let Some(manual) = saved_ffmpeg {
+        let path = std::path::PathBuf::from(manual);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    if let Some(p) = crate::platform::find_in_path("ffmpeg")
+        .or_else(|| crate::platform::find_in_path("ffmpeg.exe"))
+    {
+        return Some(p);
+    }
+    let executable = discovery::resolve_danser_path(saved_danser)?;
+    let root = executable.parent()?;
+    ["ffmpeg.exe", "ffmpeg"].iter().find_map(|name| {
+        let direct = root.join(name);
+        if direct.is_file() {
+            return Some(direct);
+        }
+        let sub = root.join("ffmpeg").join(name);
+        sub.is_file().then_some(sub)
+    })
+}
 pub use models::DanserRuntime;
 use models::{
     DanserEnqueueRequest, DanserRenderJob, DanserRenderProgress, DanserStatus, DanserTask,

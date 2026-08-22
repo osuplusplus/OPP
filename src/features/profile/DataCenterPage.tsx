@@ -1,48 +1,36 @@
-import { useEffect } from "react";
-import { BarChart3, Database, Pin, UserRound } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
-import { PageHeader } from "../../shared/components/PageHeader";
-import { Card } from "../../shared/components/ui";
-import { ScoresPage } from "../scores/ScoresPage";
-import { OverviewPage } from "./OverviewPage";
-import { ProfileDetailsPage } from "./ProfileDetailsPage";
+import { BarChart3, Database, History, Medal, Pin, UserRound } from "lucide-react";
+import { NavLink, Outlet } from "react-router-dom";
+import { Avatar } from "../../shared/components/Avatar";
+import { Badge, Card, Skeleton } from "../../shared/components/ui";
+import { useMode } from "../../app/ModeContext";
+import { useOwnProfile } from "./api";
+import { rulesetLabels } from "../../shared/lib/format";
 
 const sections = [
-  ["overview", "概览", Database],
-  ["scores", "BP 1–100", BarChart3],
-  ["bp-101-200", "BP 101–200", BarChart3],
-  ["pinned", "Pinned", Pin],
-  ["profile", "详细档案", UserRound],
+  ["overview", "概览", Database], ["scores", "最佳成绩", BarChart3],
+  ["recent", "近期成绩", History], ["pinned", "Pinned", Pin],
+  ["medals", "玩家奖牌", Medal], ["profile", "详细档案", UserRound],
 ] as const;
 
 export function DataCenterPage() {
-  const { hash } = useLocation();
-
-  useEffect(() => {
-    if (!hash) return;
-    const target = document.getElementById(hash.slice(1));
-    if (!target) return;
-    const frame = window.requestAnimationFrame(() => target.scrollIntoView({ block: "start" }));
-    return () => window.cancelAnimationFrame(frame);
-  }, [hash]);
-
-  return (
-    <>
-      <PageHeader title="数据中心" />
-      <Card className="mb-7 flex flex-wrap gap-1.5 p-2">
-        {sections.map(([id, label, Icon]) => (
-          <Link className="inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-slate-400 transition hover:bg-white/[0.06] hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)]" to={`/data#${id}`} key={id}>
-            <Icon className="size-3.5" />{label}
-          </Link>
-        ))}
-      </Card>
-      <div className="space-y-12">
-        <section className="scroll-mt-[124px]" id="overview"><OverviewPage /></section>
-        <section className="scroll-mt-[124px]" id="scores"><ScoresPage embedded title="最佳成绩 · BP 1–100" /></section>
-        <section className="scroll-mt-[124px]" id="bp-101-200"><ScoresPage embedded offset={100} title="BP 101–200" /></section>
-        <section className="scroll-mt-[124px]" id="pinned"><ScoresPage category="pinned" embedded title="Pinned 成绩" /></section>
-        <section className="scroll-mt-[124px]" id="profile"><ProfileDetailsPage /></section>
+  const { ruleset } = useMode();
+  const profileQuery = useOwnProfile(ruleset);
+  const profile = profileQuery.data?.data;
+  return <div className="space-y-5">
+    <Card className="relative overflow-hidden border-white/[0.1] p-0">
+      <div className="relative h-36 overflow-hidden bg-gradient-to-r from-cyan-400/20 via-slate-900 to-pink-400/15">
+        {profile?.cover_url ? <img alt="" className="absolute inset-0 size-full object-cover opacity-50" src={profile.cover_url} /> : null}
+        <div className="absolute inset-0 bg-gradient-to-t from-[var(--surface-panel)] via-transparent to-black/10" />
       </div>
-    </>
-  );
+      <div className="relative -mt-10 flex items-end gap-4 px-6 pb-5">
+        {profileQuery.isLoading ? <Skeleton className="size-20 rounded-full" /> : profile ? <Avatar profile={profile} className="size-20 rounded-full border-4 border-[var(--surface-panel)]" /> : <span className="size-20 rounded-full border-4 border-[var(--surface-panel)] bg-white/10" />}
+        <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold text-white">{profile?.username ?? "数据中心"}</h1>{profile?.country_code ? <Badge tone="cyan">{profile.country_code}</Badge> : null}</div><p className="mt-1 text-xs text-slate-400">{profile ? `${rulesetLabels[ruleset]} · osu! 个人资料` : "加载个人资料…"}</p></div>
+        {profile?.is_supporter ? <Badge tone="pink">Supporter</Badge> : null}
+      </div>
+    </Card>
+    <nav aria-label="数据中心页面" className="sticky top-[96px] z-20 flex overflow-x-auto border-b border-white/[0.1] bg-[var(--surface)]/95 backdrop-blur-md">
+      {sections.map(([id, label, Icon]) => <NavLink className="inline-flex shrink-0 items-center gap-2 border-b-2 border-transparent px-4 py-3 text-xs font-semibold text-slate-500 transition hover:text-white [&.active]:border-[var(--theme-primary)] [&.active]:text-[var(--theme-primary)]" end to={`/data/${id}`} key={id}><Icon className="size-3.5" />{label}</NavLink>)}
+    </nav>
+    <main><Outlet /></main>
+  </div>;
 }

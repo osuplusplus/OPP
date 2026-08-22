@@ -100,28 +100,28 @@ impl RuntimeError {
         self.kind
     }
 
-    fn invalid(message: impl Into<String>) -> Self {
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
         Self {
             kind: RuntimeErrorKind::Invalid,
             message: message.into(),
         }
     }
 
-    fn incompatible(message: impl Into<String>) -> Self {
+    pub(crate) fn incompatible(message: impl Into<String>) -> Self {
         Self {
             kind: RuntimeErrorKind::Incompatible,
             message: message.into(),
         }
     }
 
-    fn unknown() -> Self {
+    pub(crate) fn unknown() -> Self {
         Self {
             kind: RuntimeErrorKind::UnknownBeatmap,
             message: "beatmap is not present in the configured index".into(),
         }
     }
 
-    fn analysis(message: impl Into<String>) -> Self {
+    pub(crate) fn analysis(message: impl Into<String>) -> Self {
         Self {
             kind: RuntimeErrorKind::Analysis,
             message: message.into(),

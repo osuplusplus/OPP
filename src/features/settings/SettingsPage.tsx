@@ -31,6 +31,7 @@ import type {
   Ruleset,
   ThemeColor,
   DanserStatus,
+  FfmpegStatusInfo,
 } from "../../shared/types/osu";
 import { authQueryKey, useAuthStatus } from "../auth/api";
 import { localSourcesKey, useLocalSources } from "../local-analysis/api";
@@ -70,12 +71,14 @@ const base: AppSettings = {
   ignored_update_version: null,
   reduce_motion: false,
   similarity_index_directory: null,
+  mania_similarity_index_directory: null,
   beatmap_download_directory: null,
   default_beatmap_download_provider: "sayobot",
   include_video_in_beatmap_downloads: true,
   open_downloaded_beatmaps_after_download: false,
   replay_export_directory: null,
   danser_executable_path: null,
+  ffmpeg_executable_path: null,
   auto_export_new_replays_with_danser: false,
   danser_render_preferences: {
     settings_profile: "default", skin: "", skip: true, quickstart: false,
@@ -145,6 +148,8 @@ export function SettingsPage() {
   const [updateBusy, setUpdateBusy] = useState(false);
   const [danserStatus, setDanserStatus] = useState<DanserStatus | null>(null);
   const [danserBusy, setDanserBusy] = useState(false);
+  const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatusInfo | null>(null);
+  const [ffmpegBusy, setFfmpegBusy] = useState(false);
   const settings: AppSettings = {
     ...base,
     ...stored.data,
@@ -174,6 +179,21 @@ export function SettingsPage() {
       if (selected) await save({ ...settings, danser_executable_path: selected });
       await refreshDanser();
     } finally { setDanserBusy(false); }
+  };
+
+  const refreshFfmpeg = async () => {
+    try { setFfmpegStatus(await desktopApi.liveRenderGetFfmpegStatus()); } catch { setFfmpegStatus(null); }
+  };
+
+  useEffect(() => { const timer = window.setTimeout(() => void refreshFfmpeg(), 0); return () => window.clearTimeout(timer); }, [settings.ffmpeg_executable_path, settings.danser_executable_path]);
+
+  const chooseFfmpeg = async () => {
+    setFfmpegBusy(true);
+    try {
+      const selected = await desktopApi.chooseFfmpegExecutable(settings.ffmpeg_executable_path);
+      if (selected) await save({ ...settings, ffmpeg_executable_path: selected });
+      await refreshFfmpeg();
+    } finally { setFfmpegBusy(false); }
   };
 
   const chooseReplayExportDirectory = async () => {
@@ -372,7 +392,7 @@ export function SettingsPage() {
             <div className="mt-5 space-y-3">
               {clients.map(([client, label]) => {
                 const source = sources.data?.find((item) => item.client === client);
-                const path = source?.configured_path ?? source?.install_root ?? source?.data_root;
+                const path = source?.configured_path ?? source?.data_root ?? source?.install_root;
                 return (
                   <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4" key={client}>
                     <div className="flex items-start justify-between gap-3">
@@ -412,6 +432,13 @@ export function SettingsPage() {
                 <div className="flex items-start gap-3"><Film className="mt-0.5 size-5 text-[var(--theme-primary)]" /><div className="min-w-0 flex-1"><p className="font-semibold text-slate-100">Danser CLI</p><p className="mt-1 break-all text-xs text-slate-400">{danserStatus?.executable_path ?? (navigator.userAgent.includes("Windows") ? "未检测到 danser-cli.exe" : "未在 PATH 中找到 danser")}</p><p className="mt-1 text-xs text-slate-500">{danserStatus?.message ?? "可自动检测 PATH，或手动选择便携版程序。"}</p></div></div>
                 <div className="mt-3 flex flex-wrap gap-2"><Button loading={danserBusy} onClick={() => void chooseDanser()} size="sm" variant="secondary"><FolderOpen className="size-4" />选择程序</Button><Button disabled={danserBusy} onClick={() => void save({ ...settings, danser_executable_path: null }).then(refreshDanser)} size="sm" variant="ghost"><RotateCcw className="size-4" />自动检测</Button><Button disabled={danserBusy} onClick={() => void refreshDanser()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新状态</Button></div>
               </div>
+              <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3"><Film className="mt-0.5 size-5 text-[var(--theme-primary)]" /><div className="min-w-0 flex-1"><p className="font-semibold text-slate-100">FFmpeg</p><p className="mt-1 break-all text-xs text-slate-400">{ffmpegStatus?.path ?? (navigator.userAgent.includes("Windows") ? "未检测到 ffmpeg.exe" : "未在 PATH 中找到 ffmpeg")}</p><p className="mt-1 text-xs text-slate-500">{ffmpegStatus?.version ?? "实时预览导出与本地渲染使用;可自动检测 PATH 或 danser 发行包,也可手动指定。"}</p></div></div>
+                  {ffmpegStatus?.path ? <Badge tone={ffmpegStatus.source === "manual" ? "cyan" : "success"}>{ffmpegStatus.source === "manual" ? "手动指定" : ffmpegStatus.source === "path" ? "PATH 检测" : "danser 自带"}</Badge> : null}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2"><Button loading={ffmpegBusy} onClick={() => void chooseFfmpeg()} size="sm" variant="secondary"><FolderOpen className="size-4" />选择程序</Button><Button disabled={ffmpegBusy} onClick={() => void save({ ...settings, ffmpeg_executable_path: null }).then(refreshFfmpeg)} size="sm" variant="ghost"><RotateCcw className="size-4" />自动检测</Button><Button disabled={ffmpegBusy} onClick={() => void refreshFfmpeg()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新状态</Button></div>
+              </div>
               <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4"><p className="text-sm font-semibold text-slate-100">统一回放导出目录</p><p className="mt-1 break-all text-xs text-slate-400">{settings.replay_export_directory ?? "尚未选择；首次本地渲染前必须设置"}</p><div className="mt-3"><Button onClick={() => void chooseReplayExportDirectory()} size="sm" variant="secondary"><FolderOpen className="size-4" />{settings.replay_export_directory ? "修改位置" : "选择位置"}</Button></div></div>
               <Toggle checked={Boolean(settings.auto_export_new_replays_with_danser)} description="游戏退出后的总结面板仍会让你确认；开启后，可渲染的新回放会默认全部选中。" label="总结中默认选中新回放" onChange={(value) => void save({ ...settings, auto_export_new_replays_with_danser: value })} />
               <p className="text-xs leading-5 text-amber-200/80">Danser 仅支持 osu!standard；本地导出还需要 Danser 能访问 FFmpeg。</p>
@@ -423,7 +450,7 @@ export function SettingsPage() {
             <div className="mt-5 space-y-3">
               <Toggle
                 checked={settings.similarity_preferences.advanced_enabled}
-                description="开启后可在相似谱面页面切换动态或手动模式，并调整星数范围及六组推荐权重。"
+                description="开启后可调整 osu!standard 的六组固定推荐权重；Mania 使用 Analyzer 分类优先排序与 NM / DT / HT Mod 池。"
                 label="相似谱面高级设置"
                 onChange={(value) => void save({
                   ...settings,

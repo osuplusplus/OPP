@@ -4,12 +4,15 @@ mod collections;
 mod danser;
 mod error;
 mod game_session;
+mod live_render;
 mod local_analysis;
 mod netease_music;
 mod obs;
+mod osekai;
 mod online_beatmaps;
 mod osu_api;
 mod platform;
+mod portable_update;
 
 mod app;
 mod replay_render;
@@ -29,6 +32,7 @@ use account::{
 };
 
 use app::state::AppState;
+use osekai::{get_osekai_medal_beatmaps, get_osekai_medal_detail, get_osekai_medals};
 
 use beatmaphub::{
     create_beatmaphub_comment, create_beatmaphub_device_link, create_beatmaphub_profile,
@@ -51,6 +55,11 @@ use collections::{
 use danser::{
     cancel_danser_render, enqueue_danser_renders, get_danser_render_queue, get_danser_status,
     list_danser_profiles, open_danser_output, start_danser_render_queue,
+};
+use live_render::{
+    live_render_check_ffmpeg, live_render_check_nvenc, live_render_close, live_render_export, live_render_export_cancel,
+    live_render_move, live_render_open, live_render_open_export_output, live_render_pause,
+    live_render_get_ffmpeg_status, live_render_play, live_render_seek, live_render_set_options,
 };
 use game_session::{
     get_game_session_status, get_game_status, inspect_game_replay, list_game_media,
@@ -96,7 +105,7 @@ use tools::{
     calculate_beatmap_pp, cancel_lazer_dedupe, convert_mania_beatmaps, dedupe_lazer_files,
     generate_beatmap_preview, get_default_file_clients, get_lazer_disk_usage,
     inspect_beatmap_preview, open_beatmap_preview_output, open_local_resource_in_explorer,
-    read_beatmap_preview_output, read_lazer_realm_beatmap_sets, save_beatmap_preview_output,
+    read_beatmap_preview_output, save_beatmap_preview_output,
     set_default_file_client, set_display_gamma,
 };
 use tosu::{
@@ -104,7 +113,12 @@ use tosu::{
     stop_tosu,
 };
 use trainer::generate_trainer_beatmap;
-use update_check::{check_for_updates, ignore_update_version};
+use update_check::{check_for_updates, download_and_install_update, ignore_update_version};
+
+/// 主程序入口在初始化 Tauri 前调用，用于把临时 EXE 切换到无界面的更新助手模式。
+pub fn run_portable_update_helper_if_requested() -> bool {
+    portable_update::run_helper_if_requested()
+}
 
 #[tauri::command]
 /// 立即结束应用进程；仅由显式的退出操作调用，不参与窗口隐藏或托盘最小化逻辑。
@@ -121,6 +135,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             app.manage(AppState::new(&app_data_dir)?);
@@ -174,6 +195,8 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            // 新版本稳定运行后再延迟清理更新助手与旧 EXE，保留早期崩溃恢复空间。
+            portable_update::schedule_stale_cleanup();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -226,6 +249,9 @@ pub fn run() {
             disconnect_osu,
             get_own_profile,
             get_scores,
+            get_osekai_medals,
+            get_osekai_medal_detail,
+            get_osekai_medal_beatmaps,
             search_online_beatmapsets,
             collect_online_beatmapsets,
             get_online_beatmapset,
@@ -234,6 +260,19 @@ pub fn run() {
             calculate_beatmap_pp,
             submit_replay_render,
             get_danser_status,
+            live_render_close,
+            live_render_move,
+            live_render_open,
+            live_render_pause,
+            live_render_play,
+            live_render_seek,
+            live_render_set_options,
+            live_render_check_ffmpeg,
+            live_render_check_nvenc,
+            live_render_export,
+            live_render_export_cancel,
+            live_render_get_ffmpeg_status,
+            live_render_open_export_output,
             list_danser_profiles,
             enqueue_danser_renders,
             start_danser_render_queue,
@@ -293,7 +332,6 @@ pub fn run() {
             set_default_file_client,
             set_display_gamma,
             get_lazer_disk_usage,
-            read_lazer_realm_beatmap_sets,
             dedupe_lazer_files,
             cancel_lazer_dedupe,
             open_netease_music_search,
@@ -315,6 +353,7 @@ pub fn run() {
             save_obs_connection,
             refresh_selected_obs_scene,
             check_for_updates,
+            download_and_install_update,
             ignore_update_version,
             exit_app,
         ])

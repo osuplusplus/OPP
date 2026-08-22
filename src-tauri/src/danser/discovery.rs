@@ -1,7 +1,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 fn is_danser_executable(path: &Path) -> bool {
@@ -19,17 +18,6 @@ fn is_danser_executable(path: &Path) -> bool {
                     name.eq_ignore_ascii_case("danser") || name.eq_ignore_ascii_case("danser-cli")
                 }
             })
-}
-
-fn path_command(name: &str) -> Option<PathBuf> {
-    let output = Command::new("where.exe").arg(name).output().ok()?;
-    output.status.success().then(|| {
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .map(PathBuf::from)
-    })?
 }
 
 /// PATH 中查找 danser（仅类 Unix 生效；Windows 上 `find_in_path` 返回 `None`）。
@@ -94,13 +82,11 @@ pub(super) fn list_profiles_for(executable: &Path) -> Vec<String> {
 
 pub(super) fn ffmpeg_available(executable: &Path) -> bool {
     // Danser 发行包可能自带 ffmpeg（同级或 ffmpeg/ 子目录），名称随平台不同；
-    // 此外 Linux 可直接使用 PATH 中的系统 ffmpeg，Windows 回退 `where.exe`。
+    // 此外可直接使用 PATH 中的系统 ffmpeg。
     let bundled = executable.parent().is_some_and(|root| {
         ["ffmpeg.exe", "ffmpeg"]
             .iter()
             .any(|name| root.join(name).is_file() || root.join("ffmpeg").join(name).is_file())
     });
-    bundled
-        || crate::platform::find_in_path("ffmpeg").is_some()
-        || path_command("ffmpeg.exe").is_some()
+    bundled || crate::platform::find_in_path("ffmpeg").is_some()
 }

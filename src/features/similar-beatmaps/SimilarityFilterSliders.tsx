@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { RotateCcw, SlidersHorizontal, X } from "lucide-react";
 
 import { Button, Card } from "../../shared/components/ui";
-import type { SimilarityFilters, SimilarityQueryRequest } from "../../shared/types/osu";
+import type { OsuSimilarityQueryRequest, SimilarityFilters } from "../../shared/types/osu";
 import { defaultSimilarityFilters } from "./defaults";
 
 interface FilterControl { label: string; minKey: keyof SimilarityFilters; maxKey: keyof SimilarityFilters; floor: number; ceiling: number; step: number; format?: (value: number) => string; }
@@ -51,7 +51,7 @@ function RangeFilter({ control, filters, onChange }: { control: FilterControl; f
   );
 }
 
-export function SimilarityFilterSliders({ request, onChange }: { request: SimilarityQueryRequest; onChange: (request: SimilarityQueryRequest) => void }) {
+export function SimilarityFilterSliders({ request, onChange }: { request: OsuSimilarityQueryRequest; onChange: (request: OsuSimilarityQueryRequest) => void }) {
   const [open, setOpen] = useState(false);
   const [triggerAnimating, setTriggerAnimating] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);

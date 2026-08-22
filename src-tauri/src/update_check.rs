@@ -1,24 +1,43 @@
-use std::time::Duration;
-
-use semver::Version;
-use serde::{Deserialize, Serialize};
-use tauri::State;
-
-use crate::{
-    error::{CommandError, CommandResult},
-    app::models::AppSettings,
-    app::state::AppState,
+use std::{
+    env,
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
 };
 
-const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/osuplusplus/OPP/releases/latest";
+use futures_util::StreamExt;
+use reqwest::header::{ACCEPT, CACHE_CONTROL};
+use semver::Version;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, State};
+use tokio::{fs, io::AsyncWriteExt};
+
+use crate::{
+    app::models::AppSettings,
+    app::state::AppState,
+    error::{CommandError, CommandResult},
+    portable_update,
+};
+
+const LATEST_MANIFEST_URL: &str =
+    "https://github.com/osuplusplus/OPP/releases/latest/download/latest.json";
+const GITHUB_TAGS_URL: &str = "https://api.github.com/repos/osuplusplus/OPP/tags?per_page=100";
+/// 国内 GitHub Release 镜像。版本检查仍直接访问 GitHub Tags API，只有大文件下载走镜像。
+const RELEASE_MIRROR_PREFIX: &str = "https://gh-proxy.com/";
+const MAX_UPDATE_BYTES: u64 = 1024 * 1024 * 1024;
+const UPDATE_PROGRESS_EVENT: &str = "update-progress";
+
+static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Clone, Deserialize)]
+struct UpdateManifest {
+    version: String,
+    url: String,
+}
 
 #[derive(Debug, Deserialize)]
-struct GitHubRelease {
-    tag_name: String,
-    name: Option<String>,
-    html_url: String,
-    published_at: Option<String>,
-    body: Option<String>,
+struct GithubTag {
+    name: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -31,20 +50,52 @@ pub struct UpdateCheckResult {
     release_url: String,
     published_at: Option<String>,
     release_notes: Option<String>,
+    can_auto_update: bool,
+    download_size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateProgress {
+    phase: String,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    message: String,
+}
+
+struct UpdateGuard;
+
+impl UpdateGuard {
+    fn acquire() -> CommandResult<Self> {
+        UPDATE_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| CommandError::new("UPDATE_ALREADY_RUNNING", "已有更新任务正在运行"))?;
+        Ok(Self)
+    }
+}
+
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        UPDATE_IN_PROGRESS.store(false, Ordering::Release);
+    }
 }
 
 fn parse_release_version(value: &str) -> Result<Version, semver::Error> {
     Version::parse(value.trim().trim_start_matches(['v', 'V']))
 }
 
+fn supports_auto_update() -> bool {
+    cfg!(all(target_os = "windows", target_arch = "x86_64"))
+}
+
 fn build_update_result(
     current_version: &str,
-    release: GitHubRelease,
+    manifest: UpdateManifest,
+    can_auto_update: bool,
 ) -> CommandResult<UpdateCheckResult> {
-    let latest = parse_release_version(&release.tag_name).map_err(|_| {
+    let latest = parse_release_version(&manifest.version).map_err(|_| {
         CommandError::new(
             "INVALID_RELEASE_TAG",
-            format!("GitHub Release 标签不是有效版本号：{}", release.tag_name),
+            format!("更新清单版本号无效：{}", manifest.version),
         )
     })?;
     let current = parse_release_version(current_version).map_err(|_| {
@@ -53,57 +104,322 @@ fn build_update_result(
             format!("当前应用版本号无效：{current_version}"),
         )
     })?;
+    validate_download_url(&manifest.url)?;
 
+    let latest_version = latest.to_string();
     Ok(UpdateCheckResult {
         current_version: current_version.to_string(),
-        latest_version: latest.to_string(),
-        latest_tag: release.tag_name,
+        latest_tag: format!("v{latest_version}"),
         is_latest: current >= latest,
-        release_name: release.name,
-        release_url: release.html_url,
-        published_at: release.published_at,
-        release_notes: release.body.filter(|body| !body.trim().is_empty()),
+        release_name: Some(format!("OPP v{latest_version}")),
+        release_url: format!("https://github.com/osuplusplus/OPP/releases/tag/v{latest_version}"),
+        published_at: None,
+        release_notes: None,
+        can_auto_update,
+        download_size: None,
+        latest_version,
     })
 }
 
-#[tauri::command]
-/// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
-/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub async fn check_for_updates(app: tauri::AppHandle) -> CommandResult<UpdateCheckResult> {
-    let current_version = app.package_info().version.to_string();
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
+fn validate_download_url(value: &str) -> CommandResult<()> {
+    let url = reqwest::Url::parse(value)
+        .map_err(|error| CommandError::new("INVALID_UPDATE_URL", error.to_string()))?;
+    if url.scheme() != "https" {
+        return Err(CommandError::new(
+            "INVALID_UPDATE_URL",
+            "更新包下载地址必须使用 HTTPS",
+        ));
+    }
+    Ok(())
+}
+
+fn mirror_download_url(value: &str) -> CommandResult<String> {
+    validate_download_url(value)?;
+    if value.starts_with(RELEASE_MIRROR_PREFIX) {
+        return Ok(value.to_string());
+    }
+    Ok(format!("{RELEASE_MIRROR_PREFIX}{value}"))
+}
+
+fn http_client(current_version: &str) -> CommandResult<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        // 只限制单次读取停顿，避免网络较慢时整个大文件被总时限中断。
+        .read_timeout(Duration::from_secs(60))
         .user_agent(format!("OPP/{current_version}"))
         .build()
-        .map_err(|error| CommandError::network(format!("无法创建版本检查请求：{error}")))?;
+        .map_err(|error| CommandError::network(format!("无法创建更新请求：{error}")))
+}
 
+async fn fetch_manifest(client: &reqwest::Client) -> CommandResult<UpdateManifest> {
     let response = client
-        .get(LATEST_RELEASE_URL)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
+        .get(LATEST_MANIFEST_URL)
+        .header(ACCEPT, "application/json")
+        .header(CACHE_CONTROL, "no-cache")
         .send()
         .await
         .map_err(|error| CommandError::network(format!("无法连接 GitHub：{error}")))?;
-
     if !response.status().is_success() {
-        let status = response.status();
         return Err(CommandError::network(format!(
-            "GitHub 版本检查失败（HTTP {status}）"
+            "GitHub 更新清单读取失败（HTTP {}）",
+            response.status()
         )));
     }
+    response.json::<UpdateManifest>().await.map_err(|error| {
+        CommandError::new("INVALID_RELEASE_DATA", format!("无法读取更新清单：{error}"))
+    })
+}
 
-    let release = response.json::<GitHubRelease>().await.map_err(|error| {
+async fn fetch_latest_tag(client: &reqwest::Client) -> CommandResult<String> {
+    let response = client
+        .get(GITHUB_TAGS_URL)
+        .header(ACCEPT, "application/vnd.github+json")
+        .header(CACHE_CONTROL, "no-cache")
+        .send()
+        .await
+        .map_err(|error| CommandError::network(format!("无法连接 GitHub Tags：{error}")))?;
+    if !response.status().is_success() {
+        return Err(CommandError::network(format!(
+            "GitHub Tags 读取失败（HTTP {}）",
+            response.status()
+        )));
+    }
+    let tags = response.json::<Vec<GithubTag>>().await.map_err(|error| {
         CommandError::new(
             "INVALID_RELEASE_DATA",
-            format!("无法读取 GitHub Release：{error}"),
+            format!("无法读取 GitHub Tags：{error}"),
         )
     })?;
-    build_update_result(&current_version, release)
+    tags.into_iter()
+        .filter_map(|tag| {
+            parse_release_version(&tag.name)
+                .ok()
+                .map(|version| (version, tag.name))
+        })
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, name)| name)
+        .ok_or_else(|| CommandError::new("NO_RELEASE_TAG", "GitHub 没有可用的版本 Tag"))
 }
 
 #[tauri::command]
-/// 供前端调用的 Tauri 命令：记录用户忽略的版本。
-/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 读取 GitHub Tags 并比较当前版本；启动检查失败不会阻塞其他功能。
+pub async fn check_for_updates(app: AppHandle) -> CommandResult<UpdateCheckResult> {
+    let current_version = app.package_info().version.to_string();
+    let client = http_client(&current_version)?;
+    // 版本判断只依赖 GitHub Tags；下载清单在用户确认安装时再读取。
+    let latest_tag = fetch_latest_tag(&client).await?;
+    let manifest = UpdateManifest {
+        version: latest_tag.clone(),
+        url: format!("https://github.com/osuplusplus/OPP/releases/tag/{latest_tag}"),
+    };
+    build_update_result(&current_version, manifest, supports_auto_update())
+}
+
+#[tauri::command]
+/// 下载最新便携 EXE，随后启动临时助手完成原路径替换和重启。
+pub async fn download_and_install_update(
+    app: AppHandle,
+    expected_version: String,
+) -> CommandResult<()> {
+    let _guard = UpdateGuard::acquire()?;
+    if !supports_auto_update() {
+        return Err(CommandError::new(
+            "AUTO_UPDATE_UNSUPPORTED",
+            "当前平台暂不支持便携 EXE 应用内更新",
+        ));
+    }
+
+    let current_version = app.package_info().version.to_string();
+    let client = http_client(&current_version)?;
+    // 安装前重新读取清单，避免检查后 latest 指向了另一个版本。
+    let mut manifest = fetch_manifest(&client).await?;
+    manifest.version = fetch_latest_tag(&client).await?;
+    let latest = parse_release_version(&manifest.version)
+        .map_err(|_| CommandError::new("INVALID_RELEASE_TAG", "更新清单版本号无效"))?;
+    let expected = parse_release_version(&expected_version)
+        .map_err(|_| CommandError::new("INVALID_UPDATE_VERSION", "目标更新版本号无效"))?;
+    let current = parse_release_version(&current_version)
+        .map_err(|_| CommandError::new("INVALID_APP_VERSION", "当前应用版本号无效"))?;
+    if latest != expected || latest <= current {
+        return Err(CommandError::new(
+            "UPDATE_VERSION_CHANGED",
+            "最新版本已经变化，请重新检查更新",
+        ));
+    }
+    let download_url = mirror_download_url(&manifest.url)?;
+
+    let current_exe = env::current_exe().map_err(|error| {
+        CommandError::new("UPDATE_PATH_ERROR", format!("无法定位当前程序：{error}"))
+    })?;
+    let paths = portable_update::paths_for(&current_exe, &latest.to_string()).map_err(|error| {
+        CommandError::new("UPDATE_PATH_ERROR", format!("无法准备更新路径：{error}"))
+    })?;
+    let partial = paths.staged.with_extension("exe.part");
+    remove_file_if_exists(&partial).await?;
+    remove_file_if_exists(&paths.staged).await?;
+
+    let downloaded = match download_asset(&app, &client, &download_url, &partial).await {
+        Ok(downloaded) => downloaded,
+        Err(error) => {
+            let _ = fs::remove_file(&partial).await;
+            return Err(error);
+        }
+    };
+    emit_progress(
+        &app,
+        "preparing",
+        downloaded,
+        downloaded,
+        "正在准备替换程序文件",
+    );
+
+    if let Err(error) = fs::rename(&partial, &paths.staged).await {
+        let _ = fs::remove_file(&partial).await;
+        return Err(CommandError::new(
+            "UPDATE_STAGE_FAILED",
+            format!("无法保存更新包：{error}"),
+        ));
+    }
+    if let Err(error) = portable_update::launch_helper(&paths) {
+        let _ = fs::remove_file(&paths.staged).await;
+        return Err(CommandError::new(
+            "UPDATE_HELPER_FAILED",
+            format!("无法启动更新助手：{error}"),
+        ));
+    }
+    emit_progress(
+        &app,
+        "restarting",
+        downloaded,
+        downloaded,
+        "更新已就绪，正在重启 OPP",
+    );
+    app.exit(0);
+    Ok(())
+}
+
+async fn download_asset(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    url: &str,
+    destination: &Path,
+) -> CommandResult<u64> {
+    let response = client
+        .get(url)
+        .header(CACHE_CONTROL, "no-cache")
+        .send()
+        .await
+        .map_err(|error| CommandError::network(format!("更新包下载失败：{error}")))?;
+    if !response.status().is_success() {
+        return Err(CommandError::network(format!(
+            "更新包下载失败（HTTP {}）",
+            response.status()
+        )));
+    }
+
+    let total_bytes = response.content_length().unwrap_or(0);
+    if total_bytes > MAX_UPDATE_BYTES {
+        return Err(CommandError::new(
+            "UPDATE_SIZE_LIMIT",
+            "更新包大小超出允许范围",
+        ));
+    }
+    emit_progress(app, "downloading", 0, total_bytes, "正在下载新版本");
+
+    let mut file = fs::File::create(destination).await.map_err(|error| {
+        CommandError::new(
+            "UPDATE_DIRECTORY_NOT_WRITABLE",
+            format!("当前程序目录不可写：{error}"),
+        )
+    })?;
+    let mut stream = response.bytes_stream();
+    let mut downloaded = 0_u64;
+    let mut last_progress = Instant::now();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|error| CommandError::network(format!("更新包下载中断：{error}")))?;
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        if downloaded > MAX_UPDATE_BYTES || (total_bytes > 0 && downloaded > total_bytes) {
+            return Err(CommandError::new(
+                "UPDATE_SIZE_LIMIT",
+                "更新包实际大小超出允许范围",
+            ));
+        }
+        file.write_all(&chunk).await.map_err(|error| {
+            CommandError::new("UPDATE_WRITE_FAILED", format!("更新包写入失败：{error}"))
+        })?;
+        // 限制前端事件频率，避免高速下载时每个网络分片都触发一次 React 更新。
+        if (total_bytes > 0 && downloaded == total_bytes)
+            || last_progress.elapsed() >= Duration::from_millis(100)
+        {
+            emit_progress(
+                app,
+                "downloading",
+                downloaded,
+                total_bytes,
+                "正在下载新版本",
+            );
+            last_progress = Instant::now();
+        }
+    }
+    file.flush().await.map_err(|error| {
+        CommandError::new("UPDATE_WRITE_FAILED", format!("更新包写入失败：{error}"))
+    })?;
+    file.sync_all().await.map_err(|error| {
+        CommandError::new("UPDATE_WRITE_FAILED", format!("更新包落盘失败：{error}"))
+    })?;
+    if total_bytes > 0 && downloaded != total_bytes {
+        return Err(CommandError::new(
+            "UPDATE_DOWNLOAD_INCOMPLETE",
+            "更新包下载不完整",
+        ));
+    }
+    // 服务端未返回 Content-Length 时也补发一次最终进度。
+    emit_progress(
+        app,
+        "downloading",
+        downloaded,
+        if total_bytes > 0 {
+            total_bytes
+        } else {
+            downloaded
+        },
+        "正在下载新版本",
+    );
+    Ok(downloaded)
+}
+
+fn emit_progress(
+    app: &AppHandle,
+    phase: &str,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    message: &str,
+) {
+    let _ = app.emit(
+        UPDATE_PROGRESS_EVENT,
+        UpdateProgress {
+            phase: phase.into(),
+            downloaded_bytes,
+            total_bytes,
+            message: message.into(),
+        },
+    );
+}
+
+async fn remove_file_if_exists(path: &Path) -> CommandResult<()> {
+    match fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(CommandError::new(
+            "UPDATE_FILE_CLEANUP_FAILED",
+            format!("无法清理旧更新文件：{error}"),
+        )),
+    }
+}
+
+#[tauri::command]
+/// 记录用户忽略的版本；忽略只影响启动自动提示，不影响手动检查。
 pub fn ignore_update_version(
     version: String,
     state: State<'_, AppState>,
@@ -118,7 +434,16 @@ pub fn ignore_update_version(
 
 #[cfg(test)]
 mod tests {
-    use super::{GitHubRelease, build_update_result, parse_release_version};
+    use super::{
+        UpdateManifest, build_update_result, parse_release_version, validate_download_url,
+    };
+
+    fn manifest(version: &str) -> UpdateManifest {
+        UpdateManifest {
+            version: version.into(),
+            url: format!("https://github.com/osuplusplus/OPP/releases/download/v{version}/OPP.exe"),
+        }
+    }
 
     #[test]
     fn parses_release_tags_with_optional_v_prefix() {
@@ -130,7 +455,6 @@ mod tests {
             parse_release_version("V2.0.0").unwrap().to_string(),
             "2.0.0"
         );
-        assert_eq!(parse_release_version("1.4.0").unwrap().to_string(), "1.4.0");
     }
 
     #[test]
@@ -141,37 +465,47 @@ mod tests {
     }
 
     #[test]
-    fn maps_release_notes_and_version_status() {
-        let result = build_update_result(
-            "1.0.0",
-            GitHubRelease {
-                tag_name: "v1.1.0".to_string(),
-                name: Some("OPP 1.1.0".to_string()),
-                html_url: "https://github.com/osuplusplus/OPP/releases/tag/v1.1.0".to_string(),
-                published_at: Some("2026-08-13T00:00:00Z".to_string()),
-                body: Some("- 新功能".to_string()),
-            },
-        )
-        .expect("build update result");
+    fn maps_manifest_to_an_installable_update() {
+        let result =
+            build_update_result("1.0.0", manifest("1.1.0"), true).expect("build update result");
 
         assert!(!result.is_latest);
+        assert!(result.can_auto_update);
         assert_eq!(result.latest_version, "1.1.0");
-        assert_eq!(result.release_notes.as_deref(), Some("- 新功能"));
+        assert_eq!(result.download_size, None);
+        assert_eq!(result.release_notes, None);
     }
 
     #[test]
-    fn rejects_invalid_release_tags() {
-        let error = build_update_result(
-            "1.0.0",
-            GitHubRelease {
-                tag_name: "latest".to_string(),
-                name: None,
-                html_url: "https://example.test".to_string(),
-                published_at: None,
-                body: None,
-            },
+    fn rejects_non_https_download_urls() {
+        let error = validate_download_url("http://example.test/OPP.exe")
+            .expect_err("non-HTTPS URL must fail");
+
+        assert_eq!(error.code, "INVALID_UPDATE_URL");
+    }
+
+    #[test]
+    fn prefixes_release_downloads_with_domestic_mirror() {
+        let mirrored = mirror_download_url(
+            "https://github.com/osuplusplus/OPP/releases/download/v1.2.3/OPP.exe",
         )
-        .expect_err("invalid tag should fail");
+        .expect("valid GitHub URL should be mirrored");
+        assert_eq!(
+            mirrored,
+            "https://gh-proxy.com/https://github.com/osuplusplus/OPP/releases/download/v1.2.3/OPP.exe"
+        );
+    }
+
+    #[test]
+    fn does_not_double_prefix_mirrored_downloads() {
+        let url = "https://gh-proxy.com/https://github.com/osuplusplus/OPP/releases/download/v1.2.3/OPP.exe";
+        assert_eq!(mirror_download_url(url).unwrap(), url);
+    }
+
+    #[test]
+    fn rejects_invalid_manifest_versions() {
+        let error = build_update_result("1.0.0", manifest("latest"), true)
+            .expect_err("invalid version should fail");
 
         assert_eq!(error.code, "INVALID_RELEASE_TAG");
     }

@@ -102,21 +102,23 @@ pub fn lazer_data_root() -> Option<PathBuf> {
 fn read_storage_ini_fullpath(storage_ini: &Path) -> Option<PathBuf> {
     let reader = io::BufReader::new(fs::File::open(storage_ini).ok()?);
     for line in reader.lines().map_while(Result::ok) {
-        if let Some(value) = line
+        let Some(value) = line
             .strip_prefix("FullPath")
-            .and_then(|rest| rest.split('=').nth(1))
-        {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return Some(PathBuf::from(trimmed));
-            }
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+        else {
+            continue;
+        };
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
         }
     }
     None
 }
 
-/// osu!lazer 的文件存储根：优先取 `storage.ini` 的 `FullPath`，否则回退到数据根。
-pub fn lazer_files_root() -> Option<PathBuf> {
+/// 解析 osu!lazer 实际使用的数据根：`storage.ini` 的 `FullPath` 存在时
+/// 无条件只认它，不回退；没有 ini 才用默认数据根。
+pub fn resolve_lazer_data_root() -> Option<PathBuf> {
     let data_root = lazer_data_root()?;
     read_storage_ini_fullpath(&data_root.join("storage.ini")).or(Some(data_root))
 }
@@ -199,7 +201,25 @@ pub fn find_in_path(command: &str) -> Option<PathBuf> {
     }
     #[cfg(windows)]
     {
-        let _ = command;
+        // 按真实 shell 语义扫描进程 PATH:先试原名(可能已带扩展),
+        // 再按 PATHEXT(.EXE/.CMD/.BAT…)逐个拼接。
+        let exts: Vec<String> = env::var("PATHEXT")
+            .map(|v| v.split(';').map(str::to_string).collect())
+            .unwrap_or_else(|_| vec![".exe".into(), ".cmd".into(), ".bat".into()]);
+        if let Some(path) = env::var_os("PATH") {
+            for dir in env::split_paths(&path) {
+                let direct = dir.join(command);
+                if direct.is_file() {
+                    return Some(direct);
+                }
+                for ext in &exts {
+                    let candidate = dir.join(format!("{command}{ext}"));
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
         None
     }
 }
@@ -382,8 +402,34 @@ fn registry_install(matches_name: impl Fn(&str) -> bool) -> Option<PathBuf> {
                 {
                     return Some(PathBuf::from(path.trim().trim_matches('"')));
                 }
+                // osu! 的卸载项常不写 InstallLocation，路径只在 UninstallString
+                // （如 `D:\osu!\osu!.exe -uninstall`）里，取可执行文件所在目录。
+                if let Some(directory) = subkey
+                    .get_value::<String, _>("UninstallString")
+                    .ok()
+                    .and_then(|value| uninstall_string_exe(&value))
+                    .and_then(|exe| exe.parent().map(Path::to_path_buf))
+                {
+                    return Some(directory);
+                }
             }
         }
     }
     None
+}
+
+/// 从 `UninstallString` 提取可执行文件路径：兼容带引号
+/// （`"C:\dir\osu!.exe" -uninstall`）与不带引号（`D:\osu!\osu!.exe -uninstall`，
+/// 目录含空格也正确）两种写法。
+#[cfg(windows)]
+fn uninstall_string_exe(value: &str) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    let exe = if let Some(rest) = trimmed.strip_prefix('"') {
+        rest.split('"').next()?
+    } else {
+        let position = trimmed.to_ascii_lowercase().find(".exe")?;
+        &trimmed[..position + ".exe".len()]
+    };
+    let path = PathBuf::from(exe.trim());
+    (!path.as_os_str().is_empty()).then_some(path)
 }
