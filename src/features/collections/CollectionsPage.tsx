@@ -1,9 +1,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBeforeUnload, useNavigate } from "react-router-dom";
 import {
+  ChevronDown,
+  ChevronUp,
   Download,
   FileInput,
   FileOutput,
@@ -92,10 +94,12 @@ function ImportPreviewDialog({
   );
 }
 
-function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolder; onChanged: (folderId: string, entryId?: string) => Promise<void>; onDownload: (folderId: string) => Promise<void> }) {
+export function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolder; onChanged: (folderId: string, entryId?: string) => Promise<void>; onDownload: (folderId: string) => Promise<void> }) {
   const [exported, setExported] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(true);
+  const contentId = useId();
 
   const remove = async (entryId?: string) => {
     setBusy(true);
@@ -124,7 +128,7 @@ function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolde
 
   return (
     <Card className="collection-folder opp-collection-folder overflow-hidden">
-      <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] p-5">
+      <div className={`flex items-center justify-between gap-4 transition-[padding] duration-[var(--motion-fast)] ${expanded ? "border-b border-white/[0.07] p-5" : "px-5 py-3.5"}`}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="truncate text-base font-semibold text-white">{folder.name}</h2>
@@ -134,27 +138,43 @@ function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolde
           <p className="mt-1 text-xs text-slate-500">{folder.creator || "未署名"} · {folder.entries.length} 个难度{missingSets ? ` · 缺失 ${missingSets} 项` : ""}</p>
         </div>
         <div className="flex gap-1">
+          <Button
+            aria-controls={contentId}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "收起" : "展开"}收藏夹 ${folder.name}`}
+            onClick={() => setExpanded((value) => !value)}
+            size="icon"
+            title={expanded ? "收起收藏夹" : "展开收藏夹"}
+            variant="ghost"
+          >
+            {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+          </Button>
           <Button disabled={busy} onClick={() => void exportShare()} size="icon" title="导出分享码" variant="ghost"><FileOutput className="size-4" /></Button>
           <Button disabled={busy || folder.read_only} onClick={() => void download()} size="icon" title={missingSets ? `解析并补齐 ${missingSets} 个缺失项` : "检查是否有缺失谱面"} variant="ghost"><Download className="size-4" /></Button>
           <Button disabled={busy || folder.read_only} onClick={() => void remove()} size="icon" title="删除收藏夹" variant="ghost"><Trash2 className="size-4" /></Button>
         </div>
       </div>
-      <div className="max-h-[min(34rem,60vh)] overflow-y-auto p-3.5">
-        {folder.entries.length ? (
-          <div className="opp-map-grid">
-            {/* 列数依据收藏夹内容区宽度变化，避免窗口断点与卡片实际空间脱节。 */}
-            {folder.entries.map((entry) => (
-              <MapCard
-                busy={busy}
-                entry={entry}
-                key={entry.id}
-                onRemove={() => void remove(entry.id)}
-                readOnly={folder.read_only}
-              />
-            ))}
+      {expanded ? (
+        // 折叠时不渲染卡片网格，既缩短页面，也避免隐藏内容继续占用布局和交互焦点。
+        <div id={contentId}>
+          <div className="max-h-[min(34rem,60vh)] overflow-y-auto p-3.5">
+            {folder.entries.length ? (
+              <div className="opp-map-grid">
+                {/* 列数依据收藏夹内容区宽度变化，避免窗口断点与卡片实际空间脱节。 */}
+                {folder.entries.map((entry) => (
+                  <MapCard
+                    busy={busy}
+                    entry={entry}
+                    key={entry.id}
+                    onRemove={() => void remove(entry.id)}
+                    readOnly={folder.read_only}
+                  />
+                ))}
+              </div>
+            ) : <p className="px-5 py-8 text-center text-sm text-slate-600">还没有谱面</p>}
           </div>
-        ) : <p className="px-5 py-8 text-center text-sm text-slate-600">还没有谱面</p>}
-      </div>
+        </div>
+      ) : null}
       {exported ? <div className="border-t border-white/[0.07] p-4"><p className="mb-2 text-xs text-emerald-200">分享码已复制。OPPC2 会紧凑保存在线谱面 ID。</p><textarea className="h-20 w-full rounded-lg border border-white/10 bg-black/20 p-2 font-mono text-[10px] text-slate-400" readOnly value={exported} /></div> : null}
       {error ? <p className="p-4 text-sm text-rose-200">{error}</p> : null}
     </Card>
