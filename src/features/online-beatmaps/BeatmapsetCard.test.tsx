@@ -85,4 +85,40 @@ describe("BeatmapsetCard", () => {
     await user.keyboard("{Enter}");
     expect(onOpen).toHaveBeenCalledOnce();
   });
+
+  it("sorts every difficulty by stars and keeps hover details scrollable", () => {
+    const difficulties = [
+      { id: 701, difficulty_rating: 7.07, version: "Extra" },
+      { id: 593, difficulty_rating: 5.93, version: "Another" },
+      { id: 467, difficulty_rating: 4.67, version: "Insane" },
+      { id: 338, difficulty_rating: 3.38, version: "Hard" },
+      { id: 249, difficulty_rating: 2.49, version: "Normal" },
+      { id: 810, difficulty_rating: 8.10, version: "Expert" },
+    ].map((difficulty) => ({
+      ...beatmapset.beatmaps![0],
+      ...difficulty,
+    }));
+
+    const { container } = render(
+      <BeatmapsetCard
+        beatmapset={{ ...beatmapset, beatmaps: difficulties }}
+        downloading={false}
+        onDownload={vi.fn()}
+        onOpen={vi.fn()}
+        onPreview={vi.fn()}
+        onSelect={vi.fn()}
+        playing={false}
+        selected={false}
+      />,
+    );
+
+    const compact = container.querySelector(".opp-beatmap-card__difficulty-list");
+    const details = container.querySelector(".opp-beatmap-card__details");
+    const detailDifficulties = container.querySelector(".opp-beatmap-card__detail-difficulties");
+    const ratings = (root: Element | null) => Array.from(root?.querySelectorAll('[title$=" stars"]') ?? [], (node) => node.textContent?.trim());
+
+    expect(ratings(compact)).toEqual(["2.49", "3.38", "4.67", "5.93", "7.07"]);
+    expect(ratings(detailDifficulties)).toEqual(["2.49", "3.38", "4.67", "5.93", "7.07", "8.10"]);
+    expect(details).toHaveClass("overflow-y-auto", "overscroll-contain", "group-hover:pointer-events-auto");
+  });
 });
