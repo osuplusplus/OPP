@@ -29,6 +29,9 @@ describe("MapCard", () => {
     expect(screen.getByText("#123")).toBeInTheDocument();
     const card = container.querySelector("[data-slot='card']");
     expect(card).toHaveClass("opp-media-card", "aspect-[31/16]", "min-h-40", "rounded-[10px]");
+    expect(card?.querySelector(".opp-media-card__cover")).toBeInTheDocument();
+    expect(card?.querySelector(".opp-map-card__cover-overlay")).toBeInTheDocument();
+    expect(card?.querySelector(".opp-map-card__details")).toBeInTheDocument();
     expect(card).not.toHaveClass("h-[168px]");
   });
 

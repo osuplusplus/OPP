@@ -39,12 +39,12 @@ export function MapCard({
       {cover ? (
         <img
           alt=""
-          className="absolute inset-0 h-full w-full scale-[1.02] object-cover opacity-[.52] saturate-[.86] contrast-[1.06] [transition:opacity_var(--motion-base)_ease,transform_420ms_cubic-bezier(.2,.8,.2,1)] group-hover:scale-[1.055] group-hover:opacity-[.7] motion-reduce:transition-none"
+          className="opp-media-card__cover absolute inset-0 h-full w-full scale-[1.02] object-cover opacity-[.52] saturate-[.86] contrast-[1.06] [transition:opacity_var(--motion-base)_ease,transform_420ms_cubic-bezier(.2,.8,.2,1)] group-hover:scale-[1.055] group-hover:opacity-[.7] motion-reduce:transition-none"
           onError={(event) => { event.currentTarget.hidden = true; }}
           src={cover}
         />
       ) : null}
-      <div className="absolute inset-0 z-[2] h-full w-full bg-[linear-gradient(90deg,rgba(16,19,24,.97),rgba(20,24,30,.77)_68%,rgba(20,24,30,.62))]" />
+      <div className="opp-map-card__cover-overlay absolute inset-0 z-[2] h-full w-full bg-[linear-gradient(90deg,rgba(16,19,24,.97),rgba(20,24,30,.77)_68%,rgba(20,24,30,.62))]" />
 
       <div className="opp-map-card__body relative z-10 flex h-full min-w-0 flex-col p-3">
         <div className="opp-map-card__header flex items-start justify-between gap-3">
@@ -83,16 +83,16 @@ export function MapCard({
       <div aria-hidden="true" className="opp-map-card__details pointer-events-none absolute inset-x-0 bottom-0 top-[28.5%] z-20 translate-y-2 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.98),rgba(13,16,21,.99))] p-[15px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 motion-reduce:transition-none">
         <div className="opp-map-card__metrics grid grid-cols-3 gap-x-3">
           <div>
-            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-[#7f8b9b]">难度 ID</p>
-            <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[#eef2f7]">{entry.beatmap_id ? `#${entry.beatmap_id}` : "未解析"}</p>
+            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">难度 ID</p>
+            <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100">{entry.beatmap_id ? `#${entry.beatmap_id}` : "未解析"}</p>
           </div>
           <div>
-            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-[#7f8b9b]">谱面集 ID</p>
-            <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[#eef2f7]">{entry.beatmapset_id ? `#${entry.beatmapset_id}` : "未解析"}</p>
+            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">谱面集 ID</p>
+            <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100">{entry.beatmapset_id ? `#${entry.beatmapset_id}` : "未解析"}</p>
           </div>
           <div className="opp-map-card__checksum min-w-0">
-            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-[#7f8b9b]">校验信息</p>
-            <p className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[#eef2f7]"><Hash className="size-3" />{entry.checksum ? "已记录精确 MD5" : "等待本地谱面解析"}</p>
+            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">校验信息</p>
+            <p className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100"><Hash className="size-3" />{entry.checksum ? "已记录精确 MD5" : "等待本地谱面解析"}</p>
           </div>
         </div>
       </div>

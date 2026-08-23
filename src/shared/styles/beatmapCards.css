@@ -1,4 +1,4 @@
-/* 媒体卡片始终使用深色封面信息层，避免浅色主题的全局工具类映射破坏对比度。 */
+/* 媒体卡片在两套主题中复用结构，仅切换表面、封面蒙版和前景层级。 */
 .opp-media-card {
   width: 100%;
   max-width: 100%;
@@ -15,57 +15,81 @@
 }
 
 :root[data-theme-mode="light"] .opp-media-card {
-  --line-strong: rgba(255, 255, 255, 0.18);
-  --surface-interactive-hover: rgba(255, 255, 255, 0.11);
-  --theme-primary-light: color-mix(in srgb, var(--theme-primary) 34%, white);
-  --theme-primary-soft: color-mix(in srgb, var(--theme-primary) 42%, transparent);
-  color: #f4f6f8;
-  background-color: #1a1e24;
-  box-shadow: 0 10px 26px rgba(24, 32, 54, 0.18);
+  --line-strong: rgba(15, 23, 42, 0.18);
+  --surface-interactive-hover: rgba(15, 23, 42, 0.075);
+  color: #172033;
+  background-color: #f8fafc;
+  box-shadow: 0 9px 24px rgba(24, 32, 54, 0.11);
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-white"],
 :root[data-theme-mode="light"] .opp-media-card [class*="text-slate-100"],
 :root[data-theme-mode="light"] .opp-media-card [class*="text-slate-200"] {
-  color: #f4f6f8;
+  color: #172033;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-slate-300"] {
-  color: #d7dde7;
+  color: #243149;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-slate-400"] {
-  color: #acb6c5;
+  color: #405069;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-slate-500"],
 :root[data-theme-mode="light"] .opp-media-card [class*="text-slate-600"] {
-  color: #8793a4;
+  color: #59687c;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-emerald-"] {
-  color: #a7f3d0;
+  color: #166534;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-amber-"] {
-  color: #fde68a;
+  color: #92400e;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-pink-"] {
-  color: #fbcfe8;
+  color: #9f1239;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="border-white"] {
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: rgba(15, 23, 42, 0.14);
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="bg-black"] {
-  background-color: rgba(0, 0, 0, 0.24);
+  background-color: rgba(255, 255, 255, 0.68);
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="bg-white/[0."],
 :root[data-theme-mode="light"] .opp-media-card [class*="bg-white/\[0."] {
-  background-color: rgba(255, 255, 255, 0.07);
+  background-color: rgba(15, 23, 42, 0.055);
+}
+
+/* 浅色卡片使用雾白蒙版保留封面辨识度，并保证正文与悬浮详情均为深色文字。 */
+:root[data-theme-mode="light"] .opp-media-card .opp-media-card__cover {
+  opacity: 0.28;
+  filter: saturate(0.78) contrast(0.96);
+}
+
+:root[data-theme-mode="light"] .opp-media-card:hover .opp-media-card__cover {
+  opacity: 0.38;
+}
+
+:root[data-theme-mode="light"] .opp-beatmap-card__cover-overlay {
+  background:
+    linear-gradient(90deg, rgba(250, 251, 253, 0.98), rgba(247, 249, 252, 0.90) 62%, rgba(244, 247, 250, 0.78)),
+    linear-gradient(0deg, rgba(238, 242, 247, 0.72), transparent 70%);
+}
+
+:root[data-theme-mode="light"] .opp-map-card__cover-overlay {
+  background: linear-gradient(90deg, rgba(250, 251, 253, 0.98), rgba(247, 249, 252, 0.88) 68%, rgba(242, 246, 250, 0.74));
+}
+
+:root[data-theme-mode="light"] .opp-beatmap-card__details,
+:root[data-theme-mode="light"] .opp-map-card__details {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(238, 242, 247, 0.99));
 }
 
 /* 在线结果按真实内容宽度切换单双列，而不是按包含左右侧栏的窗口宽度判断。 */

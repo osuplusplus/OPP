@@ -58,8 +58,8 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
     tabIndex={0}
     unstyled
   >
-    {cover ? <img alt="" className="absolute inset-0 h-full w-full scale-[1.015] object-cover opacity-[.58] saturate-[.9] contrast-[1.06] [transition:transform_420ms_cubic-bezier(.2,.8,.2,1),opacity_var(--motion-base)_ease] group-hover:scale-[1.045] group-hover:opacity-[.72] motion-reduce:transition-none" src={cover} /> : null}
-    <div className="absolute inset-0 z-[2] bg-[linear-gradient(90deg,rgba(17,20,25,.96),rgba(22,26,32,.82)_62%,rgba(22,26,32,.67)),linear-gradient(0deg,rgba(10,12,16,.72),transparent_70%)]" />
+    {cover ? <img alt="" className="opp-media-card__cover absolute inset-0 h-full w-full scale-[1.015] object-cover opacity-[.58] saturate-[.9] contrast-[1.06] [transition:transform_420ms_cubic-bezier(.2,.8,.2,1),opacity_var(--motion-base)_ease] group-hover:scale-[1.045] group-hover:opacity-[.72] motion-reduce:transition-none" src={cover} /> : null}
+    <div className="opp-beatmap-card__cover-overlay absolute inset-0 z-[2] bg-[linear-gradient(90deg,rgba(17,20,25,.96),rgba(22,26,32,.82)_62%,rgba(22,26,32,.67)),linear-gradient(0deg,rgba(10,12,16,.72),transparent_70%)]" />
 
     <div className="opp-beatmap-card__body relative z-10 flex h-full flex-col p-4">
       <div className="opp-beatmap-card__header flex items-start gap-3">

@@ -11,6 +11,7 @@ const beatmapset: OnlineBeatmapset = {
   title: "Daisuke",
   creator: "moph",
   status: "ranked",
+  covers: { card: "https://example.com/cover.jpg" },
   beatmaps: [{
     id: 123,
     beatmapset_id: 697087,
@@ -76,6 +77,9 @@ describe("BeatmapsetCard", () => {
 
     const card = screen.getByRole("button", { name: "查看谱面 Daisuke" });
     expect(card).toHaveClass("opp-media-card", "aspect-[136/55]", "min-h-40", "rounded-xl");
+    expect(card.querySelector(".opp-media-card__cover")).toBeInTheDocument();
+    expect(card.querySelector(".opp-beatmap-card__cover-overlay")).toBeInTheDocument();
+    expect(card.querySelector(".opp-beatmap-card__details")).toBeInTheDocument();
     expect(card).not.toHaveClass("h-[220px]");
     card.focus();
     await user.keyboard("{Enter}");
