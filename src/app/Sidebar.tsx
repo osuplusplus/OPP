@@ -35,8 +35,9 @@ interface NavItemProps {
 
 function NavItem({ to, label, icon: Icon, emphasis, onboarding }: NavItemProps) {
   const location = useLocation();
-  // Keep the parent section selected while browsing any of its nested routes.
-  const active = location.pathname === to || location.pathname.startsWith(`${to}/`);
+  // Only the data center has nested navigation.  Using prefix matching for
+  // every item made “截图与回放” remain selected on /local/media/render.
+  const active = location.pathname === to || (to === "/data" && location.pathname.startsWith("/data/"));
   const linkRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {

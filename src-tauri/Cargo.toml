@@ -1,6 +1,6 @@
 [package]
 name = "opp"
-version = "0.4.3"
+version = "0.4.5"
 description = "An all-in-one osu! toolkit"
 authors = ["l1rics"]
 edition = "2024"

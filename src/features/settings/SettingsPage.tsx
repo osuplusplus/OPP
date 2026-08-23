@@ -170,7 +170,13 @@ export function SettingsPage() {
     try { setDanserStatus(await desktopApi.getDanserStatus()); } catch { setDanserStatus(null); }
   };
 
-  useEffect(() => { const timer = window.setTimeout(() => void refreshDanser(), 0); return () => window.clearTimeout(timer); }, [settings.danser_executable_path]);
+  useEffect(() => {
+    let cancelled = false;
+    const schedule = "requestIdleCallback" in window
+      ? window.requestIdleCallback(() => { if (!cancelled) void refreshDanser(); }, { timeout: 1200 })
+      : window.setTimeout(() => { if (!cancelled) void refreshDanser(); }, 350);
+    return () => { cancelled = true; "cancelIdleCallback" in window ? window.cancelIdleCallback(schedule as number) : window.clearTimeout(schedule as number); };
+  }, [settings.danser_executable_path]);
 
   const chooseDanser = async () => {
     setDanserBusy(true);
@@ -185,7 +191,13 @@ export function SettingsPage() {
     try { setFfmpegStatus(await desktopApi.liveRenderGetFfmpegStatus()); } catch { setFfmpegStatus(null); }
   };
 
-  useEffect(() => { const timer = window.setTimeout(() => void refreshFfmpeg(), 0); return () => window.clearTimeout(timer); }, [settings.ffmpeg_executable_path, settings.danser_executable_path]);
+  useEffect(() => {
+    let cancelled = false;
+    const schedule = "requestIdleCallback" in window
+      ? window.requestIdleCallback(() => { if (!cancelled) void refreshFfmpeg(); }, { timeout: 1500 })
+      : window.setTimeout(() => { if (!cancelled) void refreshFfmpeg(); }, 500);
+    return () => { cancelled = true; "cancelIdleCallback" in window ? window.cancelIdleCallback(schedule as number) : window.clearTimeout(schedule as number); };
+  }, [settings.ffmpeg_executable_path, settings.danser_executable_path]);
 
   const chooseFfmpeg = async () => {
     setFfmpegBusy(true);
