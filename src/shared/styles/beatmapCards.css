@@ -61,14 +61,14 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--line-strong);
+  border: 1px solid rgba(248, 250, 252, 0.34);
   border-radius: 0.5rem;
-  background: color-mix(in srgb, var(--surface-interactive-hover) 72%, transparent);
+  background: rgba(15, 23, 42, 0.78);
   padding: 0 0.375rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.6875rem;
   font-weight: 700;
-  color: rgb(203 213 225);
+  color: #f8fafc;
 }
 
 .opp-difficulty-summary__count--3 {
@@ -109,6 +109,13 @@
   color: #172033;
   background-color: #f8fafc;
   box-shadow: 0 9px 24px rgba(24, 32, 54, 0.11);
+}
+
+/* 计数徽标与难度星级保持相同的主题对比：深色用白字，浅色用近黑字。 */
+:root[data-theme-mode="light"] .opp-media-card .opp-difficulty-summary__count {
+  border-color: rgba(15, 23, 42, 0.32);
+  background: rgba(255, 255, 255, 0.9);
+  color: #111827;
 }
 
 :root[data-theme-mode="light"] .opp-media-card [class*="text-white"],
