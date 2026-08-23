@@ -12,13 +12,17 @@ const keys: Array<keyof ManiaDifficultyVector> = [
 ];
 
 export function maniaSkillProfile(vector: ManiaDifficultyVector): ManiaDifficultyVector {
-  const values = keys.map((key) => vector[key]);
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const shaped = values.map((value) => Math.exp((value - mean) * 4));
-  const total = shaped.reduce((sum, value) => sum + value, 0) || 1;
+  // Analyzer difficulty dimensions are already normalized to a comparable
+  // absolute scale.  Normalizing by the sum made every radar chart have a
+  // maximum of roughly 1/8, which was especially noticeable for difficult
+  // maps. Keep the absolute intensity so hard maps occupy more of the chart.
+  const values = keys.map((key) => {
+    const value = Number(vector[key]);
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  });
   const profile = {} as ManiaDifficultyVector;
   keys.forEach((key, index) => {
-    profile[key] = shaped[index] / total;
+    profile[key] = Math.min(1, values[index]);
   });
   return profile;
 }
