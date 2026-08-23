@@ -37,6 +37,7 @@ import {
   Skeleton,
 } from "../../shared/components/ui";
 import { SearchAutocomplete } from "../../shared/components/SearchAutocomplete";
+import { CompactDifficultySummary } from "../../shared/components/CompactDifficultySummary";
 import { errorMessage, fullNumber, rulesetLabels } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import { DifficultyIcon, ModeIcon } from "../online-beatmaps/BeatmapVisuals";
@@ -279,11 +280,14 @@ function BeatmapSetCard({
               <Badge tone="cyan">{difficulties.length} 个难度</Badge>
               {set.grouping_inferred ? <Badge tone="warning">推断分组</Badge> : null}
             </div>
-            <div className="opp-beatmap-card__difficulty-list flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
-              <span className="mr-1 shrink-0 text-[11px] font-semibold text-slate-400">难度</span>
-              {difficulties.slice(0, 5).map((difficulty) => <button className="inline-flex min-w-0 items-center gap-1.5 outline-none hover:brightness-110" key={difficulty.resource.resource_id} onClick={(event) => { event.stopPropagation(); onOpen(difficulty.resource.resource_id); }} type="button"><DifficultyIcon className="px-1.5 py-0.5" mode={difficulty.ruleset} stars={difficulty.stars} /><span className="opp-beatmap-card__difficulty-name max-w-24 truncate text-[11px] text-slate-200">{difficulty.difficulty_name}</span></button>)}
-              {difficulties.length > 5 ? <span className="text-[11px] font-medium text-slate-400">+{difficulties.length - 5}</span> : null}
-            </div>
+            <CompactDifficultySummary
+              items={difficulties.map((difficulty) => ({
+                id: difficulty.resource.resource_id,
+                mode: difficulty.ruleset,
+                onClick: () => onOpen(difficulty.resource.resource_id),
+                stars: difficulty.stars,
+              }))}
+            />
           </div>
         </div>
 
@@ -293,7 +297,7 @@ function BeatmapSetCard({
             {[{ label: "星级", value: starRange }, { label: "BPM", value: set.bpm.toFixed(0) }, { label: "长度", value: formatDuration(set.length_ms) }, { label: "物件", value: fullNumber(set.object_count) }, { label: "Peak NPS", value: peakNps.toFixed(1) }, { label: "难度", value: String(difficulties.length) }].map((metric) => <div className="min-w-0" key={metric.label}><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{metric.label}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-100">{metric.value}</p></div>)}
           </div>
           <div className="opp-beatmap-card__detail-difficulties mt-3 flex flex-wrap content-start gap-1.5">
-            {difficulties.map((difficulty) => <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-white/10 bg-black/20 pr-2" key={difficulty.resource.resource_id}><DifficultyIcon className="border-0 bg-transparent px-1.5 py-1" mode={difficulty.ruleset} stars={difficulty.stars} /><span className="max-w-28 truncate text-[11px] text-slate-200">{difficulty.difficulty_name}</span></span>)}
+            {difficulties.map((difficulty) => <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-white/10 bg-black/20 pr-2" key={difficulty.resource.resource_id}><DifficultyIcon className="border-0 bg-transparent px-1.5 py-1" mode={difficulty.ruleset} stars={difficulty.stars} /><span className="break-all text-[11px] text-slate-200">{difficulty.difficulty_name}</span></span>)}
           </div>
         </div>
 

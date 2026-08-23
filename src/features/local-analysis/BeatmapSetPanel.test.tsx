@@ -86,8 +86,11 @@ describe("BeatmapSetPanel", () => {
     expect(card.querySelector(".opp-beatmap-card__cover-overlay")).toBeInTheDocument();
     expect(card.querySelector(".opp-beatmap-card__details")).toBeInTheDocument();
 
-    const compactRatings = Array.from(card.querySelectorAll('.opp-beatmap-card__difficulty-list [title$=" stars"]'), (node) => node.textContent?.trim());
+    const compact = card.querySelector(".opp-difficulty-summary");
+    const compactRatings = Array.from(compact?.querySelectorAll('[title$=" stars"]') ?? [], (node) => node.textContent?.trim());
     expect(compactRatings).toEqual(["2.10", "5.40"]);
+    expect(compact).not.toHaveTextContent("Easy");
+    expect(card.querySelector(".opp-beatmap-card__detail-difficulties")).toHaveTextContent("Easy");
 
     await user.click(card);
     expect(screen.getByRole("dialog")).toBeVisible();

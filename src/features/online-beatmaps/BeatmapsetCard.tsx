@@ -1,5 +1,6 @@
 import { Check, Download, Headphones, Heart, Info, ListPlus, Pause } from "lucide-react";
 import { Badge, Button, Card } from "../../shared/components/ui";
+import { CompactDifficultySummary } from "../../shared/components/CompactDifficultySummary";
 import { DifficultyIcon } from "../../shared/components/DifficultyIcon";
 import { APP_TIME_ZONE, fullNumber } from "../../shared/lib/format";
 import { cn } from "../../shared/lib/cn";
@@ -92,11 +93,13 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
           {beatmapset.video ? <Badge>VIDEO</Badge> : null}
           {disabled ? <Badge tone="warning">禁止下载</Badge> : null}
         </div>
-        <div className="opp-beatmap-card__difficulty-list flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
-          <span className="mr-1 shrink-0 text-[11px] font-semibold text-slate-400">难度</span>
-          {beatmaps.slice(0, 5).map((beatmap) => <span className="inline-flex min-w-0 items-center gap-1.5" key={beatmap.id}><DifficultyIcon className="px-1.5 py-0.5" mode={beatmap.mode} stars={beatmap.difficulty_rating} /><span className="opp-beatmap-card__difficulty-name max-w-24 truncate text-[11px] text-slate-200">{beatmap.version}</span></span>)}
-          {beatmaps.length > 5 ? <span className="text-[11px] font-medium text-slate-400">+{beatmaps.length - 5}</span> : null}
-        </div>
+        <CompactDifficultySummary
+          items={beatmaps.map((beatmap) => ({
+            id: beatmap.id,
+            mode: beatmap.mode,
+            stars: beatmap.difficulty_rating,
+          }))}
+        />
       </div>
     </div>
 
@@ -106,7 +109,7 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
         {[{ label: "星级", value: `${minStars.toFixed(2)}–${maxStars.toFixed(2)}★` }, { label: "BPM", value: String(Math.round(beatmapset.bpm ?? 0)) }, { label: "长度", value: durationLabel(longest) }, { label: "物件", value: fullNumber(objects) }, { label: "游玩", value: fullNumber(beatmapset.play_count ?? 0) }, { label: "上架", value: dateLabel(beatmapset.ranked_date) }].map((metric) => <div className="min-w-0" key={metric.label}><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{metric.label}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-100">{metric.value}</p></div>)}
       </div>
       <div className="opp-beatmap-card__detail-difficulties mt-3 flex flex-wrap content-start gap-1.5">
-        {beatmaps.map((beatmap) => <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-white/10 bg-black/20 pr-2" key={beatmap.id}><DifficultyIcon className="border-0 bg-transparent px-1.5 py-1" mode={beatmap.mode} stars={beatmap.difficulty_rating} /><span className="max-w-28 truncate text-[11px] text-slate-200">{beatmap.version}</span></span>)}
+        {beatmaps.map((beatmap) => <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-white/10 bg-black/20 pr-2" key={beatmap.id}><DifficultyIcon className="border-0 bg-transparent px-1.5 py-1" mode={beatmap.mode} stars={beatmap.difficulty_rating} /><span className="break-all text-[11px] text-slate-200">{beatmap.version}</span></span>)}
       </div>
     </div>
   </Card>;
