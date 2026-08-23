@@ -5,6 +5,7 @@ import { APP_TIME_ZONE, fullNumber } from "../../shared/lib/format";
 import { cn } from "../../shared/lib/cn";
 import type { OnlineBeatmapset } from "../../shared/types/osu";
 import { durationLabel, normalizePreviewUrl } from "./filters";
+import "../../shared/styles/beatmapCards.css";
 
 function dateLabel(value?: string | null) {
   if (!value) return "未定";
@@ -44,7 +45,7 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
   return <Card
     aria-label={`查看谱面 ${beatmapset.title}`}
     className={cn(
-      "opp-beatmap-card group relative isolate aspect-[136/55] min-w-0 cursor-pointer overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline-none",
+      "opp-media-card opp-beatmap-card group relative isolate aspect-[136/55] min-h-40 min-w-0 cursor-pointer overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline-none",
       "transition-[border-color,box-shadow,transform] duration-[var(--motion-base)] ease-[cubic-bezier(.2,.8,.2,1)]",
       "after:pointer-events-none after:absolute after:inset-0 after:z-[6] after:rounded-[inherit] after:border after:border-transparent after:content-[''] after:transition-colors after:duration-[var(--motion-base)]",
       "hover:-translate-y-0.5 hover:border-[var(--theme-primary-soft)] hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] hover:after:border-[color-mix(in_srgb,var(--theme-primary)_42%,transparent)]",
@@ -60,28 +61,28 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
     {cover ? <img alt="" className="absolute inset-0 h-full w-full scale-[1.015] object-cover opacity-[.58] saturate-[.9] contrast-[1.06] [transition:transform_420ms_cubic-bezier(.2,.8,.2,1),opacity_var(--motion-base)_ease] group-hover:scale-[1.045] group-hover:opacity-[.72] motion-reduce:transition-none" src={cover} /> : null}
     <div className="absolute inset-0 z-[2] bg-[linear-gradient(90deg,rgba(17,20,25,.96),rgba(22,26,32,.82)_62%,rgba(22,26,32,.67)),linear-gradient(0deg,rgba(10,12,16,.72),transparent_70%)]" />
 
-    <div className="relative z-10 flex h-full flex-col p-4">
-      <div className="flex items-start gap-3">
-        <button aria-label={selected ? "从下载队列移除" : "加入下载队列"} className={`grid size-9 shrink-0 place-items-center rounded-lg border backdrop-blur-md ${selected ? "border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--on-primary)]" : "border-white/20 bg-black/35 text-white hover:border-white/40 hover:bg-black/55"}`} disabled={disabled} onClick={(event) => { event.stopPropagation(); onSelect(); }} type="button">
+    <div className="opp-beatmap-card__body relative z-10 flex h-full flex-col p-4">
+      <div className="opp-beatmap-card__header flex items-start gap-3">
+        <button aria-label={selected ? "从下载队列移除" : "加入下载队列"} className={`opp-beatmap-card__queue grid size-9 shrink-0 place-items-center rounded-lg border backdrop-blur-md ${selected ? "border-[var(--theme-primary)] bg-[var(--theme-primary)] text-[var(--on-primary)]" : "border-white/20 bg-black/35 text-white hover:border-white/40 hover:bg-black/55"}`} disabled={disabled} onClick={(event) => { event.stopPropagation(); onSelect(); }} type="button">
           {selected ? <Check className="size-4" /> : <ListPlus className="size-4" />}
         </button>
         <div className="min-w-0 flex-1">
           <button className="block max-w-full text-left outline-none" onClick={(event) => { event.stopPropagation(); onOpen(); }} type="button">
-            <h3 className="truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-white">{beatmapset.title}</h3>
+            <h3 className="opp-beatmap-card__title truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-white">{beatmapset.title}</h3>
             <p className="mt-0.5 truncate text-[13px] font-medium text-slate-300">{beatmapset.artist}</p>
           </button>
           <p className="mt-1.5 truncate text-xs text-slate-400">谱师 · <strong className="font-semibold text-slate-200">{beatmapset.creator}</strong></p>
         </div>
         <div className="opp-beatmap-card__actions relative z-30 flex shrink-0 gap-0.5">
           <Button aria-label="加入收藏夹" onClick={(event) => { event.stopPropagation(); onAddToCollection(); }} size="icon" title="加入收藏夹" variant="ghost"><Heart className="size-4" /></Button>
-          <Button aria-label={playing ? "暂停试听" : "试听"} className="hidden min-[1440px]:inline-flex" disabled={!preview} onClick={(event) => { event.stopPropagation(); onPreview(); }} size="icon" variant={playing ? "primary" : "ghost"}>{playing ? <Pause className="size-4" /> : <Headphones className="size-4" />}</Button>
+          <Button aria-label={playing ? "暂停试听" : "试听"} className="opp-beatmap-card__wide-action" disabled={!preview} onClick={(event) => { event.stopPropagation(); onPreview(); }} size="icon" variant={playing ? "primary" : "ghost"}>{playing ? <Pause className="size-4" /> : <Headphones className="size-4" />}</Button>
           <Button aria-label="下载谱面" disabled={disabled} loading={downloading} onClick={(event) => { event.stopPropagation(); onDownload(); }} size="icon" title="下载谱面" variant="ghost">{downloading ? null : <Download className="size-4" />}</Button>
-          <Button aria-label="预览详情" className="hidden min-[1440px]:inline-flex" onClick={(event) => { event.stopPropagation(); onOpen(); }} size="icon" variant="ghost"><Info className="size-4" /></Button>
+          <Button aria-label="预览详情" className="opp-beatmap-card__wide-action" onClick={(event) => { event.stopPropagation(); onOpen(); }} size="icon" variant="ghost"><Info className="size-4" /></Button>
         </div>
       </div>
 
       <div className="mt-auto">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="opp-beatmap-card__badges mb-3 flex flex-wrap items-center gap-2">
           <Badge tone={statusTone(beatmapset.status)}>{statusLabel(beatmapset.status)}</Badge>
           {selected ? <Badge tone="cyan">已加入队列</Badge> : null}
           {beatmapset.nsfw ? <Badge tone="warning">NSFW</Badge> : null}
@@ -90,15 +91,15 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
         </div>
         <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
           <span className="mr-1 shrink-0 text-[11px] font-semibold text-slate-400">难度</span>
-          {beatmaps.slice(0, 5).map((beatmap) => <span className="inline-flex min-w-0 items-center gap-1.5" key={beatmap.id}><DifficultyIcon className="px-1.5 py-0.5" mode={beatmap.mode} stars={beatmap.difficulty_rating} /><span className="max-w-24 truncate text-[11px] text-slate-200">{beatmap.version}</span></span>)}
+          {beatmaps.slice(0, 5).map((beatmap) => <span className="inline-flex min-w-0 items-center gap-1.5" key={beatmap.id}><DifficultyIcon className="px-1.5 py-0.5" mode={beatmap.mode} stars={beatmap.difficulty_rating} /><span className="opp-beatmap-card__difficulty-name max-w-24 truncate text-[11px] text-slate-200">{beatmap.version}</span></span>)}
           {beatmaps.length > 5 ? <span className="text-[11px] font-medium text-slate-400">+{beatmaps.length - 5}</span> : null}
         </div>
       </div>
     </div>
 
     {/* 悬停层随卡片比例定位，窗口缩放时保持一致的信息占比。 */}
-    <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 top-[40%] z-20 translate-y-2.5 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.97),rgba(13,16,21,.99))] p-[14px_16px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
-      <div className="grid grid-cols-6 gap-x-2">
+    <div aria-hidden="true" className="opp-beatmap-card__details pointer-events-none absolute inset-x-0 bottom-0 top-[40%] z-20 translate-y-2.5 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.97),rgba(13,16,21,.99))] p-[14px_16px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
+      <div className="opp-beatmap-card__metrics grid grid-cols-6 gap-x-2">
         {[{ label: "星级", value: `${minStars.toFixed(2)}–${maxStars.toFixed(2)}★` }, { label: "BPM", value: String(Math.round(beatmapset.bpm ?? 0)) }, { label: "长度", value: durationLabel(longest) }, { label: "物件", value: fullNumber(objects) }, { label: "游玩", value: fullNumber(beatmapset.play_count ?? 0) }, { label: "上架", value: dateLabel(beatmapset.ranked_date) }].map((metric) => <div className="min-w-0" key={metric.label}><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{metric.label}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-100">{metric.value}</p></div>)}
       </div>
       <div className="mt-3 flex max-h-[34%] flex-wrap content-start gap-1.5 overflow-hidden">

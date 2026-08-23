@@ -49,8 +49,8 @@ describe("BeatmapsetCard", () => {
     await user.click(screen.getByRole("button", { name: "加入下载队列" }));
     expect(onSelect).toHaveBeenCalledOnce();
     expect(onOpen).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "试听" })).toHaveClass("hidden", "min-[1440px]:inline-flex");
-    expect(screen.getByRole("button", { name: "预览详情" })).toHaveClass("hidden", "min-[1440px]:inline-flex");
+    expect(screen.getByRole("button", { name: "试听" })).toHaveClass("opp-beatmap-card__wide-action");
+    expect(screen.getByRole("button", { name: "预览详情" })).toHaveClass("opp-beatmap-card__wide-action");
   });
 
   it("shows the compact osu metadata and opens from the keyboard", async () => {
@@ -75,7 +75,7 @@ describe("BeatmapsetCard", () => {
     expect(screen.getAllByText("上架")).not.toHaveLength(0);
 
     const card = screen.getByRole("button", { name: "查看谱面 Daisuke" });
-    expect(card).toHaveClass("aspect-[136/55]", "rounded-xl");
+    expect(card).toHaveClass("opp-media-card", "aspect-[136/55]", "min-h-40", "rounded-xl");
     expect(card).not.toHaveClass("h-[220px]");
     card.focus();
     await user.keyboard("{Enter}");
