@@ -86,7 +86,7 @@ describe("BeatmapsetCard", () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it("sorts every difficulty by stars and keeps hover details scrollable", () => {
+  it("sorts every difficulty and keeps compact badges separate from the remaining count", () => {
     const difficulties = [
       { id: 701, difficulty_rating: 7.07, version: "Extra" },
       { id: 593, difficulty_rating: 5.93, version: "Another" },
@@ -112,13 +112,19 @@ describe("BeatmapsetCard", () => {
       />,
     );
 
-    const compact = container.querySelector(".opp-beatmap-card__difficulty-list");
+    const compact = container.querySelector(".opp-difficulty-summary");
     const details = container.querySelector(".opp-beatmap-card__details");
     const detailDifficulties = container.querySelector(".opp-beatmap-card__detail-difficulties");
     const ratings = (root: Element | null) => Array.from(root?.querySelectorAll('[title$=" stars"]') ?? [], (node) => node.textContent?.trim());
 
     expect(ratings(compact)).toEqual(["2.49", "3.38", "4.67", "5.93", "7.07"]);
+    expect(compact?.querySelector(".opp-difficulty-summary__items")).toHaveClass("opp-difficulty-summary__items");
+    expect(compact?.querySelector(".opp-difficulty-summary__count--3")).toHaveTextContent("+3");
+    expect(compact?.querySelector(".opp-difficulty-summary__count--4")).toHaveTextContent("+2");
+    expect(compact?.querySelector(".opp-difficulty-summary__count--5")).toHaveTextContent("+1");
+    expect(compact).not.toHaveTextContent("Normal");
     expect(ratings(detailDifficulties)).toEqual(["2.49", "3.38", "4.67", "5.93", "7.07", "8.10"]);
+    expect(detailDifficulties).toHaveTextContent("Normal");
     expect(details).toHaveClass("overflow-y-auto", "overscroll-contain", "group-hover:pointer-events-auto");
   });
 });
