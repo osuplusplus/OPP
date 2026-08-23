@@ -1,0 +1,318 @@
+/* 媒体卡片在两套主题中复用结构，仅切换表面、封面蒙版和前景层级。 */
+.opp-media-card {
+  width: 100%;
+  max-width: 100%;
+  color: #f4f6f8;
+  background-color: #1a1e24;
+}
+
+.opp-beatmap-card {
+  container: beatmap-card / inline-size;
+}
+
+.opp-map-card {
+  container: map-card / inline-size;
+}
+
+/* 难度摘要保留独立计数列，徽标不参与压缩，窄卡片只减少显示数量。 */
+.opp-difficulty-summary {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.opp-difficulty-summary__label {
+  flex: none;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: rgb(148 163 184);
+}
+
+.opp-difficulty-summary__items {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  overflow: hidden;
+}
+
+.opp-difficulty-summary__item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border-radius: 0.5rem;
+}
+
+.opp-difficulty-summary__item:nth-child(n + 4) {
+  display: none;
+}
+
+.opp-difficulty-summary__rating {
+  min-width: 3.25rem;
+  justify-content: center;
+}
+
+.opp-difficulty-summary__count {
+  display: none;
+  height: 1.5rem;
+  min-width: 1.875rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(248, 250, 252, 0.34);
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.78);
+  padding: 0 0.375rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.opp-difficulty-summary__count--3 {
+  display: inline-flex;
+}
+
+@container beatmap-card (min-width: 25rem) {
+  .opp-difficulty-summary__item:nth-child(4) {
+    display: inline-flex;
+  }
+
+  .opp-difficulty-summary__count--3 {
+    display: none;
+  }
+
+  .opp-difficulty-summary__count--4 {
+    display: inline-flex;
+  }
+}
+
+@container beatmap-card (min-width: 31rem) {
+  .opp-difficulty-summary__item:nth-child(5) {
+    display: inline-flex;
+  }
+
+  .opp-difficulty-summary__count--4 {
+    display: none;
+  }
+
+  .opp-difficulty-summary__count--5 {
+    display: inline-flex;
+  }
+}
+
+:root[data-theme-mode="light"] .opp-media-card {
+  --line-strong: rgba(15, 23, 42, 0.18);
+  --surface-interactive-hover: rgba(15, 23, 42, 0.075);
+  color: #172033;
+  background-color: #f8fafc;
+  box-shadow: 0 9px 24px rgba(24, 32, 54, 0.11);
+}
+
+/* 计数徽标与难度星级保持相同的主题对比：深色用白字，浅色用近黑字。 */
+:root[data-theme-mode="light"] .opp-media-card .opp-difficulty-summary__count {
+  border-color: rgba(15, 23, 42, 0.32);
+  background: rgba(255, 255, 255, 0.9);
+  color: #111827;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="text-white"],
+:root[data-theme-mode="light"] .opp-media-card [class*="text-slate-100"],
+:root[data-theme-mode="light"] .opp-media-card [class*="text-slate-200"] {
+  color: #172033;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="text-slate-300"] {
+  color: #243149;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="text-slate-400"] {
+  color: #405069;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="text-slate-500"],
+:root[data-theme-mode="light"] .opp-media-card [class*="text-slate-600"] {
+  color: #59687c;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="text-emerald-"] {
+  color: #166534;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="text-amber-"] {
+  color: #92400e;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="text-pink-"] {
+  color: #9f1239;
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="border-white"] {
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="bg-black"] {
+  background-color: rgba(255, 255, 255, 0.68);
+}
+
+:root[data-theme-mode="light"] .opp-media-card [class*="bg-white/[0."],
+:root[data-theme-mode="light"] .opp-media-card [class*="bg-white/\[0."] {
+  background-color: rgba(15, 23, 42, 0.055);
+}
+
+/* 浅色卡片只在文字区提高明度，封面的右侧与上部保持清晰可辨。 */
+:root[data-theme-mode="light"] .opp-media-card .opp-media-card__cover {
+  opacity: 0.82;
+  filter: saturate(0.9) contrast(1.03) brightness(1.03);
+}
+
+:root[data-theme-mode="light"] .opp-media-card:hover .opp-media-card__cover {
+  opacity: 0.92;
+}
+
+:root[data-theme-mode="light"] .opp-beatmap-card__cover-overlay {
+  background:
+    linear-gradient(90deg, rgba(250, 251, 253, 0.82), rgba(247, 249, 252, 0.56) 44%, rgba(244, 247, 250, 0.18)),
+    linear-gradient(0deg, rgba(244, 247, 250, 0.72), rgba(244, 247, 250, 0.08) 62%, transparent 78%);
+}
+
+:root[data-theme-mode="light"] .opp-map-card__cover-overlay {
+  background:
+    linear-gradient(90deg, rgba(250, 251, 253, 0.78), rgba(247, 249, 252, 0.48) 58%, rgba(242, 246, 250, 0.16)),
+    linear-gradient(0deg, rgba(244, 247, 250, 0.68), rgba(244, 247, 250, 0.06) 68%, transparent 82%);
+}
+
+:root[data-theme-mode="light"] .opp-beatmap-card__details,
+:root[data-theme-mode="light"] .opp-map-card__details {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(238, 242, 247, 0.99));
+}
+
+/* 在线结果按真实内容宽度切换单双列，而不是按包含左右侧栏的窗口宽度判断。 */
+.opp-online-results {
+  container: online-results / inline-size;
+}
+
+.opp-online-results-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+}
+
+.opp-beatmap-card-skeleton {
+  aspect-ratio: 136 / 55;
+  min-height: 10rem;
+}
+
+@container online-results (min-width: 44rem) {
+  .opp-online-results-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.opp-beatmap-card__wide-action {
+  display: none;
+}
+
+@container beatmap-card (min-width: 29rem) {
+  .opp-beatmap-card__wide-action {
+    display: inline-flex;
+  }
+}
+
+@container beatmap-card (max-width: 24rem) {
+  .opp-beatmap-card__body {
+    padding: 0.75rem;
+  }
+
+  .opp-beatmap-card__header {
+    gap: 0.5rem;
+  }
+
+  .opp-beatmap-card__queue,
+  .opp-beatmap-card__actions [data-slot="button"] {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .opp-beatmap-card__title {
+    font-size: 0.9375rem;
+  }
+
+  .opp-beatmap-card__badges {
+    margin-bottom: 0.5rem;
+    gap: 0.375rem;
+  }
+
+  .opp-beatmap-card__details {
+    top: 22%;
+    padding: 0.75rem;
+  }
+
+  .opp-beatmap-card__metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 0.5rem;
+  }
+}
+
+/* 收藏夹列数随文件夹内容区增长，确保增加列数时单卡不会反而变窄。 */
+.opp-collection-folder {
+  container: collection-folder / inline-size;
+}
+
+.opp-map-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+@container collection-folder (min-width: 52.5rem) {
+  .opp-map-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container collection-folder (min-width: 70rem) {
+  .opp-map-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container map-card (max-width: 17.5rem) {
+  .opp-map-card__body {
+    padding: 0.625rem;
+  }
+
+  .opp-map-card__header {
+    gap: 0.5rem;
+  }
+
+  .opp-map-card__difficulty-row {
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+  }
+
+  .opp-map-card__creator {
+    width: 100%;
+    overflow: hidden;
+    padding-left: 0.6875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .opp-map-card__details {
+    top: 22%;
+    padding: 0.75rem;
+  }
+
+  .opp-map-card__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 0.75rem;
+  }
+
+  .opp-map-card__checksum {
+    grid-column: 1 / -1;
+  }
+}
