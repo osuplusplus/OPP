@@ -158,6 +158,7 @@ OPP/
 - [Ohdmire/osu-lazer-space-statistics](https://github.com/Ohdmire/osu-lazer-space-statistics)
 - [Ohdmire/realm-db-reader](https://github.com/Ohdmire/realm-db-reader)
 - [Ohdmire/osu-replay-render](https://github.com/Ohdmire/osu-replay-render)
+- [LeoBlackMT/osumania_map_analyser](https://github.com/LeoBlackMT/osumania_map_analyser)
 
 ## 特别鸣谢
 
