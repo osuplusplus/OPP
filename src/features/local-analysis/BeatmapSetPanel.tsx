@@ -37,7 +37,6 @@ import {
   Skeleton,
 } from "../../shared/components/ui";
 import { SearchAutocomplete } from "../../shared/components/SearchAutocomplete";
-import { BeatmapDifficultyStrip, BeatmapInfoBar } from "../../shared/components/BeatmapSetVisuals";
 import { errorMessage, fullNumber, rulesetLabels } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import { DifficultyIcon, ModeIcon } from "../online-beatmaps/BeatmapVisuals";
@@ -55,6 +54,7 @@ import {
   useLocalBeatmapBackground,
   useLocalBeatmapSets,
 } from "./api";
+import "../../shared/styles/beatmapCards.css";
 
 interface RangeValues {
   minStars: string;
@@ -140,11 +140,11 @@ function SetBackground({
   return query.data ? (
     <img
       alt=""
-      className="theme-beatmap-background absolute inset-0 size-full object-cover opacity-55"
+      className="opp-media-card__cover theme-beatmap-background absolute inset-0 size-full scale-[1.015] object-cover opacity-[.58] saturate-[.9] contrast-[1.06] [transition:transform_420ms_cubic-bezier(.2,.8,.2,1),opacity_var(--motion-base)_ease] group-hover:scale-[1.045] group-hover:opacity-[.72] motion-reduce:transition-none"
       src={query.data}
     />
   ) : (
-    <div className="theme-beatmap-background absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(92,225,230,.16),transparent_32%),radial-gradient(circle_at_15%_80%,rgba(255,106,167,.18),transparent_36%)]" />
+    <div className="opp-media-card__cover theme-beatmap-background absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(92,225,230,.16),transparent_32%),radial-gradient(circle_at_15%_80%,rgba(255,106,167,.18),transparent_36%)]" />
   );
 }
 
@@ -224,112 +224,82 @@ function BeatmapSetCard({
     }
   };
   const starRange =
-    set.min_stars === null
+    set.min_stars === null || set.max_stars === null
       ? "待计算"
       : set.min_stars === set.max_stars
         ? `${set.min_stars.toFixed(2)}★`
         : `${set.min_stars.toFixed(2)}–${set.max_stars?.toFixed(2)}★`;
-  const peakNps = Math.max(...set.difficulties.map((item) => item.peak_nps), 0);
+  // 本地谱面与在线谱面保持相同的低星到高星阅读顺序，空星数放在末尾。
+  const difficulties = [...set.difficulties].sort((left, right) =>
+    (left.stars ?? Number.POSITIVE_INFINITY) - (right.stars ?? Number.POSITIVE_INFINITY)
+      || left.difficulty_name.localeCompare(right.difficulty_name),
+  );
+  const peakNps = Math.max(...difficulties.map((item) => item.peak_nps), 0);
+  const title = set.title_unicode || set.title;
+  const artist = set.artist_unicode || set.artist;
+  const statusMessage = neteaseError ? errorMessage(neteaseError) : exportNotice;
 
   return (
     <>
-    <article className="overflow-hidden rounded-[22px] border border-white/[0.075] bg-[#0f1522] shadow-[0_16px_45px_rgba(0,0,0,.16)] transition hover:border-white/[0.14]">
-      <div className="relative min-h-40 overflow-hidden">
+      <Card
+        aria-label={`查看本地谱面集 ${title}`}
+        className="opp-media-card opp-beatmap-card opp-local-beatmap-card group relative isolate aspect-[136/55] min-h-40 min-w-0 cursor-pointer overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[#1a1e24] shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline-none transition-[border-color,box-shadow,transform] duration-[var(--motion-base)] ease-[cubic-bezier(.2,.8,.2,1)] hover:-translate-y-0.5 hover:border-[var(--theme-primary-soft)] hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] focus-visible:ring-2 focus-visible:ring-[var(--theme-primary-soft)] motion-reduce:transition-none"
+        onClick={() => setDifficultyDialogOpen(true)}
+        onKeyDown={(event) => { if (event.key === "Enter" && event.target === event.currentTarget) setDifficultyDialogOpen(true); }}
+        role="button"
+        tabIndex={0}
+        unstyled
+      >
         <SetBackground client={client} resourceId={set.background_resource_id} />
-        <div className="theme-beatmap-overlay-primary absolute inset-0 bg-gradient-to-r from-[#0b101b]/95 via-[#0b101b]/76 to-[#0b101b]/35" />
-        <div className="theme-beatmap-overlay-secondary absolute inset-0 bg-gradient-to-t from-[#0f1522] via-transparent to-black/20" />
-        <div className="relative flex min-h-40 items-end gap-6 p-5">
-          <div className="min-w-0 flex-1">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Badge tone={set.beatmap_set_id ? "success" : "neutral"}>
-                {set.beatmap_set_id ? `SET ${set.beatmap_set_id}` : "LOCAL SET"}
-              </Badge>
-              {set.grouping_inferred ? <Badge tone="warning">推断分组</Badge> : null}
-              <Badge tone="cyan">{set.difficulties.length} 个匹配难度</Badge>
-            </div>
-            <h3 className="truncate text-xl font-semibold tracking-tight text-white">
-              {set.title_unicode || set.title}
-            </h3>
-            <p className="mt-1.5 truncate text-sm text-slate-300">
-              {set.artist_unicode || set.artist}
-            </p>
-            <p className="mt-2 truncate text-xs text-slate-500">
-              mapped by <span className="text-slate-300">{set.creators.join(" · ")}</span>
-            </p>
-          </div>
-          <BeatmapInfoBar metrics={[{ label: "Star range", value: starRange }, { label: "BPM", value: set.bpm.toFixed(0) }, { label: "Length", value: formatDuration(set.length_ms) }, { label: "Objects", value: fullNumber(set.object_count) }, { label: "Peak NPS", value: peakNps.toFixed(1) }, { label: "Difficulties", value: String(set.difficulties.length) }]} />
-        </div>
-      </div>
+        <div className="opp-beatmap-card__cover-overlay absolute inset-0 z-[2] bg-[linear-gradient(90deg,rgba(17,20,25,.96),rgba(22,26,32,.82)_62%,rgba(22,26,32,.67)),linear-gradient(0deg,rgba(10,12,16,.72),transparent_70%)]" />
 
-      <div className="flex items-center gap-2 border-t border-white/[0.055] bg-black/10 px-5 py-3">
-        <div className="min-w-0 flex-1">
-          <BeatmapDifficultyStrip difficulties={set.difficulties.map((difficulty) => ({ id: difficulty.resource.resource_id, mode: difficulty.ruleset, stars: difficulty.stars, label: difficulty.difficulty_name, onClick: () => onOpen(difficulty.resource.resource_id) }))} />
+        <div className="opp-beatmap-card__body relative z-10 flex h-full flex-col p-4">
+          <div className="opp-beatmap-card__header flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="opp-beatmap-card__title truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-white">{title}</h3>
+              <p className="mt-0.5 truncate text-[13px] font-medium text-slate-300">{artist}</p>
+              <p className="mt-1.5 truncate text-xs text-slate-400">谱师 · <strong className="font-semibold text-slate-200">{set.creators.join(" · ") || "未知"}</strong></p>
+            </div>
+            <div className="opp-beatmap-card__actions relative z-30 flex shrink-0 gap-0.5">
+              {client === "stable" ? (
+                <Button aria-label="在资源管理器中打开谱面" disabled={!difficulties[0]?.resource.logical_path} onClick={(event) => { event.stopPropagation(); const path = difficulties[0]?.resource.logical_path; if (path) void desktopApi.openLocalResourceInExplorer(client, path); }} size="icon" title="打开文件" variant="ghost"><FolderSearch className="size-4" /></Button>
+              ) : (
+                // Lazer 文件按哈希散落存储，没有可打开的谱面集目录，直接提供导出。
+                <Button aria-label="导出为 .osz 谱面包" disabled={exporting} loading={exporting} onClick={(event) => { event.stopPropagation(); void exportOsz(); }} size="icon" title="导出 .osz" variant="ghost">{exporting ? null : <PackageOpen className="size-4" />}</Button>
+              )}
+              {set.beatmap_set_id ? <Button aria-label="在 osu! 官网打开谱面" onClick={(event) => { event.stopPropagation(); void desktopApi.openExternal(`https://osu.ppy.sh/beatmapsets/${set.beatmap_set_id}`); }} size="icon" title="打开官网" variant="ghost"><ExternalLink className="size-4" /></Button> : null}
+              <Button aria-label="在浏览器中搜索网易云音乐" onClick={(event) => { event.stopPropagation(); setNeteaseError(null); void desktopApi.openNeteaseMusicSearch(artist, title).catch(setNeteaseError); }} size="icon" title="搜索网易云音乐" variant="ghost"><Music4 className="size-4" /></Button>
+              <Button aria-label="查看难度" onClick={(event) => { event.stopPropagation(); setDifficultyDialogOpen(true); }} size="icon" title="查看难度" variant="ghost"><ListMusic className="size-4" /></Button>
+            </div>
+          </div>
+
+          <div className="mt-auto">
+            <div className="opp-beatmap-card__badges mb-3 flex flex-wrap items-center gap-2">
+              <Badge tone={set.beatmap_set_id ? "success" : "neutral"}>{set.beatmap_set_id ? "已提交" : "本地谱面"}</Badge>
+              <Badge tone="cyan">{difficulties.length} 个难度</Badge>
+              {set.grouping_inferred ? <Badge tone="warning">推断分组</Badge> : null}
+            </div>
+            <div className="opp-beatmap-card__difficulty-list flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
+              <span className="mr-1 shrink-0 text-[11px] font-semibold text-slate-400">难度</span>
+              {difficulties.slice(0, 5).map((difficulty) => <button className="inline-flex min-w-0 items-center gap-1.5 outline-none hover:brightness-110" key={difficulty.resource.resource_id} onClick={(event) => { event.stopPropagation(); onOpen(difficulty.resource.resource_id); }} type="button"><DifficultyIcon className="px-1.5 py-0.5" mode={difficulty.ruleset} stars={difficulty.stars} /><span className="opp-beatmap-card__difficulty-name max-w-24 truncate text-[11px] text-slate-200">{difficulty.difficulty_name}</span></button>)}
+              {difficulties.length > 5 ? <span className="text-[11px] font-medium text-slate-400">+{difficulties.length - 5}</span> : null}
+            </div>
+          </div>
         </div>
-        {client === "stable" ? (
-          <Button
-            aria-label="在资源管理器中打开谱面"
-            disabled={!set.difficulties[0]?.resource.logical_path}
-            onClick={() => { const path = set.difficulties[0]?.resource.logical_path; if (path) void desktopApi.openLocalResourceInExplorer(client, path); }}
-            size="sm"
-          >
-            <FolderSearch className="size-3.5" />
-            打开文件
-          </Button>
-        ) : (
-          // Lazer 文件按哈希散落存储，没有可打开的谱面集目录，直接提供导出。
-          <Button
-            aria-label="导出为 .osz 谱面包"
-            disabled={exporting}
-            loading={exporting}
-            onClick={() => void exportOsz()}
-            size="sm"
-            variant="primary"
-          >
-            <PackageOpen className="size-3.5" />
-            导出 .osz
-          </Button>
-        )}
-        {exportNotice ? <span className="max-w-56 truncate text-[11px] text-slate-500" title={exportNotice}>{exportNotice}</span> : null}
-        {set.beatmap_set_id ? (
-          <Button
-            aria-label="在 osu! 官网打开谱面"
-            onClick={() => void desktopApi.openExternal(
-              `https://osu.ppy.sh/beatmapsets/${set.beatmap_set_id}`,
-            )}
-            size="sm"
-            variant="secondary"
-          >
-            <ExternalLink className="size-3.5" />
-            打开官网
-          </Button>
-        ) : null}
-        <Button
-          aria-label="在浏览器中搜索网易云音乐"
-          onClick={() => {
-            setNeteaseError(null);
-            void desktopApi
-              .openNeteaseMusicSearch(set.artist_unicode || set.artist, set.title_unicode || set.title)
-              .catch(setNeteaseError);
-          }}
-          size="sm"
-          variant="secondary"
-        >
-          <Music4 className="size-3.5" />
-          搜索网易云音乐
-        </Button>
-        <Button
-          aria-haspopup="dialog"
-          onClick={() => setDifficultyDialogOpen(true)}
-          className="ml-auto shrink-0"
-          size="sm"
-        >
-          <ListMusic className="size-3.5" />
-          查看难度
-        </Button>
-      </div>
-      {neteaseError ? <p className="border-t border-rose-300/15 bg-rose-300/[0.05] px-5 py-2 text-xs text-rose-100" role="alert">{errorMessage(neteaseError)}</p> : null}
-    </article>
-    <LocalDifficultyDialog client={client} onClose={() => setDifficultyDialogOpen(false)} onFindSimilar={onFindSimilar} onOpen={(resourceId) => { setDifficultyDialogOpen(false); onOpen(resourceId); }} open={difficultyDialogOpen} set={set} />
+
+        {/* 与在线卡片一致：常驻核心信息，悬停后在卡片内部补充完整指标与难度。 */}
+        <div aria-hidden="true" className="opp-beatmap-card__details pointer-events-none absolute inset-x-0 bottom-0 top-[40%] z-20 translate-y-2.5 overflow-y-auto overscroll-contain border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.97),rgba(13,16,21,.99))] p-[14px_16px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
+          <div className="opp-beatmap-card__metrics grid grid-cols-6 gap-x-2">
+            {[{ label: "星级", value: starRange }, { label: "BPM", value: set.bpm.toFixed(0) }, { label: "长度", value: formatDuration(set.length_ms) }, { label: "物件", value: fullNumber(set.object_count) }, { label: "Peak NPS", value: peakNps.toFixed(1) }, { label: "难度", value: String(difficulties.length) }].map((metric) => <div className="min-w-0" key={metric.label}><p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{metric.label}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-100">{metric.value}</p></div>)}
+          </div>
+          <div className="opp-beatmap-card__detail-difficulties mt-3 flex flex-wrap content-start gap-1.5">
+            {difficulties.map((difficulty) => <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-white/10 bg-black/20 pr-2" key={difficulty.resource.resource_id}><DifficultyIcon className="border-0 bg-transparent px-1.5 py-1" mode={difficulty.ruleset} stars={difficulty.stars} /><span className="max-w-28 truncate text-[11px] text-slate-200">{difficulty.difficulty_name}</span></span>)}
+          </div>
+        </div>
+
+        {statusMessage ? <p aria-live="polite" className={`pointer-events-none absolute inset-x-3 bottom-3 z-40 truncate rounded-lg border px-3 py-1.5 text-[11px] backdrop-blur-md ${neteaseError ? "border-rose-300/25 bg-rose-950/85 text-rose-100" : "border-white/15 bg-black/75 text-slate-200"}`} role={neteaseError ? "alert" : undefined} title={statusMessage}>{statusMessage}</p> : null}
+      </Card>
+      <LocalDifficultyDialog client={client} onClose={() => setDifficultyDialogOpen(false)} onFindSimilar={onFindSimilar} onOpen={(resourceId) => { setDifficultyDialogOpen(false); onOpen(resourceId); }} open={difficultyDialogOpen} set={set} />
     </>
   );
 }
@@ -446,7 +416,7 @@ export function BeatmapSetPanel({
   };
 
   return (
-    <div>
+    <div className="opp-online-results opp-local-results">
       <Card className="mb-4 overflow-hidden">
         <div className="flex items-center gap-3 p-3">
           <div className="min-w-64 flex-1">
@@ -583,16 +553,16 @@ export function BeatmapSetPanel({
       </Card>
 
       {sets.isLoading ? (
-        <div className="space-y-3">
+        <div className="opp-online-results-grid opp-local-results-grid">
           {Array.from({ length: 5 }, (_, index) => (
-            <Skeleton className="h-52 rounded-[22px]" key={index} />
+            <Skeleton className="opp-beatmap-card-skeleton rounded-xl" key={index} />
           ))}
         </div>
       ) : sets.error ? (
         <ErrorPanel error={sets.error} onRetry={() => sets.refetch()} />
       ) : sets.data?.items.length ? (
         <>
-          <div className="space-y-3">
+          <div className="opp-online-results-grid opp-local-results-grid">
             {sets.data.items.map((set) => (
               <BeatmapSetCard
                 client={client}

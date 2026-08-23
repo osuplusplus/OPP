@@ -54,6 +54,12 @@ describe("OnlineBeatmapFilters", () => {
     expect(screen.getByRole("button", { name: "有视频" })).toBeVisible();
     expect(screen.getAllByRole("group", { name: "常规筛选" })).toHaveLength(1);
     expect(screen.getAllByRole("group", { name: "不良内容筛选" })).toHaveLength(1);
+    const advancedDiscrete = container.querySelector("[data-online-advanced-discrete]");
+    expect(advancedDiscrete).toHaveClass("border-b");
+    expect(advancedDiscrete).not.toHaveClass("border-t", "border-y");
+    expect(screen.getByRole("group", { name: "常规筛选" }).parentElement).toHaveClass("min-h-10", "py-1");
+    expect(screen.getByLabelText("艺术家")).toHaveClass("opp-filter-compact-input");
+    expect(screen.getAllByPlaceholderText("最小")[0]).toHaveClass("opp-filter-compact-input");
 
     await user.click(screen.getByRole("button", { name: "社区喜爱 (Loved)" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ status: "loved" }));
