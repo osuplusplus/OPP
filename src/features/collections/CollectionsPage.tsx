@@ -123,7 +123,7 @@ function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolde
   const missingSets = new Set(folder.entries.filter((entry) => !entry.resolved && (entry.beatmapset_id || entry.checksum)).map((entry) => entry.beatmapset_id ?? entry.checksum)).size;
 
   return (
-    <Card className="collection-folder overflow-hidden">
+    <Card className="collection-folder opp-collection-folder overflow-hidden">
       <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] p-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -141,8 +141,8 @@ function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolde
       </div>
       <div className="max-h-[min(34rem,60vh)] overflow-y-auto p-3.5">
         {folder.entries.length ? (
-          <div className="grid grid-cols-2 gap-2.5 min-[1440px]:grid-cols-3 2xl:grid-cols-4">
-            {/* 窄桌面保留两列可读空间，1440 起三列、超宽屏四列；卡片高度仍由比例决定。 */}
+          <div className="opp-map-grid">
+            {/* 列数依据收藏夹内容区宽度变化，避免窗口断点与卡片实际空间脱节。 */}
             {folder.entries.map((entry) => (
               <MapCard
                 busy={busy}

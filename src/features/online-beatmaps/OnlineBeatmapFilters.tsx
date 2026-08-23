@@ -13,9 +13,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function FilterRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1.5 border-t border-[var(--line-subtle)] py-2.5 first:border-t-0 sm:grid-cols-[clamp(4.75rem,calc(3.25rem+2vw),6.25rem)_minmax(0,1fr)] sm:gap-3">
-      <div className="whitespace-nowrap pt-1 text-[clamp(11px,calc(8px+0.3vw),14px)] font-semibold leading-[1.25] text-slate-500">{label}</div>
-      <div aria-label={`${label}筛选`} className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]" role="group">{children}</div>
+    <div className="grid min-h-12 items-center gap-1.5 border-t border-[var(--line-subtle)] py-1.5 first:border-t-0 sm:grid-cols-[clamp(4.75rem,calc(3.25rem+2vw),6.25rem)_minmax(0,1fr)] sm:gap-3">
+      <div className="whitespace-nowrap text-[clamp(11px,calc(8px+0.3vw),14px)] font-semibold leading-5 text-slate-500">{label}</div>
+      <div aria-label={`${label}筛选`} className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]" role="group">{children}</div>
     </div>
   );
 }
