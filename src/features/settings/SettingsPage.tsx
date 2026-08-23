@@ -172,10 +172,19 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const schedule = "requestIdleCallback" in window
-      ? window.requestIdleCallback(() => { if (!cancelled) void refreshDanser(); }, { timeout: 1200 })
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const useIdle = typeof idleWindow.requestIdleCallback === "function";
+    const schedule = useIdle
+      ? idleWindow.requestIdleCallback!(() => { if (!cancelled) void refreshDanser(); }, { timeout: 1200 })
       : window.setTimeout(() => { if (!cancelled) void refreshDanser(); }, 350);
-    return () => { cancelled = true; "cancelIdleCallback" in window ? window.cancelIdleCallback(schedule as number) : window.clearTimeout(schedule as number); };
+    return () => {
+      cancelled = true;
+      if (useIdle) idleWindow.cancelIdleCallback?.(schedule);
+      else window.clearTimeout(schedule);
+    };
   }, [settings.danser_executable_path]);
 
   const chooseDanser = async () => {
@@ -193,10 +202,19 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const schedule = "requestIdleCallback" in window
-      ? window.requestIdleCallback(() => { if (!cancelled) void refreshFfmpeg(); }, { timeout: 1500 })
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const useIdle = typeof idleWindow.requestIdleCallback === "function";
+    const schedule = useIdle
+      ? idleWindow.requestIdleCallback!(() => { if (!cancelled) void refreshFfmpeg(); }, { timeout: 1500 })
       : window.setTimeout(() => { if (!cancelled) void refreshFfmpeg(); }, 500);
-    return () => { cancelled = true; "cancelIdleCallback" in window ? window.cancelIdleCallback(schedule as number) : window.clearTimeout(schedule as number); };
+    return () => {
+      cancelled = true;
+      if (useIdle) idleWindow.cancelIdleCallback?.(schedule);
+      else window.clearTimeout(schedule);
+    };
   }, [settings.ffmpeg_executable_path, settings.danser_executable_path]);
 
   const chooseFfmpeg = async () => {
