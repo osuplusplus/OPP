@@ -105,8 +105,12 @@
 :root[data-theme-mode="light"] [class*="shadow-"] { box-shadow: 0 6px 18px rgba(24, 32, 54, 0.06); }
 :root[data-theme-mode="light"] .theme-profile-overlay { background: linear-gradient(90deg, rgba(255,255,255,.58), rgba(255,255,255,.26) 58%, rgba(255,255,255,0)); }
 :root[data-theme-mode="light"] .theme-profile-hero h2,
+:root[data-theme-mode="light"] .theme-profile-hero h1,
 :root[data-theme-mode="light"] .theme-profile-hero p,
 :root[data-theme-mode="light"] .theme-profile-hero span { color: #172033; }
+:root[data-theme-mode="light"] .theme-skin-cover .theme-skin-cover-copy,
+:root[data-theme-mode="light"] .theme-skin-cover .theme-skin-cover-copy span,
+:root[data-theme-mode="light"] .theme-media-copy { color: #ffffff; }
 :root[data-theme-mode="light"] [class*="text-cyan-"] { color: #0f4c75; }
 :root[data-theme-mode="light"] [class*="text-pink-"],
 :root[data-theme-mode="light"] [class*="text-rose-"] { color: #9f1239; }

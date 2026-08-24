@@ -6,6 +6,7 @@ import { SkinWorkshopPage } from "./SkinWorkshopPage";
 
 const mocks = vi.hoisted(() => ({
   scanLocalSource: vi.fn(),
+  skinItems: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("../../shared/lib/tauri", () => ({
@@ -20,16 +21,18 @@ vi.mock("../../app/ModeContext", () => ({
 
 vi.mock("../local-analysis/api", () => ({
   localSkinsKey: () => ["local-skins"],
+  useLocalSkinAsset: () => ({ data: null }),
   useLocalSkinDetail: () => ({ data: null }),
+  useLocalSkinPreview: () => ({ data: { images: [], sounds: [] } }),
   useLocalSkins: () => ({
-    data: { items: [] },
+    data: { items: mocks.skinItems },
     isLoading: false,
     refetch: vi.fn(),
   }),
 }));
 
 describe("SkinWorkshopPage", () => {
-  it("使用紧凑入口展示当前直接编辑工作区", () => {
+  it("使用紧凑工具栏展示本地皮肤库", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -40,12 +43,34 @@ describe("SkinWorkshopPage", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole("heading", { name: "Skin Workshop" })).toBeInTheDocument();
-    const entryHeading = screen.getByRole("heading", { name: "选择要编辑的 Skin" });
-    expect(entryHeading).toBeInTheDocument();
-    expect(entryHeading.closest("[data-slot='card']")).toHaveClass("p-5");
-    expect(entryHeading.closest("[data-slot='card']")).not.toHaveClass("p-7");
+    expect(screen.getByRole("heading", { name: "本地皮肤" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "搜索 Skin" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "选择要编辑的 Skin" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "打开 .osk" })).toBeInTheDocument();
+  });
+
+  it("在皮肤卡片中展示预览入口并移除占位式大按钮", () => {
+    mocks.skinItems = [{
+      resource: { resource_id: "skin:1", client: "stable", content_hash: "hash", logical_path: "C:\\osu!\\Skins\\Refined" },
+      completeness: "complete",
+      name: "Refined",
+      author: "Mapper",
+      version: "2.0",
+      section_count: 8,
+      has_mania_config: true,
+      resource_count: 128,
+      total_bytes: 4096,
+      modified_at: null,
+      accent_colors: [[92, 225, 230], [255, 106, 167]],
+    }];
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><SkinWorkshopPage /></QueryClientProvider>);
+
+    expect(screen.getByRole("button", { name: "预览 Refined" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "在本地打开 Refined" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "进入预览" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "本地打开" })).not.toBeInTheDocument();
+    mocks.skinItems = [];
   });
 
   it("rescans the local source before refreshing the skin library", async () => {

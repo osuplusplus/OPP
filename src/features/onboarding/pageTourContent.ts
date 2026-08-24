@@ -79,7 +79,7 @@ const copies: Record<string, PageGuideCopy> = {
   },
   "/data": {
     id: "data-center",
-    title: "数据中心",
+    title: "玩家信息",
     summary: "这个页面把当前账户和所选游戏模式的官方资料、成绩与档案放在同一条纵向工作流中。",
     modules: [
       { title: "概览与统计", purpose: "展示 PP、排名、准确率、活跃度和长期趋势，用于快速判断账号当前状态。", example: "切换到 Mania 模式，对比全局排名和近期开图活跃度。", target: "#overview" },
@@ -159,7 +159,7 @@ const copies: Record<string, PageGuideCopy> = {
     modules: [
       { title: "账户", purpose: "查看当前连接账户，重新完成 OAuth 认证，或退出并清理登录状态。", example: "授权失效时点击“重新认证”，在浏览器完成授权后返回 OPP。", targetText: "账户" },
       { title: "主题", purpose: "切换浅色/深色外观和主题色，修改会立即应用到整个软件。", example: "开启浅色主题并选择绿色，确认侧栏和按钮颜色同步变化。", targetText: "主题" },
-      { title: "默认游戏模式", purpose: "设置应用启动和在线数据默认使用的 osu!、Taiko、Catch 或 Mania。", example: "主要玩 Mania 时选择 Mania，之后数据中心会优先加载该模式。", targetText: "默认游戏模式" },
+      { title: "默认游戏模式", purpose: "设置应用启动和在线数据默认使用的 osu!、Taiko、Catch 或 Mania。", example: "主要玩 Mania 时选择 Mania，之后玩家信息会优先加载该模式。", targetText: "默认游戏模式" },
       { title: "试听", purpose: "控制在线谱面和相似谱面的音频预览音量。", example: "先调到 40%，返回在线谱面试听，再按需要微调。", targetText: "试听" },
       { title: "游戏目录", purpose: "分别管理 Stable 和 Lazer 目录，是本地谱面、Skin、媒体与工具功能的数据基础。", example: "点击自动检测；若失败，手动选择包含 Songs 或对应数据文件的目录。", targetText: "游戏目录" },
       { title: "工具与缓存", purpose: "开启相似谱面高级设置、清理资料缓存并限制本地缩略图占用。", example: "开启高级设置，把缩略图缓存上限设为 512 MB。", targetText: "工具与缓存" },

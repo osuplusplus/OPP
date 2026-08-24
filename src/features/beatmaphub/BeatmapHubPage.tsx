@@ -45,18 +45,61 @@ function IdentitySetup({ defaultName, defaultDevice }: { defaultName: string; de
       await queryClient.invalidateQueries({ queryKey: beatmapHubAuthKey });
     } catch (caught) { setError(errorText(caught)); } finally { setBusy(false); }
   };
-  return <Card className="mx-auto max-w-2xl p-7">
-    <div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-cyan-300/10 text-cyan-200"><ShieldCheck className="size-6" /></span><div><h2 className="text-lg font-semibold text-white">连接 BeatmapHub</h2><p className="text-sm text-slate-500">使用本设备密钥建立独立社区身份，不会改变 osu! 登录。</p></div></div>
-    <div className="mt-6 flex gap-2"><Button onClick={() => setMode("create")} variant={mode === "create" ? "primary" : "secondary"}>创建新档案</Button><Button onClick={() => setMode("link")} variant={mode === "link" ? "primary" : "secondary"}>链接已有档案</Button></div>
+  return <Card className="mx-auto max-w-2xl p-5">
+    <div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg bg-cyan-300/10 text-cyan-200"><ShieldCheck className="size-4.5" /></span><div><h2 className="text-base font-semibold text-white">连接 BeatmapHub</h2><p className="text-xs text-slate-500">使用本设备密钥建立独立社区身份，不会改变 osu! 登录。</p></div></div>
+    <div className="mt-4 flex gap-2"><Button onClick={() => setMode("create")} size="sm" variant={mode === "create" ? "primary" : "secondary"}>创建新档案</Button><Button onClick={() => setMode("link")} size="sm" variant={mode === "link" ? "primary" : "secondary"}>链接已有档案</Button></div>
     <div className="mt-5 grid gap-4 sm:grid-cols-2">
       {mode === "create" ? <label className="text-xs text-slate-400">显示名<input className="opp-input mt-1.5" maxLength={64} onChange={(event) => setDisplayName(event.target.value)} value={displayName} /></label> : null}
       <label className="text-xs text-slate-400">设备名<input className="opp-input mt-1.5" maxLength={64} onChange={(event) => setDeviceName(event.target.value)} value={deviceName} /></label>
       {mode === "link" ? <label className="text-xs text-slate-400 sm:col-span-2">一次性链接码<input className="opp-input mt-1.5 font-mono" onChange={(event) => setToken(event.target.value)} placeholder="粘贴旧设备生成的 43 位链接码" value={token} /></label> : null}
     </div>
-    <Button className="mt-5" disabled={!deviceName.trim() || (mode === "create" ? !displayName.trim() : token.trim().length !== 43)} loading={busy} onClick={() => void submit()}>{mode === "create" ? "创建并连接" : "链接此设备"}</Button>
+    <Button className="mt-4" disabled={!deviceName.trim() || (mode === "create" ? !displayName.trim() : token.trim().length !== 43)} loading={busy} onClick={() => void submit()} size="sm">{mode === "create" ? "创建并连接" : "链接此设备"}</Button>
     {error ? <p className="mt-4 text-sm text-rose-200" role="alert">{error}</p> : null}
     <p className="mt-5 text-xs leading-5 text-slate-600">私钥仅保存在系统安全存储中。若所有已登记设备均丢失，档案无法人工找回。</p>
   </Card>;
+}
+
+function PackArtwork({ pack }: { pack: BeatmapHubPack }) {
+  const coverIds = pack.beatmapset_ids.slice(0, 3);
+  return (
+    <div aria-hidden="true" className="relative h-28 overflow-hidden bg-[var(--surface-interactive)]">
+      {coverIds.length ? <div className="grid size-full grid-cols-3 gap-px bg-black/20">{coverIds.map((id, index) => (
+        <span className="relative block overflow-hidden bg-[var(--surface-interactive)]" key={id}>
+          <img
+            alt=""
+            className="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+            loading="lazy"
+            onError={(event) => { event.currentTarget.style.display = "none"; }}
+            src={`https://assets.ppy.sh/beatmaps/${id}/covers/cover.jpg`}
+            style={{ opacity: index === 1 ? 0.92 : 0.76 }}
+          />
+        </span>
+      ))}</div> : <div className="grid size-full place-items-center"><PackageOpen className="size-8 text-slate-600" /></div>}
+      <div className="absolute inset-0 bg-gradient-to-t from-[var(--surface-panel-strong)] via-transparent to-black/10" />
+      <span className="theme-media-copy absolute bottom-2 left-3 rounded-md border border-white/10 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-md" style={{ backgroundColor: "rgba(0,0,0,.55)" }}>{pack.beatmapset_ids.length} 个谱面集</span>
+    </div>
+  );
+}
+
+function PubPackCard({ pack, onOpen }: { pack: BeatmapHubPack; onOpen: () => void }) {
+  return (
+    <button className="group overflow-hidden rounded-xl border border-white/[0.09] bg-[var(--surface-panel)] text-left transition-colors hover:border-[var(--theme-primary)]/40 hover:bg-[var(--surface-panel-strong)]" onClick={onOpen} type="button">
+      <PackArtwork pack={pack} />
+      <div className="p-4">
+        <div className="flex items-center justify-between gap-3"><Badge tone="cyan">BPH-{pack.id}</Badge><span className="text-[10px] text-slate-500">{new Date(pack.updated_at).toLocaleDateString()}</span></div>
+        <h3 className="mt-3 truncate text-[15px] font-semibold text-white group-hover:text-cyan-100">{pack.title}</h3>
+        <p className="mt-1 truncate text-xs text-slate-500">由 {pack.owner.display_name} 整理</p>
+        <p className="mt-2 line-clamp-2 min-h-9 text-xs leading-[18px] text-slate-400">{pack.description || "这个曲包暂时没有说明。"}</p>
+        <div className="mt-3 flex items-center gap-3 border-t border-white/[0.07] pt-3 text-[10px] text-slate-500">
+          {pack.stars_min != null && pack.stars_max != null ? <span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="size-3 text-amber-300" />{pack.stars_min.toFixed(1)}–{pack.stars_max.toFixed(1)}★</span> : null}
+          <span className="inline-flex items-center gap-1"><Star className="size-3 text-amber-300" />{pack.rating.average?.toFixed(1) ?? "—"}<span className="text-slate-600">({pack.rating.count})</span></span>
+          <span className="inline-flex items-center gap-1"><ThumbsUp className="size-3" />{pack.likes.count}</span>
+          <span className="inline-flex items-center gap-1"><MessageCircle className="size-3" />{pack.comments.count}</span>
+          <span className="ml-auto inline-flex items-center gap-1 text-emerald-300"><Globe2 className="size-3" />公开</span>
+        </div>
+      </div>
+    </button>
+  );
 }
 
 function PubBrowser({ onOpen }: { onOpen: (id: string) => void }) {
@@ -79,11 +122,11 @@ function PubBrowser({ onOpen }: { onOpen: (id: string) => void }) {
       setResults(null);
     } finally { setRefreshing(false); }
   };
-  if (recommendations.isLoading) return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div className="h-44 animate-pulse border border-white/[0.06] bg-white/[0.03]" key={index} />)}</div>;
+  if (recommendations.isLoading) return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div className="h-72 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.03]" key={index} />)}</div>;
   if (recommendations.error) return <Card className="p-6"><div className="flex items-center justify-between gap-4"><div><h2 className="font-semibold text-white">Pub 暂时不可用</h2><p className="mt-1 text-sm text-slate-500">公开曲包加载失败，请检查网络后重试。</p></div><Button onClick={() => void recommendations.refetch()} variant="secondary"><RefreshCw className="size-4" />重试</Button></div></Card>;
   if (!recommendations.data?.length) return <EmptyState icon={<Globe2 className="size-6" />} title="还没有公开曲包" description="成为第一个把收藏夹分享给社区的人吧。" />;
   const packs = (results ?? recommendations.data).filter((pack) => !pack.is_private);
-  return <><div className="mb-5 flex gap-2"><input className="opp-input flex-1" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void search(); }} placeholder="搜索曲包标题、描述或作者" value={query} /><Button disabled={!query.trim()} loading={searching} onClick={() => void search()} variant="secondary">搜索</Button><Button aria-label="刷新 Pub" loading={refreshing} onClick={() => void refresh()} size="icon" title="刷新 Pub" variant="secondary"><RefreshCw className="size-4" /></Button></div><div className="grid gap-x-5 gap-y-4 md:grid-cols-2 xl:grid-cols-3">{packs.map((pack) => <button className="opp-interactive-surface group min-h-44 border-y border-white/[0.07] p-5 text-left" key={pack.id} onClick={() => onOpen(pack.id)} type="button"><div className="flex items-start justify-between gap-3"><Badge tone="cyan">BPH-{pack.id}</Badge><span className="inline-flex items-center gap-1 text-[11px] text-emerald-200"><Globe2 className="size-3" />公开</span></div><h3 className="mt-4 truncate text-base font-semibold text-white group-hover:text-cyan-100">{pack.title}</h3><p className="mt-1 truncate text-xs text-slate-500">{pack.owner.display_name} · {new Date(pack.updated_at).toLocaleDateString()}</p><p className="mt-3 line-clamp-2 min-h-10 text-xs leading-5 text-slate-400">{pack.description || "暂无描述"}</p><div className="mt-4 flex flex-wrap items-center gap-3 text-[11px] text-slate-500"><span>{pack.beatmapset_ids.length} 谱面集</span>{pack.stars_min != null && pack.stars_max != null ? <span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="size-3 text-amber-300" />{pack.stars_min.toFixed(1)} - {pack.stars_max.toFixed(1)}★</span> : null}<span className="inline-flex items-center gap-1"><Star className="size-3 text-amber-300" />{pack.rating.average?.toFixed(1) ?? "暂无"} ({pack.rating.count})</span><span className="inline-flex items-center gap-1"><ThumbsUp className="size-3" />{pack.likes.count}</span><span className="inline-flex items-center gap-1"><MessageCircle className="size-3" />{pack.comments.count}</span></div></button>)}</div></>;
+  return <><div className="mb-5 flex gap-2"><input className="opp-input flex-1" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void search(); }} placeholder="搜索曲包标题、描述或作者" value={query} /><Button disabled={!query.trim()} loading={searching} onClick={() => void search()} size="sm" variant="secondary">搜索</Button><Button aria-label="刷新 Pub" loading={refreshing} onClick={() => void refresh()} size="icon" title="刷新 Pub" variant="secondary"><RefreshCw className="size-4" /></Button></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{packs.map((pack) => <PubPackCard key={pack.id} onOpen={() => onOpen(pack.id)} pack={pack} />)}</div></>;
 }
 
 export function BeatmapHubPage() {

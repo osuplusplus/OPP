@@ -167,14 +167,18 @@ async function call<T>(
 function browserPreviewValue<T>(command: string, args?: Record<string, unknown>): T | undefined {
   if (command === "get_capabilities") return { os: "windows", display_gamma: true, file_association: true } as T;
   if (command === "get_beatmaphub_auth_status") return { has_identity: false, connected: false, public_key: null, user_id: null, device_id: null, display_name: null, device_name: "Preview PC", expires_at: null } as T;
-  if (command === "get_beatmaphub_recommendations") return [] as T;
+  if (command === "get_beatmaphub_recommendations") return [
+    { id: "7K3N9A", title: "Precision Warmup", description: "以读图、稳定性和手感热身为主的精选谱面。", is_private: false, owner: { id: "preview-1", display_name: "Pestl" }, beatmapset_ids: [1766945, 1954474, 2090274], stars_min: 3.2, stars_max: 6.8, manifest_hash: "preview-a", rating: { average: 4.8, count: 26 }, likes: { count: 84 }, comments: { count: 12 }, viewer: null, created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" },
+    { id: "4M8X2Q", title: "Late Night Streams", description: "适合夜间练习的流图与节奏图合集，难度逐步递增。", is_private: false, owner: { id: "preview-2", display_name: "MappersGuild" }, beatmapset_ids: [2212250, 1766945, 1889093], stars_min: 4.1, stars_max: 7.3, manifest_hash: "preview-b", rating: { average: 4.6, count: 18 }, likes: { count: 57 }, comments: { count: 9 }, viewer: null, created_at: "2026-07-12T00:00:00Z", updated_at: "2026-08-18T00:00:00Z" },
+    { id: "9P1D6R", title: "Hidden Essentials", description: "为 Hidden 玩家整理的经典谱面与近期优质作品。", is_private: false, owner: { id: "preview-3", display_name: "Nocturne" }, beatmapset_ids: [1889093, 1954474, 2090274], stars_min: 2.9, stars_max: 6.2, manifest_hash: "preview-c", rating: { average: 4.9, count: 31 }, likes: { count: 102 }, comments: { count: 17 }, viewer: null, created_at: "2026-06-05T00:00:00Z", updated_at: "2026-08-16T00:00:00Z" },
+  ] as T;
   if (command === "list_collections") return { folders: [], sources: [] } as T;
   if (command === "get_lazer_disk_usage") return { path: "C:\\osu!", total_size: 1610612736, unique_size: 536870912, file_count: 4096 } as T;
   if (command === "export_local_beatmap_set") return `${args?.outDir ?? "C:\\Export"}/export.osz` as T;
   if (command === "export_local_skin") return `${args?.outDir ?? "C:\\Export"}/export.osk` as T;
   if (command === "dedupe_lazer_files") return { dry_run: args?.dryRun !== false, cancelled: false, lazer_files_root: "C:\\osu\\files", stable_roots: ["C:\\osu!\\Songs"], lazer_file_count: 4096, lazer_total_size: 1610612736, already_linked_count: 1024, already_linked_size: 402653184, hashed_stable_count: 2048, candidate_count: 819, reclaimable_size: 645922816, linked_count: 0, linked_size: 0, skipped_cross_volume_count: 0, skipped_cross_volume_size: 0, failed_count: 0, failed: [] } as T;
   const profile = {
-    id: 10001, username: "Preview User", avatar_url: "https://a.ppy.sh/10001", country_code: "CN",
+    id: 10001, username: "Preview User", avatar_url: "/04.png", avatar_data_url: null, cover_url: "https://assets.ppy.sh/beatmaps/2212250/covers/cover.jpg", country_code: "CN",
     is_active: true, is_online: true, is_supporter: true, playmode: "osu", statistics: {
       pp: 8421, global_rank: 1234, country_rank: 88, hit_accuracy: 98.42, play_count: 1280,
       play_time: 43200, total_score: 1200000000, ranked_score: 900000000, total_hits: 800000,
@@ -189,6 +193,13 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_game_status") return { clients: [{ client: "stable", running: false, executable: null, detected_at: new Date().toISOString() }, { client: "lazer", running: false, executable: null, detected_at: new Date().toISOString() }] } as T;
   if (command === "get_game_session_status") return null as T;
   if (command === "get_local_sources") return [] as T;
+  if (command === "query_local_skins") return { items: [
+    { resource: { resource_id: "skin:preview:1", client: "stable", content_hash: "preview-1", logical_path: "C:\\osu!\\Skins\\OPP Refined" }, completeness: "complete", name: "OPP Refined", author: "Pestl", version: "2.4", section_count: 12, has_mania_config: true, resource_count: 428, total_bytes: 15728640, modified_at: null, accent_colors: [[181, 65, 70], [245, 181, 104]] },
+    { resource: { resource_id: "skin:preview:2", client: "stable", content_hash: "preview-2", logical_path: "C:\\osu!\\Skins\\Minimal Night" }, completeness: "complete", name: "Minimal Night", author: "Nocturne", version: "1.8", section_count: 9, has_mania_config: false, resource_count: 306, total_bytes: 10485760, modified_at: null, accent_colors: [[46, 57, 92], [92, 225, 230]] },
+    { resource: { resource_id: "skin:preview:3", client: "stable", content_hash: "preview-3", logical_path: "C:\\osu!\\Skins\\Sakura Mix" }, completeness: "partial", name: "Sakura Mix", author: "Mapper", version: "2026.3", section_count: 7, has_mania_config: true, resource_count: 214, total_bytes: 8388608, modified_at: null, accent_colors: [[255, 106, 167], [91, 74, 155]] },
+  ], total: 3, offset: 0, limit: 200 } as T;
+  if (command === "get_local_skin_preview") return { skin_resource_id: String(args?.resourceId ?? "skin:preview:1"), completeness: "complete", images: [{ resource_id: "skin-asset:preview", kind: "image", name: "menu-background.jpg", logical_path: "menu-background.jpg", extension: "jpg", size: 327680, category: "menu" }], sounds: [] } as T;
+  if (command === "get_local_skin_asset") return { resource_id: String(args?.assetResourceId ?? "skin-asset:preview"), kind: "image", mime_type: "image/png", data_url: "/01.png" } as T;
   if (command === "list_game_media") return [] as T;
   if (command === "get_tosu_status") return { installed: false, executable_path: null, api_base_url: "http://127.0.0.1:24050", api_reachable: false, running: false, owned_by_opp: false, dashboard_url: "http://127.0.0.1:24050", last_error: null, lyrics: { installed: false, executable_path: null, running: false, owned_by_opp: false, proxy_url: "http://127.0.0.1:41280/lyrics/" } } as T;
   if (command === "get_obs_status") return { running: false, websocket_url: "ws://127.0.0.1:4455", connected: false, password_configured: false, selected_scene: null, last_error: null } as T;

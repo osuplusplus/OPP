@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Database,
+  CircleUserRound,
   ExternalLink,
   Film,
   Heart,
@@ -100,7 +100,7 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
           <NavItem emphasis="trainer" icon={WandSparkles} label="谱面练习生成器" onboarding="trainer" to="/trainer" />
         </NavGroup>
         <NavGroup label="资料与资源">
-          <NavItem icon={Database} label="数据中心" onboarding="data-center" to="/data" />
+          <NavItem icon={CircleUserRound} label="玩家信息" onboarding="data-center" to="/data" />
           <div data-onboarding="local-resources">
             <NavItem icon={Map} label="本地谱面" to="/local/maps" />
             <NavItem icon={Palette} label="本地皮肤" to="/local/skins" />
