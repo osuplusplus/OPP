@@ -2276,7 +2276,7 @@ SliderTickRate:1
     }
 
     #[test]
-    fn cache_recovers_from_backup_and_invalidates_algorithm_changes() {
+    fn cache_recovers_from_backup_and_invalidates_parser_changes() {
         let directory = tempfile::tempdir().expect("cache");
         fs::write(
             service_data::index_path(directory.path(), LocalClient::Stable),
@@ -2295,6 +2295,15 @@ SliderTickRate:1
             serde_json::to_vec(&empty_index("old algorithm")).expect("json"),
         )
         .expect("old backup");
+        assert!(load_index(directory.path(), LocalClient::Stable).is_none());
+
+        let mut old_schema = empty_index(DIFFICULTY_ALGORITHM);
+        old_schema.schema = INDEX_SCHEMA - 1;
+        fs::write(
+            directory.path().join("stable-index.json.bak"),
+            serde_json::to_vec(&old_schema).expect("json"),
+        )
+        .expect("old schema backup");
         assert!(load_index(directory.path(), LocalClient::Stable).is_none());
     }
 

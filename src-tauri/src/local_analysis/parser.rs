@@ -478,6 +478,41 @@ fn parse_color(value: &str) -> Option<Vec<u8>> {
     (components.len() == 3 || components.len() == 4).then_some(components)
 }
 
+const DEFAULT_SKIN_COMBO_COLORS: [[u8; 3]; 4] = [
+    [255, 192, 0],
+    [0, 202, 0],
+    [18, 124, 255],
+    [242, 24, 57],
+];
+
+/// 仅提取 `[Colours]` 中有效的 Combo 色；未配置时使用 osu! 经典默认色。
+fn skin_combo_colors(sections: &[SkinConfigSection]) -> Vec<Vec<u8>> {
+    let colors = sections
+        .iter()
+        .filter(|section| section.name.eq_ignore_ascii_case("Colours"))
+        .flat_map(|section| &section.entries)
+        .filter(|entry| {
+            entry
+                .key
+                .to_ascii_lowercase()
+                .strip_prefix("combo")
+                .and_then(|index| index.parse::<u8>().ok())
+                .is_some_and(|index| (1..=8).contains(&index))
+        })
+        .filter_map(|entry| entry.color.as_ref().map(|color| color[..3].to_vec()))
+        .take(8)
+        .collect::<Vec<_>>();
+
+    if colors.is_empty() {
+        DEFAULT_SKIN_COMBO_COLORS
+            .iter()
+            .map(|color| color.to_vec())
+            .collect()
+    } else {
+        colors
+    }
+}
+
 /// 解析 `skin.ini` 的分节键值对；重复键会按原始顺序保留。
 pub fn parse_skin_config(text: &str) -> Vec<SkinConfigSection> {
     let mut sections = Vec::<SkinConfigSection>::new();
@@ -607,12 +642,7 @@ pub fn parse_skin(
         resource_count: inventory.as_ref().map(|value| value.file_count),
         total_bytes: inventory.as_ref().map(|value| value.total_bytes),
         modified_at,
-        accent_colors: sections
-            .iter()
-            .flat_map(|section| &section.entries)
-            .filter_map(|entry| entry.color.clone())
-            .take(8)
-            .collect(),
+        accent_colors: skin_combo_colors(&sections),
     };
 
     Ok(LocalSkinDetail {
@@ -704,6 +734,33 @@ SliderTickRate:1
             parse_skin_config("[General]\nName: First\nName: Second\n[Colours]\nCombo1: 1, 2, 3\n");
         assert_eq!(parsed[0].entries.len(), 2);
         assert_eq!(parsed[1].entries[0].color, Some(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn skin_combo_colors_only_uses_combo_entries_in_file_order() {
+        let parsed = parse_skin_config(
+            "[General]\nInputOverlayText: 1, 2, 3\n[Colours]\nMenuGlow: 4, 5, 6\nCombo3: 18, 124, 255\nCombo1: 255, 192, 0, 100\nCombo9: 9, 9, 9\n",
+        );
+
+        assert_eq!(
+            skin_combo_colors(&parsed),
+            vec![vec![18, 124, 255], vec![255, 192, 0]]
+        );
+    }
+
+    #[test]
+    fn skin_combo_colors_falls_back_to_osu_classic_palette() {
+        let parsed = parse_skin_config("[General]\nName: No custom combo colors\n");
+
+        assert_eq!(
+            skin_combo_colors(&parsed),
+            vec![
+                vec![255, 192, 0],
+                vec![0, 202, 0],
+                vec![18, 124, 255],
+                vec![242, 24, 57],
+            ]
+        );
     }
 
     #[test]

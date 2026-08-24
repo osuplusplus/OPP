@@ -96,8 +96,9 @@ function SkinCover({ skin, onOpen, onReveal, imported = false }: { skin: LocalSk
   const cursor = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, cursorSummary?.resource_id ?? null, visible);
   const hitcircle = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, hitcircleSummary?.resource_id ?? null, visible);
   const overlay = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, overlaySummary?.resource_id ?? null, visible);
-  const colors = skin.accent_colors.slice(0, 3).map(([red, green, blue]) => `rgb(${red ?? 92} ${green ?? 225} ${blue ?? 230})`);
-  const comboColors = [colors[0] ?? "rgb(92 225 230)", colors[1] ?? "rgb(255 106 167)", colors[2] ?? "rgb(245 181 104)"];
+  const colors = skin.accent_colors.slice(0, 3).map(([red, green, blue]) => `rgb(${red ?? 255} ${green ?? 192} ${blue ?? 0})`);
+  // 与 osu! 经典皮肤的 Combo1～Combo3 默认值保持一致。
+  const comboColors = [colors[0] ?? "rgb(255 192 0)", colors[1] ?? "rgb(0 202 0)", colors[2] ?? "rgb(18 124 255)"];
   return (
     <article className="theme-skin-cover group overflow-hidden rounded-xl border border-white/[0.09] bg-[var(--surface-panel)] transition-colors hover:border-[var(--theme-primary)]/35" ref={cardRef}>
       <button aria-label={`预览 ${skin.name}`} className="relative block h-32 w-full overflow-hidden text-left" onClick={onOpen} type="button">
