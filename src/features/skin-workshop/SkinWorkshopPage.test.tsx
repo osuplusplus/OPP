@@ -7,6 +7,7 @@ import { SkinWorkshopPage } from "./SkinWorkshopPage";
 const mocks = vi.hoisted(() => ({
   scanLocalSource: vi.fn(),
   skinItems: [] as Array<Record<string, unknown>>,
+  previewImages: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("../../shared/lib/tauri", () => ({
@@ -21,9 +22,9 @@ vi.mock("../../app/ModeContext", () => ({
 
 vi.mock("../local-analysis/api", () => ({
   localSkinsKey: () => ["local-skins"],
-  useLocalSkinAsset: () => ({ data: null }),
+  useLocalSkinAsset: (_client: string, _skinId: string, assetId: string | null) => ({ data: assetId ? { data_url: `data:image/png;base64,${assetId}` } : null }),
   useLocalSkinDetail: () => ({ data: null }),
-  useLocalSkinPreview: () => ({ data: { images: [], sounds: [] } }),
+  useLocalSkinPreview: () => ({ data: { images: mocks.previewImages, sounds: [] } }),
   useLocalSkins: () => ({
     data: { items: mocks.skinItems },
     isLoading: false,
@@ -63,14 +64,21 @@ describe("SkinWorkshopPage", () => {
       modified_at: null,
       accent_colors: [[92, 225, 230], [255, 106, 167]],
     }];
+    mocks.previewImages = [
+      { resource_id: "cursor", kind: "image", name: "cursor.png", logical_path: "cursor.png", extension: "png", size: 128, category: "gameplay" },
+      { resource_id: "circle", kind: "image", name: "hitcircle.png", logical_path: "hitcircle.png", extension: "png", size: 256, category: "gameplay" },
+      { resource_id: "overlay", kind: "image", name: "hitcircleoverlay.png", logical_path: "hitcircleoverlay.png", extension: "png", size: 256, category: "gameplay" },
+    ];
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><SkinWorkshopPage /></QueryClientProvider>);
 
     expect(screen.getByRole("button", { name: "预览 Refined" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "在本地打开 Refined" })).toBeInTheDocument();
+    expect(screen.getByAltText("Refined 光标预览")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "进入预览" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "本地打开" })).not.toBeInTheDocument();
     mocks.skinItems = [];
+    mocks.previewImages = [];
   });
 
   it("rescans the local source before refreshing the skin library", async () => {

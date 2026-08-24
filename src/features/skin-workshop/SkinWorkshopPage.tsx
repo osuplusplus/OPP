@@ -26,6 +26,7 @@ import { cn } from "../../shared/lib/cn";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CommandError,
+  LocalSkinAssetSummary,
   LocalSkinSummary,
   SkinAssetVariant,
   SkinTreeNode,
@@ -56,18 +57,27 @@ function errorMessage(error: unknown) {
   return (error as CommandError)?.message ?? String(error);
 }
 
-function previewPriority(path: string) {
-  const value = path.toLowerCase();
-  if (/menu-background|welcome|seasonal-background/.test(value)) return 5;
-  if (/ranking-panel|selection-mode|pause-overlay|fail-background/.test(value)) return 4;
-  if (/spinner-background|playfield/.test(value)) return 3;
-  return 0;
+function skinAssetBaseName(asset: LocalSkinAssetSummary) {
+  return asset.logical_path.toLowerCase().split(/[\\/]/).pop()?.replace(/@2x(?=\.[^.]+$)/, "").replace(/\.[^.]+$/, "") ?? "";
+}
+
+function findSkinAsset(assets: LocalSkinAssetSummary[], name: string) {
+  return assets
+    .filter((asset) => skinAssetBaseName(asset) === name)
+    .sort((left, right) => Number(/@2x(?=\.[^.]+$)/i.test(right.logical_path)) - Number(/@2x(?=\.[^.]+$)/i.test(left.logical_path)) || right.size - left.size)[0] ?? null;
+}
+
+function HitCircle({ color, hitcircle, overlay, number, className }: { color: string; hitcircle?: string; overlay?: string; number: number; className: string }) {
+  return <span className={`absolute grid place-items-center rounded-full ${className}`} style={{ backgroundColor: color, boxShadow: `0 0 0 3px rgba(255,255,255,.82), 0 0 0 5px ${color}80, 0 5px 14px rgba(0,0,0,.28)` }}>
+    {hitcircle ? <img alt="" className="absolute inset-0 size-full object-contain opacity-55 mix-blend-screen" src={hitcircle} /> : null}
+    {overlay ? <img alt="" className="absolute inset-0 size-full object-contain" src={overlay} /> : null}
+    <span className="relative text-sm font-bold" style={{ color: "white", textShadow: "0 1px 2px rgba(0,0,0,.65)" }}>{number}</span>
+  </span>;
 }
 
 function SkinCover({ skin, onOpen, onReveal, imported = false }: { skin: LocalSkinSummary; onOpen: () => void; onReveal?: () => void; imported?: boolean }) {
   const cardRef = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(false);
-  const [previewFailed, setPreviewFailed] = useState(false);
   useEffect(() => {
     const node = cardRef.current;
     if (!node || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
@@ -80,19 +90,25 @@ function SkinCover({ skin, onOpen, onReveal, imported = false }: { skin: LocalSk
     return () => observer.disconnect();
   }, []);
   const preview = useLocalSkinPreview(skin.resource.client, visible ? skin.resource.resource_id : null);
-  const previewAsset = useMemo(() => [...(preview.data?.images ?? [])].sort((left, right) => {
-    const priority = previewPriority(right.logical_path) - previewPriority(left.logical_path);
-    return priority || right.size - left.size;
-  })[0] ?? null, [preview.data?.images]);
-  const asset = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, previewAsset?.resource_id ?? null, visible);
+  const cursorSummary = findSkinAsset(preview.data?.images ?? [], "cursor");
+  const hitcircleSummary = findSkinAsset(preview.data?.images ?? [], "hitcircle");
+  const overlaySummary = findSkinAsset(preview.data?.images ?? [], "hitcircleoverlay");
+  const cursor = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, cursorSummary?.resource_id ?? null, visible);
+  const hitcircle = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, hitcircleSummary?.resource_id ?? null, visible);
+  const overlay = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, overlaySummary?.resource_id ?? null, visible);
   const colors = skin.accent_colors.slice(0, 3).map(([red, green, blue]) => `rgb(${red ?? 92} ${green ?? 225} ${blue ?? 230})`);
-  const fallback = `linear-gradient(135deg, ${colors[0] ?? "rgb(92 225 230)"}, ${colors[1] ?? "rgb(255 106 167)"} 58%, ${colors[2] ?? "rgb(91 74 155)"})`;
+  const comboColors = [colors[0] ?? "rgb(92 225 230)", colors[1] ?? "rgb(255 106 167)", colors[2] ?? "rgb(245 181 104)"];
   return (
     <article className="theme-skin-cover group overflow-hidden rounded-xl border border-white/[0.09] bg-[var(--surface-panel)] transition-colors hover:border-[var(--theme-primary)]/35" ref={cardRef}>
       <button aria-label={`预览 ${skin.name}`} className="relative block h-32 w-full overflow-hidden text-left" onClick={onOpen} type="button">
-        <span className="absolute inset-0" style={{ background: fallback }} />
-        {asset.data?.data_url && !previewFailed ? <img alt={`${skin.name} 皮肤预览`} className="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover:scale-[1.025]" onError={() => setPreviewFailed(true)} src={asset.data.data_url} /> : null}
-        <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/5" />
+        <span className="theme-skin-playfield absolute inset-0" style={{ backgroundColor: "#161b24" }}>
+          <span className="absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.15) 0 1px, transparent 1.5px)", backgroundSize: "16px 16px" }} />
+          <HitCircle className="left-[12%] top-[27%] size-12" color={comboColors[0]} hitcircle={hitcircle.data?.data_url} number={1} overlay={overlay.data?.data_url} />
+          <HitCircle className="left-[39%] top-[46%] size-10" color={comboColors[1]} hitcircle={hitcircle.data?.data_url} number={2} overlay={overlay.data?.data_url} />
+          <HitCircle className="right-[13%] top-[18%] size-14" color={comboColors[2]} hitcircle={hitcircle.data?.data_url} number={3} overlay={overlay.data?.data_url} />
+          {cursor.data?.data_url ? <img alt={`${skin.name} 光标预览`} className="absolute bottom-[13%] right-[31%] size-9 object-contain drop-shadow-[0_3px_5px_rgba(0,0,0,.55)] transition-transform duration-300 group-hover:-translate-y-1 group-hover:translate-x-1" src={cursor.data.data_url} /> : <span className="absolute bottom-[16%] right-[33%] size-6 rounded-full border-2 border-white bg-cyan-300 shadow-[0_0_0_3px_rgba(255,255,255,.28),0_3px_8px_rgba(0,0,0,.5)] transition-transform duration-300 group-hover:-translate-y-1 group-hover:translate-x-1" />}
+        </span>
+        <span className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/90 to-transparent" />
         <Badge className="absolute left-3 top-3 backdrop-blur-md" tone={imported ? "cyan" : skin.completeness === "complete" ? "success" : "warning"}>{imported ? "OSK" : skin.completeness === "complete" ? "完整" : "部分索引"}</Badge>
         <span className="theme-skin-cover-copy absolute bottom-3 left-3 right-3"><span className="block truncate text-base font-semibold text-white">{skin.name}</span><span className="mt-0.5 block truncate text-[11px] text-white/70">{skin.author} · {skin.version}</span></span>
       </button>
