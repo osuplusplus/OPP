@@ -61,7 +61,7 @@ export function PartCard({ node, selected, onSelect, onStage }: {
   return (
     <motion.article
       className={cn(
-        "group relative overflow-hidden rounded-2xl border bg-white/[0.025] transition-colors duration-300",
+        "group relative overflow-hidden rounded-lg border bg-transparent transition-colors duration-300",
         selected === node.part_key ? "border-[var(--theme-primary)] bg-[var(--theme-primary-muted)]" : "border-white/[0.08] hover:border-white/20 hover:bg-white/[0.045]",
       )}
       draggable
@@ -72,17 +72,17 @@ export function PartCard({ node, selected, onSelect, onStage }: {
         transfer.effectAllowed = "copy";
       }}
     >
-      <button className="w-full p-5 text-left" onClick={() => onSelect(node)} type="button">
+      <button className="w-full p-4 text-left" onClick={() => onSelect(node)} type="button">
         <div className="flex items-center gap-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-pink-400/10 text-pink-200"><Layers3 className="size-5" /></span>
+          <span className="grid size-9 shrink-0 place-items-center border-y border-pink-300/20 text-pink-200"><Layers3 className="size-4" /></span>
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-base font-semibold text-white">{node.label}</h3>
             <p className="mt-1 text-xs text-slate-500">{node.asset_count} 个资源</p>
           </div>
         </div>
-        <div className="mt-4 flex gap-2 text-xs text-slate-400">
-          <span className="rounded-lg bg-black/20 px-2.5 py-1.5">{node.image_count} 图片</span>
-          <span className="rounded-lg bg-black/20 px-2.5 py-1.5">{node.audio_count} 音效</span>
+        <div className="mt-3 flex gap-3 border-t border-white/[0.06] pt-2 text-xs text-slate-400">
+          <span>{node.image_count} 图片</span>
+          <span>{node.audio_count} 音效</span>
         </div>
       </button>
       <button aria-label={`暂存 ${node.label}`} className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg bg-black/30 text-slate-400 opacity-0 transition-opacity duration-300 hover:text-white group-hover:opacity-100 focus:opacity-100" onClick={() => onStage(node)} type="button"><FolderGit2 className="size-4" /></button>
@@ -103,7 +103,7 @@ export function AssetVisual({ asset, client, skinId, active, onSelect, onStage =
   return (
     <motion.div
       className={cn(
-        "group relative flex min-h-40 flex-col overflow-hidden rounded-2xl border text-left transition-colors duration-300",
+        "group relative flex min-h-40 flex-col overflow-hidden rounded-lg border text-left transition-colors duration-300",
         active ? "border-[var(--theme-primary)] bg-[var(--theme-primary-muted)]" : "border-white/[0.07] bg-black/15 hover:border-white/15",
       )}
       draggable
@@ -181,7 +181,7 @@ export function StagingTray({ items, collapsed, canApply, onApply, onDropItem, o
   return createPortal(
     <motion.aside
       animate={{ width: collapsed ? 238 : 390, height: collapsed ? 58 : Math.min(480, 238 + items.length * 76) }}
-      className="fixed bottom-5 right-5 z-[1000] overflow-hidden rounded-2xl border border-white/15 bg-[#111725]/95 shadow-[0_24px_80px_rgba(0,0,0,.48)] backdrop-blur-xl"
+      className="fixed bottom-5 right-5 z-[1000] overflow-hidden rounded-lg border border-white/15 bg-[#111725]/95 shadow-[0_18px_48px_rgba(0,0,0,.42)] backdrop-blur-xl"
       onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
       onDrop={(event) => {
         event.preventDefault();
@@ -193,7 +193,7 @@ export function StagingTray({ items, collapsed, canApply, onApply, onDropItem, o
       transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}
     >
       <button className="flex h-[58px] w-full items-center gap-3 px-4 text-left" onClick={onToggle} type="button">
-        <span className="grid size-9 place-items-center rounded-xl bg-[var(--theme-primary-muted)] text-[var(--theme-primary-light)]"><FolderGit2 className="size-4" /></span>
+        <span className="grid size-9 place-items-center border-y border-[var(--theme-primary-soft)] text-[var(--theme-primary-light)]"><FolderGit2 className="size-4" /></span>
         <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-white">组件暂存区</p><p className="text-[10px] text-slate-500">拖到这里 · {items.length} 项</p></div>
         {collapsed ? <ChevronDown className="size-4 text-slate-400" /> : <ChevronRight className="size-4 rotate-90 text-slate-400" />}
       </button>
@@ -280,5 +280,4 @@ export function LazerReadOnly({ skins, selected, onSelect }: { skins: LocalSkinS
   const detail = useLocalSkinDetail("lazer", selected);
   return <div className="grid grid-cols-[320px_minmax(0,1fr)] gap-4"><Card className="max-h-[calc(100vh-250px)] overflow-y-auto p-3">{skins.map((skin) => <button className={cn("mb-2 w-full rounded-xl border p-3 text-left", selected === skin.resource.resource_id ? "border-amber-300/30 bg-amber-300/10" : "border-white/[0.06] bg-white/[0.02]")} key={skin.resource.resource_id} onClick={() => onSelect(skin.resource.resource_id)} type="button"><p className="truncate text-sm font-semibold text-white">{skin.name}</p><p className="mt-1 text-[10px] text-slate-500">{skin.author} · {skin.version}</p></button>)}</Card><Card className="p-5"><Badge tone="warning">Lazer 只读</Badge><h2 className="mt-4 text-xl font-semibold text-white">{detail.data?.summary.name ?? "选择一套 Skin"}</h2><p className="mt-2 text-sm leading-6 text-slate-400">Lazer Realm 尚不能可靠确定资源归属，因此首版只展示可识别的 legacy skin.ini 配置，不开放融合和写入。</p><div className="mt-5 space-y-2">{detail.data?.sections.map((section) => <details className="rounded-xl border border-white/[0.07] p-3" key={section.name}><summary className="cursor-pointer text-xs font-semibold text-slate-200">[{section.name}]</summary><div className="mt-3 space-y-2">{section.entries.map((entry, index) => <div className="grid grid-cols-[140px_1fr] gap-3 text-xs" key={`${entry.key}:${index}`}><span className="font-mono text-slate-600">{entry.key}</span><span className="break-all text-slate-300">{entry.value}</span></div>)}</div></details>)}</div></Card></div>;
 }
-
 

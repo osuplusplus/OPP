@@ -175,8 +175,8 @@ export function LocalMediaPage() {
       </div>
 
       {error ? <div className="mb-5"><ErrorPanel error={error} onRetry={() => void refresh()} /></div> : null}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(250px,300px)_minmax(0,1fr)] gap-5">
-        <Card className="flex min-h-0 flex-col overflow-hidden p-3">
+      <div className="opp-split-workspace grid min-h-0 flex-1 grid-cols-[minmax(250px,300px)_minmax(0,1fr)] overflow-hidden rounded-[10px] border border-[var(--line-strong)]">
+        <Card className="flex min-h-0 flex-col overflow-hidden border-r border-[var(--line-subtle)] p-3" unstyled>
           <div className="flex items-center justify-between px-2 py-2">
             <SectionTitle title="本地媒体" description={`${filteredItems.length} 个对象`} />
             <Badge tone="cyan">{client}</Badge>
@@ -186,7 +186,7 @@ export function LocalMediaPage() {
             {scanning ? <div className="grid min-h-32 place-items-center text-sm text-slate-400"><span className="flex items-center gap-2"><RefreshCw className="size-4 animate-spin" />正在扫描本地媒体…</span></div> : filteredItems.length ? filteredItems.map((item) => (
               <button
                 aria-pressed={selected?.path === item.path}
-                className={`w-full rounded-xl border p-3 text-left transition-colors ${
+                className={`w-full rounded-lg border p-3 text-left transition-colors ${
                   selected?.path === item.path
                     ? "selected-mask border-[var(--theme-primary)]"
                     : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14] hover:bg-white/[0.04]"
@@ -205,7 +205,7 @@ export function LocalMediaPage() {
           </div>
         </Card>
 
-        <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden p-6">
+        <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden p-4" unstyled>
           {selected ? <>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.06] pb-5">
               <div className="min-w-0">

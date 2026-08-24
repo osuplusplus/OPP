@@ -815,6 +815,122 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   color: #cbd5e1;
 }
 
+/* 非谱面页面统一采用紧凑工作台：用节奏和细分隔线组织内容，避免大块卡片反复嵌套。 */
+.opp-refined-workspace {
+  --workspace-section-gap: 1rem;
+}
+
+.opp-refined-workspace [data-slot="button"] {
+  box-shadow: none;
+}
+
+.opp-refined-workspace [data-slot="card"].opp-section:not([class*="shadow-"]) {
+  border: 0;
+  border-top: 1px solid var(--line-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.opp-refined-workspace [data-slot="card"].opp-section.p-6 {
+  padding: 1rem;
+}
+
+.opp-refined-workspace [data-slot="card"].opp-section.p-5 {
+  padding: 0.875rem 1rem;
+}
+
+.opp-refined-workspace [class~="rounded-3xl"] {
+  border-radius: 10px;
+}
+
+.opp-refined-workspace [class~="rounded-2xl"] {
+  border-radius: 8px;
+}
+
+.opp-refined-workspace [class~="text-3xl"] {
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.opp-refined-workspace [class~="text-2xl"] {
+  font-size: 1.25rem;
+  line-height: 1.35;
+}
+
+.opp-refined-workspace .opp-input,
+.opp-refined-workspace select {
+  min-height: 36px;
+  padding-block: 0.5rem;
+}
+
+.opp-refined-workspace [data-slot="card"].min-h-64 {
+  min-height: 12rem;
+}
+
+/* 数据中心保留头像识别度，但不再占用一整块封面高度。 */
+.opp-profile-rail {
+  border-top: 1px solid var(--line-subtle);
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.opp-metric-strip {
+  overflow: hidden;
+  border-top: 1px solid var(--line-subtle);
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.opp-metric-cell:nth-child(odd) {
+  border-right: 1px solid var(--line-subtle);
+}
+
+.opp-metric-cell:nth-child(-n + 2) {
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+/* 设置项仅保留行级分隔，交互控件仍通过主题色表达状态。 */
+.opp-settings-page [data-slot="card"].opp-section {
+  padding-block: 1rem;
+}
+
+.opp-settings-page .opp-setting-row {
+  border: 0;
+  border-bottom: 1px solid var(--line-subtle);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.75rem 0;
+}
+
+.opp-settings-page .opp-setting-row:last-child {
+  border-bottom-color: transparent;
+}
+
+.opp-settings-page [class~="space-y-3"] > .opp-setting-row + .opp-setting-row {
+  margin-top: 0;
+}
+
+/* 媒体列表与预览属于同一任务，因此共享一个边界而不是两个独立大卡片。 */
+.opp-split-workspace {
+  background: color-mix(in srgb, var(--surface-panel) 42%, transparent);
+}
+
+@media (min-width: 1280px) {
+  .opp-metric-cell {
+    border-right: 1px solid var(--line-subtle);
+    border-bottom: 0;
+  }
+
+  .opp-metric-cell:last-child {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 1279px) {
+  .opp-refined-workspace {
+    padding: 1.25rem;
+  }
+}
+
 .reduce-motion *,
 .reduce-motion *::before,
 .reduce-motion *::after {

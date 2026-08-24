@@ -119,7 +119,7 @@ function Toggle({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+    <div className="opp-setting-row flex items-center justify-between gap-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
       <div className="flex items-center gap-2">
         <p className="font-semibold text-slate-100">{label}</p>
         <InfoTip text={description} />
@@ -335,8 +335,8 @@ export function SettingsPage() {
         title="设置"
         description="在这里管理主题、游戏来源和常用偏好。"
       />
-      <div className="grid gap-5 xl:grid-cols-2">
-        <div className="space-y-5">
+      <div className="opp-settings-page grid gap-4 xl:grid-cols-2">
+        <div className="space-y-0">
           <Card className="p-6">
             <div className="flex justify-between">
               <SectionTitle title="账户" />
@@ -361,7 +361,7 @@ export function SettingsPage() {
 
           <Card className="p-6">
             <SectionTitle title="主题" />
-            <div className="mt-5 flex items-center justify-between rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+            <div className="opp-setting-row mt-5 flex items-center justify-between rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
               <div className="flex items-center gap-2">
                 <p className="font-semibold text-slate-100">浅色主题</p>
                 <InfoTip text="开启后使用浅色界面；关闭时使用默认深色界面。" />
@@ -399,7 +399,7 @@ export function SettingsPage() {
 
           <Card className="p-6">
             <SectionTitle title="试听" description="适用于在线谱面和相似谱面结果的音频试听。" />
-            <label className="mt-5 flex items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+            <label className="opp-setting-row mt-5 flex items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
               <Volume2 className="size-5 text-[var(--theme-primary)]" />
               <span className="flex-1 font-semibold text-slate-100">试听音量</span>
               <span className="w-10 text-right font-mono text-sm text-slate-300">{settings.preview_volume}%</span>
@@ -416,7 +416,7 @@ export function SettingsPage() {
           </Card>
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-0">
           <Card className="p-6">
             <SectionTitle title="游戏目录" description="为 Stable 和 lazer 分别选择 osu! 安装或数据目录，保存后会重新建立本地资源索引。" />
             <div className="mt-5 space-y-3">
@@ -424,7 +424,7 @@ export function SettingsPage() {
                 const source = sources.data?.find((item) => item.client === client);
                 const path = source?.configured_path ?? source?.data_root ?? source?.install_root;
                 return (
-                  <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4" key={client}>
+                  <div className="opp-setting-row rounded-xl border border-white/[0.1] bg-white/[0.035] p-4" key={client}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-semibold text-slate-100">{label}</p>
@@ -458,18 +458,18 @@ export function SettingsPage() {
               </Badge>
             </div>
             <div className="mt-5 space-y-3">
-              <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+              <div className="opp-setting-row rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
                 <div className="flex items-start gap-3"><Film className="mt-0.5 size-5 text-[var(--theme-primary)]" /><div className="min-w-0 flex-1"><p className="font-semibold text-slate-100">Danser CLI</p><p className="mt-1 break-all text-xs text-slate-400">{danserStatus?.executable_path ?? (navigator.userAgent.includes("Windows") ? "未检测到 danser-cli.exe" : "未在 PATH 中找到 danser")}</p><p className="mt-1 text-xs text-slate-500">{danserStatus?.message ?? "可自动检测 PATH，或手动选择便携版程序。"}</p></div></div>
                 <div className="mt-3 flex flex-wrap gap-2"><Button loading={danserBusy} onClick={() => void chooseDanser()} size="sm" variant="secondary"><FolderOpen className="size-4" />选择程序</Button><Button disabled={danserBusy} onClick={() => void save({ ...settings, danser_executable_path: null }).then(refreshDanser)} size="sm" variant="ghost"><RotateCcw className="size-4" />自动检测</Button><Button disabled={danserBusy} onClick={() => void refreshDanser()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新状态</Button></div>
               </div>
-              <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+              <div className="opp-setting-row rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3"><Film className="mt-0.5 size-5 text-[var(--theme-primary)]" /><div className="min-w-0 flex-1"><p className="font-semibold text-slate-100">FFmpeg</p><p className="mt-1 break-all text-xs text-slate-400">{ffmpegStatus?.path ?? (navigator.userAgent.includes("Windows") ? "未检测到 ffmpeg.exe" : "未在 PATH 中找到 ffmpeg")}</p><p className="mt-1 text-xs text-slate-500">{ffmpegStatus?.version ?? "实时预览导出与本地渲染使用;可自动检测 PATH 或 danser 发行包,也可手动指定。"}</p></div></div>
                   {ffmpegStatus?.path ? <Badge tone={ffmpegStatus.source === "manual" ? "cyan" : "success"}>{ffmpegStatus.source === "manual" ? "手动指定" : ffmpegStatus.source === "path" ? "PATH 检测" : "danser 自带"}</Badge> : null}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2"><Button loading={ffmpegBusy} onClick={() => void chooseFfmpeg()} size="sm" variant="secondary"><FolderOpen className="size-4" />选择程序</Button><Button disabled={ffmpegBusy} onClick={() => void save({ ...settings, ffmpeg_executable_path: null }).then(refreshFfmpeg)} size="sm" variant="ghost"><RotateCcw className="size-4" />自动检测</Button><Button disabled={ffmpegBusy} onClick={() => void refreshFfmpeg()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新状态</Button></div>
               </div>
-              <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4"><p className="text-sm font-semibold text-slate-100">统一回放导出目录</p><p className="mt-1 break-all text-xs text-slate-400">{settings.replay_export_directory ?? "尚未选择；首次本地渲染前必须设置"}</p><div className="mt-3"><Button onClick={() => void chooseReplayExportDirectory()} size="sm" variant="secondary"><FolderOpen className="size-4" />{settings.replay_export_directory ? "修改位置" : "选择位置"}</Button></div></div>
+              <div className="opp-setting-row rounded-xl border border-white/[0.1] bg-white/[0.035] p-4"><p className="text-sm font-semibold text-slate-100">统一回放导出目录</p><p className="mt-1 break-all text-xs text-slate-400">{settings.replay_export_directory ?? "尚未选择；首次本地渲染前必须设置"}</p><div className="mt-3"><Button onClick={() => void chooseReplayExportDirectory()} size="sm" variant="secondary"><FolderOpen className="size-4" />{settings.replay_export_directory ? "修改位置" : "选择位置"}</Button></div></div>
               <Toggle checked={Boolean(settings.auto_export_new_replays_with_danser)} description="游戏退出后的总结面板仍会让你确认；开启后，可渲染的新回放会默认全部选中。" label="总结中默认选中新回放" onChange={(value) => void save({ ...settings, auto_export_new_replays_with_danser: value })} />
               <p className="text-xs leading-5 text-amber-200/80">Danser 仅支持 osu!standard；本地导出还需要 Danser 能访问 FFmpeg。</p>
             </div>
@@ -490,7 +490,7 @@ export function SettingsPage() {
                   },
                 })}
               />
-              <label className="block rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+              <label className="opp-setting-row block rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
                 <span className="block text-sm font-semibold text-slate-100">相似谱面每页数量</span>
                 <span className="mt-1 block text-xs leading-5 text-slate-500">控制相似结果列表每一批展示的谱面数量，同时影响“下载本批”。</span>
                 <select
@@ -514,7 +514,7 @@ export function SettingsPage() {
                 <Trash2 className="size-4" />清除缓存
               </Button>
               </div>
-              <label className="block rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+              <label className="opp-setting-row block rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
                 <span className="block text-sm font-semibold text-slate-100">本地缩略图缓存上限</span>
                 <span className="mt-1 block text-xs leading-5 text-slate-500">超过上限时会自动清理最早的谱面背景缩略图；索引和你的谱面文件不会被删除。</span>
                 <div className="mt-3 flex items-center gap-2">
@@ -560,7 +560,7 @@ export function SettingsPage() {
                 下载失败时仍会自动尝试其他可用镜像；下载队列中可以临时切换，不会改动此默认值。
               </span>
             </label>
-            <div className="mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+            <div className="opp-setting-row mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
               <p className="text-xs text-slate-500">当前默认位置</p>
               <p className="mt-1 break-all text-sm text-slate-200">
                 {settings.beatmap_download_directory ?? "Windows 下载目录"}
@@ -603,7 +603,7 @@ export function SettingsPage() {
                   <Gamepad2 className="size-4 text-[var(--theme-primary)]" />
                   OPP v{__APP_VERSION__}
                 </p>
-                <div className="mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] px-4 py-3">
+                <div className="opp-setting-row mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] px-4 py-3">
                   <p className="text-sm text-slate-300">{COMMUNITY_GROUP_MESSAGE}</p>
                   <p className="mt-1 text-sm text-slate-400">
                     交流群：<span className="select-all font-mono font-semibold text-[var(--theme-primary-light)]">{COMMUNITY_GROUP_NUMBER}</span>

@@ -29,7 +29,7 @@ vi.mock("../local-analysis/api", () => ({
 }));
 
 describe("SkinWorkshopPage", () => {
-  it("renders the current direct-edit workshop entry", () => {
+  it("使用紧凑入口展示当前直接编辑工作区", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -41,7 +41,10 @@ describe("SkinWorkshopPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Skin Workshop" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "选择要编辑的 Skin" })).toBeInTheDocument();
+    const entryHeading = screen.getByRole("heading", { name: "选择要编辑的 Skin" });
+    expect(entryHeading).toBeInTheDocument();
+    expect(entryHeading.closest("[data-slot='card']")).toHaveClass("p-5");
+    expect(entryHeading.closest("[data-slot='card']")).not.toHaveClass("p-7");
     expect(screen.getByRole("button", { name: "打开 .osk" })).toBeInTheDocument();
   });
 
@@ -64,4 +67,3 @@ describe("SkinWorkshopPage", () => {
     });
   });
 });
-
