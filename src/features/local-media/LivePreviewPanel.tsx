@@ -74,12 +74,17 @@ export function LivePreviewPanel() {
     return () => unlisten();
   }, [scrubbing]);
 
-  // 导出进度事件。
+  // 导出进度事件。done 是终态:清空 exporting 才能让弹窗从进度界面
+  // 切到"导出完成"(渲染分支里 exporting 优先于 exportResult)。
   useEffect(() => {
     let unlisten: () => void = () => undefined;
     desktopApi.onLiveRenderExport((progress) => {
+      if (progress.phase === "done") {
+        setExporting(null);
+        setExportResult(progress.message);
+        return;
+      }
       setExporting(progress);
-      if (progress.phase === "done") setExportResult(progress.message);
     }).then((dispose) => { unlisten = dispose; });
     return () => unlisten();
   }, []);
