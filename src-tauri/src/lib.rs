@@ -59,7 +59,8 @@ use danser::{
 use live_render::{
     live_render_check_ffmpeg, live_render_check_nvenc, live_render_close, live_render_export, live_render_export_cancel,
     live_render_move, live_render_open, live_render_open_export_output, live_render_pause,
-    live_render_get_ffmpeg_status, live_render_list_skins, live_render_play, live_render_seek,
+    live_render_get_ffmpeg_status, live_render_import_osk, live_render_list_skins, live_render_play,
+    live_render_seek,
     live_render_set_options,
 };
 use game_session::{
@@ -271,6 +272,7 @@ pub fn run() {
             live_render_check_ffmpeg,
             live_render_check_nvenc,
             live_render_list_skins,
+            live_render_import_osk,
             live_render_export,
             live_render_export_cancel,
             live_render_get_ffmpeg_status,

@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Film, FolderOpen, LoaderCircle, MonitorPlay, Pause, Play, Square, X } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
@@ -29,7 +29,7 @@ const defaultOptions: LiveRenderOptions = {
   audioOffset: 0,
   hitsounds: true,
   cursorSize: 1,
-  skin: null,
+  skinPath: null,
 };
 
 export function LivePreviewPanel() {
@@ -60,6 +60,8 @@ export function LivePreviewPanel() {
   const [options, setOptions] = useState<LiveRenderOptions>(defaultOptions);
   // 客户端 Skins 目录下的可选皮肤(内置 Argon-Pro 为默认项,不在列表)。
   const [skins, setSkins] = useState<LiveSkinEntry[]>([]);
+  // 皮肤热切换失败信息(加载错误时后端事件推送;当前皮肤保持不变)。
+  const [skinError, setSkinError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef(false);
   const startedOptionsRef = useRef<string>("");
@@ -129,6 +131,15 @@ export function LivePreviewPanel() {
       .catch(() => { if (mounted) setSkins([]); });
     return () => { mounted = false; };
   }, [client]);
+
+  // 皮肤热切换失败提示(仅展示,不打断预览)。
+  useEffect(() => {
+    let unlisten: () => void = () => undefined;
+    desktopApi.onLiveRenderSkinError((message) => setSkinError(message))
+      .then((dispose) => { unlisten = dispose; })
+      .catch(() => undefined);
+    return () => unlisten();
+  }, []);
 
   // 原生模式:上报预览区域位置,原生子窗口跟随 DOM 元素(滚动/缩放)。
   // 原生窗口压在 WebView 之上,会盖住应用内弹窗(对话框/确认框):
@@ -290,6 +301,25 @@ export function LivePreviewPanel() {
   const update = <K extends keyof LiveRenderOptions>(key: K, value: LiveRenderOptions[K]) =>
     setOptions((current) => ({ ...current, [key]: value }));
 
+  // 导入 .osk 皮肤包:解包到应用数据目录,立即加入列表并选用。
+  const importOsk = async () => {
+    const picked = await open({
+      multiple: false,
+      title: "导入 osu! 皮肤包(.osk)",
+      filters: [{ name: "osu! 皮肤包", extensions: ["osk"] }],
+    });
+    if (typeof picked !== "string") return;
+    setError(null);
+    try {
+      const entry = await desktopApi.liveRenderImportOsk(picked);
+      setSkins((current) => [entry, ...current.filter((s) => s.path !== entry.path)]);
+      setSkinError(null);
+      update("skinPath", entry.path);
+    } catch (value) {
+      setError(value);
+    }
+  };
+
   const toggle = () => {
     setPlaying(!playing);
     void (playing ? desktopApi.liveRenderPause() : desktopApi.liveRenderPlay());
@@ -377,16 +407,23 @@ export function LivePreviewPanel() {
                 }}
               />
             </label> : null}
-            <label className="block text-xs text-slate-400">皮肤(即时热切换,缺件回退 Argon)
-              <select
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
-                value={options.skin ?? ""}
-                onChange={(event) => update("skin", event.target.value === "" ? null : event.target.value)}
-              >
-                <option value="">内置 Argon-Pro</option>
-                {skins.map((skin) => <option key={skin.path} value={skin.path}>{skin.name}</option>)}
-              </select>
-            </label>
+            <div className="block text-xs text-slate-400">皮肤(即时热切换,缺件回退 Argon)
+              <div className="mt-2 flex gap-2">
+                <select
+                  className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
+                  value={options.skinPath ?? ""}
+                  onChange={(event) => {
+                    setSkinError(null);
+                    update("skinPath", event.target.value === "" ? null : event.target.value);
+                  }}
+                >
+                  <option value="">内置 Argon-Pro</option>
+                  {skins.map((skin) => <option key={skin.path} value={skin.path}>{skin.name}</option>)}
+                </select>
+                <Button size="sm" onClick={() => void importOsk()}>导入 .osk</Button>
+              </div>
+              {skinError ? <p className="mt-1 text-[10px] leading-relaxed text-amber-300">{skinError}</p> : null}
+            </div>
             <label className="block text-xs text-slate-400">光标大小 {Math.round(options.cursorSize * 100)}%
               <input
                 className="mt-3 w-full accent-cyan-400"

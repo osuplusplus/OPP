@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
-#[cfg(windows)]
 use tauri::Manager;
 use tauri::{AppHandle, Emitter};
 
@@ -1011,7 +1010,13 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         state.cursor_size = options.cursor_size;
                         s.state = state;
                     }
-                    Err(e) => eprintln!("live_render: 皮肤加载失败({e}),保留当前皮肤"),
+                    Err(e) => {
+                        eprintln!("live_render: 皮肤加载失败({e}),保留当前皮肤");
+                        let _ = s.app.emit(
+                            "live-render-skin-error",
+                            format!("皮肤加载失败:{e}(已保留当前皮肤)"),
+                        );
+                    }
                 }
             }
 
@@ -1354,11 +1359,16 @@ pub struct LiveSkinEntry {
 /// 子目录)。内置 Argon-Pro 不在此列,前端以空值表达。
 #[tauri::command]
 pub fn live_render_list_skins(
+    app: AppHandle,
     client: crate::local_analysis::LocalClient,
     state: tauri::State<'_, crate::app::state::AppState>,
 ) -> CommandResult<Vec<LiveSkinEntry>> {
     let status = state.local_analysis.source_status(client)?;
     let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    // 导入的 .osk 解包目录(应用数据目录,跨会话保留)。
+    if let Ok(data) = app.path().app_data_dir() {
+        roots.push(data.join("live-render-skins"));
+    }
     for base in [status.install_root.as_deref(), status.data_root.as_deref()].into_iter().flatten() {
         for name in ["Skins", "skins"] {
             let p = std::path::Path::new(base).join(name);
@@ -1382,6 +1392,154 @@ pub fn live_render_list_skins(
     }
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(out)
+}
+
+/// 导入 .osk 皮肤包(稳定版皮肤 zip):解包到应用数据目录的
+/// `live-render-skins/<名称>/`,返回可直接用作 `LiveOptions::skin_path`
+/// 的目录条目。同名重复导入 = 原地替换(编辑皮肤后重新打包再导即可)。
+#[tauri::command(async)]
+pub fn live_render_import_osk(app: AppHandle, osk_path: String) -> CommandResult<LiveSkinEntry> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| CommandError::new("SKIN_IMPORT", format!("无法定位应用数据目录:{e}")))?
+        .join("live-render-skins");
+    extract_osk(&osk_path, &base).map_err(|e| CommandError::new("SKIN_IMPORT", e))
+}
+
+/// 解包 .osk 到 `base/<目录名>/`(同名重复导入 = 原地替换),返回皮肤
+/// 条目(显示名取 skin.ini 的 `Name:`,缺失回退包文件名)。
+fn extract_osk(osk_path: &str, base: &std::path::Path) -> Result<LiveSkinEntry, String> {
+    use std::io::Read;
+
+    const MAX_FILES: usize = 4096;
+    const MAX_TOTAL: u64 = 512 * 1024 * 1024;
+
+    let file = std::fs::File::open(osk_path).map_err(|e| format!("无法打开皮肤包:{e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|e| format!("不是有效的 .osk/zip 包:{e}"))?;
+    if archive.len() as usize > MAX_FILES {
+        return Err("皮肤包内文件数量超出限制".into());
+    }
+
+    // 先收集 (相对路径, 是否目录) 并算总展开体积;enclosed_name 防路径穿越。
+    let mut entries: Vec<(std::path::PathBuf, bool)> = Vec::new();
+    let mut total: u64 = 0;
+    let mut skin_ini: Option<String> = None;
+    for index in 0..archive.len() {
+        let mut zip_file = archive.by_index(index).map_err(|e| e.to_string())?;
+        let Some(rel) = zip_file.enclosed_name().map(std::path::PathBuf::from) else {
+            continue; // 跳过可疑路径(绝对路径/..)
+        };
+        total = total.saturating_add(zip_file.size());
+        if total > MAX_TOTAL {
+            return Err("皮肤包展开体积超出限制".into());
+        }
+        let is_dir = zip_file.is_dir();
+        if !is_dir && skin_ini.is_none() && rel.file_name().is_some_and(|n| n.eq_ignore_ascii_case("skin.ini")) {
+            let mut text = String::new();
+            let _ = zip_file.read_to_string(&mut text);
+            skin_ini = Some(text);
+        }
+        entries.push((rel, is_dir));
+    }
+
+    // 常见布局:所有条目都在同一个顶层文件夹下 → 解包时剥掉该前缀。
+    let strip = {
+        let mut first: Option<&std::ffi::OsStr> = None;
+        let mut uniform = !entries.is_empty();
+        for (rel, _) in &entries {
+            let mut comps = rel.components();
+            let Some(head) = comps.next() else { uniform = false; break };
+            let head = head.as_os_str();
+            match first {
+                None => first = Some(head),
+                Some(f) if f == head => {}
+                _ => {
+                    uniform = false;
+                    break;
+                }
+            }
+        }
+        (uniform && entries.iter().any(|(rel, _)| rel.components().count() > 1))
+            .then(|| first.unwrap().to_os_string())
+    };
+
+    // 显示名:skin.ini 的 Name: > 包文件名。
+    let name = skin_ini
+        .as_deref()
+        .and_then(|ini| {
+            ini.lines()
+                .map(str::trim)
+                .find_map(|l| l.strip_prefix("Name:"))
+                .map(|v| v.trim().trim_matches('"').to_string())
+                .filter(|v| !v.is_empty())
+        })
+        .or_else(|| {
+            std::path::Path::new(&osk_path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| "imported-skin".into());
+    // 目录名:显示名剥掉路径分隔符等危险字符。
+    let dir_name: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == ' ' { c } else { '_' })
+        .collect();
+    let dir_name = dir_name.trim().trim_matches('.');
+    let dir_name = if dir_name.is_empty() { "imported-skin" } else { dir_name };
+
+    let root = base.join(dir_name);
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).map_err(|e| format!("无法创建解包目录:{e}"))?;
+
+    for (index, (rel, is_dir)) in entries.iter().enumerate() {
+        let target = match &strip {
+            Some(prefix) => {
+                let Ok(rest) = rel.strip_prefix(prefix) else { continue };
+                root.join(rest)
+            }
+            None => root.join(rel),
+        };
+        if *is_dir {
+            std::fs::create_dir_all(&target).ok();
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let mut zip_file = archive.by_index(index).map_err(|e| e.to_string())?;
+        let mut out =
+            std::fs::File::create(&target).map_err(|e| format!("无法写出 {target:?}:{e}"))?;
+        std::io::copy(&mut zip_file, &mut out)
+            .map_err(|e| format!("解包 {target:?} 失败:{e}"))?;
+    }
+
+    Ok(LiveSkinEntry { name, path: root.display().to_string() })
+}
+
+#[cfg(test)]
+mod osk_tests {
+    use super::*;
+
+    /// testset 里的真实 .osk:解包后 skin.ini 应在根目录(剥掉可能的顶层
+    /// 文件夹),且目录能被 render 库的 load_skin 直接加载。
+    #[test]
+    fn extracts_osk_and_loads() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        for osk in ["../../osu-replay-render/testset/-.BTMC.Freedom.Dive.osk", "../../osu-replay-render/testset/FGSky+Shigetora.osk"] {
+            let osk = format!("{manifest}/{osk}");
+            let base = std::env::temp_dir().join(format!("opp-osk-test-{}", std::process::id()));
+            let entry = extract_osk(&osk, &base).expect("extract");
+            let dir = std::path::Path::new(&entry.path);
+            assert!(dir.join("skin.ini").is_file(), "skin.ini at root of {}", entry.path);
+            assert!(!entry.name.is_empty());
+            let skin = osu_replay_render::skin::load_skin(Some(dir)).expect("render lib loads extracted skin");
+            // 有用户 legacy 层(非纯内置兜底)才算导入成功。
+            assert!(skin.legacy().is_some(), "extracted skin has a legacy layer");
+            let _ = std::fs::remove_dir_all(&base);
+        }
+    }
 }
 
 // NULTEST-MARKER-X

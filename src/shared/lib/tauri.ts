@@ -703,6 +703,8 @@ export const desktopApi = {
     call<void>("live_render_set_options", { options }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
   liveRenderListSkins: (client: OsuClient) => call<LiveSkinEntry[]>("live_render_list_skins", { client }),
+  /** 导入 .osk 皮肤包(解包到应用数据目录),返回可直接选用的皮肤条目。 */
+  liveRenderImportOsk: (oskPath: string) => call<LiveSkinEntry>("live_render_import_osk", { oskPath }),
   liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {
@@ -763,6 +765,11 @@ export const desktopApi = {
         durationMs: event.payload.duration_ms,
       }),
     );
+  },
+  /** 皮肤热切换失败(加载错误;当前皮肤保持不变)。 */
+  onLiveRenderSkinError: async (handler: (message: string) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<string>("live-render-skin-error", (event) => handler(event.payload));
   },
   onDanserRenderProgress: async (
     handler: (progress: DanserRenderJob) => void,
@@ -835,8 +842,8 @@ export interface LiveRenderOptions {
   hitsounds: boolean;
   /** 光标尺寸倍率 0.1..2(lazer GameplayCursorSize,默认 1)。 */
   cursorSize: number;
-  /** 用户皮肤目录路径;null = 内置 Argon-Pro。 */
-  skin: string | null;
+  /** 用户皮肤目录路径;null = 内置 Argon-Pro(后端字段 skinPath)。 */
+  skinPath: string | null;
 }
 
 export interface LiveSkinEntry {
