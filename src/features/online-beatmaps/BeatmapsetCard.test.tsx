@@ -11,6 +11,7 @@ const beatmapset: OnlineBeatmapset = {
   title: "Daisuke",
   creator: "moph",
   status: "ranked",
+  preview_url: "//b.ppy.sh/preview/697087.mp3",
   covers: { card: "https://example.com/cover.jpg" },
   beatmaps: [{
     id: 123,
@@ -28,6 +29,7 @@ describe("BeatmapsetCard", () => {
     const user = userEvent.setup();
     const onDownload = vi.fn();
     const onOpen = vi.fn();
+    const onPreview = vi.fn();
     const onSelect = vi.fn();
 
     render(
@@ -36,7 +38,7 @@ describe("BeatmapsetCard", () => {
         downloading={false}
         onDownload={onDownload}
         onOpen={onOpen}
-        onPreview={vi.fn()}
+        onPreview={onPreview}
         onSelect={onSelect}
         playing={false}
         selected={false}
@@ -50,7 +52,12 @@ describe("BeatmapsetCard", () => {
     await user.click(screen.getByRole("button", { name: "加入下载队列" }));
     expect(onSelect).toHaveBeenCalledOnce();
     expect(onOpen).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "试听" })).toHaveClass("opp-beatmap-card__wide-action");
+
+    const previewButton = screen.getByRole("button", { name: "试听" });
+    expect(previewButton).not.toHaveClass("opp-beatmap-card__wide-action");
+    await user.click(previewButton);
+    expect(onPreview).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "预览详情" })).toHaveClass("opp-beatmap-card__wide-action");
   });
 
