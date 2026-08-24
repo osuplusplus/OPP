@@ -70,16 +70,14 @@ function StatCard({
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs text-slate-500">{label}</p>
-          <p className="mt-2 font-mono text-xl font-semibold tracking-tight text-white">
+          <p className="metric-value mt-2 text-xl tracking-tight text-white">
             {value}
           </p>
           {helper ? (
             <p className="mt-1.5 text-[11px] text-slate-600">{helper}</p>
           ) : null}
         </div>
-        <span className="grid size-8 place-items-center border-y border-white/[0.1]">
-          <Icon className="size-4" />
-        </span>
+        <Icon className="mt-0.5 size-4 opacity-75" />
       </div>
     </Card>
   );

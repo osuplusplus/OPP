@@ -304,21 +304,21 @@ export function SettingsPage() {
 
   const palette = () => (
     <div>
-      <p className="mb-3 text-base font-bold text-slate-100">主题色</p>
+      <p className="mb-3 text-sm font-semibold text-slate-100">主题色</p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {colors.map(([value, label, color]) => {
           const selected = settings.theme_primary === value;
           return (
             <button
               aria-pressed={selected}
-              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${selected ? "border-[var(--theme-primary)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary-light)] shadow-[0_0_0_2px_var(--theme-primary-soft)]" : "border-white/10 text-slate-200 hover:bg-white/[0.06]"}`}
+              className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px] font-medium transition ${selected ? "border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary-light)]" : "border-[var(--line-subtle)] text-slate-300 hover:bg-[var(--surface-interactive-hover)]"}`}
               key={value}
               onClick={() => void save({ ...settings, theme_primary: value, theme_secondary: value })}
               type="button"
             >
-              <span className="size-4 rounded-full" style={{ background: color }} />
+              <span className="size-3.5 rounded-full ring-1 ring-inset ring-white/15" style={{ background: color }} />
               {label}
-              {selected ? <Check className="ml-auto size-4" /> : null}
+              {selected ? <Check className="ml-auto size-3.5" /> : null}
             </button>
           );
         })}
