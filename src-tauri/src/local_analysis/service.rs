@@ -1901,18 +1901,6 @@ fn collect_directory_entries(root: &Path) -> CommandResult<Vec<(String, PathBuf)
         .collect()
 }
 
-/// 已压缩格式（音频 / 图片 / 视频）使用存储模式，避免二次压缩浪费时间。
-fn zip_stored(name: &str) -> bool {
-    const STORED_EXTENSIONS: [&str; 9] = [
-        "mp3", "ogg", "wav", "jpg", "jpeg", "png", "webp", "gif", "mp4",
-    ];
-    std::path::Path::new(name)
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| STORED_EXTENSIONS.contains(&value.to_ascii_lowercase().as_str()))
-        .unwrap_or(false)
-}
-
 fn write_export_zip(sources: &[(String, PathBuf)], out_path: &Path) -> CommandResult<()> {
     let file = fs::File::create(out_path).map_err(|error| {
         CommandError::new(
@@ -1922,12 +1910,11 @@ fn write_export_zip(sources: &[(String, PathBuf)], out_path: &Path) -> CommandRe
     })?;
     let mut archive = ZipWriter::new(file);
     for (name, source) in sources {
-        let mut options = SimpleFileOptions::default().large_file(true);
-        if zip_stored(name) {
-            options = options.compression_method(CompressionMethod::Stored);
-        } else {
-            options = options.compression_method(CompressionMethod::Deflated);
-        }
+        // 全部存储模式(压缩等级 0,最快):皮肤素材几乎都是已压缩格式
+        // (png/音频),二次压缩只有 CPU 开销没有体积收益。
+        let options = SimpleFileOptions::default()
+            .large_file(true)
+            .compression_method(CompressionMethod::Stored);
         archive.start_file(name.clone(), options).map_err(|error| {
             CommandError::new(
                 "LOCAL_EXPORT_WRITE_ERROR",
