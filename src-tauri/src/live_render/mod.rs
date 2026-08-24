@@ -74,8 +74,8 @@ pub struct LiveOptions {
     pub bg_opacity: f32,
     /// 播放 BGM([General] AudioFilename,相对谱面目录)。
     pub audio: bool,
-    /// BGM 对齐偏移 ms,默认 0(音频位置 = 回放时间 − 偏移,
-    /// 界面里用户可自行调整)。
+    /// 预览 BGM 对齐偏移 ms,默认 0(音频位置 = 回放时间 − 偏移)。
+    /// 仅实时预览使用;导出走 `ExportParams::audio_offset`,两者独立。
     pub audio_offset: f64,
     /// 预览播放音效(命中音/滑条节点/combobreak,ArgonPro 采样,
     /// lazer 语义;与 BGM 同走 Kira 输出)。
@@ -1554,6 +1554,10 @@ pub struct ExportParams {
     /// 混入音效轨(离线合成 ArgonPro 音效,与 BGM amix 求和)。
     #[serde(default = "default_true")]
     pub hitsounds: bool,
+    /// 导出专用 BGM 偏移 ms(与实时预览的偏移互相独立:预览偏移含
+    /// 输出设备延迟补偿,导出走文件混流不需要;默认 0)。
+    #[serde(default)]
+    pub audio_offset: f64,
 }
 
 fn default_true() -> bool {
@@ -2065,7 +2069,7 @@ fn run_export(
     if bgm_path.is_some() || hits_path.is_some() {
         emit("mux", exported, total, "混入音频…".into());
         let rate = game.rate;
-        let seek_ms = t0 - options.audio_offset * rate;
+        let seek_ms = t0 - params.audio_offset * rate;
         let mut cmd = std::process::Command::new(&ffmpeg);
         cmd.args(["-y", "-v", "error"]).arg("-i").arg(&tmp);
         let mut bgm_filters: Vec<String> = vec!["volume=0.6000".into()];

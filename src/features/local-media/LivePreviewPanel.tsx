@@ -51,7 +51,9 @@ export function LivePreviewPanel() {
   const [ffmpegVersion, setFfmpegVersion] = useState<string | null | undefined>(undefined);
   // [h264_nvenc, hevc_nvenc] 可用性(undefined = 未探测)。
   const [nvenc, setNvenc] = useState<[boolean, boolean] | undefined>(undefined);
-  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true });
+  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true, audioOffset: 0 });
+  // 导出偏移的原始输入(与预览偏移同理:text 框允许键入 "-" 等中间态)。
+  const [exportOffsetText, setExportOffsetText] = useState(String(0));
   const [exporting, setExporting] = useState<{ phase: string; frame: number; total: number; message: string } | null>(null);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
@@ -275,7 +277,7 @@ export function LivePreviewPanel() {
       const [width, height] = exportForm.resolution.split("x").map(Number);
       setExporting({ phase: "render", frame: 0, total: 0, message: "准备中…" });
       await desktopApi.liveRenderExport(beatmapPath, replayPath, options, {
-        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio, hitsounds: exportForm.hitsounds,
+        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio, hitsounds: exportForm.hitsounds, audioOffset: exportForm.audioOffset,
       });
     } catch (value) {
       setError(value);
@@ -472,6 +474,26 @@ export function LivePreviewPanel() {
               <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
                 <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM(谱面自带音频,AAC 192k)
               </label>
+              {exportForm.audio ? <label className="block pl-6 text-xs text-slate-400">导出音频偏移 {exportOffsetText === "" ? 0 : exportOffsetText} ms(与预览偏移互相独立)
+                <input
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-2 text-sm text-white"
+                  type="text"
+                  inputMode="numeric"
+                  value={exportOffsetText}
+                  onChange={(event) => {
+                    const raw = event.target.value.replace(/[^\d.-]/g, "");
+                    setExportOffsetText(raw);
+                    if (raw === "") {
+                      setExportForm((f) => ({ ...f, audioOffset: 0 }));
+                      return;
+                    }
+                    const parsed = Number(raw);
+                    if (raw !== "-" && Number.isFinite(parsed)) {
+                      setExportForm((f) => ({ ...f, audioOffset: parsed }));
+                    }
+                  }}
+                />
+              </label> : null}
               <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
                 <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效(命中音/combobreak,ArgonPro)
               </label>

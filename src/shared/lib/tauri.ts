@@ -820,6 +820,8 @@ export interface LiveExportParams {
   quality: number;
   audio: boolean;
   hitsounds: boolean;
+  /** 导出专用 BGM 偏移 ms(与预览偏移独立,默认 0)。 */
+  audioOffset: number;
 }
 
 export interface LiveRenderOptions {
