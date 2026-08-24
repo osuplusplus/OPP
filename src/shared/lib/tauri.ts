@@ -702,6 +702,7 @@ export const desktopApi = {
   liveRenderSetOptions: (options: LiveRenderOptions) =>
     call<void>("live_render_set_options", { options }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
+  liveRenderListSkins: (client: OsuClient) => call<LiveSkinEntry[]>("live_render_list_skins", { client }),
   liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {
@@ -830,4 +831,13 @@ export interface LiveRenderOptions {
   audio: boolean;
   audioOffset: number;
   hitsounds: boolean;
+  /** 光标尺寸倍率 0.1..2(lazer GameplayCursorSize,默认 1)。 */
+  cursorSize: number;
+  /** 用户皮肤目录路径;null = 内置 Argon-Pro。 */
+  skin: string | null;
+}
+
+export interface LiveSkinEntry {
+  name: string;
+  path: string;
 }

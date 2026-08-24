@@ -2,7 +2,7 @@
 //! Windows 用 WS_CHILD 子窗口(或属主弹出窗口兜底);Linux 用 X11 子窗口
 
 use crate::error::{CommandError, CommandResult};
-use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene};
+use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene, skin};
 use std::collections::HashMap;
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{LazyLock, Mutex};
@@ -80,6 +80,12 @@ pub struct LiveOptions {
     /// 预览播放音效(命中音/滑条节点/combobreak,ArgonPro 采样,
     /// lazer 语义;与 BGM 同走 Kira 输出)。
     pub hitsounds: bool,
+    /// 光标尺寸倍率 0.1..=2(lazer `GameplayCursorSize`,默认 1)。
+    pub cursor_size: f32,
+    /// 用户皮肤目录(解包 .osk 或游戏 Skins/<name>);None = 内置
+    /// Argon-Pro。变更时热重建图集与场景(legacy 皮肤缓存随之重置),
+    /// 不需要重开会话。
+    pub skin_path: Option<String>,
 }
 
 impl Default for LiveOptions {
@@ -93,6 +99,8 @@ impl Default for LiveOptions {
             audio: true,
             audio_offset: 0.0,
             hitsounds: true,
+            cursor_size: 1.0,
+            skin_path: None,
         }
     }
 }
@@ -467,6 +475,9 @@ struct Session {
     audio_path: Option<std::path::PathBuf>,
     /// 当前是否带背景图(与 SetOptions 的 bg 比较决定是否重建图集)。
     has_bg: bool,
+    /// 当前皮肤(None = 内置 Argon-Pro;与 SetOptions 比较决定热重建)。
+    skin: skin::ResolvedSkin,
+    skin_path: Option<String>,
     game: game::GameData,
     atlas: draw::Atlas,
     bold: draw::TtfFont,
@@ -666,6 +677,7 @@ impl Session {
             atlas: &self.atlas,
             bold: &self.bold,
             semibold: &self.semibold,
+            skin: &self.skin,
         };
         self.list.clear();
         self.state
@@ -959,10 +971,52 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             s.state.hud.ur_bar = options.ur_bar;
             s.state.hud.key_overlay = options.key_overlay;
             s.state.follow_points = options.follow_points;
+            s.state.cursor_size = options.cursor_size;
             s.audio_offset = options.audio_offset;
 
+            // ---- 皮肤:目录变更 → 重载 + 重建图集 + 场景整体重建 ----
+            // (legacy 精灵缓存/动画状态是皮肤的派生物,随皮肤作废;
+            // 皮肤分支自身会带上当前 bg,故 bg 分支在皮肤未变时才走。)
+            if options.skin_path != s.skin_path {
+                let loaded =
+                    skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new));
+                match loaded {
+                    Ok(mut new_skin) => {
+                        let bg_image = if options.bg {
+                            osu_replay_render::osu_background_file(&s.beatmap_path)
+                                .map(|name| {
+                                    std::path::Path::new(&s.beatmap_path)
+                                        .parent()
+                                        .map(|p| p.join(name))
+                                        .unwrap_or_default()
+                                })
+                                .and_then(|p| osu_replay_render::decode_image_file(&p).ok())
+                        } else {
+                            None
+                        };
+                        let with_bg = bg_image.is_some();
+                        let (atlas, bold, semibold) = build_atlas(bg_image, &mut new_skin);
+                        s.set_atlas(&atlas);
+                        s.atlas = atlas;
+                        s.bold = bold;
+                        s.semibold = semibold;
+                        s.skin = new_skin;
+                        s.skin_path = options.skin_path.clone();
+                        s.has_bg = with_bg;
+                        let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
+                        state.pro_skin = s.skin_path.is_none();
+                        state.hud.ur_bar = options.ur_bar;
+                        state.hud.key_overlay = options.key_overlay;
+                        state.follow_points = options.follow_points;
+                        state.cursor_size = options.cursor_size;
+                        s.state = state;
+                    }
+                    Err(e) => eprintln!("live_render: 皮肤加载失败({e}),保留当前皮肤"),
+                }
+            }
+
             // ---- 背景图:重建图集(字体 rect 补丁依赖图集)+ 热替换纹理 ----
-            if options.bg != s.has_bg {
+            if options.bg != s.has_bg && options.skin_path == s.skin_path {
                 let bg_image = if options.bg {
                     osu_replay_render::osu_background_file(&s.beatmap_path)
                         .map(|name| {
@@ -975,12 +1029,20 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
-                let (atlas, bold, semibold) = build_atlas(bg_image);
-                s.set_atlas(&atlas);
-                s.atlas = atlas;
-                s.bold = bold;
-                s.semibold = semibold;
-                s.has_bg = options.bg;
+                // 皮肤纹理住在图集里,重建图集必须带上(按当前路径重载,
+                // ResolvedSkin 不可 Clone;assign_regions 回填新区域)。
+                match skin::load_skin(s.skin_path.as_deref().map(std::path::Path::new)) {
+                    Ok(mut skin) => {
+                        let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin);
+                        s.set_atlas(&atlas);
+                        s.atlas = atlas;
+                        s.bold = bold;
+                        s.semibold = semibold;
+                        s.skin = skin;
+                        s.has_bg = options.bg;
+                    }
+                    Err(e) => eprintln!("live_render: 重建图集时皮肤加载失败({e})"),
+                }
             }
             s.state.bg_opacity = if s.has_bg {
                 Some(options.bg_opacity.clamp(0.0, 1.0))
@@ -1043,13 +1105,17 @@ fn open_session(
         None
     };
     let has_bg = bg_image.is_some();
-    let (atlas, bold, semibold) = build_atlas(bg_image);
+    // 皮肤:用户皮肤目录走 legacy 渲染(缺件回退 argon);None = 内置
+    // Argon-Pro(无判定文字、滑条身体透明度 0.92)。
+    let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
+        .map_err(|e| format!("皮肤加载失败: {e}"))?;
+    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin);
 
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
     let duration = game.snapshots.last().map(|s| s.time).unwrap_or(0.0);
     let mut state = scene::SceneState::new(&game, RENDER_W, RENDER_H);
-    // 固定 Argon-Pro 皮肤(无判定文字、滑条身体透明度 0.92)。
-    state.pro_skin = true;
+    state.pro_skin = options.skin_path.is_none();
+    state.cursor_size = options.cursor_size;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
     state.follow_points = options.follow_points;
@@ -1184,6 +1250,8 @@ fn open_session(
         beatmap_path: beatmap_path.to_string(),
         audio_path,
         has_bg,
+        skin,
+        skin_path: options.skin_path.clone(),
         game,
         atlas,
         bold,
@@ -1272,6 +1340,48 @@ pub fn live_render_pause() {
 #[tauri::command]
 pub fn live_render_close() {
     send(Cmd::Close);
+}
+
+/// 一个可选的用户皮肤(客户端 Skins 目录下的子目录)。
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveSkinEntry {
+    pub name: String,
+    pub path: String,
+}
+
+/// 枚举客户端已安装的皮肤(stable 的 Skins 目录;lazer 的数据目录同名
+/// 子目录)。内置 Argon-Pro 不在此列,前端以空值表达。
+#[tauri::command]
+pub fn live_render_list_skins(
+    client: crate::local_analysis::LocalClient,
+    state: tauri::State<'_, crate::app::state::AppState>,
+) -> CommandResult<Vec<LiveSkinEntry>> {
+    let status = state.local_analysis.source_status(client)?;
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    for base in [status.install_root.as_deref(), status.data_root.as_deref()].into_iter().flatten() {
+        for name in ["Skins", "skins"] {
+            let p = std::path::Path::new(base).join(name);
+            if p.is_dir() && !roots.contains(&p) {
+                roots.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.push(LiveSkinEntry {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    path: path.display().to_string(),
+                });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(out)
 }
 
 // NULTEST-MARKER-X
@@ -1385,7 +1495,8 @@ mod repro_tests {
 
             // ---- open_session 各段(与 open_session 顺序一致) ----
             let game = game::load(beatmap.to_str().unwrap(), replay.to_str().unwrap()).unwrap();
-            let (atlas, _bold, _semibold) = build_atlas(None);
+            let mut skin = skin::load_skin(None).unwrap();
+            let (atlas, _bold, _semibold) = build_atlas(None, &mut skin);
             let mut state = scene::SceneState::new(&game, 1280, 720);
             state.pro_skin = true;
             let content = std::fs::read_to_string(beatmap).unwrap();
@@ -1400,6 +1511,7 @@ mod repro_tests {
                     atlas: &atlas,
                     bold: &_bold,
                     semibold: &_semibold,
+                    skin: &skin,
                 },
                 &snap,
                 &mut list,
@@ -1767,11 +1879,14 @@ fn run_export(
         None
     };
     let has_bg = bg_image.is_some();
-    let (atlas, bold, semibold) = build_atlas(bg_image);
+    let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
+        .map_err(|e| format!("皮肤加载失败: {e}"))?;
+    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin);
 
     let mut renderer = Renderer::new(params.width, params.height, &atlas);
     let mut state = scene::SceneState::new(&game, params.width, params.height);
-    state.pro_skin = true;
+    state.pro_skin = options.skin_path.is_none();
+    state.cursor_size = options.cursor_size;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
     state.follow_points = options.follow_points;
@@ -1842,6 +1957,7 @@ fn run_export(
         atlas: &atlas,
         bold: &bold,
         semibold: &semibold,
+        skin: &skin,
     };
     let mut list = draw::DrawList::new();
     let mut exported = 0u32;

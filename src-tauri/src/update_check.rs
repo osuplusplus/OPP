@@ -435,7 +435,8 @@ pub fn ignore_update_version(
 #[cfg(test)]
 mod tests {
     use super::{
-        UpdateManifest, build_update_result, parse_release_version, validate_download_url,
+        UpdateManifest, build_update_result, mirror_download_url, parse_release_version,
+        validate_download_url,
     };
 
     fn manifest(version: &str) -> UpdateManifest {

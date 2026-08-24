@@ -5,7 +5,7 @@ import { Film, FolderOpen, LoaderCircle, MonitorPlay, Pause, Play, Square, X } f
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { Badge, Button, Card, EmptyState, SectionTitle } from "../../shared/components/ui";
-import { desktopApi, type LiveExportParams, type LiveRenderOptions } from "../../shared/lib/tauri";
+import { desktopApi, type LiveExportParams, type LiveRenderOptions, type LiveSkinEntry } from "../../shared/lib/tauri";
 import type { GameMediaItem, ReplayMapInfo } from "../../shared/types/osu";
 
 function labelForReplay(item: GameMediaItem) {
@@ -28,6 +28,8 @@ const defaultOptions: LiveRenderOptions = {
   audio: true,
   audioOffset: 0,
   hitsounds: true,
+  cursorSize: 1,
+  skin: null,
 };
 
 export function LivePreviewPanel() {
@@ -54,6 +56,8 @@ export function LivePreviewPanel() {
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [options, setOptions] = useState<LiveRenderOptions>(defaultOptions);
+  // 客户端 Skins 目录下的可选皮肤(内置 Argon-Pro 为默认项,不在列表)。
+  const [skins, setSkins] = useState<LiveSkinEntry[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef(false);
   const startedOptionsRef = useRef<string>("");
@@ -114,6 +118,15 @@ export function LivePreviewPanel() {
       .catch(() => { if (mounted) setInspect({ path: replayPath, info: null }); });
     return () => { mounted = false; };
   }, [client, replayPath]);
+
+  // 皮肤列表(客户端切换时重拉;失败静默为空,仅剩内置项)。
+  useEffect(() => {
+    let mounted = true;
+    desktopApi.liveRenderListSkins(client)
+      .then((list) => { if (mounted) setSkins(list); })
+      .catch(() => { if (mounted) setSkins([]); });
+    return () => { mounted = false; };
+  }, [client]);
 
   // 原生模式:上报预览区域位置,原生子窗口跟随 DOM 元素(滚动/缩放)。
   // 原生窗口压在 WebView 之上,会盖住应用内弹窗(对话框/确认框):
@@ -362,6 +375,27 @@ export function LivePreviewPanel() {
                 }}
               />
             </label> : null}
+            <label className="block text-xs text-slate-400">皮肤(即时热切换,缺件回退 Argon)
+              <select
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
+                value={options.skin ?? ""}
+                onChange={(event) => update("skin", event.target.value === "" ? null : event.target.value)}
+              >
+                <option value="">内置 Argon-Pro</option>
+                {skins.map((skin) => <option key={skin.path} value={skin.path}>{skin.name}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs text-slate-400">光标大小 {Math.round(options.cursorSize * 100)}%
+              <input
+                className="mt-3 w-full accent-cyan-400"
+                type="range"
+                min={10}
+                max={200}
+                step={5}
+                value={Math.round(options.cursorSize * 100)}
+                onChange={(event) => update("cursorSize", Number(event.target.value) / 100)}
+              />
+            </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.bg} onChange={(event) => update("bg", event.target.checked)} />谱面背景图
             </label>
