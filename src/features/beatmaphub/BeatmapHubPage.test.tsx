@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   getAuthStatus: vi.fn(),
   listCollections: vi.fn(),
   getBeatmapHubProfile: vi.fn(),
+  getBeatmapHubRecommendations: vi.fn(),
   previewBeatmapHubPack: vi.fn(),
   getOnlineBeatmapset: vi.fn(),
 }));
@@ -25,6 +26,24 @@ describe("BeatmapHubPage", () => {
     vi.clearAllMocks();
     api.getAuthStatus.mockResolvedValue({ credentials_configured: true, connected: true, client_id: "1", callback_url: "http://localhost", user_id: 1, username: "L1rics" });
     api.listCollections.mockResolvedValue({ folders: [], sources: [] });
+    api.getBeatmapHubRecommendations.mockResolvedValue([]);
+  });
+
+  it("uses beatmap covers to present public packs as compact editorial cards", async () => {
+    api.getBeatmapHubAuthStatus.mockResolvedValue({ has_identity: false, connected: false, device_name: "TEST-PC" });
+    api.getBeatmapHubRecommendations.mockResolvedValue([{
+      id: "7K3N9A", title: "Tech Pack", description: "Practice", is_private: false,
+      owner: { id: "user", display_name: "Curator" }, beatmapset_ids: [123, 456, 789],
+      stars_min: 3.2, stars_max: 7.4, manifest_hash: "hash",
+      rating: { average: 4.5, count: 2 }, likes: { count: 8 }, comments: { count: 3 }, viewer: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }]);
+    renderPage();
+
+    const card = await screen.findByRole("button", { name: /Tech Pack/ });
+    expect(card).toHaveClass("rounded-xl");
+    expect(card.querySelectorAll("img")).toHaveLength(3);
+    expect(screen.getByText("由 Curator 整理")).toBeInTheDocument();
   });
 
   it("offers independent profile creation and device linking", async () => {

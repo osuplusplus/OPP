@@ -119,4 +119,10 @@ describe("GlobalContextBar local scan action", () => {
 
     expect(await screen.findByRole("button", { name: "配置数据源" })).toBeInTheDocument();
   });
+
+  it("uses the matching label for nested and feature routes", () => {
+    mocks.getLocalSummary.mockResolvedValue(summary());
+    renderBar("/beatmaphub");
+    expect(screen.getByText("BeatmapHub")).toBeInTheDocument();
+  });
 });

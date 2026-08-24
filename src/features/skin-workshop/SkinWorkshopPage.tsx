@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
@@ -26,13 +26,14 @@ import { cn } from "../../shared/lib/cn";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CommandError,
+  LocalSkinAssetSummary,
   LocalSkinSummary,
   SkinAssetVariant,
   SkinTreeNode,
   SkinWorkshopAction,
   SkinWorkshopWriteMode,
 } from "../../shared/types/osu";
-import { useLocalSkins } from "../local-analysis/api";
+import { useLocalSkinAsset, useLocalSkinPreview, useLocalSkins } from "../local-analysis/api";
 import {
   useWorkshopConfig,
   useWorkshopPart,
@@ -56,19 +57,64 @@ function errorMessage(error: unknown) {
   return (error as CommandError)?.message ?? String(error);
 }
 
-function SkinCover({ skin, onOpen, onReveal, imported = false }: { skin: LocalSkinSummary; onOpen: () => void; onReveal: () => void; imported?: boolean }) {
+function skinAssetBaseName(asset: LocalSkinAssetSummary) {
+  return asset.logical_path.toLowerCase().split(/[\\/]/).pop()?.replace(/@2x(?=\.[^.]+$)/, "").replace(/\.[^.]+$/, "") ?? "";
+}
+
+function findSkinAsset(assets: LocalSkinAssetSummary[], name: string) {
+  return assets
+    .filter((asset) => skinAssetBaseName(asset) === name)
+    .sort((left, right) => Number(/@2x(?=\.[^.]+$)/i.test(right.logical_path)) - Number(/@2x(?=\.[^.]+$)/i.test(left.logical_path)) || right.size - left.size)[0] ?? null;
+}
+
+function HitCircle({ color, hitcircle, overlay, number, className }: { color: string; hitcircle?: string; overlay?: string; number: number; className: string }) {
+  return <span className={`absolute grid place-items-center rounded-full ${className}`} style={{ backgroundColor: color, boxShadow: `0 0 0 3px rgba(255,255,255,.82), 0 0 0 5px ${color}80, 0 5px 14px rgba(0,0,0,.28)` }}>
+    {hitcircle ? <img alt="" className="absolute inset-0 size-full object-contain opacity-55 mix-blend-screen" src={hitcircle} /> : null}
+    {overlay ? <img alt="" className="absolute inset-0 size-full object-contain" src={overlay} /> : null}
+    <span className="relative text-sm font-bold" style={{ color: "white", textShadow: "0 1px 2px rgba(0,0,0,.65)" }}>{number}</span>
+  </span>;
+}
+
+function SkinCover({ skin, onOpen, onReveal, imported = false }: { skin: LocalSkinSummary; onOpen: () => void; onReveal?: () => void; imported?: boolean }) {
+  const cardRef = useRef<HTMLElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      setVisible(true);
+      observer.disconnect();
+    }, { rootMargin: "160px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const preview = useLocalSkinPreview(skin.resource.client, visible ? skin.resource.resource_id : null);
+  const cursorSummary = findSkinAsset(preview.data?.images ?? [], "cursor");
+  const hitcircleSummary = findSkinAsset(preview.data?.images ?? [], "hitcircle");
+  const overlaySummary = findSkinAsset(preview.data?.images ?? [], "hitcircleoverlay");
+  const cursor = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, cursorSummary?.resource_id ?? null, visible);
+  const hitcircle = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, hitcircleSummary?.resource_id ?? null, visible);
+  const overlay = useLocalSkinAsset(skin.resource.client, skin.resource.resource_id, overlaySummary?.resource_id ?? null, visible);
+  const colors = skin.accent_colors.slice(0, 3).map(([red, green, blue]) => `rgb(${red ?? 92} ${green ?? 225} ${blue ?? 230})`);
+  const comboColors = [colors[0] ?? "rgb(92 225 230)", colors[1] ?? "rgb(255 106 167)", colors[2] ?? "rgb(245 181 104)"];
   return (
-    <article className="flex min-h-64 h-full flex-col overflow-hidden rounded-3xl border border-white/[0.09] bg-[radial-gradient(circle_at_80%_10%,rgba(255,106,167,.16),transparent_42%),radial-gradient(circle_at_10%_90%,rgba(92,225,230,.11),transparent_38%),rgba(255,255,255,.025)] p-6 transition-colors duration-200 hover:border-white/20">
-      <button className="text-left" onClick={onOpen} type="button"><div className="flex items-start justify-between gap-4">
-        <span className="grid size-14 place-items-center rounded-2xl border border-pink-300/15 bg-pink-300/10 text-pink-200"><Palette className="size-6" /></span>
-        <Badge tone={imported ? "cyan" : skin.completeness === "complete" ? "success" : "warning"}>{imported ? "OSK" : skin.completeness === "complete" ? "完整" : "部分索引"}</Badge>
-      </div>
-      <h2 className="mt-7 truncate text-xl font-semibold tracking-tight text-white">{skin.name}</h2>
-      <p className="mt-2 truncate text-sm text-slate-400">{skin.author} · {skin.version}</p>
-      <div className="mt-6 flex items-center gap-3 text-xs text-slate-500"><span>{skin.resource_count ?? 0} 个资源</span><span>·</span><span>{skin.section_count} 配置节</span></div></button>
-      <div className="mt-auto grid grid-cols-2 gap-3 pt-6">
-        <Button className="justify-center" onClick={onOpen} variant="primary">进入预览</Button>
-        <Button className="justify-center" onClick={onReveal}><FolderOpen className="size-4" />本地打开</Button>
+    <article className="theme-skin-cover group overflow-hidden rounded-xl border border-white/[0.09] bg-[var(--surface-panel)] transition-colors hover:border-[var(--theme-primary)]/35" ref={cardRef}>
+      <button aria-label={`预览 ${skin.name}`} className="relative block h-32 w-full overflow-hidden text-left" onClick={onOpen} type="button">
+        <span className="theme-skin-playfield absolute inset-0" style={{ backgroundColor: "#161b24" }}>
+          <span className="absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.15) 0 1px, transparent 1.5px)", backgroundSize: "16px 16px" }} />
+          <HitCircle className="left-[12%] top-[27%] size-12" color={comboColors[0]} hitcircle={hitcircle.data?.data_url} number={1} overlay={overlay.data?.data_url} />
+          <HitCircle className="left-[39%] top-[46%] size-10" color={comboColors[1]} hitcircle={hitcircle.data?.data_url} number={2} overlay={overlay.data?.data_url} />
+          <HitCircle className="right-[13%] top-[18%] size-14" color={comboColors[2]} hitcircle={hitcircle.data?.data_url} number={3} overlay={overlay.data?.data_url} />
+          {cursor.data?.data_url ? <img alt={`${skin.name} 光标预览`} className="absolute bottom-[13%] right-[31%] size-9 object-contain drop-shadow-[0_3px_5px_rgba(0,0,0,.55)] transition-transform duration-300 group-hover:-translate-y-1 group-hover:translate-x-1" src={cursor.data.data_url} /> : <span className="absolute bottom-[16%] right-[33%] size-6 rounded-full border-2 border-white bg-cyan-300 shadow-[0_0_0_3px_rgba(255,255,255,.28),0_3px_8px_rgba(0,0,0,.5)] transition-transform duration-300 group-hover:-translate-y-1 group-hover:translate-x-1" />}
+        </span>
+        <span className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/90 to-transparent" />
+        <Badge className="absolute left-3 top-3 backdrop-blur-md" tone={imported ? "cyan" : skin.completeness === "complete" ? "success" : "warning"}>{imported ? "OSK" : skin.completeness === "complete" ? "完整" : "部分索引"}</Badge>
+        <span className="theme-skin-cover-copy absolute bottom-3 left-3 right-3"><span className="block truncate text-base font-semibold text-white">{skin.name}</span><span className="mt-0.5 block truncate text-[11px] text-white/70">{skin.author} · {skin.version}</span></span>
+      </button>
+      <div className="flex items-center gap-3 px-3 py-2.5 text-[11px] text-slate-500">
+        <span>{skin.resource_count ?? 0} 个资源</span><span className="text-slate-700">/</span><span>{skin.section_count} 配置节</span>
+        {onReveal ? <button aria-label={`在本地打开 ${skin.name}`} className="ml-auto grid size-8 place-items-center rounded-md text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-white" onClick={onReveal} title="在本地打开" type="button"><FolderOpen className="size-3.5" /></button> : null}
       </div>
     </article>
   );
@@ -115,7 +161,7 @@ function WriteModeDialog({ copyName, imported, skinName, onCancel, onChangeName,
         <div className="space-y-5 p-6">
           <label className="block"><span className="mb-2 block text-sm font-semibold text-slate-200">新 Skin 名称</span><input autoFocus className="w-full rounded-xl border border-white/[0.1] bg-black/25 px-4 py-3 text-base text-white outline-none focus:border-[var(--theme-primary)]" onChange={(event) => onChangeName(event.target.value)} value={copyName} /></label>
           {imported ? <p className="rounded-xl border border-amber-300/15 bg-amber-300/[0.07] px-4 py-3 text-sm text-amber-100">临时打开的 OSK 只能新建副本，不能直接覆盖安装包。</p> : null}
-          <div className="grid gap-3 sm:grid-cols-2"><Button className="min-h-11 justify-center" disabled={imported} onClick={onOverwrite} variant="danger">直接替换当前 Skin</Button><Button className="min-h-11 justify-center" disabled={!copyName.trim()} onClick={onCreateCopy} variant="primary"><Copy className="size-4" />新建副本并保存</Button></div>
+          <div className="grid gap-3 sm:grid-cols-2"><Button className="justify-center" disabled={imported} onClick={onOverwrite} size="sm" variant="danger">直接替换当前 Skin</Button><Button className="justify-center" disabled={!copyName.trim()} onClick={onCreateCopy} size="sm" variant="primary"><Copy className="size-4" />新建副本并保存</Button></div>
         </div>
       </Card>
     </div>
@@ -310,27 +356,26 @@ export function SkinWorkshopPage() {
     finally { setWorking(false); }
   };
 
-  if (skinsQuery.isLoading) return <><PageHeader title="Skin Workshop" /><Skeleton className="h-[650px] rounded-3xl" /></>;
-  if (skinsQuery.error) return <><PageHeader title="Skin Workshop" /><ErrorPanel error={skinsQuery.error} onRetry={() => skinsQuery.refetch()} /></>;
+  if (skinsQuery.isLoading) return <><PageHeader title="本地皮肤" /><Skeleton className="h-[650px] rounded-xl" /></>;
+  if (skinsQuery.error) return <><PageHeader title="本地皮肤" /><ErrorPanel error={skinsQuery.error} onRetry={() => skinsQuery.refetch()} /></>;
 
   if (client === "lazer") {
-    return <div><PageHeader title="Skin Workshop" />{openedSkinId ? <LazerReadOnly onSelect={setOpenedSkinId} selected={openedSkinId} skins={skins} /> : <div className="grid auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-3">{skins.map((skin) => <SkinCover key={skin.resource.resource_id} onOpen={() => setOpenedSkinId(skin.resource.resource_id)} onReveal={() => void revealSkin(skin)} skin={skin} />)}</div>}</div>;
+    return <div><PageHeader title="本地皮肤" />{openedSkinId ? <LazerReadOnly onSelect={setOpenedSkinId} selected={openedSkinId} skins={skins} /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{skins.map((skin) => <SkinCover key={skin.resource.resource_id} onOpen={() => setOpenedSkinId(skin.resource.resource_id)} onReveal={skin.resource.logical_path ? () => void revealSkin(skin) : undefined} skin={skin} />)}</div>}</div>;
   }
 
   return (
     <div>
-      <PageHeader title="Skin Workshop" actions={openedSkin ? <Button className="min-h-11 border-white/20 px-5 text-base" onClick={returnToLibrary} variant="primary"><ArrowLeft className="size-5" />返回全部皮肤</Button> : <Badge tone="cyan">选择 · 暂存 · 融合</Badge>} />
+      <PageHeader title="本地皮肤" actions={openedSkin ? <Button onClick={returnToLibrary} size="sm" variant="secondary"><ArrowLeft className="size-4" />返回皮肤库</Button> : <Button loading={working} onClick={() => void openPackage()} size="sm" variant="secondary"><PackageOpen className="size-3.5" />打开 .osk</Button>} />
       {actionError ? <div className={cn("mb-4 rounded-xl border px-4 py-3 text-sm", (actionError as CommandError).code === "MUTATION_COMPLETE" ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-100" : "border-rose-300/20 bg-rose-400/10 text-rose-100")}>{errorMessage(actionError)}</div> : null}
       <AnimatePresence mode="wait">
         {!openedSkin ? (
           <motion.section animate={{ opacity: 1 }} exit={{ opacity: 0 }} initial={{ opacity: 0 }} key="library" transition={transition}>
-            <Card className="mb-6 overflow-hidden p-7"><div className="flex flex-col gap-6 lg:flex-row lg:items-center"><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-[var(--theme-primary-light)]">Skin Workshop</p><h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">选择要编辑的 Skin</h2><p className="mt-3 max-w-3xl text-base leading-7 text-slate-400">从本地皮肤库选择，或打开一个 .osk 安装包。</p></div><Button className="min-h-12 px-6 text-base" loading={working} onClick={() => void openPackage()} variant="primary"><PackageOpen className="size-5" />打开 .osk</Button></div></Card>
-            <div className="mb-5 flex items-center gap-3"><div className="relative min-w-0 flex-1"><Search className="absolute left-4 top-1/2 size-5 -translate-y-1/2 text-slate-600" /><input aria-label="搜索 Skin" className="w-full rounded-2xl border border-white/[0.08] bg-black/20 py-3.5 pl-12 pr-4 text-base text-white outline-none transition-colors duration-300 focus:border-[var(--theme-primary)]" onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、作者或版本" value={search} /></div><Button aria-label="重新扫描 Skin" disabled={working} onClick={() => void refreshLibrary()} size="icon" title="重新扫描 Skin"><RefreshCw className={cn("size-4", working && "animate-spin")} /></Button></div>
-            {!skins.length ? <EmptyState icon={<Palette className="size-5" />} title="没有可用的 Stable Skin" description="请配置并扫描 Stable 目录，或者直接打开一个 .osk Skin 包。" /> : <div className="grid auto-rows-fr gap-5 md:grid-cols-2 xl:grid-cols-3">{skins.map((skin) => <SkinCover imported={skin.resource.resource_id.startsWith("package:skin:")} key={skin.resource.resource_id} onOpen={() => openSkin(skin)} onReveal={() => void revealSkin(skin)} skin={skin} />)}</div>}
+            <div className="mb-4 flex items-center gap-2"><div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-600" /><input aria-label="搜索 Skin" className="opp-input pl-9" onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、作者或版本" value={search} /></div><Button aria-label="重新扫描 Skin" disabled={working} onClick={() => void refreshLibrary()} size="icon" title="重新扫描 Skin" variant="secondary"><RefreshCw className={cn("size-4", working && "animate-spin")} /></Button></div>
+            {!skins.length ? <EmptyState icon={<Palette className="size-5" />} title="没有可用的 Stable Skin" description="请配置并扫描 Stable 目录，或者直接打开一个 .osk Skin 包。" /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{skins.map((skin) => <SkinCover imported={skin.resource.resource_id.startsWith("package:skin:")} key={skin.resource.resource_id} onOpen={() => openSkin(skin)} onReveal={skin.resource.logical_path ? () => void revealSkin(skin) : undefined} skin={skin} />)}</div>}
           </motion.section>
         ) : (
           <motion.section animate={{ opacity: 1 }} exit={{ opacity: 0 }} initial={{ opacity: 0 }} key={openedSkin.resource.resource_id} transition={transition}>
-            <Card className="mb-5 overflow-hidden bg-[radial-gradient(circle_at_90%_5%,rgba(255,106,167,.15),transparent_38%),rgba(255,255,255,.02)] p-7"><div className="flex items-start gap-5"><span className="grid size-16 shrink-0 place-items-center rounded-2xl border border-pink-300/15 bg-pink-300/10 text-pink-200"><Palette className="size-7" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><Badge tone="cyan">浏览与组合</Badge>{openedSkin.resource.resource_id.startsWith("package:skin:") ? <Badge tone="warning">临时 OSK 只能新建副本</Badge> : null}</div><h2 className="mt-3 truncate text-3xl font-semibold tracking-tight text-white">{openedSkin.name}</h2><p className="mt-2 text-base text-slate-400">{openedSkin.author} · {openedSkin.version}</p><p className="mt-3 text-sm text-slate-500">选择下方分类，查看并暂存想要组合的组件。</p></div></div></Card>
+            <Card className="mb-4 overflow-hidden p-5"><div className="flex items-start gap-4"><span className="grid size-11 shrink-0 place-items-center border-y border-pink-300/20 text-pink-200"><Palette className="size-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><Badge tone="cyan">浏览与组合</Badge>{openedSkin.resource.resource_id.startsWith("package:skin:") ? <Badge tone="warning">临时 OSK 只能新建副本</Badge> : null}</div><h2 className="mt-2 truncate text-2xl font-semibold tracking-tight text-white">{openedSkin.name}</h2><p className="mt-1 text-sm text-slate-400">{openedSkin.author} · {openedSkin.version}</p><p className="mt-2 text-xs text-slate-500">选择下方分类，查看并暂存想要组合的组件。</p></div></div></Card>
             {treeQuery.isLoading ? <Skeleton className="h-[520px] rounded-3xl" /> : treeQuery.error ? <ErrorPanel error={treeQuery.error} onRetry={() => treeQuery.refetch()} /> : showConfig ? <ConfigWorkspace client="stable" onApply={applyDirectAction} onStageEntry={stageConfig} skinId={openedSkin.resource.resource_id} /> : selectedPart ? <div><div className="mb-5 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4"><Button className="min-h-10 border-white/15" onClick={() => { setManualPartKey(null); setSelectedAssetId(null); }}><ArrowLeft className="size-4" />总体预览</Button><div><h3 className="text-2xl font-semibold text-white">{selectedPart.label}</h3></div><Button onClick={() => stagePart(selectedPart)}><FolderGit2 className="size-4" />暂存整个部分</Button></div>{autoPartKey && !manualPartKey ? <div className="mb-4 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.07] px-5 py-4 text-sm text-cyan-100">已根据暂存区自动定位到对应部分。即使目标中没有该部分或组件，也可以从右下角直接添加。</div> : null}<section className="mb-7"><div className="mb-3 flex items-center gap-2"><FileImage className="size-5 text-pink-200" /><h4 className="text-lg font-semibold text-white">图片组件</h4><Badge>{imageGroups.length}</Badge>{imageResolution.hidden ? <span className="text-xs text-slate-500">优先显示 @2x 高清贴图，已隐藏 {imageResolution.hidden} 个普通分辨率副本</span> : null}</div>{imageGroups.length ? <div className="grid auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-3">{imageGroups.map((group) => group.length > 1 ? <AnimatedAssetVisual active={group.some((asset) => selectedAsset?.asset_id === asset.asset_id)} assets={group} client="stable" frameRate={frameRate} key={group[0].logical_path} onSelect={(asset) => setSelectedAssetId(asset.asset_id)} onStage={stageAsset} skinId={openedSkin.resource.resource_id} /> : <AssetVisual active={selectedAsset?.asset_id === group[0].asset_id} asset={group[0]} client="stable" key={group[0].asset_id} onSelect={() => setSelectedAssetId(group[0].asset_id)} onStage={() => stageAsset(group[0])} skinId={openedSkin.resource.resource_id} />)}</div> : <Card className="p-6 text-sm text-slate-500">这个部分没有图片资源。</Card>}</section><section><div className="mb-3 flex items-center gap-2"><AudioLines className="size-5 text-cyan-200" /><h4 className="text-lg font-semibold text-white">音效组件</h4><Badge>{sounds.length}</Badge></div>{sounds.length ? <div className="grid auto-rows-fr gap-4 md:grid-cols-2">{sounds.map((asset) => <AssetVisual active={selectedAsset?.asset_id === asset.asset_id} asset={asset} client="stable" key={asset.asset_id} onSelect={() => setSelectedAssetId(asset.asset_id)} onStage={() => stageAsset(asset)} skinId={openedSkin.resource.resource_id} />)}</div> : <Card className="p-6 text-sm text-slate-500">这个部分没有音效资源。</Card>}</section></div> : <div><div className="mb-5 flex items-end justify-between gap-5"><div><p className="text-sm font-semibold text-[var(--theme-primary-light)]">总体预览</p><h3 className="mt-1 text-2xl font-semibold text-white">选择一个组成</h3><p className="mt-2 text-base text-slate-400">打开分类查看组件，或将整组内容拖到右下角。</p></div><Button onClick={() => setShowConfig(true)}><Settings2 className="size-4" />皮肤配置</Button></div><Card className="mb-5 grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(240px,340px)_auto] lg:items-center"><div><div className="flex items-center gap-2"><WandSparkles className="size-5 text-pink-200" /><h4 className="text-lg font-semibold text-white">快速迁移 Mania 模式</h4></div><p className="mt-2 text-sm text-slate-500">迁移全部 Mania 配置节，并跟随 NoteImage、KeyImage、Stage、Lighting 引用复制自定义命名贴图、@2x 与动画帧。</p></div><select aria-label="Mania 来源 Skin" className="rounded-xl border border-white/[0.08] bg-black/25 px-4 py-3 text-sm text-white outline-none focus:border-[var(--theme-primary)]" onChange={(event) => setManiaSource(event.target.value)} value={maniaSource}><option value="">选择来源 Skin</option>{skins.filter((skin) => skin.resource.resource_id !== openedSkin.resource.resource_id).map((skin) => <option key={skin.resource.resource_id} value={skin.resource.resource_id}>{skin.name}</option>)}</select><Button disabled={!maniaSource} loading={working} onClick={() => void migrateMania()} variant="primary">迁移 Mania</Button></Card><div className="grid auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-3">{treeQuery.data?.roots.map((node) => <PartCard key={node.part_id} node={node} onSelect={(value) => { setManualPartKey(value.part_key); setSelectedAssetId(null); }} onStage={stagePart} selected={null} />)}</div></div>}
           </motion.section>
         )}
@@ -341,4 +386,3 @@ export function SkinWorkshopPage() {
     </div>
   );
 }
-

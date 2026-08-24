@@ -18,12 +18,12 @@ export function PageHeader({
   return (
     <header className="mb-6 flex items-center justify-between gap-8 border-b border-[var(--line-subtle)] pb-4">
       <div className="flex min-w-0 items-center gap-3" data-page-guide-title="true">
-        <h1 className="text-[24px] font-semibold leading-none tracking-[-0.025em] text-white">
+        <h1 className="text-[22px] font-semibold leading-none tracking-[-0.02em] text-white">
           {title}
         </h1>
         <button
           aria-label={`查看“${title}”页面引导`}
-          className="grid size-8 shrink-0 place-items-center rounded-full text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-[var(--theme-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)]"
+          className="grid size-7 shrink-0 place-items-center rounded-full text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-[var(--theme-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)]"
           onClick={() => window.dispatchEvent(new Event(START_PAGE_ONBOARDING_EVENT))}
           title="查看本页引导"
           type="button"

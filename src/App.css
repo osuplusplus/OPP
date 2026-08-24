@@ -21,8 +21,10 @@
   --theme-secondary: #fb7185;
   --on-primary: #071014;
   --canvas-grid: rgba(255, 255, 255, 0.022);
-  --line-subtle: rgba(255, 255, 255, 0.075);
-  --line-strong: rgba(255, 255, 255, 0.14);
+  --line-subtle: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.11);
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-float: 0 18px 50px rgba(0, 0, 0, 0.34);
   --surface-interactive: rgba(255, 255, 255, 0.035);
   --surface-interactive-hover: rgba(255, 255, 255, 0.07);
   --surface-float: rgba(19, 21, 28, 0.96);
@@ -58,8 +60,10 @@
   --theme-secondary: #be185d;
   --on-primary: #ffffff;
   --canvas-grid: rgba(15, 23, 42, 0.035);
-  --line-subtle: rgba(15, 23, 42, 0.105);
-  --line-strong: rgba(15, 23, 42, 0.19);
+  --line-subtle: rgba(15, 23, 42, 0.09);
+  --line-strong: rgba(15, 23, 42, 0.16);
+  --shadow-panel: 0 1px 2px rgba(24, 32, 54, 0.05);
+  --shadow-float: 0 18px 50px rgba(24, 32, 54, 0.16);
   --surface-interactive: rgba(15, 23, 42, 0.035);
   --surface-interactive-hover: rgba(15, 23, 42, 0.065);
   --surface-float: rgba(255, 255, 255, 0.96);
@@ -101,8 +105,12 @@
 :root[data-theme-mode="light"] [class*="shadow-"] { box-shadow: 0 6px 18px rgba(24, 32, 54, 0.06); }
 :root[data-theme-mode="light"] .theme-profile-overlay { background: linear-gradient(90deg, rgba(255,255,255,.58), rgba(255,255,255,.26) 58%, rgba(255,255,255,0)); }
 :root[data-theme-mode="light"] .theme-profile-hero h2,
+:root[data-theme-mode="light"] .theme-profile-hero h1,
 :root[data-theme-mode="light"] .theme-profile-hero p,
 :root[data-theme-mode="light"] .theme-profile-hero span { color: #172033; }
+:root[data-theme-mode="light"] .theme-skin-cover .theme-skin-cover-copy,
+:root[data-theme-mode="light"] .theme-skin-cover .theme-skin-cover-copy span,
+:root[data-theme-mode="light"] .theme-media-copy { color: #ffffff; }
 :root[data-theme-mode="light"] [class*="text-cyan-"] { color: #0f4c75; }
 :root[data-theme-mode="light"] [class*="text-pink-"],
 :root[data-theme-mode="light"] [class*="text-rose-"] { color: #9f1239; }
@@ -216,15 +224,6 @@ a[href],
     transform var(--motion-fast) ease;
 }
 
-@media (hover: hover) {
-  button:not(:disabled):hover,
-  a[href]:hover,
-  [role="button"]:hover,
-  [role="tab"]:hover {
-    transform: translateY(-1px);
-  }
-}
-
 button:not(:disabled):active,
 [role="button"]:active,
 [role="tab"]:active {
@@ -266,8 +265,8 @@ select option {
 }
 
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -277,12 +276,12 @@ select option {
 ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.16);
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.34);
+  background: rgba(148, 163, 184, 0.3);
   background-clip: padding-box;
 }
 
@@ -319,7 +318,7 @@ select option {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: var(--surface-float);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-float);
 }
 
 .opp-action {
@@ -390,7 +389,7 @@ select option {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: var(--surface-float);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-float);
   backdrop-filter: blur(18px);
 }
 
@@ -408,7 +407,7 @@ select option {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: var(--surface-float);
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-float);
   backdrop-filter: blur(18px);
 }
 
@@ -517,7 +516,7 @@ main .opp-section.overflow-hidden:not(.opp-interactive-surface):not(.opp-beatmap
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: var(--surface-float);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+  box-shadow: var(--shadow-float);
   backdrop-filter: blur(18px);
   padding: 1rem;
 }
@@ -529,7 +528,6 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 
 :root[data-theme-mode="light"] [role="dialog"] {
   background: var(--surface-float);
-  box-shadow: 0 24px 80px rgba(24, 32, 54, 0.18);
 }
 
 .opp-control-track {
@@ -601,7 +599,6 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 }
 
 :root[data-theme-mode="light"] .opp-section { border-color: var(--line-subtle); }
-:root[data-theme-mode="light"] .opp-floating { box-shadow: 0 20px 60px rgba(24, 32, 54, 0.14); }
 :root[data-theme-mode="light"] aside .opp-nav-item[aria-current="page"] {
   background: linear-gradient(90deg, var(--theme-primary-muted), transparent 86%);
   box-shadow: inset 2px 0 0 var(--theme-primary);
@@ -813,6 +810,122 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   border-left: 2px solid var(--theme-secondary);
   padding-left: 1rem;
   color: #cbd5e1;
+}
+
+/* 非谱面页面统一采用紧凑工作台：用节奏和细分隔线组织内容，避免大块卡片反复嵌套。 */
+.opp-refined-workspace {
+  --workspace-section-gap: 1rem;
+}
+
+.opp-refined-workspace [data-slot="button"] {
+  box-shadow: none;
+}
+
+.opp-refined-workspace [data-slot="card"].opp-section:not([class*="shadow-"]) {
+  border: 0;
+  border-top: 1px solid var(--line-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.opp-refined-workspace [data-slot="card"].opp-section.p-6 {
+  padding: 1rem;
+}
+
+.opp-refined-workspace [data-slot="card"].opp-section.p-5 {
+  padding: 0.875rem 1rem;
+}
+
+.opp-refined-workspace [class~="rounded-3xl"] {
+  border-radius: 10px;
+}
+
+.opp-refined-workspace [class~="rounded-2xl"] {
+  border-radius: 8px;
+}
+
+.opp-refined-workspace [class~="text-3xl"] {
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.opp-refined-workspace [class~="text-2xl"] {
+  font-size: 1.25rem;
+  line-height: 1.35;
+}
+
+.opp-refined-workspace .opp-input,
+.opp-refined-workspace select {
+  min-height: 36px;
+  padding-block: 0.5rem;
+}
+
+.opp-refined-workspace [data-slot="card"].min-h-64 {
+  min-height: 12rem;
+}
+
+/* 数据中心保留头像识别度，但不再占用一整块封面高度。 */
+.opp-profile-rail {
+  border-top: 1px solid var(--line-subtle);
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.opp-metric-strip {
+  overflow: hidden;
+  border-top: 1px solid var(--line-subtle);
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.opp-metric-cell:nth-child(odd) {
+  border-right: 1px solid var(--line-subtle);
+}
+
+.opp-metric-cell:nth-child(-n + 2) {
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+/* 设置项仅保留行级分隔，交互控件仍通过主题色表达状态。 */
+.opp-settings-page [data-slot="card"].opp-section {
+  padding-block: 1rem;
+}
+
+.opp-settings-page .opp-setting-row {
+  border: 0;
+  border-bottom: 1px solid var(--line-subtle);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.75rem 0;
+}
+
+.opp-settings-page .opp-setting-row:last-child {
+  border-bottom-color: transparent;
+}
+
+.opp-settings-page [class~="space-y-3"] > .opp-setting-row + .opp-setting-row {
+  margin-top: 0;
+}
+
+/* 媒体列表与预览属于同一任务，因此共享一个边界而不是两个独立大卡片。 */
+.opp-split-workspace {
+  background: color-mix(in srgb, var(--surface-panel) 42%, transparent);
+}
+
+@media (min-width: 1280px) {
+  .opp-metric-cell {
+    border-right: 1px solid var(--line-subtle);
+    border-bottom: 0;
+  }
+
+  .opp-metric-cell:last-child {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 1279px) {
+  .opp-refined-workspace {
+    padding: 1.25rem;
+  }
 }
 
 .reduce-motion *,

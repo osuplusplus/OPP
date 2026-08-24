@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Database,
+  CircleUserRound,
   ExternalLink,
   Film,
   Heart,
@@ -71,7 +71,7 @@ function NavItem({ to, label, icon: Icon, emphasis, onboarding }: NavItemProps) 
 function NavGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="mt-5 first:mt-0">
-      <p className="mb-1.5 px-2.5 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-600">{label}</p>
+      <p className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
       <div className="space-y-0.5">{children}</div>
     </section>
   );
@@ -100,7 +100,7 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
           <NavItem emphasis="trainer" icon={WandSparkles} label="谱面练习生成器" onboarding="trainer" to="/trainer" />
         </NavGroup>
         <NavGroup label="资料与资源">
-          <NavItem icon={Database} label="数据中心" onboarding="data-center" to="/data" />
+          <NavItem icon={CircleUserRound} label="玩家信息" onboarding="data-center" to="/data" />
           <div data-onboarding="local-resources">
             <NavItem icon={Map} label="本地谱面" to="/local/maps" />
             <NavItem icon={Palette} label="本地皮肤" to="/local/skins" />
@@ -113,11 +113,11 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
           <NavItem icon={Wrench} label="工具集合" onboarding="tools" to="/tools" />
         </NavGroup>
       </nav>
-      <div className="relative shrink-0 border-t border-white/[0.07] pt-3">
-        <button aria-expanded={startMenuOpen} aria-label="选择客户端并启动游戏" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--theme-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--on-primary)] shadow-[0_8px_22px_var(--theme-primary-glow)] transition-colors hover:bg-[var(--theme-primary-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-sidebar)] disabled:opacity-50" data-onboarding="start-game" disabled={starting} onClick={() => setStartMenuOpen((open) => !open)} type="button"><Play className={`size-4 ${starting ? "animate-pulse" : ""}`} />启动 osu!</button>
+      <div className="relative shrink-0 border-t border-[var(--line-subtle)] pt-3">
+        <button aria-expanded={startMenuOpen} aria-label="选择客户端并启动游戏" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--theme-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--on-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.3)] transition-colors hover:bg-[var(--theme-primary-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-sidebar)] disabled:opacity-50" data-onboarding="start-game" disabled={starting} onClick={() => setStartMenuOpen((open) => !open)} type="button"><Play className={`size-4 ${starting ? "animate-pulse" : ""}`} />启动 osu!</button>
         {startMenuOpen ? <div className="absolute bottom-14 left-0 z-50 w-full rounded-lg border border-white/10 bg-[var(--surface-panel-strong)] p-2 shadow-2xl"><button className="min-h-10 w-full rounded-md px-2 py-2 text-left text-xs text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white" onClick={() => void startGame("stable")} type="button">osu! Stable</button><button className="mt-0.5 min-h-10 w-full rounded-md px-2 py-2 text-left text-xs text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white" onClick={() => void startGame("lazer")} type="button">osu! Lazer</button></div> : null}
       </div>
-      <div className="mt-2 shrink-0"><NavItem icon={Settings} label="设置" onboarding="settings" to="/settings" />{loading ? <div className="mt-2 flex items-center gap-3 px-2 py-1"><Skeleton className="size-8 rounded-lg" /><Skeleton className="h-3 w-20" /></div> : profile ? <div className="mt-2 flex items-center gap-3 border-t border-white/[0.06] px-2 pt-3"><Avatar className="size-8 rounded-lg border border-white/10" profile={profile} /><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{profile.username}</p></div><button aria-label="在浏览器中打开个人主页" className="grid size-8 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)]" onClick={() => void desktopApi.openExternal(`https://osu.ppy.sh/users/${profile.id}`)} title="在浏览器中打开个人主页" type="button"><ExternalLink className="size-3.5" /></button></div> : null}</div>
+      <div className="mt-2 shrink-0"><NavItem icon={Settings} label="设置" onboarding="settings" to="/settings" />{loading ? <div className="mt-2 flex items-center gap-3 px-2 py-1"><Skeleton className="size-8 rounded-lg" /><Skeleton className="h-3 w-20" /></div> : profile ? <div className="mt-2 flex items-center gap-3 border-t border-[var(--line-subtle)] px-2 pt-3"><Avatar className="size-8 rounded-lg border border-white/10" profile={profile} /><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{profile.username}</p></div><button aria-label="在浏览器中打开个人主页" className="grid size-8 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)]" onClick={() => void desktopApi.openExternal(`https://osu.ppy.sh/users/${profile.id}`)} title="在浏览器中打开个人主页" type="button"><ExternalLink className="size-3.5" /></button></div> : null}</div>
     </aside>
   );
 }

@@ -60,26 +60,24 @@ function StatCard({
   tone?: "pink" | "cyan" | "purple" | "green";
 }) {
   const tones = {
-    pink: "border-t-pink-400/70 text-pink-200",
-    cyan: "border-t-cyan-300/70 text-cyan-100",
-    purple: "border-t-violet-400/70 text-violet-200",
-    green: "border-t-emerald-400/70 text-emerald-200",
+    pink: "text-pink-200",
+    cyan: "text-cyan-100",
+    purple: "text-violet-200",
+    green: "text-emerald-200",
   };
   return (
-    <Card className={`relative overflow-hidden border-t-2 p-5 ${tones[tone]}`}>
+    <Card className={`opp-metric-cell relative overflow-hidden p-4 ${tones[tone]}`} unstyled>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs text-slate-500">{label}</p>
-          <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-white">
+          <p className="metric-value mt-2 text-xl tracking-tight text-white">
             {value}
           </p>
           {helper ? (
-            <p className="mt-2 text-[11px] text-slate-600">{helper}</p>
+            <p className="mt-1.5 text-[11px] text-slate-600">{helper}</p>
           ) : null}
         </div>
-        <span className="grid size-9 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
-          <Icon className="size-4" />
-        </span>
+        <Icon className="mt-0.5 size-4 opacity-75" />
       </div>
     </Card>
   );
@@ -111,7 +109,7 @@ function ChartTooltip({
 function OverviewSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-4 gap-4">
+      <div className="opp-metric-strip grid grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }, (_, index) => (
           <Skeleton className="h-32" key={index} />
         ))}

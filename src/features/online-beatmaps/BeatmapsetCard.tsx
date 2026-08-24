@@ -79,7 +79,8 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
         </div>
         <div className="opp-beatmap-card__actions relative z-30 flex shrink-0 gap-0.5">
           <Button aria-label="加入收藏夹" onClick={(event) => { event.stopPropagation(); onAddToCollection(); }} size="icon" title="加入收藏夹" variant="ghost"><Heart className="size-4" /></Button>
-          <Button aria-label={playing ? "暂停试听" : "试听"} className="opp-beatmap-card__wide-action" disabled={!preview} onClick={(event) => { event.stopPropagation(); onPreview(); }} size="icon" variant={playing ? "primary" : "ghost"}>{playing ? <Pause className="size-4" /> : <Headphones className="size-4" />}</Button>
+          {/* 试听属于核心操作，即使双列卡片变窄也必须常驻显示。 */}
+          <Button aria-label={playing ? "暂停试听" : "试听"} disabled={!preview} onClick={(event) => { event.stopPropagation(); onPreview(); }} size="icon" title={playing ? "暂停试听" : "试听预览"} variant={playing ? "primary" : "ghost"}>{playing ? <Pause className="size-4" /> : <Headphones className="size-4" />}</Button>
           <Button aria-label="下载谱面" disabled={disabled} loading={downloading} onClick={(event) => { event.stopPropagation(); onDownload(); }} size="icon" title="下载谱面" variant="ghost">{downloading ? null : <Download className="size-4" />}</Button>
           <Button aria-label="预览详情" className="opp-beatmap-card__wide-action" onClick={(event) => { event.stopPropagation(); onOpen(); }} size="icon" variant="ghost"><Info className="size-4" /></Button>
         </div>

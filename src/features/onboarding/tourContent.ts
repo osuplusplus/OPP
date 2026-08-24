@@ -36,7 +36,7 @@ export const onboardingSteps: OnboardingStep[] = [
     target: '[data-onboarding="trainer"]',
   },
   {
-    title: "数据中心",
+    title: "玩家信息",
     description: "集中查看个人资料、排名轨迹、统计数据、BP、Pinned 成绩与详细档案。这里的内容会跟随当前游戏模式变化。",
     target: '[data-onboarding="data-center"]',
   },

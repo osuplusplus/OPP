@@ -10,7 +10,9 @@ import type { CommandError, GameStatusSnapshot, LocalScanProgress, OsuClient } f
 import { useMode } from "./ModeContext";
 
 const routeContexts = [
-  ["/data", "数据中心"],
+  ["/data", "玩家信息"],
+  ["/beatmaphub", "BeatmapHub"],
+  ["/trainer", "谱面练习生成器"],
   ["/online/overview", "个人概览"],
   ["/online/scores", "最佳成绩"],
   ["/online/profile", "详细档案"],
@@ -19,6 +21,7 @@ const routeContexts = [
   ["/collections", "谱面收藏夹"],
   ["/local/maps", "本地谱面"],
   ["/local/skins", "本地皮肤"],
+  ["/local/media/render", "回放渲染"],
   ["/local/media", "截图与回放"],
   ["/tosu", "tosu 直播集成"],
   ["/tools", "工具集合"],
@@ -124,9 +127,7 @@ export function GlobalContextBar() {
   const { client, setClient, ruleset, setRuleset } = useMode();
   const location = useLocation();
   const [gameStatus, setGameStatus] = useState<GameStatusSnapshot | null>(null);
-  const current =
-    routeContexts.find(([path]) => location.pathname === path) ??
-    routeContexts[0];
+  const current = routeContexts.find(([path]) => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const runningClients = useMemo(
     () => gameStatus?.clients.filter((item) => item.running) ?? [],
     [gameStatus],
@@ -154,7 +155,7 @@ export function GlobalContextBar() {
       <div className="mx-auto flex h-full max-w-[var(--content-width)] items-center gap-2 min-[1280px]:gap-5">
         {/* 窄窗口隐藏与页面标题重复的文字，为模式切换保留完整空间。 */}
         <p className="hidden min-w-0 truncate text-[15px] font-semibold text-slate-200 min-[1280px]:block">
-          {current[1]}
+          {current?.[1] ?? "OPP"}
         </p>
         <div
           className="flex min-h-8 shrink-0 items-center gap-2 border-l border-[var(--line-subtle)] px-2 text-xs font-medium text-slate-400 min-[1280px]:px-3"
@@ -170,7 +171,7 @@ export function GlobalContextBar() {
               : "游戏未运行"}
           </span>
         </div>
-        <span className="ml-auto h-6 w-px bg-white/[0.08]" />
+        <span className="ml-auto h-6 w-px bg-[var(--line-subtle)]" />
         <GlobalLocalScanAction client={client} />
         <div className="flex shrink-0 items-center gap-2 min-[1280px]:gap-5" data-onboarding="mode-and-client">
           <div aria-label="游戏模式" className="flex items-center">

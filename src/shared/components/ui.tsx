@@ -11,7 +11,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "border border-transparent bg-[var(--theme-primary)] px-4 py-2.5 text-[var(--on-primary)] shadow-[0_8px_20px_var(--theme-primary-glow)] hover:bg-[var(--theme-primary-strong)]",
+          "border border-transparent bg-[var(--theme-primary)] px-4 py-2.5 text-[var(--on-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.3)] hover:bg-[var(--theme-primary-strong)]",
         secondary:
           "border border-[var(--line-subtle)] bg-[var(--surface-interactive)] px-4 py-2.5 text-slate-100 hover:border-[var(--line-strong)] hover:bg-[var(--surface-interactive-hover)]",
         ghost:
@@ -116,7 +116,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em]",
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium",
         tones[tone],
         className,
       )}
@@ -131,7 +131,7 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "animate-pulse bg-gradient-to-r from-white/[0.04] via-white/[0.09] to-white/[0.04] bg-[length:220%_100%]",
+        "animate-pulse bg-gradient-to-r from-white/[0.035] via-white/[0.075] to-white/[0.035] bg-[length:220%_100%]",
         className,
       )}
     />
@@ -152,11 +152,11 @@ export function EmptyState({
   return (
     <Card className="grid min-h-64 place-items-center p-8 text-center">
       <div className="max-w-md">
-        <div className="mx-auto mb-4 grid size-11 place-items-center border-y border-[var(--line-strong)] text-[var(--theme-primary)]">
+        <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]">
           {icon ?? <AlertCircle className="size-5" />}
         </div>
-        <h3 className="text-base font-semibold text-white">{title}</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p>
+        <h3 className="text-[15px] font-semibold tracking-tight text-white">{title}</h3>
+        <p className="mt-1.5 text-[13px] leading-6 text-slate-400">{description}</p>
         {action ? <div className="mt-5">{action}</div> : null}
       </div>
     </Card>

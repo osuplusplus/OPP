@@ -27,6 +27,7 @@ import {
 } from "../features/onboarding/pageTourContent";
 import { START_ONBOARDING_EVENT, START_PAGE_ONBOARDING_EVENT } from "../shared/lib/onboardingEvents";
 import { UpdateCenter } from "../features/updates/UpdateCenter";
+import { usesBeatmapWorkspaceLayout } from "./workspaceLayout";
 
 const validRulesets: Ruleset[] = ["osu", "taiko", "fruits", "mania"];
 
@@ -271,6 +272,7 @@ export function AppShell() {
   const profileQuery = useOwnProfile(ruleset);
   const settingsQuery = useSettings();
   const location = useLocation();
+  const refinedWorkspace = !usesBeatmapWorkspaceLayout(location.pathname);
   const navigate = useNavigate();
   const initializedMode = useRef(hasRulesetPreference);
   const onboardingChecked = useRef(false);
@@ -434,7 +436,10 @@ export function AppShell() {
       <GlobalContextBar />
       <main className="ml-[var(--sidebar-width)] min-h-screen pt-[108px]" id="main-content" tabIndex={-1}>
         <div className="relative min-h-[calc(100vh-108px)] overflow-x-clip">
-        <div className="theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9" data-page-guide-content="true">
+          <div
+            className={`theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9 ${refinedWorkspace ? "opp-refined-workspace" : ""}`}
+            data-page-guide-content="true"
+          >
             <Outlet />
           </div>
         </div>
