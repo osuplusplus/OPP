@@ -128,6 +128,8 @@ enum Cmd {
         /// 原生窗口初始定位(物理 px,相对 WebView 视口)。
         rect: PreviewRect,
         options: LiveOptions,
+        /// ffmpeg 路径(open 命令侧解析,DT/HT 变调预处理用)。
+        ffmpeg: Option<std::path::PathBuf>,
         reply: Sender<Result<LiveOpenInfo, String>>,
     },
     Move {
@@ -355,9 +357,66 @@ mod native {
 const MUSIC_VOLUME: f64 = 0.6;
 
 /// 解码 BGM 文件(mp3/flac/ogg/wav,symphonia 全量入内存)。
-fn load_bgm(path: &std::path::Path) -> Option<kira::sound::static_sound::StaticSoundData> {
+/// DT/HT(rate≠1 且非 NC)优先走 ffmpeg「变速不变调」预处理,与导出
+/// 侧 atempo 同语义;ffmpeg 未配置或执行失败时回退原样解码——kira
+/// 的 playback_rate 本就是变速变调(游戏原生 DT 听感),预览不中断。
+/// NC 始终原样(nightcore without the pitch isn't nightcore,与导出
+/// 侧 asetrate 分支一致)。
+fn load_bgm(
+    path: &std::path::Path,
+    rate: f64,
+    nightcore: bool,
+    ffmpeg: Option<&std::path::Path>,
+) -> Option<kira::sound::static_sound::StaticSoundData> {
+    if !nightcore
+        && (rate - 1.0).abs() >= 1e-3
+        && (0.5..=2.0).contains(&rate)
+        && let Some(data) = load_bgm_pitch_preserved(path, rate, ffmpeg)
+    {
+        return Some(data);
+    }
     let bytes = std::fs::read(path).ok()?;
     kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).ok()
+}
+
+/// ffmpeg 恒时长变调:整段音调 ÷rate、时长不变。滤镜链(采样率先
+/// 归一到 44100,asetrate 才能用静态参数):aresample=44100 →
+/// asetrate=44100/rate(调 ÷rate、长 ×rate)→ aresample=44100 →
+/// atempo=rate(压回原长、调不变;0.5..=2.0 覆盖 DT 1.5 / HT 0.75,
+/// 超界由调用方拦截)。kira 侧仍按 playback_rate(rate) 播放,升调
+/// ×rate 与预处理 ÷rate 相抵 → 净效果变速不变调;帧时长不变,
+/// 起播/seek 位置映射与变调路径完全一致。输出 f32 wav 经管道回读,
+/// 由 kira 自带的 symphonia 解码。阻塞渲染线程数百毫秒(一次性,
+/// 与整段解码同量级)。
+fn load_bgm_pitch_preserved(
+    path: &std::path::Path,
+    rate: f64,
+    ffmpeg: Option<&std::path::Path>,
+) -> Option<kira::sound::static_sound::StaticSoundData> {
+    let ffmpeg = ffmpeg?;
+    let filters = format!(
+        "aresample=44100,asetrate={},aresample=44100,atempo={:.6}",
+        (44100.0 / rate).round() as i64,
+        rate
+    );
+    let output = std::process::Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
+        .arg("-i")
+        .arg(path)
+        .arg("-filter:a")
+        .arg(&filters)
+        .args(["-map", "0:a:0", "-ac", "2", "-c:a", "pcm_f32le", "-f", "wav", "-"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        eprintln!(
+            "live_render: ffmpeg 变调预处理失败({}),回退 kira 变调播放",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        return None;
+    }
+    kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(output.stdout))
+        .ok()
 }
 
 // ---- 音效(Kira;命中音/滑条节点音/combobreak) --------------------------------
@@ -472,6 +531,9 @@ struct Session {
     beatmap_path: String,
     /// 谱面音频路径(open 时即解析,音频开关切换时懒加载)。
     audio_path: Option<std::path::PathBuf>,
+    /// ffmpeg 可执行路径(open 时按 设置手动路径 > PATH > danser 解析
+    /// 一次;DT/HT 预览的变调预处理用,缺 None = 回退 kira 变调)。
+    ffmpeg: Option<std::path::PathBuf>,
     /// 当前是否带背景图(与 SetOptions 的 bg 比较决定是否重建图集)。
     has_bg: bool,
     /// 当前皮肤(None = 内置 Argon-Pro;与 SetOptions 比较决定热重建)。
@@ -841,6 +903,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             replay_path,
             rect,
             options,
+            ffmpeg,
             reply,
         } => {
             if let Some(mut s) = session.take() {
@@ -852,7 +915,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             // catch_unwind:初始化失败(如驱动/wgpu panic)不能拖死整个
             // 渲染线程,否则后续所有命令都会"渲染线程无响应"。
             let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                open_session(&app, &beatmap_path, &replay_path, &options, rect)
+                open_session(&app, &beatmap_path, &replay_path, &options, rect, ffmpeg)
             }));
             let opened = match opened {
                 Ok(r) => r,
@@ -1101,7 +1164,12 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             if options.audio {
                 let was_unloaded = s.bgm_data.is_none() && s.audio_path.is_some();
                 if was_unloaded {
-                    s.bgm_data = load_bgm(s.audio_path.as_ref().unwrap());
+                    s.bgm_data = load_bgm(
+                        s.audio_path.as_ref().unwrap(),
+                        s.game.rate,
+                        s.game.nightcore,
+                        s.ffmpeg.as_deref(),
+                    );
                 }
                 // 起播/重锚:解码刚就绪,或偏移热改后按新映射重新对位
                 // (改回前奏段则停播待跨界)。已在播且偏移未变则不动。
@@ -1147,6 +1215,7 @@ fn open_session(
     replay_path: &str,
     options: &LiveOptions,
     rect: PreviewRect,
+    ffmpeg: Option<std::path::PathBuf>,
 ) -> Result<Session, String> {
     let game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
 
@@ -1192,7 +1261,9 @@ fn open_session(
         .map(|name| map_dir.join(name))
         .filter(|p| p.exists());
     let bgm_data = if options.audio {
-        audio_path.as_deref().and_then(load_bgm)
+        audio_path
+            .as_deref()
+            .and_then(|p| load_bgm(p, game.rate, game.nightcore, ffmpeg.as_deref()))
     } else {
         None
     };
@@ -1310,6 +1381,7 @@ fn open_session(
         app: app.clone(),
         beatmap_path: beatmap_path.to_string(),
         audio_path,
+        ffmpeg,
         has_bg,
         skin,
         skin_path: options.skin_path.clone(),
@@ -1358,6 +1430,9 @@ pub fn live_render_open(
     let options = resolve_lazer_skin(&state, options)?;
     // rect 已是物理 px(前端 × devicePixelRatio):WebKitGTK 的 X11 小数
     // 缩放(dpr 1.25)后端拿不到,见 PreviewRect 注释。
+    // ffmpeg 路径在此解析一次存入会话(设置手动路径 > PATH > danser,
+    // 与导出共用;缺省 = DT/HT 预览回退 kira 变调,见 load_bgm)。
+    let ffmpeg = ffmpeg_path(&state);
     let (tx, rx) = channel();
     send(Cmd::Open {
         app,
@@ -1365,6 +1440,7 @@ pub fn live_render_open(
         replay_path,
         rect,
         options,
+        ffmpeg,
         reply: tx,
     });
     rx.recv()
