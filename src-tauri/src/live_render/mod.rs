@@ -1291,11 +1291,14 @@ fn open_session(
 #[tauri::command(async)]
 pub fn live_render_open(
     app: AppHandle,
+    state: tauri::State<'_, crate::app::state::AppState>,
     beatmap_path: String,
     replay_path: String,
     rect: PreviewRect,
     options: LiveOptions,
 ) -> CommandResult<LiveOpenInfo> {
+    // 皮肤引用（lazer:<resource_id>）在会话实际创建时物化。
+    let options = resolve_lazer_skin(&state, options)?;
     // rect 已是物理 px(前端 × devicePixelRatio):WebKitGTK 的 X11 小数
     // 缩放(dpr 1.25)后端拿不到,见 PreviewRect 注释。
     let (tx, rx) = channel();
@@ -1323,7 +1326,22 @@ pub fn live_render_move(rect: PreviewRect) -> CommandResult<()> {
 /// 渲染参数原地生效(零重载):即时字段改 SceneState;bg 重建图集并
 /// 热替换纹理;audio 懒加载/静音。不触碰 wgpu 设备/窗口/判定数据。
 #[tauri::command]
-pub fn live_render_set_options(options: LiveOptions) {
+pub fn live_render_set_options(
+    app: AppHandle,
+    state: tauri::State<'_, crate::app::state::AppState>,
+    options: LiveOptions,
+) {
+    // lazer 皮肤热切换 = 实际消费,此时物化;失败时回退内置皮肤并沿用
+    // 皮肤错误事件通道提示,其余参数照常生效。
+    let options = match resolve_lazer_skin(&state, options.clone()) {
+        Ok(options) => options,
+        Err(error) => {
+            let mut fallback = options;
+            fallback.skin_path = None;
+            let _ = app.emit("live-render-skin-error", error.message);
+            fallback
+        }
+    };
     send(Cmd::SetOptions(options));
 }
 
@@ -1355,8 +1373,10 @@ pub struct LiveSkinEntry {
     pub path: String,
 }
 
-/// 枚举客户端已安装的皮肤(stable 的 Skins 目录;lazer 的数据目录同名
-/// 子目录)。内置 Argon-Pro 不在此列,前端以空值表达。
+/// 枚举客户端已安装的皮肤。stable 读 Skins 目录；lazer 的皮肤登记在
+/// Realm 中，从本地索引列出并以 "lazer:<resource_id>" 作为引用路径，
+/// 实际选用时才物化成目录（见 resolve_lazer_skin）。导入的 .osk 与
+/// 数据目录下的 Skins/ 子目录两类来源都会合并列出。
 #[tauri::command]
 pub fn live_render_list_skins(
     app: AppHandle,
@@ -1390,8 +1410,45 @@ pub fn live_render_list_skins(
             }
         }
     }
+    // Lazer：Realm 登记的皮肤（内容寻址存储，没有对应目录）。
+    if client == crate::local_analysis::LocalClient::Lazer
+        && let Ok(page) = state.local_analysis.query_skins(crate::local_analysis::SkinQuery {
+            client,
+            search: String::new(),
+            sort: crate::local_analysis::SkinSort::Name,
+            direction: crate::local_analysis::SortDirection::Asc,
+            offset: 0,
+            limit: 200,
+        })
+    {
+        for skin in page.items {
+            out.push(LiveSkinEntry {
+                name: skin.name,
+                path: format!("lazer:{}", skin.resource.resource_id),
+            });
+        }
+    }
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(out)
+}
+
+/// 把 LiveOptions.skin_path 中的 lazer 引用（"lazer:<resource_id>"）解析
+/// 为物化的皮肤目录——仅在皮肤真正被使用（打开预览 / 热切换 / 导出）
+/// 时执行，列表阶段不产生任何文件复制。
+fn resolve_lazer_skin(
+    state: &crate::app::state::AppState,
+    mut options: LiveOptions,
+) -> CommandResult<LiveOptions> {
+    let Some(reference) = options
+        .skin_path
+        .as_deref()
+        .and_then(|path| path.strip_prefix("lazer:"))
+    else {
+        return Ok(options);
+    };
+    let directory = state.local_analysis.materialize_lazer_skin(reference)?;
+    options.skin_path = Some(directory.display().to_string());
+    Ok(options)
 }
 
 /// 导入 .osk 皮肤包(稳定版皮肤 zip):解包到应用数据目录的
@@ -1885,6 +1942,8 @@ pub fn live_render_export(
         return Err(CommandError::new("LIVE_RENDER", "已有导出任务在进行中"));
     }
     EXPORT_CANCEL.store(false, Ordering::SeqCst);
+    // 导出是实际消费点:lazer 皮肤引用在这里物化。
+    let options = resolve_lazer_skin(&state, options)?;
     let (tx, rx) = channel::<Result<String, String>>();
     std::thread::Builder::new()
         .name("live-render-export".into())
