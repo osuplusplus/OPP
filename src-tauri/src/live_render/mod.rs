@@ -2259,9 +2259,9 @@ fn run_export(
     // ---- 音频混流(可选,第二遍:视频流拷贝) ----
     // 音量按 osu! 默认值(Music/Effect/Master 各 0.6,
     // `OsuGame.GetFrameworkConfigDefaults`),与 CLI 导出语义一致:
-    // 通道 0.6 × 主音量 0.6。BGM 链同时处理 rate mod 的变速变调与
-    // 负偏移静音(asetrate/adelay),音效轨由 render_track_wav 在墙钟
-    // 时间轴上离线合成,直接 amix。
+    // 通道 0.6 × 主音量 0.6。BGM 链处理 rate mod(DT/HT atempo 变速
+    // 不变调、NC 保留 asetrate 变调)与负偏移静音,音效轨由
+    // render_track_wav 在墙钟时间轴上离线合成(采样恒原速),直接 amix。
     let bgm_path = if params.audio {
         osu_replay_render::osu_general_value(beatmap_path, "AudioFilename")
             .map(|name| map_dir.join(name))
@@ -2291,17 +2291,28 @@ fn run_export(
         cmd.args(["-y", "-v", "error"]).arg("-i").arg(&tmp);
         let mut bgm_filters: Vec<String> = vec!["volume=0.6000".into()];
         if let Some(bgm) = &bgm_path {
-            if (rate - 1.0).abs() > 1e-9 {
-                let sr = probe_sample_rate(ffmpeg, bgm);
-                bgm_filters.push(format!(
-                    "asetrate={sr},aresample={sr}",
-                    sr = (sr as f64 * rate).round() as i64
-                ));
-            }
             if seek_ms >= 0.0 {
                 cmd.arg("-ss").arg(format!("{:.3}", seek_ms / 1000.0));
             } else {
-                bgm_filters.push(format!("adelay={}:all=1", (-seek_ms / rate).round() as i64));
+                // 负文件位置:前置静音补齐。delay 取文件(谱面)时间轴毫秒、
+                // 且必须位于 rate 滤镜之前——rate 滤波会把它压缩成
+                // -seek/rate 墙钟毫秒;atempo 放在 adelay 之前会在
+                // ffmpeg 9 的 -shortest 下卡死图同步、音频只剩毫秒级。
+                bgm_filters.push(format!("adelay={}:all=1", (-seek_ms).round() as i64));
+            }
+            if (rate - 1.0).abs() > 1e-9 {
+                if game.nightcore {
+                    // NC 保留游戏内升调(asetrate 变速变调,nightcore 的
+                    // 本体),与 CLI 导出语义一致。
+                    let sr = probe_sample_rate(ffmpeg, bgm);
+                    bgm_filters.push(format!(
+                        "asetrate={sr},aresample={sr}",
+                        sr = (sr as f64 * rate).round() as i64
+                    ));
+                } else {
+                    // DT/HT 变速不变调(atempo 只压时长、保音调)。
+                    bgm_filters.push(format!("atempo={:.6}", rate));
+                }
             }
             cmd.arg("-i").arg(bgm);
         }
@@ -2358,8 +2369,8 @@ fn run_export(
     Ok(params.out_path.clone())
 }
 
-/// 首个音频流的采样率(rate mod 的 asetrate 用)。优先取 ffmpeg 同目录
-/// 的 ffprobe(自定义路径/danser 包),否则 PATH;失败回退 44100。
+/// 首个音频流的采样率(仅 NC 分支的 asetrate 变调用)。优先取 ffmpeg
+/// 同目录的 ffprobe(自定义路径/danser 包),否则 PATH;失败回退 44100。
 fn probe_sample_rate(ffmpeg: &std::path::Path, media: &std::path::Path) -> u32 {
     let sibling = ffmpeg.with_file_name(if cfg!(windows) {
         "ffprobe.exe"
