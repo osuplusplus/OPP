@@ -497,6 +497,13 @@ struct Session {
     bgm_data: Option<kira::sound::static_sound::StaticSoundData>,
     /// 当前 BGM 播放句柄(播放/暂停中;None = 未起播)。
     bgm_handle: Option<kira::sound::static_sound::StaticSoundHandle>,
+    /// 回放在播但 BGM 刻意未起播:时间轴还在 audio_offset 之前(前奏
+    /// 段,判定引擎从「首物件 − max(抢先量, 2000ms)」起算,首物件
+    /// 2 秒内进场的谱面 t0 为负)。Kira 播放位置非负,起播即从 0 开
+    /// 始播——前奏整段被快进,BGM 永久领先 |t0|·rate ms(音效按时间
+    /// 轴触发,听感上全晚)。必须等时间轴跨过 offset 再起,见
+    /// audio_play 与渲染循环的跨界检测。
+    bgm_pending: bool,
     audio_offset: f64,
     /// 音效(一次性事件表,按时间排序;循环音不导出——ArgonPro 静音)。
     hs_events: Vec<hitsound::HitsoundEvent>,
@@ -551,7 +558,10 @@ impl Session {
         renderer.set_atlas(atlas);
     }
 
-    /// BGM 文件位置(秒,按 audio_offset 换算,负位置钳 0)。
+    /// BGM 文件位置(秒,按 audio_offset 换算)。仅当时间轴已跨过
+    /// audio_offset 时才有意义;负位置钳 0 只是防御——前奏段的起播
+    /// 必须走 bgm_pending 延迟(见 audio_play),不能拿钳 0 的位置
+    /// 立即播。
     fn bgm_position(&self) -> f64 {
         ((self.t - self.audio_offset).max(0.0)) / 1000.0
     }
@@ -582,8 +592,17 @@ impl Session {
     }
 
     /// 继续播放:暂停中的句柄直接 resume(避免整段缓冲重新克隆),
-    /// 结束/未起播则从当前 t 重新起播。
+    /// 结束/未起播则从当前 t 重新起播。时间轴还在 audio_offset 之前
+    /// (前奏段)时不起播:Kira 位置非负,立即起播只能钳 0 开播,前
+    /// 奏被整段快进、BGM 永久领先;置 bgm_pending,由渲染循环在跨
+    /// 过 offset 的那一拍起播。
     fn audio_play(&mut self) {
+        if self.t < self.audio_offset {
+            self.audio_stop();
+            self.bgm_pending = true;
+            return;
+        }
+        self.bgm_pending = false;
         match self.bgm_handle.as_ref().map(|h| h.state()) {
             Some(kira::sound::PlaybackState::Paused)
             | Some(kira::sound::PlaybackState::Pausing) => {
@@ -735,6 +754,15 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
             // BGM(playback_rate)和音效事件(谱面时间轴)保持同步。
             s.t += now.duration_since(s.clock).as_secs_f64() * 1000.0 * s.game.rate;
             s.clock = now;
+            // 前奏段结束:时间轴一跨过 audio_offset 立即起播 BGM(位置
+            // 恰为 0,与音效同拍)。起播耗时(整段缓冲克隆 + 命令入队)
+            // 之后重锚时钟,不计入时间轴——否则时间轴先跑,BGM 反向
+            // 落后一小段。
+            if s.bgm_pending && s.t >= s.audio_offset && s.t < s.duration {
+                s.bgm_pending = false;
+                s.audio_restart();
+                s.clock = Instant::now();
+            }
             if s.t >= s.duration {
                 s.t = s.duration;
                 s.playing = false;
@@ -924,8 +952,18 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 s.t = t.clamp(s.t0, s.duration);
                 s.clock = Instant::now();
                 s.dirty = true;
-                if s.playing {
-                    s.audio_seek();
+                if s.t < s.audio_offset {
+                    // 拖回前奏段:停播等时间轴跨过 offset 再起(位置
+                    // 钳 0 续播 = 前奏被快进,BGM 永久领先)。
+                    s.audio_stop();
+                    s.bgm_pending = s.playing;
+                } else {
+                    // 播放中和暂停中都把句柄跳到新位置:暂停中不跳的
+                    // 话,恢复播放时 BGM 从旧位置续播,与时间轴脱钩。
+                    s.bgm_pending = false;
+                    if s.playing || s.bgm_handle.is_some() {
+                        s.audio_seek();
+                    }
                 }
             }
         }
@@ -936,8 +974,11 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                     s.hs_cursor = 0;
                 }
                 s.playing = true;
-                s.clock = Instant::now();
                 s.audio_play();
+                // 时钟锚点放在音频起播之后:restart 路径要克隆整段解码
+                // 缓冲(数十 MB memcpy)再入队,这些耗时不计入回放时
+                // 间轴,否则时间轴先跑 δ、BGM 落后 δ,音效相对偏早。
+                s.clock = Instant::now();
                 let _ = s.app.emit(
                     "live-render-time",
                     LiveRenderState {
@@ -971,6 +1012,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             s.state.hud.key_overlay = options.key_overlay;
             s.state.follow_points = options.follow_points;
             s.state.cursor_size = options.cursor_size;
+            let offset_changed = s.audio_offset != options.audio_offset;
             s.audio_offset = options.audio_offset;
 
             // ---- 皮肤:目录变更 → 重载 + 重建图集 + 场景整体重建 ----
@@ -1057,14 +1099,28 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
 
             // ---- 音频:开→懒解码(一次性);关→停播 ----
             if options.audio {
-                if s.bgm_data.is_none() && s.audio_path.is_some() {
+                let was_unloaded = s.bgm_data.is_none() && s.audio_path.is_some();
+                if was_unloaded {
                     s.bgm_data = load_bgm(s.audio_path.as_ref().unwrap());
-                    if s.playing && s.bgm_data.is_some() {
-                        s.audio_restart();
+                }
+                // 起播/重锚:解码刚就绪,或偏移热改后按新映射重新对位
+                // (改回前奏段则停播待跨界)。已在播且偏移未变则不动。
+                if s.bgm_data.is_some() && s.playing && (was_unloaded || offset_changed) {
+                    if s.t < s.audio_offset {
+                        s.audio_stop();
+                        s.bgm_pending = true;
+                    } else {
+                        s.bgm_pending = false;
+                        if was_unloaded || s.bgm_handle.is_none() {
+                            s.audio_restart();
+                        } else {
+                            s.audio_seek();
+                        }
                     }
                 }
             } else {
                 s.audio_stop();
+                s.bgm_pending = false;
             }
 
             // ---- 音效:开→懒加载采样(事件表 open 时已建);关→停触发 ----
@@ -1274,6 +1330,7 @@ fn open_session(
         last_top_assert: Instant::now(),
         bgm_data,
         bgm_handle: None,
+        bgm_pending: false,
         audio_offset: options.audio_offset,
         hs_events,
         hs_cursor: 0,
