@@ -703,8 +703,6 @@ export const desktopApi = {
     call<void>("live_render_set_options", { options }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
   liveRenderListSkins: (client: OsuClient) => call<LiveSkinEntry[]>("live_render_list_skins", { client }),
-  /** 导入 .osk 皮肤包(解包到应用数据目录),返回可直接选用的皮肤条目。 */
-  liveRenderImportOsk: (oskPath: string) => call<LiveSkinEntry>("live_render_import_osk", { oskPath }),
   liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {

@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Film, FolderOpen, LoaderCircle, MonitorPlay, Pause, Play, Square, X } from "lucide-react";
@@ -305,25 +305,6 @@ export function LivePreviewPanel() {
   const update = <K extends keyof LiveRenderOptions>(key: K, value: LiveRenderOptions[K]) =>
     setOptions((current) => ({ ...current, [key]: value }));
 
-  // 导入 .osk 皮肤包:解包到应用数据目录,立即加入列表并选用。
-  const importOsk = async () => {
-    const picked = await open({
-      multiple: false,
-      title: "导入 osu! 皮肤包(.osk)",
-      filters: [{ name: "osu! 皮肤包", extensions: ["osk"] }],
-    });
-    if (typeof picked !== "string") return;
-    setError(null);
-    try {
-      const entry = await desktopApi.liveRenderImportOsk(picked);
-      setSkins((current) => [entry, ...current.filter((s) => s.path !== entry.path)]);
-      setSkinError(null);
-      update("skinPath", entry.path);
-    } catch (value) {
-      setError(value);
-    }
-  };
-
   const toggle = () => {
     setPlaying(!playing);
     void (playing ? desktopApi.liveRenderPause() : desktopApi.liveRenderPlay());
@@ -412,20 +393,17 @@ export function LivePreviewPanel() {
               />
             </label> : null}
             <div className="block text-xs text-slate-400">皮肤(即时热切换,缺件回退 Argon)
-              <div className="mt-2 flex gap-2">
-                <select
-                  className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
-                  value={options.skinPath ?? ""}
-                  onChange={(event) => {
-                    setSkinError(null);
-                    update("skinPath", event.target.value === "" ? null : event.target.value);
-                  }}
-                >
-                  <option value="">内置 Argon-Pro</option>
-                  {skins.map((skin) => <option key={skin.path} value={skin.path}>{skin.name}</option>)}
-                </select>
-                <Button size="sm" onClick={() => void importOsk()}>导入 .osk</Button>
-              </div>
+              <select
+                className="mt-2 min-w-0 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
+                value={options.skinPath ?? ""}
+                onChange={(event) => {
+                  setSkinError(null);
+                  update("skinPath", event.target.value === "" ? null : event.target.value);
+                }}
+              >
+                <option value="">内置 Argon-Pro</option>
+                {skins.map((skin) => <option key={skin.path} value={skin.path}>{skin.name}</option>)}
+              </select>
               {skinError ? <p className="mt-1 text-[10px] leading-relaxed text-amber-300">{skinError}</p> : null}
             </div>
             <label className="block text-xs text-slate-400">光标大小 {Math.round(options.cursorSize * 100)}%
