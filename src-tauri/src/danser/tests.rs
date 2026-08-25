@@ -39,8 +39,10 @@ fn runtime_patch_points_danser_at_the_replay_osu_installation() {
     };
     let task = DanserTask {
         id: "test".into(),
+        client: LocalClient::Stable,
         replay_path: "D:\\osu!\\Replays\\play.osr".into(),
         preferences,
+        lazer_stage: None,
     };
     let patch: serde_json::Value = serde_json::from_str(
         &runtime_settings_patch(&task).expect("create runtime settings patch"),
@@ -48,12 +50,40 @@ fn runtime_patch_points_danser_at_the_replay_osu_installation() {
     .expect("parse runtime settings patch");
     assert_eq!(patch["General"]["OsuSongsDir"], "D:\\osu!\\Songs");
     assert_eq!(patch["General"]["OsuReplaysDir"], "D:\\osu!\\Replays");
+    assert_eq!(patch["General"]["OsuSkinsDir"], "D:\\osu!\\Skins");
     assert_eq!(patch["Graphics"]["Width"], 1280);
     assert_eq!(patch["Recording"]["FrameWidth"], 1920);
     assert_eq!(patch["Recording"]["FPS"], 60);
     assert_eq!(patch["Recording"]["Encoder"], "libx264");
     assert_eq!(patch["Recording"]["libx264"]["CRF"], 14);
     assert_eq!(patch["Recording"]["MotionBlur"]["Enabled"], false);
+}
+
+#[test]
+fn runtime_patch_points_lazer_tasks_at_the_staged_directories() {
+    let preferences = DanserRenderPreferences::default();
+    let task = DanserTask {
+        id: "test".into(),
+        client: LocalClient::Lazer,
+        replay_path: "/home/user/.local/share/osu/replays/play.osr".into(),
+        preferences,
+        lazer_stage: Some(DanserLazerStage {
+            songs_dir: std::path::PathBuf::from("/cache/materialized-sets/set-abc"),
+            skins_root: std::path::PathBuf::from("/cache/danser-stage/Skins"),
+        }),
+    };
+    let patch: serde_json::Value = serde_json::from_str(
+        &runtime_settings_patch(&task).expect("create runtime settings patch"),
+    )
+    .expect("parse runtime settings patch");
+    assert_eq!(
+        patch["General"]["OsuSongsDir"],
+        "/cache/materialized-sets/set-abc"
+    );
+    assert_eq!(
+        patch["General"]["OsuSkinsDir"],
+        "/cache/danser-stage/Skins"
+    );
 }
 
 #[test]
@@ -67,8 +97,10 @@ fn runtime_patch_uses_encoder_specific_quality_and_motion_blur() {
     };
     let task = DanserTask {
         id: "test".into(),
+        client: LocalClient::Stable,
         replay_path: "D:\\osu!\\Replays\\play.osr".into(),
         preferences,
+        lazer_stage: None,
     };
     let patch: serde_json::Value = serde_json::from_str(
         &runtime_settings_patch(&task).expect("create runtime settings patch"),

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashSet, VecDeque},
+    path::PathBuf,
     sync::{Mutex, atomic::AtomicBool},
 };
 
@@ -46,10 +47,20 @@ pub struct DanserEnqueueRequest {
 }
 
 #[derive(Clone)]
+/// Lazer：入队时为 Danser 物化的 Stable 布局目录，settings 的
+/// OsuSongsDir / OsuSkinsDir 指向这里。
+pub(super) struct DanserLazerStage {
+    pub songs_dir: PathBuf,
+    pub skins_root: PathBuf,
+}
+
+#[derive(Clone)]
 pub(super) struct DanserTask {
     pub id: String,
+    pub client: LocalClient,
     pub replay_path: String,
     pub preferences: DanserRenderPreferences,
+    pub lazer_stage: Option<DanserLazerStage>,
 }
 
 #[derive(Default)]

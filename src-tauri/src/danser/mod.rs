@@ -24,7 +24,8 @@ use crate::{
     app::models::DanserRenderPreferences,
     app::state::AppState,
     error::{CommandError, CommandResult},
-    game_session::load_game_replay_file,
+    game_session::{load_game_replay_file, parse_replay_metadata},
+    local_analysis::LocalClient,
 };
 
 #[cfg(windows)]
@@ -61,7 +62,8 @@ pub fn resolve_ffmpeg_path(
 }
 pub use models::DanserRuntime;
 use models::{
-    DanserEnqueueRequest, DanserRenderJob, DanserRenderProgress, DanserStatus, DanserTask,
+    DanserEnqueueRequest, DanserLazerStage, DanserRenderJob, DanserRenderProgress, DanserStatus,
+    DanserTask,
 };
 
 fn command_error(code: &str, message: impl Into<String>) -> CommandError {
@@ -239,8 +241,12 @@ fn runtime_settings_patch(task: &DanserTask) -> CommandResult<String> {
     let replay = Path::new(&task.replay_path);
     let replay_directory = replay.parent().unwrap_or(Path::new("."));
     let osu_root = replay_directory.parent().unwrap_or(replay_directory);
-    let songs = osu_root.join("Songs");
-    let skins = osu_root.join("Skins");
+    // Lazer：谱面与皮肤已入队时物化到应用缓存目录，直接指向那里；
+    // Stable：回放位于 <osu!>/Replays，按上级目录推导安装布局。
+    let (songs, skins) = match &task.lazer_stage {
+        Some(stage) => (stage.songs_dir.clone(), stage.skins_root.clone()),
+        None => (osu_root.join("Songs"), osu_root.join("Skins")),
+    };
     let mut patch = serde_json::json!({
         "General": {
             "OsuSongsDir": songs,
@@ -516,13 +522,49 @@ fn ensure_opp_profile(
     Ok(())
 }
 
+/// Lazer 任务实际执行时的暂存：谱面按回放 MD5 物化、皮肤按名称导出，
+/// 并把 -skin 参数替换为净化后的皮肤目录名。失败时任务以明确原因结束。
+fn stage_lazer_task(
+    local_analysis: &Arc<crate::local_analysis::LocalAnalysisService>,
+    task: &mut DanserTask,
+) -> CommandResult<()> {
+    let bytes = fs::read(&task.replay_path).map_err(|error| {
+        command_error("REPLAY_READ_FAILED", format!("无法读取回放文件：{error}"))
+    })?;
+    let (beatmap_md5, _) = parse_replay_metadata(&bytes)?;
+    let (songs_dir, skins_root, staged_skin) = local_analysis
+        .stage_lazer_danser_resources(&beatmap_md5, Some(&task.preferences.skin))?;
+    if let Some(name) = staged_skin {
+        task.preferences.skin = name;
+    }
+    task.lazer_stage = Some(DanserLazerStage {
+        songs_dir,
+        skins_root,
+    });
+    Ok(())
+}
+
 fn execute_task(
     runtime: &DanserRuntime,
     app: &AppHandle,
     task: &DanserTask,
     executable: &Path,
     export_directory: &Path,
+    local_analysis: &Arc<crate::local_analysis::LocalAnalysisService>,
 ) {
+    // 暂存只在任务真正开始渲染时执行（消费时物化）；取消的任务不会产生
+    // 任何文件复制。
+    let mut task = task.clone();
+    if task.client == LocalClient::Lazer
+        && let Err(error) = stage_lazer_task(local_analysis, &mut task)
+    {
+        update_job(runtime, app, &task.id, |job| {
+            job.status = "failed".into();
+            job.description = error.message;
+        });
+        return;
+    }
+    let task = &task;
     let output_name = unique_output_name(export_directory, &task.replay_path);
     // Linux：danser 的输出目录由 settings 的 Recording.OutputDir 决定
     #[cfg(not(windows))]
@@ -667,6 +709,7 @@ fn start_worker(
     app: AppHandle,
     executable: PathBuf,
     export_directory: PathBuf,
+    local_analysis: Arc<crate::local_analysis::LocalAnalysisService>,
 ) {
     if runtime.worker_running.swap(true, Ordering::SeqCst) {
         return;
@@ -691,7 +734,7 @@ fn start_worker(
                 }
                 continue;
             };
-            execute_task(&runtime, &app, &task, &executable, &export_directory);
+            execute_task(&runtime, &app, &task, &executable, &export_directory, &local_analysis);
             if let Ok(mut jobs) = runtime.jobs.lock() {
                 let waiting: Vec<String> = runtime
                     .queue
@@ -747,6 +790,8 @@ pub fn enqueue_danser_renders(
                 "Danser 仅支持 osu!standard 回放",
             ));
         }
+        // Lazer 的谱面 / 皮肤物化推迟到任务实际执行时（见 stage_lazer_task），
+        // 入队只做轻量校验，避免为可能被取消的任务提前复制文件。
         let id = Uuid::new_v4().to_string();
         let position = state
             .danser
@@ -770,8 +815,10 @@ pub fn enqueue_danser_renders(
             .map_err(|_| command_error("DANSER_QUEUE_LOCKED", "Danser 队列不可用"))?
             .push_back(DanserTask {
                 id,
+                client: request.client,
                 replay_path: replay_path.clone(),
                 preferences: request.preferences.clone(),
+                lazer_stage: None,
             });
         state
             .danser
@@ -810,7 +857,13 @@ pub fn start_danser_render_queue(state: State<'_, AppState>, app: AppHandle) -> 
         .map(PathBuf::from)
         .ok_or_else(|| command_error("REPLAY_EXPORT_DIRECTORY_NOT_SET", "请先选择回放导出位置"))?;
     fs::create_dir_all(&export_directory)?;
-    start_worker(state.danser.clone(), app, executable, export_directory);
+    start_worker(
+        state.danser.clone(),
+        app,
+        executable,
+        export_directory,
+        state.local_analysis.clone(),
+    );
     Ok(())
 }
 

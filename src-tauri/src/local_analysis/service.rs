@@ -55,6 +55,13 @@ use service_query::{
 #[cfg(test)]
 use service_query::{compare_beatmaps, page};
 
+/// 物化 lazer 谱面集时跳过的视频扩展名：渲染与训练都用不到，
+/// 复制只会白白消耗磁盘与时间。
+const MATERIALIZED_VIDEO_EXTENSIONS: [&str; 7] =
+    ["avi", "mp4", "flv", "wmv", "m4v", "webm", "mov"];
+/// 物化谱面集缓存的总大小上限，超出时按最近使用时间清理最旧目录。
+const MATERIALIZED_SETS_CACHE_LIMIT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
 #[derive(Debug)]
 /// 文件发现阶段的中间结果：候选文件、源文件统计与可展示的诊断信息。
 struct Discovery {
@@ -661,17 +668,305 @@ impl LocalAnalysisService {
                 format!("The local beatmap file is unavailable: {error}"),
             )
         })?;
-        if !path.is_file()
-            || !path
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("osu"))
-        {
+        // Stable：谱面就是 Songs 目录下的 .osu 文件，直接返回。
+        // Lazer：谱面是无扩展名的内容寻址 blob，且音频 / 背景等关联文件
+        // 分散在其它 blob 中——按 Realm 清单物化成 Stable 式目录布局后
+        // 返回，live render / 训练器等消费方按"谱面同目录"语义即可解析。
+        match client {
+            LocalClient::Stable => {
+                if !path.is_file()
+                    || !path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("osu"))
+                {
+                    return Err(CommandError::new(
+                        "LOCAL_RESOURCE_NOT_FOUND",
+                        "The local beatmap file is unavailable",
+                    ));
+                }
+                Ok(path.to_string_lossy().into_owned())
+            }
+            LocalClient::Lazer => self.materialize_lazer_beatmap(entry, &path),
+        }
+    }
+
+    /// lazer 谱面集物化缓存根目录。
+    fn materialized_sets_root(&self) -> PathBuf {
+        self.cache_dir.join("materialized-sets")
+    }
+
+    /// lazer 皮肤物化根目录（danser 的 OsuSkinsDir 与 live render 的
+    /// 皮肤加载共用）。
+    fn staged_skins_root(&self) -> PathBuf {
+        self.cache_dir.join("staged-skins")
+    }
+
+    /// 把一个 lazer 皮肤按 Realm 清单物化成 Stable 布局目录。返回
+    /// (目录名, 目录路径)；目录名经 Windows 非法字符净化，danser 的
+    /// -skin 参数必须使用同一名字才能匹配到目录。
+    fn stage_lazer_skin_entry(&self, entry: &IndexedEntry) -> CommandResult<(String, PathBuf)> {
+        let IndexedData::Skin { detail } = &entry.data else {
+            unreachable!("entry matched skin")
+        };
+        let name = detail.summary.name.trim();
+        let safe_name = name
+            .chars()
+            .map(|character| {
+                if matches!(
+                    character,
+                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                ) {
+                    '_'
+                } else {
+                    character
+                }
+            })
+            .collect::<String>()
+            .trim_matches(['.', ' '])
+            .to_string();
+        if safe_name.is_empty() {
             return Err(CommandError::new(
                 "LOCAL_RESOURCE_NOT_FOUND",
-                "The local beatmap file is unavailable",
+                format!("皮肤名「{name}」无法用作目录名"),
             ));
         }
-        Ok(path.to_string_lossy().into_owned())
+        let directory = self.staged_skins_root().join(&safe_name);
+        fs::create_dir_all(&directory)?;
+        let files = entry.lazer_files.as_ref().ok_or_else(|| {
+            CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                format!("皮肤「{name}」缺少 Realm 文件清单，请重新扫描后重试"),
+            )
+        })?;
+        let files_root = self.lazer_files_root(LocalClient::Lazer)?;
+        for file in files {
+            let file_name = file.filename.trim();
+            if file_name.is_empty() || file_name.contains(['/', '\\']) {
+                continue;
+            }
+            let destination = directory.join(file_name);
+            if fs::metadata(&destination)
+                .is_ok_and(|metadata| metadata.len() == file.size)
+            {
+                continue;
+            }
+            let source = files_root.join(lazer_realm::blob_relative_path(&file.hash));
+            fs::copy(&source, &destination).map_err(|error| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_READ_ERROR",
+                    format!("无法读取 lazer 皮肤文件 {file_name}：{error}"),
+                )
+            })?;
+        }
+        Ok((safe_name, directory))
+    }
+
+    /// live render 实际选用 lazer 皮肤时（skin_path = "lazer:<resource_id>"）
+    /// 按资源 ID 物化，返回皮肤目录。
+    pub fn materialize_lazer_skin(&self, skin_resource_id: &str) -> CommandResult<PathBuf> {
+        let index = self.require_current_index(LocalClient::Lazer)?;
+        let entry = index
+            .entries
+            .iter()
+            .find(|entry| {
+                matches!(
+                    &entry.data,
+                    IndexedData::Skin { detail }
+                        if detail.summary.resource.resource_id == skin_resource_id
+                )
+            })
+            .ok_or_else(|| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_NOT_FOUND",
+                    "未在 lazer 本地索引中找到该皮肤，请重新扫描后重试",
+                )
+            })?;
+        self.stage_lazer_skin_entry(entry)
+            .map(|(_, directory)| directory)
+    }
+
+    /// 为 Danser 本地渲染准备 lazer 资源。
+    ///
+    /// Danser 只认 Stable 目录布局（OsuSongsDir / OsuSkinsDir），而 lazer
+    /// 的谱面与皮肤都在 Realm + files/ 内容寻址存储中。这里按回放 MD5
+    /// 物化谱面集、按名称导出皮肤，返回 (Songs 目录, Skins 根目录, 实际
+    /// 生效的皮肤名)。皮肤目录名必须与 danser -skin 参数一致，因此对
+    /// Windows 非法字符净化后把净化名一并返回，调用方用它覆盖参数。
+    pub fn stage_lazer_danser_resources(
+        &self,
+        beatmap_md5: &str,
+        skin_name: Option<&str>,
+    ) -> CommandResult<(PathBuf, PathBuf, Option<String>)> {
+        let index = self.require_current_index(LocalClient::Lazer)?;
+        let target = beatmap_md5.trim().to_ascii_lowercase();
+        let entry = index
+            .beatmap_md5_lookup
+            .get(&target)
+            .and_then(|position| index.entries.get(*position))
+            .ok_or_else(|| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_NOT_FOUND",
+                    "未在 lazer 本地索引中找到回放对应的谱面，请先完成本地扫描",
+                )
+            })?;
+        let beatmap_path = self.materialize_lazer_beatmap(entry, &entry.physical_path)?;
+        let songs_dir = Path::new(&beatmap_path)
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "谱面集目录不可用"))?;
+
+        let skins_root = self.staged_skins_root();
+        fs::create_dir_all(&skins_root)?;
+        let mut staged_skin = None;
+        if let Some(name) = skin_name.map(str::trim).filter(|name| !name.is_empty()) {
+            let skin_entry = index
+                .entries
+                .iter()
+                .find(|entry| {
+                    matches!(
+                        &entry.data,
+                        IndexedData::Skin { detail }
+                            if detail.summary.name.eq_ignore_ascii_case(name)
+                    )
+                })
+                .ok_or_else(|| {
+                    CommandError::new(
+                        "LOCAL_RESOURCE_NOT_FOUND",
+                        format!("未在 lazer 本地索引中找到皮肤「{name}」"),
+                    )
+                })?;
+            staged_skin = Some(self.stage_lazer_skin_entry(skin_entry)?.0);
+        }
+        Ok((songs_dir, skins_root, staged_skin))
+    }
+
+    /// 把 lazer 谱面集按 Realm 文件清单物化为普通目录布局，返回该谱面
+    /// .osu 的路径。关联文件以原始文件名放在同一目录，使依赖 Stable
+    /// 目录语义的消费方（live render 的 BGM / 背景解析等）直接可用；
+    /// 视频文件渲染与训练都用不到，跳过以避免复制上百 MB 的大文件。
+    fn materialize_lazer_beatmap(
+        &self,
+        entry: &IndexedEntry,
+        blob_path: &Path,
+    ) -> CommandResult<String> {
+        let IndexedData::Beatmap { summary, .. } = &entry.data else {
+            unreachable!("entry matched beatmap")
+        };
+        let Some(files) = entry.lazer_files.as_ref() else {
+            return Err(CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "The local beatmap file is unavailable: Realm file manifest missing",
+            ));
+        };
+        let files_root = self.lazer_files_root(LocalClient::Lazer)?;
+        // 目录名含清单指纹：集内文件集合或内容变化时改用新目录，
+        // 不与旧缓存混用；残留的旧目录由容量清理统一回收。
+        let fingerprint = sha256(
+            files
+                .iter()
+                .map(|file| format!("{}\n{}", file.filename, file.hash))
+                .collect::<String>()
+                .as_bytes(),
+        );
+        let directory = self
+            .materialized_sets_root()
+            .join(format!("set-{}", &fingerprint[..32]));
+        fs::create_dir_all(&directory)?;
+        let mut beatmap_file = None;
+        for file in files {
+            let name = file.filename.trim();
+            // 清单文件名来自 osz 的原始条目；防御性排除带分隔符的名字，
+            // 避免写出物化目录之外。
+            if name.is_empty() || name.contains(['/', '\\']) {
+                continue;
+            }
+            if file.hash.eq_ignore_ascii_case(&summary.resource.content_hash) {
+                beatmap_file = Some(name.to_string());
+            }
+            let extension = Path::new(name)
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("");
+            if MATERIALIZED_VIDEO_EXTENSIONS
+                .iter()
+                .any(|video| extension.eq_ignore_ascii_case(video))
+            {
+                continue;
+            }
+            let destination = directory.join(name);
+            if fs::metadata(&destination)
+                .is_ok_and(|metadata| metadata.len() == file.size)
+            {
+                continue;
+            }
+            let source = files_root.join(lazer_realm::blob_relative_path(&file.hash));
+            if let Err(error) = fs::copy(&source, &destination) {
+                return Err(CommandError::new(
+                    "LOCAL_RESOURCE_READ_ERROR",
+                    format!("无法读取 lazer 谱面集文件 {name}：{error}"),
+                ));
+            }
+        }
+        // 清单缺失 .osu 条目（异常数据）时退回以内容哈希命名，保证有可用路径。
+        let beatmap_file =
+            beatmap_file.unwrap_or_else(|| format!("{}.osu", summary.resource.content_hash));
+        let beatmap_path = directory.join(&beatmap_file);
+        if !beatmap_path.is_file() {
+            fs::copy(blob_path, &beatmap_path).map_err(|error| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_READ_ERROR",
+                    format!("无法读取 lazer 谱面文件：{error}"),
+                )
+            })?;
+        }
+        // 最近使用标记：容量清理按它排序，仅重写文件时不更新目录 mtime。
+        let _ = fs::write(directory.join(".last-used"), fingerprint.as_bytes());
+        self.trim_materialized_sets();
+        Ok(beatmap_path.to_string_lossy().into_owned())
+    }
+
+    /// 物化缓存超出容量上限时按最近使用时间删除最旧的集合目录。只识别
+    /// 本模块创建的 `set-` 前缀目录，训练器等写入的其它目录不受影响。
+    fn trim_materialized_sets(&self) {
+        let root = self.materialized_sets_root();
+        let Ok(entries) = fs::read_dir(&root) else {
+            return;
+        };
+        let mut sets = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("set-"))
+            })
+            .map(|path| {
+                let modified = fs::metadata(path.join(".last-used"))
+                    .and_then(|metadata| metadata.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let size = WalkDir::new(&path)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                    .filter_map(|entry| entry.metadata().ok())
+                    .filter(|metadata| metadata.is_file())
+                    .map(|metadata| metadata.len())
+                    .sum::<u64>();
+                (path, size, modified)
+            })
+            .collect::<Vec<_>>();
+        let mut total = sets.iter().map(|(_, size, _)| *size).sum::<u64>();
+        if total <= MATERIALIZED_SETS_CACHE_LIMIT_BYTES {
+            return;
+        }
+        sets.sort_by_key(|(_, _, modified)| *modified);
+        for (path, size, _) in sets {
+            if total <= MATERIALIZED_SETS_CACHE_LIMIT_BYTES {
+                break;
+            }
+            if fs::remove_dir_all(&path).is_ok() {
+                total = total.saturating_sub(size);
+            }
+        }
     }
 
     pub fn find_beatmap_by_md5(
@@ -2231,6 +2526,183 @@ SliderTickRate:1
         )
         .expect("write");
         assert!(load_index(directory.path(), LocalClient::Stable).is_none());
+    }
+
+    /// lazer 谱面是 files/ 内容寻址 blob（无 .osu 扩展名）：`beatmap_file_path`
+    /// 必须按 Realm 清单物化出 Stable 式目录（.osu 与音频 / 背景同名同目录），
+    /// 否则 live render 等消费方会收到 "The local beatmap file is unavailable"
+    /// 或解析不到 BGM / 背景。
+    #[test]
+    fn lazer_beatmap_file_path_materializes_set_layout() {
+        let beatmap_hash = "aa11000000000000000000000000000000000000000000000000000000000000";
+        let audio_hash = "bb22000000000000000000000000000000000000000000000000000000000000";
+        let beatmap_blob = "a/aa".to_string();
+        let cache = tempfile::tempdir().expect("cache");
+        let data = tempfile::tempdir().expect("lazer data");
+        fs::write(data.path().join("client.realm"), []).expect("realm");
+        let files_root = data.path().join("files");
+        for (hash, bytes) in [(beatmap_hash, OSU_FIXTURE.as_bytes()), (audio_hash, b"fake audio")] {
+            let relative = lazer_realm::blob_relative_path(hash);
+            let blob = files_root.join(&relative);
+            fs::create_dir_all(blob.parent().expect("parent")).expect("dirs");
+            fs::write(&blob, bytes).expect("blob");
+        }
+
+        let service = LocalAnalysisService::new(cache.path()).expect("service");
+        let source = service
+            .sources
+            .set_override(LocalClient::Lazer, data.path())
+            .expect("lazer source");
+
+        let mut parsed =
+            parse_beatmap(LocalClient::Lazer, OSU_FIXTURE.as_bytes(), beatmap_hash, None, Some(beatmap_hash))
+                .expect("parse");
+        parsed.summary.set_key = "realm:test".into();
+        let entry = IndexedEntry {
+            key: format!("lazer:{beatmap_blob}"),
+            physical_path: files_root.join(&beatmap_blob),
+            stamp: service_data::FileStamp { bytes: OSU_FIXTURE.len() as u64, modified_ms: 0 },
+            content_hash: Some(beatmap_hash.into()),
+            beatmap_md5: None,
+            lazer_files: Some(vec![
+                lazer_realm::LazerRealmFile {
+                    filename: "Artist - Title (Mapper).osu".into(),
+                    hash: beatmap_hash.into(),
+                    size: OSU_FIXTURE.len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "audio.mp3".into(),
+                    hash: audio_hash.into(),
+                    size: b"fake audio".len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "video.mp4".into(),
+                    hash: "cc33000000000000000000000000000000000000000000000000000000000000".into(),
+                    size: 1_000_000,
+                },
+            ]),
+            data: IndexedData::Beatmap {
+                summary: parsed.summary.clone(),
+                detail: Box::new(parsed.detail),
+            },
+            diagnostics: Vec::new(),
+        };
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = source.status.data_root.clone().expect("data root");
+        index.entries = vec![entry];
+        index.rebuild_runtime_indexes();
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index));
+
+        let path = service
+            .beatmap_file_path(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+            .expect("materialized path");
+        let path = Path::new(&path);
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("Artist - Title (Mapper).osu")
+        );
+        assert_eq!(fs::read(path).expect("osu content"), OSU_FIXTURE.as_bytes());
+        let directory = path.parent().expect("set directory");
+        assert_eq!(
+            fs::read(directory.join("audio.mp3")).expect("audio content"),
+            b"fake audio"
+        );
+        assert!(!directory.join("video.mp4").exists(), "video skipped");
+        // 重复请求复用已物化的文件，不重复复制。
+        let again = service
+            .beatmap_file_path(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+            .expect("path again");
+        assert_eq!(again, path.to_string_lossy());
+    }
+
+    /// live render 的皮肤消费路径：lazer 皮肤以 "lazer:<resource_id>"
+    /// 引用，`materialize_lazer_skin` 在实际选用时才把 Realm 清单物化成
+    /// Stable 布局目录（原始文件名，可直接交给皮肤加载器）。
+    #[test]
+    fn materialize_lazer_skin_stages_on_demand() {
+        let skin_ini = "[General]\nName: 测试皮肤\nAuthor: Someone\nVersion: 1.0\n";
+        let ini_hash = "dd11000000000000000000000000000000000000000000000000000000000000";
+        let cursor_hash = "ee22000000000000000000000000000000000000000000000000000000000000";
+        let cache = tempfile::tempdir().expect("cache");
+        let data = tempfile::tempdir().expect("lazer data");
+        fs::write(data.path().join("client.realm"), []).expect("realm");
+        let files_root = data.path().join("files");
+        for (hash, bytes) in [
+            (ini_hash, skin_ini.as_bytes()),
+            (cursor_hash, b"fake cursor png"),
+        ] {
+            let blob = files_root.join(lazer_realm::blob_relative_path(hash));
+            fs::create_dir_all(blob.parent().expect("parent")).expect("dirs");
+            fs::write(&blob, bytes).expect("blob");
+        }
+
+        let service = LocalAnalysisService::new(cache.path()).expect("service");
+        service
+            .sources
+            .set_override(LocalClient::Lazer, data.path())
+            .expect("lazer source");
+
+        let detail =
+            parse_skin(LocalClient::Lazer, skin_ini.as_bytes(), ini_hash, None, Some(ini_hash), None)
+                .expect("parse skin");
+        let resource_id = detail.summary.resource.resource_id.clone();
+        let entry = IndexedEntry {
+            key: format!("lazer:{}", lazer_realm::blob_relative_path(ini_hash)),
+            physical_path: files_root.join(lazer_realm::blob_relative_path(ini_hash)),
+            stamp: service_data::FileStamp { bytes: skin_ini.len() as u64, modified_ms: 0 },
+            content_hash: Some(ini_hash.into()),
+            beatmap_md5: None,
+            lazer_files: Some(vec![
+                lazer_realm::LazerRealmFile {
+                    filename: "skin.ini".into(),
+                    hash: ini_hash.into(),
+                    size: skin_ini.len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "cursor.png".into(),
+                    hash: cursor_hash.into(),
+                    size: b"fake cursor png".len() as u64,
+                },
+            ]),
+            data: IndexedData::Skin { detail },
+            diagnostics: Vec::new(),
+        };
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = service
+            .sources
+            .resolve(LocalClient::Lazer)
+            .expect("resolve")
+            .status
+            .data_root
+            .expect("data root");
+        index.entries = vec![entry];
+        index.rebuild_runtime_indexes();
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index));
+
+        let directory = service
+            .materialize_lazer_skin(&resource_id)
+            .expect("staged skin directory");
+        assert!(directory.starts_with(cache.path().join("local-analysis").join("staged-skins")));
+        assert_eq!(
+            directory.file_name().and_then(|name| name.to_str()),
+            Some("测试皮肤")
+        );
+        assert_eq!(
+            fs::read(directory.join("skin.ini")).expect("skin.ini"),
+            skin_ini.as_bytes()
+        );
+        assert_eq!(
+            fs::read(directory.join("cursor.png")).expect("cursor"),
+            b"fake cursor png"
+        );
     }
 
     fn empty_index(algorithm: &str) -> LocalIndex {
