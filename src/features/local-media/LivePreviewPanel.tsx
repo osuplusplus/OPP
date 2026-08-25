@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Film, FolderOpen, LoaderCircle, MonitorPlay, Pause, Play, Square, X } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
@@ -34,6 +35,7 @@ const defaultOptions: LiveRenderOptions = {
 
 export function LivePreviewPanel() {
   const { client } = useMode();
+  const [searchParams] = useSearchParams();
   const [replays, setReplays] = useState<GameMediaItem[]>([]);
   const [replayPath, setReplayPath] = useState("");
   // 音频偏移的原始输入:text 框允许键入 "-" 等中间态,解析成功才提交数值。
@@ -97,20 +99,22 @@ export function LivePreviewPanel() {
     return () => unlisten();
   }, []);
 
-  // 回放列表 + inspect(复用 o!rdr 面板的数据链路)。
+  // 回放列表 + inspect(复用 o!rdr 面板的数据链路);深链指定的回放存在时优先选中。
   useEffect(() => {
     let mounted = true;
     desktopApi.listGameMedia(client)
       .then((media) => {
         if (!mounted) return;
         const items = media.filter((item) => item.kind === "replay");
+        const requested = searchParams.get("replay");
+        const initial = requested && items.some((item) => item.path === requested) ? requested : items[0]?.path ?? "";
         setReplays(items);
-        setReplayPath(items[0]?.path ?? "");
+        setReplayPath(initial);
       })
       .catch((value) => { if (mounted) setError(value); })
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
-  }, [client]);
+  }, [client, searchParams]);
 
   const replayInfo = inspect.path === replayPath ? inspect.info : null;
 

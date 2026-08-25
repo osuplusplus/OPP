@@ -23,6 +23,8 @@ describe("ReplayRenderPage", () => {
   it("switches between the local and online subpages and remembers the choice", async () => {
     const user = userEvent.setup();
     renderPage();
+    expect(screen.getByRole("tab", { name: "实时预览" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("tab", { name: "本地 Danser" }));
     expect(screen.getByRole("tab", { name: "本地 Danser" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("本地运行环境")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "在线 o!rdr" }));
