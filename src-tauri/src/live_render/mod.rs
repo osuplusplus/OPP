@@ -2,6 +2,7 @@
 //! Windows 用 WS_CHILD 子窗口(或属主弹出窗口兜底);Linux 用 X11 子窗口
 
 use crate::error::{CommandError, CommandResult};
+use osu_replay_render::skin::Skin as _;
 use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene, skin};
 use std::collections::HashMap;
 use std::sync::mpsc::{Sender, TryRecvError, channel};
@@ -76,8 +77,8 @@ pub struct LiveOptions {
     /// 预览 BGM 对齐偏移 ms,默认 0(音频位置 = 回放时间 − 偏移)。
     /// 仅实时预览使用;导出走 `ExportParams::audio_offset`,两者独立。
     pub audio_offset: f64,
-    /// 预览播放音效(命中音/滑条节点/combobreak,ArgonPro 采样,
-    /// lazer 语义;与 BGM 同走 Kira 输出)。
+    /// 预览播放音效(一次性命中音 + 转盘旋转/滑条滑动循环音;用户皮肤
+    /// 优先,ArgonPro 兜底,lazer 语义)。
     pub hitsounds: bool,
     /// 光标尺寸倍率 0.1..=2(lazer `GameplayCursorSize`,默认 1)。
     pub cursor_size: f32,
@@ -526,6 +527,37 @@ impl Backend {
     }
 }
 
+/// 活动循环音:kira 循环句柄 + 参数去抖缓存(变化超阈值才下发命令)。
+struct LoopPlayback {
+    handle: kira::sound::static_sound::StaticSoundHandle,
+    /// 当前 run 下标(切换即停播重起)。
+    run: usize,
+    /// 上次下发的 播放速率 / 幅度 / 声像。
+    rate: f64,
+    amp: f64,
+    pan: f32,
+}
+
+impl LoopPlayback {
+    /// 参数微更新,短 tween 平滑到目标值。
+    fn apply(&mut self, rate: f64, amp: f64, pan_x: f32) {
+        let tween = kira::Tween::default();
+        if (rate - self.rate).abs() > 0.002 {
+            self.handle.set_playback_rate(kira::PlaybackRate(rate), tween);
+            self.rate = rate;
+        }
+        if (amp - self.amp).abs() > 0.02 {
+            self.handle.set_volume(amplitude_to_decibels(amp), tween);
+            self.amp = amp;
+        }
+        let pan = kira_panning(pan_x);
+        if (pan - self.pan).abs() > 0.01 {
+            self.handle.set_panning(kira::Panning(pan), tween);
+            self.pan = pan;
+        }
+    }
+}
+
 struct Session {
     app: AppHandle,
     beatmap_path: String,
@@ -567,7 +599,7 @@ struct Session {
     /// audio_play 与渲染循环的跨界检测。
     bgm_pending: bool,
     audio_offset: f64,
-    /// 音效(一次性事件表,按时间排序;循环音不导出——ArgonPro 静音)。
+    /// 一次性音效事件表(循环音见 loop_events),按时间排序。
     hs_events: Vec<hitsound::HitsoundEvent>,
     /// 下一个待触发事件的下标(播放推进/seek 时移动)。
     hs_cursor: usize,
@@ -575,6 +607,12 @@ struct Session {
     hs_sounds: HashMap<(&'static str, &'static str), kira::sound::static_sound::StaticSoundData>,
     /// 音效开关(LiveOptions.hitsounds 的当前值)。
     hitsounds: bool,
+    /// 循环音事件(open 时构建,库侧 collect_loop_events)。
+    loop_events: Vec<hitsound::LoopSoundEvent>,
+    /// 活动循环句柄:(事件下标, 播放态)。
+    loop_playbacks: Vec<(usize, LoopPlayback)>,
+    /// 皮肤 SpinnerFrequencyModulate(默认开)。
+    spin_freq_modulate: bool,
 }
 
 impl Session {
@@ -594,22 +632,103 @@ impl Session {
         }
     }
 
-    /// 开启音效:构建事件表并预加载用到的采样(已加载则跳过)。
+    /// 开启音效:预加载一次性事件与循环音用到的采样(已加载则跳过)。
     fn ensure_hitsounds(&mut self) {
-        if !self.hs_sounds.is_empty() || self.hs_events.is_empty() {
+        if !self.hs_sounds.is_empty()
+            || (self.hs_events.is_empty() && self.loop_events.is_empty())
+        {
             return;
         }
         let mut sounds = HashMap::new();
-        for event in &self.hs_events {
-            let key = (event.bank, event.name);
-            if sounds.contains_key(&key) {
+        for (bank, name) in self
+            .hs_events
+            .iter()
+            .map(|e| (e.bank, e.name))
+            .chain(self.loop_events.iter().map(|e| (e.bank, e.name)))
+        {
+            if sounds.contains_key(&(bank, name)) {
                 continue;
             }
-            if let Some(handle) = load_kira_sound(event.bank, event.name, &self.skin) {
-                sounds.insert(key, handle);
+            if let Some(handle) = load_kira_sound(bank, name, &self.skin) {
+                sounds.insert((bank, name), handle);
             }
         }
         self.hs_sounds = sounds;
+    }
+
+    /// 循环音推进:进 run 起播,区间内下发变速/包络/声像,离 run 停播
+    /// (kira 声音归混音器所有,必须显式 stop)。
+    fn update_loops(&mut self) {
+        if !self.hitsounds || self.loop_events.is_empty() {
+            return;
+        }
+        let t = self.t;
+        let mut active: Vec<(usize, usize)> = Vec::new();
+        for (i, event) in self.loop_events.iter().enumerate() {
+            if let Some(run) = event.run_at(t) {
+                active.push((i, run));
+            }
+        }
+        self.loop_playbacks.retain_mut(|(i, playback)| match active.iter().find(|(ai, _)| *ai == *i) {
+            Some((_, run)) if *run == playback.run => true,
+            _ => {
+                playback.handle.stop(kira::Tween::default());
+                false
+            }
+        });
+        for (i, run) in active {
+            let event = &self.loop_events[i];
+            let (rate, amp, pan_x) = event.params_at(run, t, self.spin_freq_modulate, &self.game);
+            let amp = amp * EFFECT_VOLUME;
+            if let Some((_, playback)) = self.loop_playbacks.iter_mut().find(|(pi, _)| *pi == i) {
+                playback.apply(rate, amp, pan_x);
+                continue;
+            }
+            let Some(data) = self.hs_sounds.get(&(event.bank, event.name)) else {
+                continue;
+            };
+            let mut data = data.clone();
+            // 0 帧采样(ArgonPro 滑条循环是空文件)配 loop_region 会让
+            // kira 音频线程死循环,跳过。
+            if data.frames.is_empty() {
+                continue;
+            }
+            let pan = kira_panning(pan_x);
+            data.settings = kira::sound::static_sound::StaticSoundSettings::new()
+                .loop_region(..)
+                .playback_rate(kira::PlaybackRate(rate))
+                .volume(amplitude_to_decibels(amp))
+                .panning(kira::Panning(pan));
+            if let Some(handle) = KIRA.lock().unwrap().as_mut().and_then(|m| m.play(data).ok()) {
+                self.loop_playbacks.push((i, LoopPlayback { handle, run, rate, amp, pan }));
+            }
+        }
+    }
+
+    /// 停播全部循环音。
+    fn loops_stop(&mut self) {
+        for (_, mut playback) in self.loop_playbacks.drain(..) {
+            playback.handle.stop(kira::Tween::default());
+        }
+    }
+
+    /// 暂停循环音句柄(与 BGM 同步暂停)。
+    fn loops_pause(&mut self) {
+        for (_, playback) in &mut self.loop_playbacks {
+            playback.handle.pause(kira::Tween::default());
+        }
+    }
+
+    /// 恢复暂停中的循环音句柄。
+    fn loops_resume(&mut self) {
+        for (_, playback) in &mut self.loop_playbacks {
+            if matches!(
+                playback.handle.state(),
+                kira::sound::PlaybackState::Paused | kira::sound::PlaybackState::Pausing
+            ) {
+                playback.handle.resume(kira::Tween::default());
+            }
+        }
     }
 }
 
@@ -657,8 +776,9 @@ impl Session {
     /// 结束/未起播则从当前 t 重新起播。时间轴还在 audio_offset 之前
     /// (前奏段)时不起播:Kira 位置非负,立即起播只能钳 0 开播,前
     /// 奏被整段快进、BGM 永久领先;置 bgm_pending,由渲染循环在跨
-    /// 过 offset 的那一拍起播。
+    /// 过 offset 的那一拍起播。循环音不受前奏约束,照常恢复。
     fn audio_play(&mut self) {
+        self.loops_resume();
         if self.t < self.audio_offset {
             self.audio_stop();
             self.bgm_pending = true;
@@ -693,6 +813,7 @@ impl Session {
         if let Some(handle) = self.bgm_handle.as_mut() {
             handle.pause(kira::Tween::default());
         }
+        self.loops_pause();
     }
 
     fn audio_stop(&mut self) {
@@ -794,6 +915,7 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                     Err(TryRecvError::Disconnected) => {
                         if let Some(mut s) = session.take() {
                             s.audio_stop();
+                            s.loops_stop();
                             s.backend.destroy(&s.app);
                         }
                         return;
@@ -843,6 +965,10 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                     s.fire_hitsound(&event);
                     s.hs_cursor += 1;
                 }
+            }
+            // 循环音(转盘旋转/滑条滑动)。
+            if s.hitsounds {
+                s.update_loops();
             }
         }
 
@@ -908,8 +1034,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
         } => {
             if let Some(mut s) = session.take() {
                 // Kira 的声音归混音器所有:丢弃句柄不会停播,必须显式
-                // stop,否则旧会话的 BGM 一直响(与新会话叠音)。
+                // stop,否则旧会话的 BGM/循环音一直响(与新会话叠音)。
                 s.audio_stop();
+                s.loops_stop();
                 s.backend.destroy(&s.app);
             }
             // catch_unwind:初始化失败(如驱动/wgpu panic)不能拖死整个
@@ -1007,9 +1134,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             }
         }
         Cmd::Seek(t) => {
-            // 音效游标重置:跳过 seek 点之前的所有事件。
+            // 音效游标重置;循环句柄停播,渲染循环按新位置重起。
             if let Some(s) = session.as_mut() {
                 s.hs_cursor = s.hs_events.partition_point(|e| e.time <= t);
+                s.loops_stop();
             }
             if let Some(s) = session.as_mut() {
                 s.t = t.clamp(s.t0, s.duration);
@@ -1035,6 +1163,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 if s.t >= s.duration {
                     s.t = s.t0;
                     s.hs_cursor = 0;
+                    s.loops_stop();
                 }
                 s.playing = true;
                 s.audio_play();
@@ -1114,6 +1243,16 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         state.follow_points = options.follow_points;
                         state.cursor_size = options.cursor_size;
                         s.state = state;
+                        // 采样/循环句柄作废待重建;变调开关按新皮肤重读。
+                        s.hs_sounds.clear();
+                        s.loops_stop();
+                        s.spin_freq_modulate = s
+                            .skin
+                            .get_config(skin::SkinLookup::Generic(
+                                "SpinnerFrequencyModulate".into(),
+                            ))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
                     }
                     Err(e) => {
                         eprintln!("live_render: 皮肤加载失败({e}),保留当前皮肤");
@@ -1193,18 +1332,21 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 s.bgm_pending = false;
             }
 
-            // ---- 音效:开→懒加载采样(事件表 open 时已建);关→停触发 ----
+            // ---- 音效:开→懒加载采样(事件表 open 时已建);关→停触发与循环 ----
             s.hitsounds = options.hitsounds;
             if s.hitsounds {
                 s.ensure_hitsounds();
+            } else {
+                s.loops_stop();
             }
             s.dirty = true;
         }
         Cmd::Close => {
             if let Some(mut s) = session.take() {
                 // Kira 的声音归混音器所有:丢弃句柄不会停播(切走页面/
-                // 关闭预览后 BGM 一直响),必须显式 stop。
+                // 关闭预览后 BGM/循环音一直响),必须显式 stop。
                 s.audio_stop();
+                s.loops_stop();
                 s.backend.destroy(&s.app);
             }
         }
@@ -1273,11 +1415,21 @@ fn open_session(
         eprintln!("live_render: BGM 不可用(文件缺失或解码失败),静音播放");
     }
 
-    // 音效事件表(lazer 语义:命中判定触发、谱面音量/bank、combobreak)。
-    let hs_events = std::fs::read_to_string(beatmap_path)
-        .ok()
-        .map(|content| hitsound::collect_events(&game, &content))
+    // 音效事件表与循环音事件(lazer 语义)。
+    let map_content = std::fs::read_to_string(beatmap_path).ok();
+    let hs_events = map_content
+        .as_deref()
+        .map(|content| hitsound::collect_events(&game, content))
         .unwrap_or_default();
+    let loop_events = map_content
+        .as_deref()
+        .map(|content| hitsound::collect_loop_events(&game, content))
+        .unwrap_or_default();
+    // 转盘变调开关(皮肤 SpinnerFrequencyModulate)。
+    let spin_freq_modulate = skin
+        .get_config(skin::SkinLookup::Generic("SpinnerFrequencyModulate".into()))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     // ---- 原生直渲后端 --------------------------------------------------------
     // Windows:首选 WS_CHILD 子窗口(随父窗口移动,零跟踪,主线程创建),
@@ -1410,6 +1562,9 @@ fn open_session(
         hs_cursor: 0,
         hs_sounds: HashMap::new(),
         hitsounds: options.hitsounds,
+        loop_events,
+        loop_playbacks: Vec::new(),
+        spin_freq_modulate,
     };
     if session.hitsounds {
         session.ensure_hitsounds();
