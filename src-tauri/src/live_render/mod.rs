@@ -903,6 +903,37 @@ impl Session {
     }
 }
 
+fn panic_msg(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_else(|| "未知 panic".into())
+}
+
+/// Panic 兜底:停播 + 销毁后端(原生子窗口/X11 窗口与 GPU 资源立即
+/// 释放,不留孤儿窗口),清理动作自身也包一层防二次 panic;向前端广播
+/// 错误与失活状态。worker 线程本身存活(信道是静态单例,线程一死
+/// 后续所有命令都会无声堆积、前端永远"无响应")。
+fn cleanup_session(session: &mut Option<Session>) {
+    if let Some(mut s) = session.take() {
+        let app = s.app.clone();
+        eprintln!("live_render: 清理异常会话(停播 + 销毁渲染后端)");
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            s.audio_stop();
+            s.backend.destroy(&s.app);
+        }));
+        let _ = app.emit(
+            "live-render-error",
+            "渲染器异常(常见原因:图集超出 GPU 纹理尺寸限制/驱动错误)。已清理,请重新打开预览或换用更小的皮肤。",
+        );
+        let _ = app.emit(
+            "live-render-time",
+            LiveRenderState { active: false, playing: false, time_ms: 0.0, duration_ms: 0.0 },
+        );
+    }
+}
+
 fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
     let mut session: Option<Session> = None;
 
@@ -910,7 +941,15 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
         if session.is_some() {
             loop {
                 match rx.try_recv() {
-                    Ok(cmd) => handle_cmd(cmd, &mut session),
+                    Ok(cmd) => {
+                        if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            handle_cmd(cmd, &mut session)
+                        })) {
+                            eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
+                            cleanup_session(&mut session);
+                            break;
+                        }
+                    }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
                         if let Some(mut s) = session.take() {
@@ -924,13 +963,21 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
             }
         } else {
             match rx.recv() {
-                Ok(cmd) => handle_cmd(cmd, &mut session),
+                Ok(cmd) => {
+                    if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        handle_cmd(cmd, &mut session)
+                    })) {
+                        eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
+                        cleanup_session(&mut session);
+                    }
+                }
                 Err(_) => return,
             }
             continue;
         }
 
-        let Some(s) = session.as_mut() else { continue };
+        let framed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let Some(s) = session.as_mut() else { return };
 
         if s.playing {
             let now = Instant::now();
@@ -1015,6 +1062,12 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                 },
             );
             s.last_emit = Instant::now();
+        }
+
+        }));
+        if let Err(panic) = framed {
+            eprintln!("live_render: 帧渲染 panic: {}", panic_msg(panic.as_ref()));
+            cleanup_session(&mut session);
         }
 
         std::thread::sleep(Duration::from_millis(1));
@@ -1228,31 +1281,47 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             None
                         };
                         let with_bg = bg_image.is_some();
-                        let (atlas, bold, semibold) = build_atlas(bg_image, &mut new_skin);
-                        s.set_atlas(&atlas);
-                        s.atlas = atlas;
-                        s.bold = bold;
-                        s.semibold = semibold;
-                        s.skin = new_skin;
-                        s.skin_path = options.skin_path.clone();
-                        s.has_bg = with_bg;
-                        let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
-                        state.pro_skin = s.skin_path.is_none();
-                        state.hud.ur_bar = options.ur_bar;
-                        state.hud.key_overlay = options.key_overlay;
-                        state.follow_points = options.follow_points;
-                        state.cursor_size = options.cursor_size;
-                        s.state = state;
-                        // 采样/循环句柄作废待重建;变调开关按新皮肤重读。
-                        s.hs_sounds.clear();
-                        s.loops_stop();
-                        s.spin_freq_modulate = s
-                            .skin
-                            .get_config(skin::SkinLookup::Generic(
-                                "SpinnerFrequencyModulate".into(),
-                            ))
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(true);
+                        // 兜底:图集构建与 GPU 上载(create_texture 的
+                        // 尺寸校验 panic 点)+ 会话字段交接全部包进来。
+                        // set_atlas 先于字段交接:panic 发生时 renderer
+                        // 仍持有旧纹理,会话完整保留当前皮肤,而不是把
+                        // 整个预览炸掉。失败仅终止本分支;后续字段
+                        // (bg_opacity/音频/音效开关)继续生效。
+                        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let (atlas, bold, semibold) = build_atlas(bg_image, &mut new_skin, 8192);
+                            s.set_atlas(&atlas);
+                            s.atlas = atlas;
+                            s.bold = bold;
+                            s.semibold = semibold;
+                            s.skin = new_skin;
+                            s.skin_path = options.skin_path.clone();
+                            s.has_bg = with_bg;
+                            let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
+                            state.pro_skin = s.skin_path.is_none();
+                            state.hud.ur_bar = options.ur_bar;
+                            state.hud.key_overlay = options.key_overlay;
+                            state.follow_points = options.follow_points;
+                            state.cursor_size = options.cursor_size;
+                            s.state = state;
+                            // 采样/循环句柄作废待重建;变调开关按新皮肤重读。
+                            s.hs_sounds.clear();
+                            s.loops_stop();
+                            s.spin_freq_modulate = s
+                                .skin
+                                .get_config(skin::SkinLookup::Generic(
+                                    "SpinnerFrequencyModulate".into(),
+                                ))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true);
+                        }));
+                        if let Err(panic) = built {
+                            let msg = panic_msg(panic.as_ref());
+                            eprintln!("live_render: 皮肤热切换 panic: {msg}");
+                            let _ = s.app.emit(
+                                "live-render-skin-error",
+                                format!("皮肤切换失败({msg}),已保留当前皮肤"),
+                            );
+                        }
                     }
                     Err(e) => {
                         eprintln!("live_render: 皮肤加载失败({e}),保留当前皮肤");
@@ -1282,15 +1351,27 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 // ResolvedSkin 不可 Clone;assign_regions 回填新区域)。
                 match skin::load_skin(s.skin_path.as_deref().map(std::path::Path::new)) {
                     Ok(mut skin) => {
-                        let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin);
-                        s.set_atlas(&atlas);
-                        s.atlas = atlas;
-                        s.bold = bold;
-                        s.semibold = semibold;
-                        s.skin = skin;
-                        s.has_bg = options.bg;
-                        // 预加载的采样还挂着旧皮肤的字节,作废待重建。
-                        s.hs_sounds.clear();
+                        // 与皮肤热切换同构:GPU 上载与字段交接一并纳入
+                        // catch,panic 时保留当前画面。
+                        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+                            s.set_atlas(&atlas);
+                            s.atlas = atlas;
+                            s.bold = bold;
+                            s.semibold = semibold;
+                            s.skin = skin;
+                            s.has_bg = options.bg;
+                            // 预加载的采样还挂着旧皮肤的字节,作废待重建。
+                            s.hs_sounds.clear();
+                        }));
+                        if let Err(panic) = built {
+                            let msg = panic_msg(panic.as_ref());
+                            eprintln!("live_render: 背景图集重建 panic: {msg}");
+                            let _ = s.app.emit(
+                                "live-render-skin-error",
+                                format!("背景图集重建失败({msg}),已保留当前画面"),
+                            );
+                        }
                     }
                     Err(e) => eprintln!("live_render: 重建图集时皮肤加载失败({e})"),
                 }
@@ -1383,7 +1464,7 @@ fn open_session(
     // Argon-Pro(无判定文字、滑条身体透明度 0.92)。
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin);
+    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
 
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
     let duration = game.snapshots.last().map(|s| s.time).unwrap_or(0.0);
@@ -1847,7 +1928,7 @@ mod repro_tests {
             // ---- open_session 各段(与 open_session 顺序一致) ----
             let game = game::load(beatmap.to_str().unwrap(), replay.to_str().unwrap()).unwrap();
             let mut skin = skin::load_skin(None).unwrap();
-            let (atlas, _bold, _semibold) = build_atlas(None, &mut skin);
+            let (atlas, _bold, _semibold) = build_atlas(None, &mut skin, 8192);
             let mut state = scene::SceneState::new(&game, 1280, 720);
             state.pro_skin = true;
             let content = std::fs::read_to_string(beatmap).unwrap();
@@ -2084,14 +2165,23 @@ pub fn live_render_export(
     std::thread::Builder::new()
         .name("live-render-export".into())
         .spawn(move || {
-            let result = run_export(
-                &app,
-                &ffmpeg,
-                &beatmap_path,
-                &replay_path,
-                &options,
-                &params,
-            );
+            // 兜底:导出中的 wgpu/驱动 panic 不能让线程无声死掉(命令端
+            // 只能靠超时发现);捕获后照常复位状态并回传错误。
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_export(
+                    &app,
+                    &ffmpeg,
+                    &beatmap_path,
+                    &replay_path,
+                    &options,
+                    &params,
+                )
+            }))
+            .unwrap_or_else(|panic| {
+                let msg = panic_msg(panic.as_ref());
+                eprintln!("live_render: 导出 panic: {msg}");
+                Err(format!("导出过程崩溃: {msg}"))
+            });
             EXPORT_RUNNING.store(false, Ordering::SeqCst);
             let _ = tx.send(result);
         })
@@ -2238,7 +2328,7 @@ fn run_export(
     let has_bg = bg_image.is_some();
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin);
+    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
 
     let mut renderer = Renderer::new(params.width, params.height, &atlas);
     let mut state = scene::SceneState::new(&game, params.width, params.height);
