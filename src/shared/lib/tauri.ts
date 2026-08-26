@@ -847,6 +847,8 @@ export interface LiveRenderOptions {
   cursorSize: number;
   /** 用户皮肤目录路径;null = 内置 Argon-Pro(后端字段 skinPath)。 */
   skinPath: string | null;
+  /** 强制用皮肤 combo 色覆盖谱面 [Colours](stable 行为,默认关:谱面色优先)。 */
+  skinColours: boolean;
 }
 
 export interface LiveSkinEntry {

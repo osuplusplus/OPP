@@ -31,6 +31,7 @@ const defaultOptions: LiveRenderOptions = {
   hitsounds: true,
   cursorSize: 1,
   skinPath: null,
+  skinColours: false,
 };
 
 export function LivePreviewPanel() {
@@ -419,6 +420,9 @@ export function LivePreviewPanel() {
               </select>
               {skinError ? <p className="mt-1 text-[10px] leading-relaxed text-amber-300">{skinError}</p> : null}
             </div>
+            {options.skinPath ? <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="默认使用谱面 [Colours] 的 combo 色(谱面未配色时才用皮肤色);开启后强制使用皮肤的 combo 色(stable 行为)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.skinColours} onChange={(event) => update("skinColours", event.target.checked)} />皮肤 combo 色(覆盖谱面配色)
+            </label> : null}
             <label className="block text-xs text-slate-400">光标大小 {Math.round(options.cursorSize * 100)}%
               <input
                 className="mt-3 w-full accent-cyan-400"

@@ -86,6 +86,11 @@ pub struct LiveOptions {
     /// Argon-Pro。变更时热重建图集与场景(legacy 皮肤缓存随之重置),
     /// 不需要重开会话。
     pub skin_path: Option<String>,
+    /// 强制用皮肤 combo 色覆盖谱面 [Colours](stable 行为,= lazer
+    /// 「Beatmap skins」设定关;osu-replay-render 的 --skin-colours)。
+    /// 默认关:谱面自带色优先,皮肤色仅在谱面未配色时生效。变更时
+    /// 原地重映射物件颜色,换肤后也会按当前值重映射。
+    pub skin_colours: bool,
 }
 
 impl Default for LiveOptions {
@@ -101,6 +106,7 @@ impl Default for LiveOptions {
             hitsounds: true,
             cursor_size: 1.0,
             skin_path: None,
+            skin_colours: false,
         }
     }
 }
@@ -571,6 +577,9 @@ struct Session {
     /// 当前皮肤(None = 内置 Argon-Pro;与 SetOptions 比较决定热重建)。
     skin: skin::ResolvedSkin,
     skin_path: Option<String>,
+    /// 皮肤 combo 色开关当前值(LiveOptions.skin_colours;与 SetOptions
+    /// 比较决定原地重映射)。
+    skin_colours: bool,
     game: game::GameData,
     atlas: draw::Atlas,
     bold: draw::TtfFont,
@@ -1296,6 +1305,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             s.skin = new_skin;
                             s.skin_path = options.skin_path.clone();
                             s.has_bg = with_bg;
+                            // 新皮肤就位:按最新开关重映射 combo 色,先于
+                            // 场景重建(物件颜色读的是 s.game)。
+                            s.skin_colours = options.skin_colours;
+                            game::apply_skin_combo_colours(&mut s.game, &s.skin, s.skin_colours);
                             let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
                             state.pro_skin = s.skin_path.is_none();
                             state.hud.ur_bar = options.ur_bar;
@@ -1376,6 +1389,13 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                     Err(e) => eprintln!("live_render: 重建图集时皮肤加载失败({e})"),
                 }
             }
+            // ---- 皮肤 combo 色开关:皮肤未变(或换肤失败保留旧皮肤)时
+            // 原地重映射;apply 可重入,总从基础调色板整体重算 ----
+            if options.skin_colours != s.skin_colours {
+                s.skin_colours = options.skin_colours;
+                game::apply_skin_combo_colours(&mut s.game, &s.skin, s.skin_colours);
+            }
+
             s.state.bg_opacity = if s.has_bg {
                 Some(options.bg_opacity.clamp(0.0, 1.0))
             } else {
@@ -1442,7 +1462,7 @@ fn open_session(
     rect: PreviewRect,
     ffmpeg: Option<std::path::PathBuf>,
 ) -> Result<Session, String> {
-    let game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
+    let mut game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
 
     // 背景([Events] 0,0,"...",相对谱面目录,PNG/JPEG,解码进图集)。
     let map_dir = std::path::Path::new(beatmap_path)
@@ -1465,6 +1485,9 @@ fn open_session(
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
     let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+    // 皮肤 combo 色映射(--skin-colours 语义:默认谱面色优先,开关强制
+    // 皮肤色;可重入,SetOptions 换肤/切开关后重调)。
+    game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
     let duration = game.snapshots.last().map(|s| s.time).unwrap_or(0.0);
@@ -1620,6 +1643,7 @@ fn open_session(
         has_bg,
         skin,
         skin_path: options.skin_path.clone(),
+        skin_colours: options.skin_colours,
         game,
         atlas,
         bold,
@@ -2313,7 +2337,7 @@ fn run_export(
     let cancelled = || EXPORT_CANCEL.load(Ordering::SeqCst);
 
     // ---- 加载(与预览会话独立,不共享 GPU 设备) ----
-    let game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
+    let mut game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
     let map_dir = std::path::Path::new(beatmap_path)
         .parent()
         .map(|p| p.to_path_buf())
@@ -2329,6 +2353,8 @@ fn run_export(
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
     let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+    // 与预览会话同语义的 combo 色映射。
+    game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
     let mut renderer = Renderer::new(params.width, params.height, &atlas);
     let mut state = scene::SceneState::new(&game, params.width, params.height);
