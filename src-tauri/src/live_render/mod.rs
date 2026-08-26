@@ -456,10 +456,10 @@ fn ensure_kira_manager() {
     }
 }
 
-/// 预加载一个采样(内嵌 ArgonPro wav → Kira StaticSoundData;
-/// 播放时 Clone 并覆写 settings)。
-fn load_kira_sound(bank: &str, name: &str) -> Option<kira::sound::static_sound::StaticSoundData> {
-    let bytes = hitsound::sample_bytes(bank, name)?.to_vec();
+/// 预加载一个采样(用户皮肤样本优先 mix、内嵌 ArgonPro 兜底 → Kira
+/// StaticSoundData;播放时 Clone 并覆写 settings)。
+fn load_kira_sound(bank: &str, name: &str, skin: &skin::ResolvedSkin) -> Option<kira::sound::static_sound::StaticSoundData> {
+    let bytes = hitsound::resolve_sample_wav(bank, name, skin)?;
     let data = kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(bytes))
         .ok()?;
     ensure_kira_manager();
@@ -605,7 +605,7 @@ impl Session {
             if sounds.contains_key(&key) {
                 continue;
             }
-            if let Some(handle) = load_kira_sound(event.bank, event.name) {
+            if let Some(handle) = load_kira_sound(event.bank, event.name, &self.skin) {
                 sounds.insert(key, handle);
             }
         }
@@ -1150,6 +1150,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         s.semibold = semibold;
                         s.skin = skin;
                         s.has_bg = options.bg;
+                        // 预加载的采样还挂着旧皮肤的字节,作废待重建。
+                        s.hs_sounds.clear();
                     }
                     Err(e) => eprintln!("live_render: 重建图集时皮肤加载失败({e})"),
                 }
@@ -2254,7 +2256,7 @@ fn run_export(
             .and_then(|content| {
                 let wall_secs = frame_times.len() as f64 / params.fps as f64;
                 let wav =
-                    hitsound::render_track_wav(&game, &content, t0, wall_secs, game.rate, 0.6);
+                    hitsound::render_track_wav(&game, &content, t0, wall_secs, game.rate, 0.6, &skin);
                 let p = format!("{}.hits.wav", params.out_path);
                 std::fs::write(&p, wav).ok().map(|_| p)
             })

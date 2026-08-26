@@ -53,7 +53,7 @@ export function LivePreviewPanel() {
   const [ffmpegVersion, setFfmpegVersion] = useState<string | null | undefined>(undefined);
   // [h264_nvenc, hevc_nvenc] 可用性(undefined = 未探测)。
   const [nvenc, setNvenc] = useState<[boolean, boolean] | undefined>(undefined);
-  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true, audioOffset: 0 });
+  const [exportForm, setExportForm] = useState({ resolution: "1920x1080", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true, audioOffset: 0 });
   // 导出偏移的原始输入(与预览偏移同理:text 框允许键入 "-" 等中间态)。
   const [exportOffsetText, setExportOffsetText] = useState(String(0));
   const [exporting, setExporting] = useState<{ phase: string; frame: number; total: number; message: string } | null>(null);
