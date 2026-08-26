@@ -139,10 +139,23 @@ export function LivePreviewPanel() {
   // 皮肤热切换失败提示(仅展示,不打断预览)。
   useEffect(() => {
     let unlisten: () => void = () => undefined;
+    let unlistenErr: () => void = () => undefined;
     desktopApi.onLiveRenderSkinError((message) => setSkinError(message))
       .then((dispose) => { unlisten = dispose; })
       .catch(() => undefined);
-    return () => unlisten();
+    // 渲染线程异常(如图集超出 GPU 纹理限制):后端已清理会话,前端
+    // 复位预览状态并提示重开。
+    desktopApi.onLiveRenderError((message) => {
+      setActive(false);
+      setPlaying(false);
+      setSkinError(message);
+    })
+      .then((dispose) => { unlistenErr = dispose; })
+      .catch(() => undefined);
+    return () => {
+      unlisten();
+      unlistenErr();
+    };
   }, []);
 
   // 原生模式:上报预览区域位置,原生子窗口跟随 DOM 元素(滚动/缩放)。

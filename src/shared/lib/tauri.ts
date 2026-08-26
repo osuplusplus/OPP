@@ -769,6 +769,11 @@ export const desktopApi = {
     if (!isTauri()) return () => undefined;
     return listen<string>("live-render-skin-error", (event) => handler(event.payload));
   },
+  /** 渲染线程异常:会话已被后端清理(停播 + 销毁窗口),UI 需复位。 */
+  onLiveRenderError: async (handler: (message: string) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<string>("live-render-error", (event) => handler(event.payload));
+  },
   onDanserRenderProgress: async (
     handler: (progress: DanserRenderJob) => void,
   ): Promise<UnlistenFn> => {
