@@ -48,7 +48,19 @@ export function DanserRenderPanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // Lazer：皮肤在 Realm + files/ 内容寻址存储中，Danser 用不了——入队时
+  // 后端会按选择的名字导出成 Stable 布局目录；这里列出可选的 lazer 皮肤。
+  const [lazerSkins, setLazerSkins] = useState<string[]>([]);
   const isLinux = useCapabilities().data?.os === "linux";
+
+  useEffect(() => {
+    if (client !== "lazer") return;
+    let active = true;
+    desktopApi.queryLocalSkins({ client, search: "", sort: "name", direction: "asc", offset: 0, limit: 200 })
+      .then((page) => { if (active) setLazerSkins(page.items.map((item) => item.name)); })
+      .catch(() => { if (active) setLazerSkins([]); });
+    return () => { active = false; };
+  }, [client]);
 
   useEffect(() => { settingsRef.current = stored.data; }, [stored.data]);
 
@@ -231,7 +243,9 @@ export function DanserRenderPanel() {
         <Card className="p-5"><SectionTitle title="常用参数" description="OPP 会自动附加 replay、record、out 与 preciseprogress 参数。" />
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-xs text-slate-400">配置档<select className="opp-input mt-2 w-full" value={preferences.settings_profile} onChange={(event) => update("settings_profile", event.target.value)}>{(status?.profiles.length ? status.profiles : ["default"]).map((profile) => <option key={profile}>{profile}</option>)}</select></label>
-            <label className="text-xs text-slate-400">皮肤覆盖<input className="opp-input mt-2 w-full" value={preferences.skin} onChange={(event) => update("skin", event.target.value)} placeholder="留空使用配置档" /></label>
+            <label className="text-xs text-slate-400">皮肤覆盖{client === "lazer"
+              ? <select className="opp-input mt-2 w-full" value={lazerSkins.includes(preferences.skin) || preferences.skin === "" ? preferences.skin : ""} onChange={(event) => update("skin", event.target.value)}><option value="">留空使用 Danser 默认皮肤</option>{lazerSkins.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+              : <input className="opp-input mt-2 w-full" value={preferences.skin} onChange={(event) => update("skin", event.target.value)} placeholder="留空使用配置档" />}</label>
             <label className="text-xs text-slate-400">音频偏移（ms）<input className="opp-input mt-2 w-full" type="number" value={preferences.offset} onChange={(event) => update("offset", Number(event.target.value))} /></label>
             <label className="text-xs text-slate-400">开始时间（秒）<input className="opp-input mt-2 w-full" min="0" step="0.1" type="number" value={preferences.start ?? ""} onChange={(event) => update("start", numberOrNull(event.target.value))} /></label>
             <label className="text-xs text-slate-400">结束时间（秒）<input className="opp-input mt-2 w-full" min="0" step="0.1" type="number" value={preferences.end ?? ""} onChange={(event) => update("end", numberOrNull(event.target.value))} /></label>

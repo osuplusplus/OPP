@@ -702,6 +702,7 @@ export const desktopApi = {
   liveRenderSetOptions: (options: LiveRenderOptions) =>
     call<void>("live_render_set_options", { options }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
+  liveRenderListSkins: (client: OsuClient) => call<LiveSkinEntry[]>("live_render_list_skins", { client }),
   liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {
@@ -763,6 +764,16 @@ export const desktopApi = {
       }),
     );
   },
+  /** 皮肤热切换失败(加载错误;当前皮肤保持不变)。 */
+  onLiveRenderSkinError: async (handler: (message: string) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<string>("live-render-skin-error", (event) => handler(event.payload));
+  },
+  /** 渲染线程异常:会话已被后端清理(停播 + 销毁窗口),UI 需复位。 */
+  onLiveRenderError: async (handler: (message: string) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<string>("live-render-error", (event) => handler(event.payload));
+  },
   onDanserRenderProgress: async (
     handler: (progress: DanserRenderJob) => void,
   ): Promise<UnlistenFn> => {
@@ -819,6 +830,8 @@ export interface LiveExportParams {
   quality: number;
   audio: boolean;
   hitsounds: boolean;
+  /** 导出专用 BGM 偏移 ms(与预览偏移独立,默认 0)。 */
+  audioOffset: number;
 }
 
 export interface LiveRenderOptions {
@@ -830,4 +843,15 @@ export interface LiveRenderOptions {
   audio: boolean;
   audioOffset: number;
   hitsounds: boolean;
+  /** 光标尺寸倍率 0.1..2(lazer GameplayCursorSize,默认 1)。 */
+  cursorSize: number;
+  /** 用户皮肤目录路径;null = 内置 Argon-Pro(后端字段 skinPath)。 */
+  skinPath: string | null;
+  /** 强制用皮肤 combo 色覆盖谱面 [Colours](stable 行为,默认关:谱面色优先)。 */
+  skinColours: boolean;
+}
+
+export interface LiveSkinEntry {
+  name: string;
+  path: string;
 }

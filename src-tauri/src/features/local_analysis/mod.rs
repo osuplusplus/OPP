@@ -6,5 +6,8 @@ mod service;
 mod sources;
 
 pub use commands::*;
-pub use models::{LocalBeatmapSummary, LocalClient, LocalSkinSummary, StrainAnalysis};
+pub use models::{
+    LocalBeatmapSummary, LocalClient, LocalSkinSummary, SkinQuery, SkinSort, SortDirection,
+    StrainAnalysis,
+};
 pub use service::LocalAnalysisService;

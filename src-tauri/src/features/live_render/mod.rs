@@ -2,12 +2,12 @@
 //! Windows 用 WS_CHILD 子窗口(或属主弹出窗口兜底);Linux 用 X11 子窗口
 
 use crate::error::{CommandError, CommandResult};
-use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene};
+use osu_replay_render::skin::Skin as _;
+use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene, skin};
 use std::collections::HashMap;
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
-#[cfg(windows)]
 use tauri::Manager;
 use tauri::{AppHandle, Emitter};
 
@@ -74,12 +74,23 @@ pub struct LiveOptions {
     pub bg_opacity: f32,
     /// 播放 BGM([General] AudioFilename,相对谱面目录)。
     pub audio: bool,
-    /// BGM 对齐偏移 ms,默认 0(音频位置 = 回放时间 − 偏移,
-    /// 界面里用户可自行调整)。
+    /// 预览 BGM 对齐偏移 ms,默认 0(音频位置 = 回放时间 − 偏移)。
+    /// 仅实时预览使用;导出走 `ExportParams::audio_offset`,两者独立。
     pub audio_offset: f64,
-    /// 预览播放音效(命中音/滑条节点/combobreak,ArgonPro 采样,
-    /// lazer 语义;与 BGM 同走 Kira 输出)。
+    /// 预览播放音效(一次性命中音 + 转盘旋转/滑条滑动循环音;用户皮肤
+    /// 优先,ArgonPro 兜底,lazer 语义)。
     pub hitsounds: bool,
+    /// 光标尺寸倍率 0.1..=2(lazer `GameplayCursorSize`,默认 1)。
+    pub cursor_size: f32,
+    /// 用户皮肤目录(解包 .osk 或游戏 Skins/<name>);None = 内置
+    /// Argon-Pro。变更时热重建图集与场景(legacy 皮肤缓存随之重置),
+    /// 不需要重开会话。
+    pub skin_path: Option<String>,
+    /// 强制用皮肤 combo 色覆盖谱面 [Colours](stable 行为,= lazer
+    /// 「Beatmap skins」设定关;osu-replay-render 的 --skin-colours)。
+    /// 默认关:谱面自带色优先,皮肤色仅在谱面未配色时生效。变更时
+    /// 原地重映射物件颜色,换肤后也会按当前值重映射。
+    pub skin_colours: bool,
 }
 
 impl Default for LiveOptions {
@@ -93,6 +104,9 @@ impl Default for LiveOptions {
             audio: true,
             audio_offset: 0.0,
             hitsounds: true,
+            cursor_size: 1.0,
+            skin_path: None,
+            skin_colours: false,
         }
     }
 }
@@ -121,6 +135,8 @@ enum Cmd {
         /// 原生窗口初始定位(物理 px,相对 WebView 视口)。
         rect: PreviewRect,
         options: LiveOptions,
+        /// ffmpeg 路径(open 命令侧解析,DT/HT 变调预处理用)。
+        ffmpeg: Option<std::path::PathBuf>,
         reply: Sender<Result<LiveOpenInfo, String>>,
     },
     Move {
@@ -348,9 +364,76 @@ mod native {
 const MUSIC_VOLUME: f64 = 0.6;
 
 /// 解码 BGM 文件(mp3/flac/ogg/wav,symphonia 全量入内存)。
-fn load_bgm(path: &std::path::Path) -> Option<kira::sound::static_sound::StaticSoundData> {
+/// DT/HT(rate≠1 且非 NC)优先走 ffmpeg「变速不变调」预处理,与导出
+/// 侧 atempo 同语义;ffmpeg 未配置或执行失败时回退原样解码——kira
+/// 的 playback_rate 本就是变速变调(游戏原生 DT 听感),预览不中断。
+/// NC 始终原样(nightcore without the pitch isn't nightcore,与导出
+/// 侧 asetrate 分支一致)。
+fn load_bgm(
+    path: &std::path::Path,
+    rate: f64,
+    nightcore: bool,
+    ffmpeg: Option<&std::path::Path>,
+) -> Option<kira::sound::static_sound::StaticSoundData> {
+    if !nightcore
+        && (rate - 1.0).abs() >= 1e-3
+        && (0.5..=2.0).contains(&rate)
+        && let Some(data) = load_bgm_pitch_preserved(path, rate, ffmpeg)
+    {
+        return Some(data);
+    }
     let bytes = std::fs::read(path).ok()?;
     kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).ok()
+}
+
+/// ffmpeg 恒时长变调:整段音调 ÷rate、时长不变。滤镜链(采样率先
+/// 归一到 44100,asetrate 才能用静态参数):aresample=44100 →
+/// asetrate=44100/rate(调 ÷rate、长 ×rate)→ aresample=44100 →
+/// atempo=rate(压回原长、调不变;0.5..=2.0 覆盖 DT 1.5 / HT 0.75,
+/// 超界由调用方拦截)。kira 侧仍按 playback_rate(rate) 播放,升调
+/// ×rate 与预处理 ÷rate 相抵 → 净效果变速不变调;帧时长不变,
+/// 起播/seek 位置映射与变调路径完全一致。输出 f32 wav 经管道回读,
+/// 由 kira 自带的 symphonia 解码。阻塞渲染线程数百毫秒(一次性,
+/// 与整段解码同量级)。
+fn load_bgm_pitch_preserved(
+    path: &std::path::Path,
+    rate: f64,
+    ffmpeg: Option<&std::path::Path>,
+) -> Option<kira::sound::static_sound::StaticSoundData> {
+    let ffmpeg = ffmpeg?;
+    let filters = format!(
+        "aresample=44100,asetrate={},aresample=44100,atempo={:.6}",
+        (44100.0 / rate).round() as i64,
+        rate
+    );
+    let output = std::process::Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
+        .arg("-i")
+        .arg(path)
+        .arg("-filter:a")
+        .arg(&filters)
+        .args([
+            "-map",
+            "0:a:0",
+            "-ac",
+            "2",
+            "-c:a",
+            "pcm_f32le",
+            "-f",
+            "wav",
+            "-",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        eprintln!(
+            "live_render: ffmpeg 变调预处理失败({}),回退 kira 变调播放",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        return None;
+    }
+    kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(output.stdout))
+        .ok()
 }
 
 // ---- 音效(Kira;命中音/滑条节点音/combobreak) --------------------------------
@@ -390,10 +473,14 @@ fn ensure_kira_manager() {
     }
 }
 
-/// 预加载一个采样(内嵌 ArgonPro wav → Kira StaticSoundData;
-/// 播放时 Clone 并覆写 settings)。
-fn load_kira_sound(bank: &str, name: &str) -> Option<kira::sound::static_sound::StaticSoundData> {
-    let bytes = hitsound::sample_bytes(bank, name)?.to_vec();
+/// 预加载一个采样(用户皮肤样本优先 mix、内嵌 ArgonPro 兜底 → Kira
+/// StaticSoundData;播放时 Clone 并覆写 settings)。
+fn load_kira_sound(
+    bank: &str,
+    name: &str,
+    skin: &skin::ResolvedSkin,
+) -> Option<kira::sound::static_sound::StaticSoundData> {
+    let bytes = hitsound::resolve_sample_wav(bank, name, skin)?;
     let data = kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(bytes))
         .ok()?;
     ensure_kira_manager();
@@ -460,13 +547,54 @@ impl Backend {
     }
 }
 
+/// 活动循环音:kira 循环句柄 + 参数去抖缓存(变化超阈值才下发命令)。
+struct LoopPlayback {
+    handle: kira::sound::static_sound::StaticSoundHandle,
+    /// 当前 run 下标(切换即停播重起)。
+    run: usize,
+    /// 上次下发的 播放速率 / 幅度 / 声像。
+    rate: f64,
+    amp: f64,
+    pan: f32,
+}
+
+impl LoopPlayback {
+    /// 参数微更新,短 tween 平滑到目标值。
+    fn apply(&mut self, rate: f64, amp: f64, pan_x: f32) {
+        let tween = kira::Tween::default();
+        if (rate - self.rate).abs() > 0.002 {
+            self.handle
+                .set_playback_rate(kira::PlaybackRate(rate), tween);
+            self.rate = rate;
+        }
+        if (amp - self.amp).abs() > 0.02 {
+            self.handle.set_volume(amplitude_to_decibels(amp), tween);
+            self.amp = amp;
+        }
+        let pan = kira_panning(pan_x);
+        if (pan - self.pan).abs() > 0.01 {
+            self.handle.set_panning(kira::Panning(pan), tween);
+            self.pan = pan;
+        }
+    }
+}
+
 struct Session {
     app: AppHandle,
     beatmap_path: String,
     /// 谱面音频路径(open 时即解析,音频开关切换时懒加载)。
     audio_path: Option<std::path::PathBuf>,
+    /// ffmpeg 可执行路径(open 时按 设置手动路径 > PATH > danser 解析
+    /// 一次;DT/HT 预览的变调预处理用,缺 None = 回退 kira 变调)。
+    ffmpeg: Option<std::path::PathBuf>,
     /// 当前是否带背景图(与 SetOptions 的 bg 比较决定是否重建图集)。
     has_bg: bool,
+    /// 当前皮肤(None = 内置 Argon-Pro;与 SetOptions 比较决定热重建)。
+    skin: skin::ResolvedSkin,
+    skin_path: Option<String>,
+    /// 皮肤 combo 色开关当前值(LiveOptions.skin_colours;与 SetOptions
+    /// 比较决定原地重映射)。
+    skin_colours: bool,
     game: game::GameData,
     atlas: draw::Atlas,
     bold: draw::TtfFont,
@@ -487,8 +615,15 @@ struct Session {
     bgm_data: Option<kira::sound::static_sound::StaticSoundData>,
     /// 当前 BGM 播放句柄(播放/暂停中;None = 未起播)。
     bgm_handle: Option<kira::sound::static_sound::StaticSoundHandle>,
+    /// 回放在播但 BGM 刻意未起播:时间轴还在 audio_offset 之前(前奏
+    /// 段,判定引擎从「首物件 − max(抢先量, 2000ms)」起算,首物件
+    /// 2 秒内进场的谱面 t0 为负)。Kira 播放位置非负,起播即从 0 开
+    /// 始播——前奏整段被快进,BGM 永久领先 |t0|·rate ms(音效按时间
+    /// 轴触发,听感上全晚)。必须等时间轴跨过 offset 再起,见
+    /// audio_play 与渲染循环的跨界检测。
+    bgm_pending: bool,
     audio_offset: f64,
-    /// 音效(一次性事件表,按时间排序;循环音不导出——ArgonPro 静音)。
+    /// 一次性音效事件表(循环音见 loop_events),按时间排序。
     hs_events: Vec<hitsound::HitsoundEvent>,
     /// 下一个待触发事件的下标(播放推进/seek 时移动)。
     hs_cursor: usize,
@@ -496,6 +631,12 @@ struct Session {
     hs_sounds: HashMap<(&'static str, &'static str), kira::sound::static_sound::StaticSoundData>,
     /// 音效开关(LiveOptions.hitsounds 的当前值)。
     hitsounds: bool,
+    /// 循环音事件(open 时构建,库侧 collect_loop_events)。
+    loop_events: Vec<hitsound::LoopSoundEvent>,
+    /// 活动循环句柄:(事件下标, 播放态)。
+    loop_playbacks: Vec<(usize, LoopPlayback)>,
+    /// 皮肤 SpinnerFrequencyModulate(默认开)。
+    spin_freq_modulate: bool,
 }
 
 impl Session {
@@ -515,22 +656,118 @@ impl Session {
         }
     }
 
-    /// 开启音效:构建事件表并预加载用到的采样(已加载则跳过)。
+    /// 开启音效:预加载一次性事件与循环音用到的采样(已加载则跳过)。
     fn ensure_hitsounds(&mut self) {
-        if !self.hs_sounds.is_empty() || self.hs_events.is_empty() {
+        if !self.hs_sounds.is_empty() || (self.hs_events.is_empty() && self.loop_events.is_empty())
+        {
             return;
         }
         let mut sounds = HashMap::new();
-        for event in &self.hs_events {
-            let key = (event.bank, event.name);
-            if sounds.contains_key(&key) {
+        for (bank, name) in self
+            .hs_events
+            .iter()
+            .map(|e| (e.bank, e.name))
+            .chain(self.loop_events.iter().map(|e| (e.bank, e.name)))
+        {
+            if sounds.contains_key(&(bank, name)) {
                 continue;
             }
-            if let Some(handle) = load_kira_sound(event.bank, event.name) {
-                sounds.insert(key, handle);
+            if let Some(handle) = load_kira_sound(bank, name, &self.skin) {
+                sounds.insert((bank, name), handle);
             }
         }
         self.hs_sounds = sounds;
+    }
+
+    /// 循环音推进:进 run 起播,区间内下发变速/包络/声像,离 run 停播
+    /// (kira 声音归混音器所有,必须显式 stop)。
+    fn update_loops(&mut self) {
+        if !self.hitsounds || self.loop_events.is_empty() {
+            return;
+        }
+        let t = self.t;
+        let mut active: Vec<(usize, usize)> = Vec::new();
+        for (i, event) in self.loop_events.iter().enumerate() {
+            if let Some(run) = event.run_at(t) {
+                active.push((i, run));
+            }
+        }
+        self.loop_playbacks.retain_mut(|(i, playback)| {
+            match active.iter().find(|(ai, _)| *ai == *i) {
+                Some((_, run)) if *run == playback.run => true,
+                _ => {
+                    playback.handle.stop(kira::Tween::default());
+                    false
+                }
+            }
+        });
+        for (i, run) in active {
+            let event = &self.loop_events[i];
+            let (rate, amp, pan_x) = event.params_at(run, t, self.spin_freq_modulate, &self.game);
+            let amp = amp * EFFECT_VOLUME;
+            if let Some((_, playback)) = self.loop_playbacks.iter_mut().find(|(pi, _)| *pi == i) {
+                playback.apply(rate, amp, pan_x);
+                continue;
+            }
+            let Some(data) = self.hs_sounds.get(&(event.bank, event.name)) else {
+                continue;
+            };
+            let mut data = data.clone();
+            // 0 帧采样(ArgonPro 滑条循环是空文件)配 loop_region 会让
+            // kira 音频线程死循环,跳过。
+            if data.frames.is_empty() {
+                continue;
+            }
+            let pan = kira_panning(pan_x);
+            data.settings = kira::sound::static_sound::StaticSoundSettings::new()
+                .loop_region(..)
+                .playback_rate(kira::PlaybackRate(rate))
+                .volume(amplitude_to_decibels(amp))
+                .panning(kira::Panning(pan));
+            if let Some(handle) = KIRA
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|m| m.play(data).ok())
+            {
+                self.loop_playbacks.push((
+                    i,
+                    LoopPlayback {
+                        handle,
+                        run,
+                        rate,
+                        amp,
+                        pan,
+                    },
+                ));
+            }
+        }
+    }
+
+    /// 停播全部循环音。
+    fn loops_stop(&mut self) {
+        for (_, mut playback) in self.loop_playbacks.drain(..) {
+            playback.handle.stop(kira::Tween::default());
+        }
+    }
+
+    /// 暂停循环音句柄(与 BGM 同步暂停)。
+    fn loops_pause(&mut self) {
+        for (_, playback) in &mut self.loop_playbacks {
+            playback.handle.pause(kira::Tween::default());
+        }
+    }
+
+    /// 恢复暂停中的循环音句柄。
+    fn loops_resume(&mut self) {
+        for (_, playback) in &mut self.loop_playbacks {
+            if matches!(
+                playback.handle.state(),
+                kira::sound::PlaybackState::Paused | kira::sound::PlaybackState::Pausing
+            ) {
+                playback.handle.resume(kira::Tween::default());
+            }
+        }
     }
 }
 
@@ -541,7 +778,10 @@ impl Session {
         renderer.set_atlas(atlas);
     }
 
-    /// BGM 文件位置(秒,按 audio_offset 换算,负位置钳 0)。
+    /// BGM 文件位置(秒,按 audio_offset 换算)。仅当时间轴已跨过
+    /// audio_offset 时才有意义;负位置钳 0 只是防御——前奏段的起播
+    /// 必须走 bgm_pending 延迟(见 audio_play),不能拿钳 0 的位置
+    /// 立即播。
     fn bgm_position(&self) -> f64 {
         ((self.t - self.audio_offset).max(0.0)) / 1000.0
     }
@@ -572,8 +812,18 @@ impl Session {
     }
 
     /// 继续播放:暂停中的句柄直接 resume(避免整段缓冲重新克隆),
-    /// 结束/未起播则从当前 t 重新起播。
+    /// 结束/未起播则从当前 t 重新起播。时间轴还在 audio_offset 之前
+    /// (前奏段)时不起播:Kira 位置非负,立即起播只能钳 0 开播,前
+    /// 奏被整段快进、BGM 永久领先;置 bgm_pending,由渲染循环在跨
+    /// 过 offset 的那一拍起播。循环音不受前奏约束,照常恢复。
     fn audio_play(&mut self) {
+        self.loops_resume();
+        if self.t < self.audio_offset {
+            self.audio_stop();
+            self.bgm_pending = true;
+            return;
+        }
+        self.bgm_pending = false;
         match self.bgm_handle.as_ref().map(|h| h.state()) {
             Some(kira::sound::PlaybackState::Paused)
             | Some(kira::sound::PlaybackState::Pausing) => {
@@ -602,6 +852,7 @@ impl Session {
         if let Some(handle) = self.bgm_handle.as_mut() {
             handle.pause(kira::Tween::default());
         }
+        self.loops_pause();
     }
 
     fn audio_stop(&mut self) {
@@ -666,6 +917,7 @@ impl Session {
             atlas: &self.atlas,
             bold: &self.bold,
             semibold: &self.semibold,
+            skin: &self.skin,
         };
         self.list.clear();
         self.state
@@ -690,6 +942,42 @@ impl Session {
     }
 }
 
+fn panic_msg(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_else(|| "未知 panic".into())
+}
+
+/// Panic 兜底:停播 + 销毁后端(原生子窗口/X11 窗口与 GPU 资源立即
+/// 释放,不留孤儿窗口),清理动作自身也包一层防二次 panic;向前端广播
+/// 错误与失活状态。worker 线程本身存活(信道是静态单例,线程一死
+/// 后续所有命令都会无声堆积、前端永远"无响应")。
+fn cleanup_session(session: &mut Option<Session>) {
+    if let Some(mut s) = session.take() {
+        let app = s.app.clone();
+        eprintln!("live_render: 清理异常会话(停播 + 销毁渲染后端)");
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            s.audio_stop();
+            s.backend.destroy(&s.app);
+        }));
+        let _ = app.emit(
+            "live-render-error",
+            "渲染器异常(常见原因:图集超出 GPU 纹理尺寸限制/驱动错误)。已清理,请重新打开预览或换用更小的皮肤。",
+        );
+        let _ = app.emit(
+            "live-render-time",
+            LiveRenderState {
+                active: false,
+                playing: false,
+                time_ms: 0.0,
+                duration_ms: 0.0,
+            },
+        );
+    }
+}
+
 fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
     let mut session: Option<Session> = None;
 
@@ -697,11 +985,22 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
         if session.is_some() {
             loop {
                 match rx.try_recv() {
-                    Ok(cmd) => handle_cmd(cmd, &mut session),
+                    Ok(cmd) => {
+                        if let Err(panic) =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                handle_cmd(cmd, &mut session)
+                            }))
+                        {
+                            eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
+                            cleanup_session(&mut session);
+                            break;
+                        }
+                    }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
                         if let Some(mut s) = session.take() {
                             s.audio_stop();
+                            s.loops_stop();
                             s.backend.destroy(&s.app);
                         }
                         return;
@@ -710,84 +1009,112 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
             }
         } else {
             match rx.recv() {
-                Ok(cmd) => handle_cmd(cmd, &mut session),
+                Ok(cmd) => {
+                    if let Err(panic) =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            handle_cmd(cmd, &mut session)
+                        }))
+                    {
+                        eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
+                        cleanup_session(&mut session);
+                    }
+                }
                 Err(_) => return,
             }
             continue;
         }
 
-        let Some(s) = session.as_mut() else { continue };
+        let framed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let Some(s) = session.as_mut() else { return };
 
-        if s.playing {
-            let now = Instant::now();
-            // 按游戏速率推进:DT/HT 回放以真实速度预览,与变速后的
-            // BGM(playback_rate)和音效事件(谱面时间轴)保持同步。
-            s.t += now.duration_since(s.clock).as_secs_f64() * 1000.0 * s.game.rate;
-            s.clock = now;
-            if s.t >= s.duration {
-                s.t = s.duration;
-                s.playing = false;
-                s.audio_pause();
-            }
-            s.dirty = true;
-            // 音效:播放头跨过的事件即触发(事件表按时间排序)。
-            if s.hitsounds && !s.hs_sounds.is_empty() {
-                loop {
-                    let Some(event) = s.hs_events.get(s.hs_cursor).copied() else {
-                        break;
-                    };
-                    if event.time > s.t {
-                        break;
+            if s.playing {
+                let now = Instant::now();
+                // 按游戏速率推进:DT/HT 回放以真实速度预览,与变速后的
+                // BGM(playback_rate)和音效事件(谱面时间轴)保持同步。
+                s.t += now.duration_since(s.clock).as_secs_f64() * 1000.0 * s.game.rate;
+                s.clock = now;
+                // 前奏段结束:时间轴一跨过 audio_offset 立即起播 BGM(位置
+                // 恰为 0,与音效同拍)。起播耗时(整段缓冲克隆 + 命令入队)
+                // 之后重锚时钟,不计入时间轴——否则时间轴先跑,BGM 反向
+                // 落后一小段。
+                if s.bgm_pending && s.t >= s.audio_offset && s.t < s.duration {
+                    s.bgm_pending = false;
+                    s.audio_restart();
+                    s.clock = Instant::now();
+                }
+                if s.t >= s.duration {
+                    s.t = s.duration;
+                    s.playing = false;
+                    s.audio_pause();
+                }
+                s.dirty = true;
+                // 音效:播放头跨过的事件即触发(事件表按时间排序)。
+                if s.hitsounds && !s.hs_sounds.is_empty() {
+                    loop {
+                        let Some(event) = s.hs_events.get(s.hs_cursor).copied() else {
+                            break;
+                        };
+                        if event.time > s.t {
+                            break;
+                        }
+                        s.fire_hitsound(&event);
+                        s.hs_cursor += 1;
                     }
-                    s.fire_hitsound(&event);
-                    s.hs_cursor += 1;
+                }
+                // 循环音(转盘旋转/滑条滑动)。
+                if s.hitsounds {
+                    s.update_loops();
                 }
             }
-        }
 
-        #[cfg(any(windows, target_os = "linux"))]
-        {
-            // Windows popup 模式:主窗口被拖动/缩放时轮询贴回屏幕位置。
-            #[cfg(windows)]
-            s.enforce_native_position();
-            // 周期性压回兄弟栈顶:WebView(WebView2/GdkWindow)激活/重排
-            // 时会把自己抬到我们之上。
-            if s.last_top_assert.elapsed() >= Duration::from_millis(400) {
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                // Windows popup 模式:主窗口被拖动/缩放时轮询贴回屏幕位置。
                 #[cfg(windows)]
-                if let Backend::Native {
-                    hwnd,
-                    visible: true,
-                    ..
-                } = &s.backend
-                {
-                    native::bring_to_top(*hwnd);
+                s.enforce_native_position();
+                // 周期性压回兄弟栈顶:WebView(WebView2/GdkWindow)激活/重排
+                // 时会把自己抬到我们之上。
+                if s.last_top_assert.elapsed() >= Duration::from_millis(400) {
+                    #[cfg(windows)]
+                    if let Backend::Native {
+                        hwnd,
+                        visible: true,
+                        ..
+                    } = &s.backend
+                    {
+                        native::bring_to_top(*hwnd);
+                    }
+                    #[cfg(target_os = "linux")]
+                    if let Backend::Native {
+                        x11, visible: true, ..
+                    } = &mut s.backend
+                    {
+                        x11.bring_to_top();
+                    }
+                    s.last_top_assert = Instant::now();
                 }
-                #[cfg(target_os = "linux")]
-                if let Backend::Native {
-                    x11, visible: true, ..
-                } = &mut s.backend
-                {
-                    x11.bring_to_top();
-                }
-                s.last_top_assert = Instant::now();
             }
-        }
 
-        let visible = s.visible_now();
-        if s.dirty && visible {
-            s.draw_frame();
-            s.dirty = false;
-        } else if s.playing && s.last_emit.elapsed() >= Duration::from_millis(100) {
-            let _ = s.app.emit(
-                "live-render-time",
-                LiveRenderState {
-                    active: true,
-                    playing: true,
-                    time_ms: s.t,
-                    duration_ms: s.duration,
-                },
-            );
-            s.last_emit = Instant::now();
+            let visible = s.visible_now();
+            if s.dirty && visible {
+                s.draw_frame();
+                s.dirty = false;
+            } else if s.playing && s.last_emit.elapsed() >= Duration::from_millis(100) {
+                let _ = s.app.emit(
+                    "live-render-time",
+                    LiveRenderState {
+                        active: true,
+                        playing: true,
+                        time_ms: s.t,
+                        duration_ms: s.duration,
+                    },
+                );
+                s.last_emit = Instant::now();
+            }
+        }));
+        if let Err(panic) = framed {
+            eprintln!("live_render: 帧渲染 panic: {}", panic_msg(panic.as_ref()));
+            cleanup_session(&mut session);
         }
 
         std::thread::sleep(Duration::from_millis(1));
@@ -802,18 +1129,20 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             replay_path,
             rect,
             options,
+            ffmpeg,
             reply,
         } => {
             if let Some(mut s) = session.take() {
                 // Kira 的声音归混音器所有:丢弃句柄不会停播,必须显式
-                // stop,否则旧会话的 BGM 一直响(与新会话叠音)。
+                // stop,否则旧会话的 BGM/循环音一直响(与新会话叠音)。
                 s.audio_stop();
+                s.loops_stop();
                 s.backend.destroy(&s.app);
             }
             // catch_unwind:初始化失败(如驱动/wgpu panic)不能拖死整个
             // 渲染线程,否则后续所有命令都会"渲染线程无响应"。
             let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                open_session(&app, &beatmap_path, &replay_path, &options, rect)
+                open_session(&app, &beatmap_path, &replay_path, &options, rect, ffmpeg)
             }));
             let opened = match opened {
                 Ok(r) => r,
@@ -903,16 +1232,27 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             }
         }
         Cmd::Seek(t) => {
-            // 音效游标重置:跳过 seek 点之前的所有事件。
+            // 音效游标重置;循环句柄停播,渲染循环按新位置重起。
             if let Some(s) = session.as_mut() {
                 s.hs_cursor = s.hs_events.partition_point(|e| e.time <= t);
+                s.loops_stop();
             }
             if let Some(s) = session.as_mut() {
                 s.t = t.clamp(s.t0, s.duration);
                 s.clock = Instant::now();
                 s.dirty = true;
-                if s.playing {
-                    s.audio_seek();
+                if s.t < s.audio_offset {
+                    // 拖回前奏段:停播等时间轴跨过 offset 再起(位置
+                    // 钳 0 续播 = 前奏被快进,BGM 永久领先)。
+                    s.audio_stop();
+                    s.bgm_pending = s.playing;
+                } else {
+                    // 播放中和暂停中都把句柄跳到新位置:暂停中不跳的
+                    // 话,恢复播放时 BGM 从旧位置续播,与时间轴脱钩。
+                    s.bgm_pending = false;
+                    if s.playing || s.bgm_handle.is_some() {
+                        s.audio_seek();
+                    }
                 }
             }
         }
@@ -921,10 +1261,14 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 if s.t >= s.duration {
                     s.t = s.t0;
                     s.hs_cursor = 0;
+                    s.loops_stop();
                 }
                 s.playing = true;
-                s.clock = Instant::now();
                 s.audio_play();
+                // 时钟锚点放在音频起播之后:restart 路径要克隆整段解码
+                // 缓冲(数十 MB memcpy)再入队,这些耗时不计入回放时
+                // 间轴,否则时间轴先跑 δ、BGM 落后 δ,音效相对偏早。
+                s.clock = Instant::now();
                 let _ = s.app.emit(
                     "live-render-time",
                     LiveRenderState {
@@ -957,10 +1301,90 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             s.state.hud.ur_bar = options.ur_bar;
             s.state.hud.key_overlay = options.key_overlay;
             s.state.follow_points = options.follow_points;
+            s.state.cursor_size = options.cursor_size;
+            let offset_changed = s.audio_offset != options.audio_offset;
             s.audio_offset = options.audio_offset;
 
+            // ---- 皮肤:目录变更 → 重载 + 重建图集 + 场景整体重建 ----
+            // (legacy 精灵缓存/动画状态是皮肤的派生物,随皮肤作废;
+            // 皮肤分支自身会带上当前 bg,故 bg 分支在皮肤未变时才走。)
+            if options.skin_path != s.skin_path {
+                let loaded =
+                    skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new));
+                match loaded {
+                    Ok(mut new_skin) => {
+                        let bg_image = if options.bg {
+                            osu_replay_render::osu_background_file(&s.beatmap_path)
+                                .map(|name| {
+                                    std::path::Path::new(&s.beatmap_path)
+                                        .parent()
+                                        .map(|p| p.join(name))
+                                        .unwrap_or_default()
+                                })
+                                .and_then(|p| osu_replay_render::decode_image_file(&p).ok())
+                        } else {
+                            None
+                        };
+                        let with_bg = bg_image.is_some();
+                        // 兜底:图集构建与 GPU 上载(create_texture 的
+                        // 尺寸校验 panic 点)+ 会话字段交接全部包进来。
+                        // set_atlas 先于字段交接:panic 发生时 renderer
+                        // 仍持有旧纹理,会话完整保留当前皮肤,而不是把
+                        // 整个预览炸掉。失败仅终止本分支;后续字段
+                        // (bg_opacity/音频/音效开关)继续生效。
+                        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let (atlas, bold, semibold) =
+                                build_atlas(bg_image, &mut new_skin, 8192);
+                            s.set_atlas(&atlas);
+                            s.atlas = atlas;
+                            s.bold = bold;
+                            s.semibold = semibold;
+                            s.skin = new_skin;
+                            s.skin_path = options.skin_path.clone();
+                            s.has_bg = with_bg;
+                            // 新皮肤就位:按最新开关重映射 combo 色,先于
+                            // 场景重建(物件颜色读的是 s.game)。
+                            s.skin_colours = options.skin_colours;
+                            game::apply_skin_combo_colours(&mut s.game, &s.skin, s.skin_colours);
+                            let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
+                            state.pro_skin = s.skin_path.is_none();
+                            state.hud.ur_bar = options.ur_bar;
+                            state.hud.key_overlay = options.key_overlay;
+                            state.follow_points = options.follow_points;
+                            state.cursor_size = options.cursor_size;
+                            s.state = state;
+                            // 采样/循环句柄作废待重建;变调开关按新皮肤重读。
+                            s.hs_sounds.clear();
+                            s.loops_stop();
+                            s.spin_freq_modulate = s
+                                .skin
+                                .get_config(skin::SkinLookup::Generic(
+                                    "SpinnerFrequencyModulate".into(),
+                                ))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true);
+                        }));
+                        if let Err(panic) = built {
+                            let msg = panic_msg(panic.as_ref());
+                            eprintln!("live_render: 皮肤热切换 panic: {msg}");
+                            let _ = s.app.emit(
+                                "live-render-skin-error",
+                                format!("皮肤切换失败({msg}),已保留当前皮肤"),
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("live_render: 皮肤加载失败({e}),保留当前皮肤");
+                        let _ = s.app.emit(
+                            "live-render-skin-error",
+                            format!("皮肤加载失败:{e}(已保留当前皮肤)"),
+                        );
+                    }
+                }
+            }
+
             // ---- 背景图:重建图集(字体 rect 补丁依赖图集)+ 热替换纹理 ----
-            if options.bg != s.has_bg {
+            if options.bg != s.has_bg && options.skin_path == s.skin_path {
                 let bg_image = if options.bg {
                     osu_replay_render::osu_background_file(&s.beatmap_path)
                         .map(|name| {
@@ -973,13 +1397,42 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
-                let (atlas, bold, semibold) = build_atlas(bg_image);
-                s.set_atlas(&atlas);
-                s.atlas = atlas;
-                s.bold = bold;
-                s.semibold = semibold;
-                s.has_bg = options.bg;
+                // 皮肤纹理住在图集里,重建图集必须带上(按当前路径重载,
+                // ResolvedSkin 不可 Clone;assign_regions 回填新区域)。
+                match skin::load_skin(s.skin_path.as_deref().map(std::path::Path::new)) {
+                    Ok(mut skin) => {
+                        // 与皮肤热切换同构:GPU 上载与字段交接一并纳入
+                        // catch,panic 时保留当前画面。
+                        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+                            s.set_atlas(&atlas);
+                            s.atlas = atlas;
+                            s.bold = bold;
+                            s.semibold = semibold;
+                            s.skin = skin;
+                            s.has_bg = options.bg;
+                            // 预加载的采样还挂着旧皮肤的字节,作废待重建。
+                            s.hs_sounds.clear();
+                        }));
+                        if let Err(panic) = built {
+                            let msg = panic_msg(panic.as_ref());
+                            eprintln!("live_render: 背景图集重建 panic: {msg}");
+                            let _ = s.app.emit(
+                                "live-render-skin-error",
+                                format!("背景图集重建失败({msg}),已保留当前画面"),
+                            );
+                        }
+                    }
+                    Err(e) => eprintln!("live_render: 重建图集时皮肤加载失败({e})"),
+                }
             }
+            // ---- 皮肤 combo 色开关:皮肤未变(或换肤失败保留旧皮肤)时
+            // 原地重映射;apply 可重入,总从基础调色板整体重算 ----
+            if options.skin_colours != s.skin_colours {
+                s.skin_colours = options.skin_colours;
+                game::apply_skin_combo_colours(&mut s.game, &s.skin, s.skin_colours);
+            }
+
             s.state.bg_opacity = if s.has_bg {
                 Some(options.bg_opacity.clamp(0.0, 1.0))
             } else {
@@ -988,28 +1441,50 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
 
             // ---- 音频:开→懒解码(一次性);关→停播 ----
             if options.audio {
-                if s.bgm_data.is_none() && s.audio_path.is_some() {
-                    s.bgm_data = load_bgm(s.audio_path.as_ref().unwrap());
-                    if s.playing && s.bgm_data.is_some() {
-                        s.audio_restart();
+                let was_unloaded = s.bgm_data.is_none() && s.audio_path.is_some();
+                if was_unloaded {
+                    s.bgm_data = load_bgm(
+                        s.audio_path.as_ref().unwrap(),
+                        s.game.rate,
+                        s.game.nightcore,
+                        s.ffmpeg.as_deref(),
+                    );
+                }
+                // 起播/重锚:解码刚就绪,或偏移热改后按新映射重新对位
+                // (改回前奏段则停播待跨界)。已在播且偏移未变则不动。
+                if s.bgm_data.is_some() && s.playing && (was_unloaded || offset_changed) {
+                    if s.t < s.audio_offset {
+                        s.audio_stop();
+                        s.bgm_pending = true;
+                    } else {
+                        s.bgm_pending = false;
+                        if was_unloaded || s.bgm_handle.is_none() {
+                            s.audio_restart();
+                        } else {
+                            s.audio_seek();
+                        }
                     }
                 }
             } else {
                 s.audio_stop();
+                s.bgm_pending = false;
             }
 
-            // ---- 音效:开→懒加载采样(事件表 open 时已建);关→停触发 ----
+            // ---- 音效:开→懒加载采样(事件表 open 时已建);关→停触发与循环 ----
             s.hitsounds = options.hitsounds;
             if s.hitsounds {
                 s.ensure_hitsounds();
+            } else {
+                s.loops_stop();
             }
             s.dirty = true;
         }
         Cmd::Close => {
             if let Some(mut s) = session.take() {
                 // Kira 的声音归混音器所有:丢弃句柄不会停播(切走页面/
-                // 关闭预览后 BGM 一直响),必须显式 stop。
+                // 关闭预览后 BGM/循环音一直响),必须显式 stop。
                 s.audio_stop();
+                s.loops_stop();
                 s.backend.destroy(&s.app);
             }
         }
@@ -1022,8 +1497,10 @@ fn open_session(
     replay_path: &str,
     options: &LiveOptions,
     rect: PreviewRect,
+    ffmpeg: Option<std::path::PathBuf>,
 ) -> Result<Session, String> {
-    let game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
+    let mut game =
+        game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
 
     // 背景([Events] 0,0,"...",相对谱面目录,PNG/JPEG,解码进图集)。
     let map_dir = std::path::Path::new(beatmap_path)
@@ -1038,13 +1515,20 @@ fn open_session(
         None
     };
     let has_bg = bg_image.is_some();
-    let (atlas, bold, semibold) = build_atlas(bg_image);
+    // 皮肤:用户皮肤目录走 legacy 渲染(缺件回退 argon);None = 内置
+    // Argon-Pro(无判定文字、滑条身体透明度 0.92)。
+    let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
+        .map_err(|e| format!("皮肤加载失败: {e}"))?;
+    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+    // 皮肤 combo 色映射(--skin-colours 语义:默认谱面色优先,开关强制
+    // 皮肤色;可重入,SetOptions 换肤/切开关后重调)。
+    game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
     let duration = game.snapshots.last().map(|s| s.time).unwrap_or(0.0);
     let mut state = scene::SceneState::new(&game, RENDER_W, RENDER_H);
-    // 固定 Argon-Pro 皮肤(无判定文字、滑条身体透明度 0.92)。
-    state.pro_skin = true;
+    state.pro_skin = options.skin_path.is_none();
+    state.cursor_size = options.cursor_size;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
     state.follow_points = options.follow_points;
@@ -1060,7 +1544,9 @@ fn open_session(
         .map(|name| map_dir.join(name))
         .filter(|p| p.exists());
     let bgm_data = if options.audio {
-        audio_path.as_deref().and_then(load_bgm)
+        audio_path
+            .as_deref()
+            .and_then(|p| load_bgm(p, game.rate, game.nightcore, ffmpeg.as_deref()))
     } else {
         None
     };
@@ -1068,11 +1554,21 @@ fn open_session(
         eprintln!("live_render: BGM 不可用(文件缺失或解码失败),静音播放");
     }
 
-    // 音效事件表(lazer 语义:命中判定触发、谱面音量/bank、combobreak)。
-    let hs_events = std::fs::read_to_string(beatmap_path)
-        .ok()
-        .map(|content| hitsound::collect_events(&game, &content))
+    // 音效事件表与循环音事件(lazer 语义)。
+    let map_content = std::fs::read_to_string(beatmap_path).ok();
+    let hs_events = map_content
+        .as_deref()
+        .map(|content| hitsound::collect_events(&game, content))
         .unwrap_or_default();
+    let loop_events = map_content
+        .as_deref()
+        .map(|content| hitsound::collect_loop_events(&game, content))
+        .unwrap_or_default();
+    // 转盘变调开关(皮肤 SpinnerFrequencyModulate)。
+    let spin_freq_modulate = skin
+        .get_config(skin::SkinLookup::Generic("SpinnerFrequencyModulate".into()))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     // ---- 原生直渲后端 --------------------------------------------------------
     // Windows:首选 WS_CHILD 子窗口(随父窗口移动,零跟踪,主线程创建),
@@ -1178,7 +1674,11 @@ fn open_session(
         app: app.clone(),
         beatmap_path: beatmap_path.to_string(),
         audio_path,
+        ffmpeg,
         has_bg,
+        skin,
+        skin_path: options.skin_path.clone(),
+        skin_colours: options.skin_colours,
         game,
         atlas,
         bold,
@@ -1196,11 +1696,15 @@ fn open_session(
         last_top_assert: Instant::now(),
         bgm_data,
         bgm_handle: None,
+        bgm_pending: false,
         audio_offset: options.audio_offset,
         hs_events,
         hs_cursor: 0,
         hs_sounds: HashMap::new(),
         hitsounds: options.hitsounds,
+        loop_events,
+        loop_playbacks: Vec::new(),
+        spin_freq_modulate,
     };
     if session.hitsounds {
         session.ensure_hitsounds();
@@ -1213,13 +1717,19 @@ fn open_session(
 #[tauri::command(async)]
 pub fn live_render_open(
     app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
     beatmap_path: String,
     replay_path: String,
     rect: PreviewRect,
     options: LiveOptions,
 ) -> CommandResult<LiveOpenInfo> {
+    // 皮肤引用（lazer:<resource_id>）在会话实际创建时物化。
+    let options = resolve_lazer_skin(&state, options)?;
     // rect 已是物理 px(前端 × devicePixelRatio):WebKitGTK 的 X11 小数
     // 缩放(dpr 1.25)后端拿不到,见 PreviewRect 注释。
+    // ffmpeg 路径在此解析一次存入会话(设置手动路径 > PATH > danser,
+    // 与导出共用;缺省 = DT/HT 预览回退 kira 变调,见 load_bgm)。
+    let ffmpeg = ffmpeg_path(&state);
     let (tx, rx) = channel();
     send(Cmd::Open {
         app: Box::new(app),
@@ -1227,6 +1737,7 @@ pub fn live_render_open(
         replay_path,
         rect,
         options,
+        ffmpeg,
         reply: tx,
     });
     rx.recv()
@@ -1245,7 +1756,22 @@ pub fn live_render_move(rect: PreviewRect) -> CommandResult<()> {
 /// 渲染参数原地生效(零重载):即时字段改 SceneState;bg 重建图集并
 /// 热替换纹理;audio 懒加载/静音。不触碰 wgpu 设备/窗口/判定数据。
 #[tauri::command]
-pub fn live_render_set_options(options: LiveOptions) {
+pub fn live_render_set_options(
+    app: AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    options: LiveOptions,
+) {
+    // lazer 皮肤热切换 = 实际消费,此时物化;失败时回退内置皮肤并沿用
+    // 皮肤错误事件通道提示,其余参数照常生效。
+    let options = match resolve_lazer_skin(&state, options.clone()) {
+        Ok(options) => options,
+        Err(error) => {
+            let mut fallback = options;
+            fallback.skin_path = None;
+            let _ = app.emit("live-render-skin-error", error.message);
+            fallback
+        }
+    };
     send(Cmd::SetOptions(options));
 }
 
@@ -1269,6 +1795,94 @@ pub fn live_render_close() {
     send(Cmd::Close);
 }
 
+/// 一个可选的用户皮肤(客户端 Skins 目录下的子目录)。
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveSkinEntry {
+    pub name: String,
+    pub path: String,
+}
+
+/// 枚举客户端已安装的皮肤。stable 读 Skins 目录；lazer 的皮肤登记在
+/// Realm 中，从本地索引列出并以 "lazer:<resource_id>" 作为引用路径，
+/// 实际选用时才物化成目录（见 resolve_lazer_skin）。安装目录与数据
+/// 目录下的 Skins/ 子目录会合并列出。
+#[tauri::command]
+pub fn live_render_list_skins(
+    client: crate::features::local_analysis::LocalClient,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> CommandResult<Vec<LiveSkinEntry>> {
+    let status = state.local_analysis.source_status(client)?;
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    for base in [status.install_root.as_deref(), status.data_root.as_deref()]
+        .into_iter()
+        .flatten()
+    {
+        for name in ["Skins", "skins"] {
+            let p = std::path::Path::new(base).join(name);
+            if p.is_dir() && !roots.contains(&p) {
+                roots.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.push(LiveSkinEntry {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    path: path.display().to_string(),
+                });
+            }
+        }
+    }
+    // Lazer：Realm 登记的皮肤（内容寻址存储，没有对应目录）。
+    if client == crate::features::local_analysis::LocalClient::Lazer
+        && let Ok(page) =
+            state
+                .local_analysis
+                .query_skins(crate::features::local_analysis::SkinQuery {
+                    client,
+                    search: String::new(),
+                    sort: crate::features::local_analysis::SkinSort::Name,
+                    direction: crate::features::local_analysis::SortDirection::Asc,
+                    offset: 0,
+                    limit: 200,
+                })
+    {
+        for skin in page.items {
+            out.push(LiveSkinEntry {
+                name: skin.name,
+                path: format!("lazer:{}", skin.resource.resource_id),
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(out)
+}
+
+/// 把 LiveOptions.skin_path 中的 lazer 引用（"lazer:<resource_id>"）解析
+/// 为物化的皮肤目录——仅在皮肤真正被使用（打开预览 / 热切换 / 导出）
+/// 时执行，列表阶段不产生任何文件复制。
+fn resolve_lazer_skin(
+    state: &crate::state::AppState,
+    mut options: LiveOptions,
+) -> CommandResult<LiveOptions> {
+    let Some(reference) = options
+        .skin_path
+        .as_deref()
+        .and_then(|path| path.strip_prefix("lazer:"))
+    else {
+        return Ok(options);
+    };
+    let directory = state.local_analysis.materialize_lazer_skin(reference)?;
+    options.skin_path = Some(directory.display().to_string());
+    Ok(options)
+}
 // NULTEST-MARKER-X
 
 #[cfg(test)]
@@ -1381,7 +1995,8 @@ mod repro_tests {
 
             // ---- open_session 各段(与 open_session 顺序一致) ----
             let game = game::load(beatmap.to_str().unwrap(), replay.to_str().unwrap()).unwrap();
-            let (atlas, _bold, _semibold) = build_atlas(None);
+            let mut skin = skin::load_skin(None).unwrap();
+            let (atlas, _bold, _semibold) = build_atlas(None, &mut skin, 8192);
             let mut state = scene::SceneState::new(&game, 1280, 720);
             state.pro_skin = true;
             let content = std::fs::read_to_string(beatmap).unwrap();
@@ -1396,6 +2011,7 @@ mod repro_tests {
                     atlas: &atlas,
                     bold: &_bold,
                     semibold: &_semibold,
+                    skin: &skin,
                 },
                 &snap,
                 &mut list,
@@ -1438,6 +2054,10 @@ pub struct ExportParams {
     /// 混入音效轨(离线合成 ArgonPro 音效,与 BGM amix 求和)。
     #[serde(default = "default_true")]
     pub hitsounds: bool,
+    /// 导出专用 BGM 偏移 ms(与实时预览的偏移互相独立:预览偏移含
+    /// 输出设备延迟补偿,导出走文件混流不需要;默认 0)。
+    #[serde(default)]
+    pub audio_offset: f64,
 }
 
 fn default_true() -> bool {
@@ -1607,18 +2227,29 @@ pub fn live_render_export(
         return Err(CommandError::new("LIVE_RENDER", "已有导出任务在进行中"));
     }
     EXPORT_CANCEL.store(false, Ordering::SeqCst);
+    // 导出是实际消费点:lazer 皮肤引用在这里物化。
+    let options = resolve_lazer_skin(&state, options)?;
     let (tx, rx) = channel::<Result<String, String>>();
     std::thread::Builder::new()
         .name("live-render-export".into())
         .spawn(move || {
-            let result = run_export(
-                &app,
-                &ffmpeg,
-                &beatmap_path,
-                &replay_path,
-                &options,
-                &params,
-            );
+            // 兜底:导出中的 wgpu/驱动 panic 不能让线程无声死掉(命令端
+            // 只能靠超时发现);捕获后照常复位状态并回传错误。
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_export(
+                    &app,
+                    &ffmpeg,
+                    &beatmap_path,
+                    &replay_path,
+                    &options,
+                    &params,
+                )
+            }))
+            .unwrap_or_else(|panic| {
+                let msg = panic_msg(panic.as_ref());
+                eprintln!("live_render: 导出 panic: {msg}");
+                Err(format!("导出过程崩溃: {msg}"))
+            });
             EXPORT_RUNNING.store(false, Ordering::SeqCst);
             let _ = tx.send(result);
         })
@@ -1750,7 +2381,8 @@ fn run_export(
     let cancelled = || EXPORT_CANCEL.load(Ordering::SeqCst);
 
     // ---- 加载(与预览会话独立,不共享 GPU 设备) ----
-    let game = game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
+    let mut game =
+        game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
     let map_dir = std::path::Path::new(beatmap_path)
         .parent()
         .map(|p| p.to_path_buf())
@@ -1763,11 +2395,16 @@ fn run_export(
         None
     };
     let has_bg = bg_image.is_some();
-    let (atlas, bold, semibold) = build_atlas(bg_image);
+    let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
+        .map_err(|e| format!("皮肤加载失败: {e}"))?;
+    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+    // 与预览会话同语义的 combo 色映射。
+    game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
     let mut renderer = Renderer::new(params.width, params.height, &atlas);
     let mut state = scene::SceneState::new(&game, params.width, params.height);
-    state.pro_skin = true;
+    state.pro_skin = options.skin_path.is_none();
+    state.cursor_size = options.cursor_size;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
     state.follow_points = options.follow_points;
@@ -1838,6 +2475,7 @@ fn run_export(
         atlas: &atlas,
         bold: &bold,
         semibold: &semibold,
+        skin: &skin,
     };
     let mut list = draw::DrawList::new();
     let mut exported = 0u32;
@@ -1918,9 +2556,9 @@ fn run_export(
     // ---- 音频混流(可选,第二遍:视频流拷贝) ----
     // 音量按 osu! 默认值(Music/Effect/Master 各 0.6,
     // `OsuGame.GetFrameworkConfigDefaults`),与 CLI 导出语义一致:
-    // 通道 0.6 × 主音量 0.6。BGM 链同时处理 rate mod 的变速变调与
-    // 负偏移静音(asetrate/adelay),音效轨由 render_track_wav 在墙钟
-    // 时间轴上离线合成,直接 amix。
+    // 通道 0.6 × 主音量 0.6。BGM 链处理 rate mod(DT/HT atempo 变速
+    // 不变调、NC 保留 asetrate 变调)与负偏移静音,音效轨由
+    // render_track_wav 在墙钟时间轴上离线合成(采样恒原速),直接 amix。
     let bgm_path = if params.audio {
         osu_replay_render::osu_general_value(beatmap_path, "AudioFilename")
             .map(|name| map_dir.join(name))
@@ -1933,8 +2571,9 @@ fn run_export(
             .ok()
             .and_then(|content| {
                 let wall_secs = frame_times.len() as f64 / params.fps as f64;
-                let wav =
-                    hitsound::render_track_wav(&game, &content, t0, wall_secs, game.rate, 0.6);
+                let wav = hitsound::render_track_wav(
+                    &game, &content, t0, wall_secs, game.rate, 0.6, &skin,
+                );
                 let p = format!("{}.hits.wav", params.out_path);
                 std::fs::write(&p, wav).ok().map(|_| p)
             })
@@ -1945,22 +2584,33 @@ fn run_export(
     if bgm_path.is_some() || hits_path.is_some() {
         emit("mux", exported, total, "混入音频…".into());
         let rate = game.rate;
-        let seek_ms = t0 - options.audio_offset * rate;
+        let seek_ms = t0 - params.audio_offset * rate;
         let mut cmd = std::process::Command::new(ffmpeg);
         cmd.args(["-y", "-v", "error"]).arg("-i").arg(&tmp);
         let mut bgm_filters: Vec<String> = vec!["volume=0.6000".into()];
         if let Some(bgm) = &bgm_path {
-            if (rate - 1.0).abs() > 1e-9 {
-                let sr = probe_sample_rate(ffmpeg, bgm);
-                bgm_filters.push(format!(
-                    "asetrate={sr},aresample={sr}",
-                    sr = (sr as f64 * rate).round() as i64
-                ));
-            }
             if seek_ms >= 0.0 {
                 cmd.arg("-ss").arg(format!("{:.3}", seek_ms / 1000.0));
             } else {
-                bgm_filters.push(format!("adelay={}:all=1", (-seek_ms / rate).round() as i64));
+                // 负文件位置:前置静音补齐。delay 取文件(谱面)时间轴毫秒、
+                // 且必须位于 rate 滤镜之前——rate 滤波会把它压缩成
+                // -seek/rate 墙钟毫秒;atempo 放在 adelay 之前会在
+                // ffmpeg 9 的 -shortest 下卡死图同步、音频只剩毫秒级。
+                bgm_filters.push(format!("adelay={}:all=1", (-seek_ms).round() as i64));
+            }
+            if (rate - 1.0).abs() > 1e-9 {
+                if game.nightcore {
+                    // NC 保留游戏内升调(asetrate 变速变调,nightcore 的
+                    // 本体),与 CLI 导出语义一致。
+                    let sr = probe_sample_rate(ffmpeg, bgm);
+                    bgm_filters.push(format!(
+                        "asetrate={sr},aresample={sr}",
+                        sr = (sr as f64 * rate).round() as i64
+                    ));
+                } else {
+                    // DT/HT 变速不变调(atempo 只压时长、保音调)。
+                    bgm_filters.push(format!("atempo={:.6}", rate));
+                }
             }
             cmd.arg("-i").arg(bgm);
         }
@@ -2017,8 +2667,8 @@ fn run_export(
     Ok(params.out_path.clone())
 }
 
-/// 首个音频流的采样率(rate mod 的 asetrate 用)。优先取 ffmpeg 同目录
-/// 的 ffprobe(自定义路径/danser 包),否则 PATH;失败回退 44100。
+/// 首个音频流的采样率(仅 NC 分支的 asetrate 变调用)。优先取 ffmpeg
+/// 同目录的 ffprobe(自定义路径/danser 包),否则 PATH;失败回退 44100。
 fn probe_sample_rate(ffmpeg: &std::path::Path, media: &std::path::Path) -> u32 {
     let sibling = ffmpeg.with_file_name(if cfg!(windows) {
         "ffprobe.exe"

@@ -603,7 +603,18 @@ pub(crate) fn media_roots(state: &AppState, client: LocalClient) -> CommandResul
         }
     };
     let add_base = |base: PathBuf, add: &mut dyn FnMut(PathBuf)| {
-        for name in ["Screenshots", "screenshots", "Replays", "replays"] {
+        // "exports" is lazer's export target (`LegacyExporter` writes every
+        // export, including .osr scores, to `<data root>/exports/`) - without
+        // it lazer-exported replays are invisible to the picker and rejected
+        // by the path gate.
+        for name in [
+            "Screenshots",
+            "screenshots",
+            "Replays",
+            "replays",
+            "exports",
+            "Exports",
+        ] {
             add(base.join(name));
         }
         let files = base.join("files");

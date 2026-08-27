@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clipboard, FileVideo, Film, FolderSearch, Image, Images, RefreshCw } from "lucide-react";
+import { Clipboard, FileVideo, Film, FolderSearch, Image, Images, MonitorPlay, RefreshCw } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
@@ -219,7 +219,10 @@ export function LocalMediaPage() {
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => void openExplorer()} size="sm"><FolderSearch className="size-4" />资源管理器</Button>
                 <Button onClick={() => void copyPath()} size="sm"><Clipboard className="size-4" />复制路径</Button>
-                {selected.kind === "replay" ? <Button onClick={() => navigate(`/local/media/render?replay=${encodeURIComponent(selected.path)}`)} size="sm" variant="primary"><Film className="size-4" />加入渲染</Button> : null}
+                {selected.kind === "replay" ? <>
+                  <Button onClick={() => navigate(`/local/media/render?live=1&replay=${encodeURIComponent(selected.path)}`)} size="sm"><MonitorPlay className="size-4" />实时预览</Button>
+                  <Button onClick={() => navigate(`/local/media/render?danser=1&replay=${encodeURIComponent(selected.path)}`)} size="sm" variant="primary"><Film className="size-4" />加入 Danser 渲染队列</Button>
+                </> : null}
                 {payload && "mime_type" in payload ? <Button onClick={() => void copyImage()} size="sm"><Image className="size-4" />复制图片</Button> : null}
               </div>
             </div>
