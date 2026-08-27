@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 use tauri::{async_runtime, ipc::Response};
 
 use crate::{
+    domain::Ruleset,
     error::{CommandError, CommandResult},
-    local_analysis::{
+    features::local_analysis::{
         LocalClient, StrainAnalysis,
         parser::{calculate_strains, parse_beatmap},
     },
-    app::models::Ruleset,
 };
 
 const MIN_GIF_SECONDS: f64 = 1.0;
@@ -313,7 +313,7 @@ pub fn save_beatmap_preview_output(source: String, destination: String) -> Comma
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_beatmap_preview_output(path: String) -> CommandResult<()> {
     let output = validated_output(&path)?;
-    crate::platform::reveal_path(Path::new(&output)).map_err(|error| {
+    crate::infrastructure::platform::reveal_path(Path::new(&output)).map_err(|error| {
         CommandError::new(
             "PREVIEW_OPEN_FAILED",
             format!("无法打开预览所在文件夹：{error}"),

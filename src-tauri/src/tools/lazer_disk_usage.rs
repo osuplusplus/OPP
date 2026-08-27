@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 
 use crate::{
     error::{CommandError, CommandResult},
-    platform,
+    infrastructure::platform,
 };
 
 #[derive(Debug, Clone, Serialize)]
