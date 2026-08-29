@@ -24,6 +24,7 @@ const defaultOptions: LiveRenderOptions = {
   urBar: true,
   followPoints: true,
   keyOverlay: true,
+  ppDisplay: true,
   bg: false,
   bgOpacity: 0.3,
   audio: true,
@@ -445,6 +446,9 @@ export function LivePreviewPanel() {
             </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.keyOverlay} onChange={(event) => update("keyOverlay", event.target.checked)} />按键输入展示(Z/X/C 键与计数)
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="游玩过程中的实时性能点数(逐物件渐增,Argon 样式挂在 ACC 行下方)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.ppDisplay} onChange={(event) => update("ppDisplay", event.target.checked)} />PP 计数(实时性能点数)
             </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线(Follow points)

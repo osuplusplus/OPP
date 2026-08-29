@@ -838,6 +838,8 @@ export interface LiveRenderOptions {
   urBar: boolean;
   followPoints: boolean;
   keyOverlay: boolean;
+  /** 实时 PP 计数器(逐物件渐增,Argon 样式挂 ACC 行下方;后端字段 ppDisplay)。 */
+  ppDisplay: boolean;
   bg: boolean;
   bgOpacity: number;
   audio: boolean;

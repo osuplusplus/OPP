@@ -66,6 +66,9 @@ pub struct LiveOptions {
     pub ur_bar: bool,
     /// 按键输入展示(右下角 Z/X/C 键位计数,Argon key overlay),默认开。
     pub key_overlay: bool,
+    /// 实时 PP 计数器(逐物件 GradualPerformance,Argon 样式挂 ACC 行
+    /// 下方;渲染库 CLI 的 `--no-pp` 反向开关),默认开。
+    pub pp_display: bool,
     /// 物件之间的引导线(follow points),默认开。
     pub follow_points: bool,
     /// 绘制谱面背景图([Events] 0,0,...,全屏铺满)。
@@ -98,6 +101,7 @@ impl Default for LiveOptions {
         Self {
             ur_bar: true,
             key_overlay: true,
+            pp_display: true,
             follow_points: true,
             bg: false,
             bg_opacity: 0.3,
@@ -1300,6 +1304,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             // ---- 即时字段:下一帧生效 ----
             s.state.hud.ur_bar = options.ur_bar;
             s.state.hud.key_overlay = options.key_overlay;
+            s.state.hud.pp_display = options.pp_display;
             s.state.follow_points = options.follow_points;
             s.state.cursor_size = options.cursor_size;
             let offset_changed = s.audio_offset != options.audio_offset;
@@ -1350,6 +1355,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             state.pro_skin = s.skin_path.is_none();
                             state.hud.ur_bar = options.ur_bar;
                             state.hud.key_overlay = options.key_overlay;
+                            state.hud.pp_display = options.pp_display;
                             state.follow_points = options.follow_points;
                             state.cursor_size = options.cursor_size;
                             s.state = state;
@@ -1531,6 +1537,7 @@ fn open_session(
     state.cursor_size = options.cursor_size;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
+    state.hud.pp_display = options.pp_display;
     state.follow_points = options.follow_points;
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))
@@ -2407,6 +2414,7 @@ fn run_export(
     state.cursor_size = options.cursor_size;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
+    state.hud.pp_display = options.pp_display;
     state.follow_points = options.follow_points;
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))

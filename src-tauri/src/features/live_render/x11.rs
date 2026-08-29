@@ -174,7 +174,7 @@ mod tests {
             (xlib.XFlush)(display);
 
             let mut skin = osu_replay_render::skin::load_skin(None).unwrap();
-            let (atlas, _bold, _semibold) = osu_replay_render::build_atlas(None, &mut skin);
+            let (atlas, _bold, _semibold) = osu_replay_render::build_atlas(None, &mut skin, 8192);
             let (rd, rw) = child.raw_handles();
             let mut renderer =
                 osu_replay_render::surface::SurfaceRenderer::new(1280, 720, &atlas, rd, rw)
