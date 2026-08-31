@@ -58,3 +58,7 @@ Copyright © Siflorite and contributors.
 Licensed under the Apache License, Version 2.0. You may obtain a copy of the
 License at <https://www.apache.org/licenses/LICENSE-2.0>. The upstream project
 does not include a `NOTICE` file. OPP's own modifications remain MIT-licensed.
+
+### CollectionManager shim
+
+OPP supports an optional user-configured CollectionManager-compatible shim for osu!lazer collection access. The executable is not bundled; users must provide a trusted path. The shim communicates over JSON stdin/stdout protocol version 1. License and provenance are the responsibility of the supplied shim.
