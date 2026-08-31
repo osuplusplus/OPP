@@ -408,6 +408,27 @@ fn profile_from_cache(record: &CacheRecord, stale: bool) -> CommandResult<Cached
     })
 }
 
+#[tauri::command]
+/// 结算屏头像落盘路径:确保账号头像已按 avatar_url 缓存到本地
+/// (image-cache/avatar-{id}.bin),返回文件路径供渲染器解码;无则 None。
+pub async fn resolve_avatar_file(
+    user_id: u64,
+    avatar_url: String,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<String>> {
+    state
+        .avatar_cache
+        .load_or_fetch(user_id, &avatar_url, false)
+        .await?;
+    Ok(Some(
+        state
+            .avatar_cache
+            .file_path(user_id)
+            .to_string_lossy()
+            .into_owned(),
+    ))
+}
+
 async fn attach_avatar(state: &AppState, profile: &mut OwnProfile, force_refresh: bool) {
     // 头像是辅助展示数据：下载失败不应使个人资料请求整体失败。
     profile.avatar_data_url = state
