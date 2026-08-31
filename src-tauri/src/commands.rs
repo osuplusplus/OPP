@@ -3,6 +3,7 @@ pub(crate) use crate::{
         account::{
             begin_oauth_login, cancel_oauth_login, clear_profile_cache, disconnect_osu,
             export_replay_video, get_auth_status, get_own_profile, get_scores, get_settings,
+            resolve_avatar_file,
             mark_onboarding_seen, mark_page_onboarding_seen, save_oauth_credentials,
             update_settings,
         },
@@ -139,6 +140,7 @@ macro_rules! handler {
             cancel_oauth_login,
             disconnect_osu,
             get_own_profile,
+            resolve_avatar_file,
             get_scores,
             get_osekai_medals,
             get_osekai_medal_detail,

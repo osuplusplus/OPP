@@ -57,6 +57,7 @@ osu-difficulty-runtime = { path = "crates/osu-difficulty-runtime" }
 netease-cloud-music = { path = "crates/netease-cloud-music" }
 osu-beatmap-preview = { git = "https://github.com/L1rics06/osu-beatmap-preview", version = "1.0.7" }
 osu_replay_render = { git = "https://github.com/Ohdmire/osu-replay-render" }
+
 kira = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -69,3 +70,14 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphic
 
 [dev-dependencies]
 tempfile = "3"
+
+# Local checkouts ahead of the published git revs (render 0.7.0 needs the
+# judge's .osr timestamp + the pp-rework rosu-pp strains API).
+[patch."https://github.com/Ohdmire/osu-replay-render"]
+osu_replay_render = { path = "../../osu-replay-render" }
+
+[patch."https://github.com/Ohdmire/osu-replay-judge.git"]
+osu_replay_judge = { path = "../../osu-replay-judge" }
+
+[patch."https://github.com/Apeuriox/rosu-pp.git"]
+rosu-pp = { path = "../../rosu-pp" }

@@ -66,6 +66,12 @@ impl AvatarCache {
         }
     }
 
+    /// 已缓存的头像落盘路径(`load_or_fetch` 成功后有效)。
+    /// 供实时预览/导出的结算屏头像使用(渲染端按内容嗅探格式)。
+    pub fn file_path(&self, user_id: u64) -> PathBuf {
+        self.directory.join(format!("avatar-{user_id}.bin"))
+    }
+
     pub fn clear(&self) -> CommandResult<()> {
         if self.directory.exists() {
             fs::remove_dir_all(&self.directory)?;
