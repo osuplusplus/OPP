@@ -70,11 +70,14 @@ describe("SkinWorkshopPage", () => {
       { resource_id: "overlay", kind: "image", name: "hitcircleoverlay.png", logical_path: "hitcircleoverlay.png", extension: "png", size: 256, category: "gameplay" },
     ];
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={queryClient}><SkinWorkshopPage /></QueryClientProvider>);
+    const { container } = render(<QueryClientProvider client={queryClient}><SkinWorkshopPage /></QueryClientProvider>);
 
     expect(screen.getByRole("button", { name: "预览 Refined" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "在本地打开 Refined" })).toBeInTheDocument();
     expect(screen.getByAltText("Refined 光标预览")).toBeInTheDocument();
+    const renderedColors = [...container.querySelectorAll<HTMLElement>("span[style]")].map((element) => element.style.backgroundColor);
+    expect(renderedColors).toContain("rgb(92, 225, 230)");
+    expect(renderedColors).toContain("rgb(255, 106, 167)");
     expect(screen.queryByRole("button", { name: "进入预览" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "本地打开" })).not.toBeInTheDocument();
     mocks.skinItems = [];

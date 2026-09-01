@@ -27,8 +27,8 @@ use super::super::{
 use super::lazer_realm::LazerRealmFile;
 use super::service_query::{compare_beatmaps, compare_skins};
 
-/// Bump this only when a serialized [`LocalIndex`] can no longer be read safely.
-pub(super) const INDEX_SCHEMA: u32 = 7;
+/// 序列化结构或缓存字段语义变化时递增，避免继续复用过期的解析结果。
+pub(super) const INDEX_SCHEMA: u32 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) struct FileStamp {
