@@ -11,6 +11,10 @@ pub mod pp;
 pub mod render;
 pub mod results;
 pub mod scene;
+/// Beatmap storyboard layer (`.osu` Events + shared `.osb`): rendered by
+/// the osu-storyboard-render library into two offscreen composites
+/// (below/above the playfield) and GPU-copied into atlas slots each frame.
+pub mod storyboard;
 /// osu!(lazer) skinning abstraction port: user skin directories
 /// (`--skin <dir>`) with the built-in argon skin as fallback.
 pub mod skin;
@@ -195,6 +199,20 @@ const COUNTER_PERCENT_PNG: &[u8] = include_bytes!("../assets/counter/argon-count
 const COUNTER_X_PNG: &[u8] = include_bytes!("../assets/counter/argon-counter-x.png");
 const COUNTER_WIREFRAMES_PNG: &[u8] = include_bytes!("../assets/counter/argon-counter-wireframes.png");
 
+/// Atlas slots reserved for the storyboard composites (`--storyboard`):
+/// two full-frame regions the storyboard layer renders into GPU-side
+/// every frame (below = Background/Fail/Pass, above = Foreground/Overlay
+/// when present). Sized to the output resolution; larger renders sample
+/// the slots upscaled rather than growing the atlas.
+#[derive(Clone, Copy, Debug)]
+pub struct StoryboardSlots {
+    pub width: u32,
+    pub height: u32,
+    /// Reserve the above-playfield slot too (the map's storyboard has
+    /// Foreground/Overlay elements).
+    pub foreground: bool,
+}
+
 /// Builds the atlas (fonts, counter digits, cursor pieces, skin
 /// textures, optional background) plus the two font wrappers needed by
 /// the scene builder. Skin textures are packed as `Region::Skin(i)`
@@ -204,11 +222,14 @@ const COUNTER_WIREFRAMES_PNG: &[u8] = include_bytes!("../assets/counter/argon-co
 /// Venera fonts back the results screen's score counter and rank letter.
 /// `avatar_image` (`--avatar` / config `avatar`) is packed as
 /// `Region::Avatar`: cover-cropped square, pre-masked rounded corners.
+/// `storyboard` (`--storyboard`) reserves the full-frame storyboard
+/// composite slots (`Region::Storyboard` [+ `StoryboardForeground`]).
 pub fn build_atlas(
     bg_image: Option<Image>,
     avatar_image: Option<Image>,
     skin: &mut dyn skin::SkinTextureSource,
     max_dim: u32,
+    storyboard: Option<StoryboardSlots>,
 ) -> (Atlas, Fonts) {
     let (mut bold, mut bold_images) = TtfFont::rasterize(TORUS_BOLD_FONT, WEIGHT_BOLD);
     let (mut semibold, mut semibold_images) = TtfFont::rasterize(TORUS_SEMI_BOLD_FONT, WEIGHT_SEMIBOLD);
@@ -230,6 +251,15 @@ pub fn build_atlas(
     }
     if let Some(avatar) = avatar_image {
         images.push((Region::Avatar, rounded_avatar(&avatar, 0.25)));
+    }
+    // Storyboard composite slots: transparent placeholders — the layer
+    // overwrites them GPU-side every frame (copy_texture_to_texture).
+    if let Some(slots) = storyboard {
+        let blank = |w, h| Image { width: w, height: h, rgba: vec![0u8; (w * h * 4) as usize] };
+        images.push((Region::Storyboard, blank(slots.width, slots.height)));
+        if slots.foreground {
+            images.push((Region::StoryboardForeground, blank(slots.width, slots.height)));
+        }
     }
     images.append(&mut bold_images);
     images.append(&mut semibold_images);
@@ -377,90 +407,6 @@ fn decode_jpeg_bytes(bytes: &[u8]) -> Result<Image, String> {
         other => return Err(format!("unsupported jpeg pixel format {:?}", other)),
     };
     Ok(Image { width: w, height: h, rgba })
-}
-
-/// A value from the beatmap's `[General]` section (e.g. `AudioFilename`).
-pub fn osu_general_value(map_path: &str, key: &str) -> Option<String> {
-    let content = std::fs::read_to_string(map_path).ok()?;
-    let mut in_general = false;
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_general = line.eq_ignore_ascii_case("[General]");
-            continue;
-        }
-        if in_general {
-            if let Some((k, v)) = line.split_once(':') {
-                if k.trim().eq_ignore_ascii_case(key) {
-                    return Some(v.trim().to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// The beatmap's `[Metadata]` (title/artist/version/creator), romanised
-/// first with unicode fallback - lazer's `RomanisableString` default.
-pub fn osu_metadata(map_path: &str) -> game::MapMeta {
-    let section = |key: &str| -> String {
-        osu_section_value(map_path, "Metadata", key).unwrap_or_default()
-    };
-    let pick = |romanised: &str, unicode: &str| -> String {
-        let r = section(romanised);
-        if r.is_empty() { section(unicode) } else { r }
-    };
-    game::MapMeta {
-        title: pick("Title", "TitleUnicode"),
-        artist: pick("Artist", "ArtistUnicode"),
-        version: section("Version"),
-        creator: section("Creator"),
-    }
-}
-
-/// A value from an arbitrary `[Section]` of the beatmap file.
-fn osu_section_value(map_path: &str, section: &str, key: &str) -> Option<String> {
-    let content = std::fs::read_to_string(map_path).ok()?;
-    let mut in_section = false;
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_section = line.eq_ignore_ascii_case(&format!("[{}]", section));
-            continue;
-        }
-        if in_section {
-            if let Some((k, v)) = line.split_once(':') {
-                if k.trim().eq_ignore_ascii_case(key) {
-                    return Some(v.trim().to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// The background image filename from `[Events]` (`0,0,"file.jpg",...`).
-pub fn osu_background_file(map_path: &str) -> Option<String> {
-    let content = std::fs::read_to_string(map_path).ok()?;
-    let mut in_events = false;
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_events = line.eq_ignore_ascii_case("[Events]");
-            continue;
-        }
-        if in_events && line.starts_with("0,0,") {
-            // `0,0,"file.jpg",0,0` - strip the opening quote, take up to the
-            // closing one (filenames may contain commas).
-            let rest = line[4..].trim_start_matches('"');
-            let end = rest.find('"').unwrap_or(rest.len());
-            let name = rest[..end].to_string();
-            if !name.is_empty() {
-                return Some(name);
-            }
-        }
-    }
-    None
 }
 
 pub fn decode_png_bytes(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {

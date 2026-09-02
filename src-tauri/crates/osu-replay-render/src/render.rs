@@ -375,6 +375,8 @@ pub struct Renderer {
     atlas_bind: wgpu::BindGroup,
     atlas_layout: wgpu::BindGroupLayout,
     atlas_sampler: wgpu::Sampler,
+    /// The live atlas GPU texture (kept for `copy_into_atlas`).
+    atlas_tex: wgpu::Texture,
     screen_bind: wgpu::BindGroup,
     body_tex: wgpu::Texture,
     body_bind: wgpu::BindGroup,
@@ -491,6 +493,34 @@ impl Renderer {
             ],
             label: Some("atlas bind"),
         });
+        self.atlas_tex = atlas_tex;
+    }
+
+    /// GPU 侧把一张 Rgba8Unorm 纹理拷进图集的某个区域槽位(storyboard
+    /// 合成层每帧刷新用)。`src` 的尺寸必须与区域一致;同一队列内
+    /// 顺序在后续场景提交之前。
+    pub fn copy_into_atlas(&self, src: &wgpu::Texture, atlas: &Atlas, region: crate::draw::Region) {
+        let rect = atlas.region_rect(region);
+        let (x, y) = (rect.x0 as u32, rect.y0 as u32);
+        let size = wgpu::Extent3d {
+            width: (rect.x1 - rect.x0) as u32,
+            height: (rect.y1 - rect.y0) as u32,
+            depth_or_array_layers: 1,
+        };
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("atlas slot copy"),
+        });
+        encoder.copy_texture_to_texture(
+            src.as_image_copy(),
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.atlas_tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            size,
+        );
+        self.queue.submit(Some(encoder.finish()));
     }
 
     pub fn target_view(&self) -> wgpu::TextureView {
@@ -926,6 +956,7 @@ impl Renderer {
             atlas_bind,
             atlas_layout,
             atlas_sampler: sampler,
+            atlas_tex,
             screen_bind,
             target,
             msaa,

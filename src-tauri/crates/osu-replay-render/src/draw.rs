@@ -1112,6 +1112,13 @@ pub enum Region {
     /// (lazer `ResultsScreen` blurs the background with
     /// `BACKGROUND_BLUR` sigma and fades it to gray).
     BackgroundBlurred,
+    /// Storyboard below-layer composite (Background/Fail/Pass sprites,
+    /// `--storyboard`): refreshed GPU-side every frame, never read back.
+    Storyboard,
+    /// Storyboard above-layer composite (Foreground/Overlay sprites),
+    /// drawn over the playfield like osu!; packed only when the map's
+    /// storyboard uses those layers.
+    StoryboardForeground,
     /// The results-screen avatar (`--avatar <image>` / config `avatar`):
     /// cover-cropped to a square with pre-masked rounded corners.
     Avatar,

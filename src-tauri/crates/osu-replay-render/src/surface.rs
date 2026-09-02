@@ -76,6 +76,23 @@ impl SurfaceRenderer {
         self.renderer.gpu_info()
     }
 
+    /// The device/queue the scene renders with (shared with the window
+    /// surface) — embedders build their auxiliary layers (e.g. the
+    /// storyboard composites) on the SAME device.
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Mutable access to the internal offscreen renderer (auxiliary
+    /// layers need to copy into its atlas before a frame is encoded).
+    pub fn renderer_mut(&mut self) -> &mut Renderer {
+        &mut self.renderer
+    }
+
     /// Creates the renderer plus a wgpu surface for the given raw window
     /// handle (Windows: Win32;Linux: Xlib/XWayland)。The scene is rendered
     /// internally at `width`x`height` and letterboxed onto the window.
@@ -297,29 +314,15 @@ impl SurfaceRenderer {
         let mut encoder = self.renderer.encode_scene(list, clear);
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
-            // A native child window can briefly invalidate its swapchain when
-            // the WebView is resized, uncovered, or moved between monitors.
-            // Do not silently lose all subsequent frames (audio keeps running):
-            // reconfigure and let the next tick render again.
+            // 嵌入式宿主(OPP 的原生子窗口等)在 WebView 缩放/移动/跨屏
+            // 时会短暂使交换链失效:静默丢帧会让画面冻结而音频照播 ——
+            // 强制重配,下一 tick 恢复渲染。
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                eprintln!("live_render: surface lost/outdated ({}x{}), reconfiguring", w, h);
-                // Force configure even when dimensions did not change.
                 self.surface_size = (0, 0);
                 self.resize(w, h);
                 return false;
             }
-            Err(wgpu::SurfaceError::Timeout) => {
-                eprintln!("live_render: surface frame timeout ({}x{})", w, h);
-                return false;
-            }
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                eprintln!("live_render: surface out of memory ({}x{})", w, h);
-                return false;
-            }
-            Err(wgpu::SurfaceError::Other) => {
-                eprintln!("live_render: surface frame error ({}x{})", w, h);
-                return false;
-            }
+            Err(_) => return false,
         };
         let view = frame.texture.create_view(&Default::default());
         {

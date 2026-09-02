@@ -2,7 +2,6 @@
 //! beatmap + engine run) into render-friendly views.
 
 use crate::draw::Colour;
-use crate::osu_metadata;
 use osu_replay_judge::engine::Engine;
 
 pub use osu_replay_judge::engine::FrameSnap;
@@ -290,6 +289,22 @@ pub struct MapMeta {
     pub creator: String,
 }
 
+impl MapMeta {
+    /// From the parsed `[Metadata]`: lazer prefers the romanised
+    /// `Title`/`Artist` with the unicode variants as fallback.
+    pub fn from_metadata(m: &osu_parse::beatmap::BeatmapMetadata) -> MapMeta {
+        let pick = |romanised: &str, unicode: &str| {
+            if romanised.is_empty() { unicode.to_string() } else { romanised.to_string() }
+        };
+        MapMeta {
+            title: pick(&m.title, &m.title_unicode),
+            artist: pick(&m.artist, &m.artist_unicode),
+            version: m.version.clone(),
+            creator: m.creator.clone(),
+        }
+    }
+}
+
 pub struct GameData {
     pub score_events: Vec<ScoreEvent>,
     /// Timed hits for the unstable-rate bar (UR-relevant events only).
@@ -344,6 +359,13 @@ pub struct GameData {
     pub mods: Mods,
     /// Beatmap metadata (`[Metadata]`) for the results screen header.
     pub map_meta: MapMeta,
+    /// `[General] AudioFilename` (beatmap's own BGM, relative to the map).
+    pub map_audio: Option<String>,
+    /// `[Events]` background image filename (relative to the map).
+    pub map_background: Option<String>,
+    /// `.osu` sample-side data (banks/volumes/hit samples) parsed with the
+    /// beatmap; consumed by the hitsound synthesis.
+    pub sample_data: osu_parse::samples::SampleData,
     /// Star rating of the map+mods (rosu-pp); NaN when unavailable.
     pub stars: f64,
     /// Performance points of the judged replay (`rosu-pp`,
@@ -413,7 +435,7 @@ fn with_lead_in(mut snapshots: Vec<FrameSnap>, rate: f64) -> Vec<FrameSnap> {
 }
 
 pub fn load(map_path: &str, replay_path: &str) -> Result<GameData, String> {    let content = std::fs::read_to_string(map_path).map_err(|e| format!("cannot read beatmap: {}", e))?;
-    let map = beatmap::decode(&content)?;
+    let mut map = beatmap::decode(&content)?;
     let rep = replay::decode_file(replay_path, map.version)?;
 
     let is_legacy_score = (rep.header.version as i64) < 30_000_000;
@@ -425,9 +447,14 @@ pub fn load(map_path: &str, replay_path: &str) -> Result<GameData, String> {    
     let mut engine = Engine::new(processed, &mods);
     engine.run(&rep.frames);
 
-    let mut data = build(mods, classic, map.combo_colours, osu_metadata(map_path), &engine)?;
+    let mut data = build(mods, classic, map.combo_colours, MapMeta::from_metadata(&map.metadata), &engine)?;
     data.player = rep.header.player_name.clone();
     data.played_at_ticks = Some(rep.header.timestamp);
+    // Beatmap extras for the assembly stage (audio/background/hitsounds):
+    // parsed once here instead of re-reading the .osu downstream.
+    data.map_audio = map.general.audio_filename.clone();
+    data.map_background = map.background.clone();
+    data.sample_data = std::mem::take(&mut map.sample_data);
     if let Some(pp) = crate::pp::calculate(map_path, rep.header.mods, classic, &engine) {
         data.pp = pp.pp;
         data.pp_max = pp.pp_max;
@@ -446,7 +473,7 @@ pub fn load(map_path: &str, replay_path: &str) -> Result<GameData, String> {    
 /// other replay — every judgement/HP/combo/UR readout is real.
 pub fn load_autoplay(map_path: &str) -> Result<GameData, String> {
     let content = std::fs::read_to_string(map_path).map_err(|e| format!("cannot read beatmap: {}", e))?;
-    let map = beatmap::decode(&content)?;
+    let mut map = beatmap::decode(&content)?;
 
     // Lazer autoplay scores: no rate/visibility mods, standardised scoring.
     let mods = Mods::from_legacy(0, false)?;
@@ -459,9 +486,12 @@ pub fn load_autoplay(map_path: &str) -> Result<GameData, String> {
     let mut engine = Engine::new(processed, &mods);
     engine.run(&frames);
 
-    let mut data = build(mods, classic, map.combo_colours, osu_metadata(map_path), &engine)?;
+    let mut data = build(mods, classic, map.combo_colours, MapMeta::from_metadata(&map.metadata), &engine)?;
     // lazer's autoplay attribution.
     data.player = "osu!".to_string();
+    data.map_audio = map.general.audio_filename.clone();
+    data.map_background = map.background.clone();
+    data.sample_data = std::mem::take(&mut map.sample_data);
     if let Some(pp) = crate::pp::calculate(map_path, 0, classic, &engine) {
         data.pp = pp.pp;
         data.pp_max = pp.pp_max;
@@ -880,6 +910,9 @@ fn build(
         .max(engine.score.highest_combo),
         mods: mods.clone(),
         map_meta,
+        map_audio: None,
+        map_background: None,
+        sample_data: Default::default(),
         stars: f64::NAN,
         pp: f64::NAN,
         pp_max: f64::NAN,

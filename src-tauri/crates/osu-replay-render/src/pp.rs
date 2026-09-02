@@ -13,16 +13,18 @@
 //!   behaviour (it recalculates on every `NewJudgement`). The result is
 //!   `(time, pp)` pairs queryable at any moment, mirroring `score_events`.
 //!
-//! Judgement mapping onto `OsuHitResults`:
+//! Judgement mapping onto `OsuHitResults` (lazer score; see
+//! `InspectOsuPerformance::tick_hits` for what rosu-pp expects):
 //!
 //! | judgement | classic (stable score) | lazer score |
 //! |---|---|---|
 //! | circle / spinner final, `Great`/`Perfect` | n300 | n300 |
 //! | circle / spinner final, `Ok`/`Meh`/`Miss` | n100/n50/misses | n100/n50/misses |
-//! | slider head (lazer: windowed `Great`/`Ok`/`Meh`) | — (large-tick, not in acc) | n300/n100/n50 + large_tick_hits |
+//! | slider head (lazer: windowed `Great`/`Ok`/`Meh`) | — (large-tick, not in acc) | n300/n100/n50 (heads are accuracy judgements only - they are NOT large ticks) |
 //! | slider head miss | — | misses |
-//! | tick / repeat hit (`LargeTickHit`) | irrelevant | large_tick_hits |
-//! | slider tail hit (`SliderTailHit`) | irrelevant | small_tick_hits |
+//! | repeat hit (`LargeTickHit`) | irrelevant | large_tick_hits |
+//! | slider tail hit (`SliderTailHit`) | irrelevant | slider_end_hits (feeding 0 here makes rosu-pp treat every slider end as dropped, nerfing aim) |
+//! | slider tick hit (`SmallTickHit`) | irrelevant | small_tick_hits |
 //! | spinner bonus ticks / smax | skipped - no PP | skipped |
 //!
 //! The gradual calculator consumes objects in beatmap order, so advances
@@ -95,30 +97,22 @@ fn fold(label: &str, result: HitResult, classic: bool, state: &mut rosu_pp::osu:
             HitResult::Miss => state.hitresults.misses += 1,
             _ => {}
         },
-        // Lazer slider heads are windowed judgements; classic heads are
-        // large-tick (outside accuracy entirely).
+        // Lazer slider heads are windowed judgements that count toward
+        // accuracy as plain n300/n100/n50 (NOT large ticks - rosu-pp's
+        // n_large_ticks counts repeats only); classic heads are large-tick
+        // (outside accuracy entirely).
         "head" if !classic => match result {
-            HitResult::Great | HitResult::Perfect => {
-                state.hitresults.n300 += 1;
-                state.hitresults.large_tick_hits += 1;
-            }
-            HitResult::Ok => {
-                state.hitresults.n100 += 1;
-                state.hitresults.large_tick_hits += 1;
-            }
-            HitResult::Meh => {
-                state.hitresults.n50 += 1;
-                state.hitresults.large_tick_hits += 1;
-            }
+            HitResult::Great | HitResult::Perfect => state.hitresults.n300 += 1,
+            HitResult::Ok => state.hitresults.n100 += 1,
+            HitResult::Meh => state.hitresults.n50 += 1,
             HitResult::Miss => state.hitresults.misses += 1,
             _ => {}
         },
-        // Ticks / repeats / tails: lazer counts them, classic ignores them.
+        // Repeats / tails / ticks: lazer counts them, classic ignores them.
         _ if !classic => match result {
             HitResult::LargeTickHit => state.hitresults.large_tick_hits += 1,
-            HitResult::SliderTailHit | HitResult::SmallTickHit => {
-                state.hitresults.small_tick_hits += 1
-            }
+            HitResult::SliderTailHit => state.hitresults.slider_end_hits += 1,
+            HitResult::SmallTickHit => state.hitresults.small_tick_hits += 1,
             _ => {}
         },
         _ => {}
@@ -141,27 +135,11 @@ pub fn calculate(map_path: &str, mods_bits: u32, classic: bool, engine: &Engine)
         rosu_pp::any::DifficultyAttributes::Osu(attrs) => attrs,
         _ => return None,
     };
-    // Difficulty-over-time graph: the aim skill's per-object strains
-    // (the section peaks lost their fixed time axis in the pp-rework).
-    // Entry j belongs to the (j+1)-th top-level object, so the times come
-    // from the judge's own object list when the counts line up.
+    // 难度-时间图需要逐物件 aim 序列;上游 pp-rework-202607 分支的
+    // OsuStrains 无该数据(section peaks 无固定时间轴)—— 暂留空,仅
+    // 保留 section 峰值(strain_aim)。
     let (strain_aim, strain_points) = match difficulty.clone().strains(&map) {
-        rosu_pp::any::Strains::Osu(s) => {
-            let n_obj = engine.objects().len();
-            let points = if s.aim.len() + 1 == n_obj && s.speed.len() + 1 == n_obj {
-                s.aim
-                    .iter()
-                    .zip(&s.speed)
-                    .enumerate()
-                    .filter_map(|(j, (&aim, &speed))| {
-                        engine.objects().get(j + 1).map(|o| (o.start_time, aim, speed))
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            (s.aim, points)
-        }
+        rosu_pp::any::Strains::Osu(s) => (s.aim, Vec::new()),
         _ => (Vec::new(), Vec::new()),
     };
     let max_pp = rosu_pp::osu::OsuPerformance::new(attrs.clone())

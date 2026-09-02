@@ -595,6 +595,21 @@ pub struct SceneState {
     /// A beatmap background exists in the atlas (drives the results
     /// screen's blurred background, which shows regardless of `--bg`).
     pub has_bg: bool,
+    /// Storyboard below-layer (Background/Fail/Pass composite) draw
+    /// opacity (`--storyboard`); None draws no storyboard. The atlas must
+    /// carry `Region::Storyboard` (build-time slots) and the host must
+    /// refresh it every frame via [`crate::storyboard`].
+    pub storyboard: Option<f32>,
+    /// The storyboard's Foreground/Overlay composite exists in the atlas
+    /// (`Region::StoryboardForeground`); drawn above the playfield,
+    /// under the HUD.
+    pub storyboard_fg: bool,
+    /// The storyboard is active: the beatmap background image must NOT
+    /// draw — the storyboard (and its video) provides the backdrop.
+    /// (This renderer's rule; lazer's narrower `ReplacesBackground` only
+    /// hides it when the storyboard's Background layer re-declares the
+    /// background file.)
+    pub sb_replaces_bg: bool,
     /// A custom avatar image exists in the atlas (`--avatar` / config
     /// `avatar`); the results screen draws it instead of the initial.
     pub has_avatar: bool,
@@ -640,6 +655,9 @@ impl SceneState {
             mapper: Mapper::new(width, height),
             bg_opacity: None,
             has_bg: false,
+            storyboard: None,
+            storyboard_fg: false,
+            sb_replaces_bg: false,
             has_avatar: false,
             follow_points: true,
             cursor_size: 1.0,
@@ -742,12 +760,31 @@ impl SceneState {
 
         // 0. Beatmap background (`--bg`): full-screen behind everything at
         // the configured opacity (lazer's BackgroundScreen sprite fills the
-        // screen; alpha = 1 - DimLevel).
-        if let Some(op) = self.bg_opacity {
+        // screen; alpha = 1 - DimLevel). Skipped when the storyboard
+        // replaces it (lazer `storyboardReplacesBackground`: the sb's own
+        // Background-layer copy draws instead, dimming the background to 1).
+        if let Some(op) = self.bg_opacity.filter(|_| !self.sb_replaces_bg) {
             let m = &self.mapper;
             list.image(
                 assets.atlas,
                 crate::draw::Region::Background,
+                [m.screen_w * 0.5, m.screen_h * 0.5],
+                [m.screen_w, m.screen_h],
+                0.0,
+                Colour::WHITE.opacity(op),
+                Blend::Alpha,
+            );
+        }
+
+        // 0.5 Storyboard below-layers (Background/Fail/Pass composite,
+        // `--storyboard`): over the background image, under everything
+        // else. osu! dims the storyboard together with the background
+        // (DimLevel), hence the same opacity slot.
+        if let Some(op) = self.storyboard {
+            let m = &self.mapper;
+            list.image(
+                assets.atlas,
+                crate::draw::Region::Storyboard,
                 [m.screen_w * 0.5, m.screen_h * 0.5],
                 [m.screen_w, m.screen_h],
                 0.0,
@@ -825,8 +862,27 @@ impl SceneState {
         self.draw_trail(list, assets);
         draw_cursor(self.legacy.as_ref(), assets, list, cursor_screen, self.cursor_expand as f32, self.cursor_size, self.mapper.virt, t);
 
-        // 8. HUD.
-        self.hud.draw(game, assets, list, &self.mapper, t);
+        // 7.5 Storyboard above-layers (Foreground/Overlay composite):
+        // over the playfield like osu!, under the HUD, undimmed (lazer's
+        // DimLevel only affects the background stack).
+        if self.storyboard_fg {
+            let m = &self.mapper;
+            list.image(
+                assets.atlas,
+                crate::draw::Region::StoryboardForeground,
+                [m.screen_w * 0.5, m.screen_h * 0.5],
+                [m.screen_w, m.screen_h],
+                0.0,
+                Colour::WHITE,
+                Blend::Alpha,
+            );
+        }
+
+        // 8. HUD.结算阶段隐藏(不随 gameplay 淡出):分数/血条等留在
+        // 屏幕上会和结算页互相打架,进结算即消失。
+        if !is_results {
+            self.hud.draw(game, assets, list, &self.mapper, t);
+        }
 
         // 9. Results screen: fades in once the gameplay has fully faded
         // out (sequential, not a cross-fade).

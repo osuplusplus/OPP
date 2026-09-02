@@ -34,16 +34,23 @@
 //!                          "Beatmap skins" off). Default: the beatmap's
 //!                          colours win; the skin's only apply when the
 //!                          beatmap ships none
-//!   --results <secs>       Seconds of the (static, expanded) results
-//!                          screen appended after gameplay (default 4;
-//!                          --no-results disables)
+//!   --guides [on|off]      UR bar window guide lines (default on)
+//!   --pp [on|off]          Live PP counter (default on)
+//!   --hd [auto|on|off]     Hidden visual override (default auto: follow the
+//!                          replay's own mods)
+//!   --bg [on|off]          Beatmap background image (default on)
+//!   --storyboard [on|off]  Storyboard sprite layers (default off)
+//!   --video [on|off]       Storyboard video layer (default off; frames are
+//!                          decoded through an ffmpeg rawvideo pipe)
+//!   --results <secs|off>   Results screen seconds appended after gameplay
+//!                          (default 4; `off` disables)
 //!   --results-only         Render ONLY the results screen (poster mode:
 //!                          no gameplay frames; pair with --png-dir for a
 //!                          single preview image, e.g. --results-only
 //!                          --png-dir out --fps 1 --results 1)
 //!   --limit <n>            Render at most n frames (testing)
 
-use osu_replay_render::{build_atlas, decode_image_file, draw, draw::Image, game, hitsound, osu_background_file, osu_general_value, render::Renderer, scene, skin};
+use osu_replay_render::{build_atlas, decode_image_file, draw, draw::Image, game, hitsound, render::Renderer, scene, skin};
 
 use scene::{Assets, SceneState};
 use std::io::Write;
@@ -54,7 +61,7 @@ enum HdMode {
     Auto,
     /// `--hd`: force HD visuals on regardless of the replay's mods.
     On,
-    /// `--no-hd`: force HD visuals off even when the replay has the mod.
+    /// `--hd off`: force HD visuals off even when the replay has the mod.
     Off,
 }
 
@@ -79,21 +86,33 @@ struct Options {
     limit: Option<usize>,
     ffmpeg_extra: Vec<String>,
     /// Whether the UR bar's window guide lines (colour axis) render.
-    /// Default on; `--no-guides` disables them.
+    /// Default on; `--guides off` disables them.
     guides: bool,
     /// Whether the gameplay HUD renders (score/accuracy/combo/health/UR
     /// bar/key overlay/PP counter). Default on; `--hud off` hides it all
     /// (independent of `--autoplay`, which no longer touches the HUD).
     hud: bool,
-    /// Whether the live PP counter renders. Default on; `--no-pp` hides it.
+    /// Whether the live PP counter renders. Default on; `--pp off` hides it.
     pp: bool,
     /// Optional BGM muxed into the output (`--audio [file]`; without a
     /// value the beatmap's own audio is used).
     audio: Option<String>,
-    /// Draw the beatmap background image (`--bg`).
+    /// Whether the beatmap background image renders (`--bg on|off`,
+    /// default on). Force-hidden while `--storyboard`/`--video` is on
+    /// (the switch has no effect there); normal otherwise.
     bg: bool,
     /// Background opacity 0..1 (lazer: 1 - DimLevel, default DimLevel 0.7).
     bg_opacity: f32,
+    /// Render the beatmap storyboard sprite layers (`--storyboard`): the
+    /// `.osu` Events + shared `.osb` composite, below-layers dimmed with
+    /// `bg_opacity` (osu! dims the storyboard with the background;
+    /// undimmed at 1.0 when the background is off), Foreground/Overlay
+    /// layers over the playfield.
+    storyboard: bool,
+    /// Render the storyboard video layer (`--video`): independent of
+    /// `--storyboard`, decoded through an ffmpeg rawvideo pipe (RGBA)
+    /// and pumped frame-exact by the render loop.
+    video: bool,
     /// Cursor size multiplier 0.1..=2 (lazer `GameplayCursorSize`,
     /// default 1). Scales the cursor and trail for every skin path.
     cursor_size: f32,
@@ -135,7 +154,7 @@ struct Options {
     /// used when it provides them.
     argon_hud: bool,
     /// Seconds of the (static, expanded) results screen appended after
-    /// gameplay (`--results <secs>`; default 4, `--no-results` disables).
+    /// gameplay (`--results <secs|off>`; default 4, `off` = 0).
     results: f64,
     /// Render ONLY the results screen, no gameplay frames
     /// (`--results-only`; duration still set by `--results`).
@@ -161,12 +180,15 @@ struct ConfigJson {
     encoder: Option<String>,
     quality: Option<u32>,
     limit: Option<usize>,
-    no_guides: Option<bool>,
+    guides: Option<bool>,
     hud: Option<bool>,
-    no_pp: Option<bool>,
+    pp: Option<bool>,
     audio: Option<String>,
     bg: Option<bool>,
     bg_opacity: Option<f32>,
+    storyboard: Option<bool>,
+    /// `--video`: storyboard video layer on/off.
+    video: Option<bool>,
     cursor_size: Option<f32>,
     audio_offset: Option<f64>,
     autoplay: Option<bool>,
@@ -183,13 +205,30 @@ struct ConfigJson {
     ffmpeg_extra: Option<Vec<String>>,
 }
 
-/// `--hud <value>`: `on`/`off`, with `true`/`false`/`1`/`0` aliases
-/// (config mirrors it as the JSON boolean `"hud"`).
+/// `--hud <value>` / `--guides` / `--pp` / `--bg` / ...: `on`/`off`, with
+/// `true`/`false`/`1`/`0` aliases (config mirrors them as JSON booleans).
 fn parse_hud_value(v: &str) -> Result<bool, String> {
     match v {
         "on" | "true" | "1" => Ok(true),
         "off" | "false" | "0" => Ok(false),
         other => Err(format!("--hud must be on or off (got {})", other)),
+    }
+}
+
+/// Shared optional-value matcher for the `--flag [on|off]` family: bare
+/// `--flag` means on, `--flag on|off` (true/false aliases) overrides.
+fn parse_on_off(args: &[String], i: &mut usize, flag: &str) -> Result<bool, String> {
+    match args.get(*i + 1) {
+        Some(v) if !v.starts_with("--") => {
+            let v = v.clone();
+            *i += 1;
+            match v.as_str() {
+                "on" | "true" | "1" => Ok(true),
+                "off" | "false" | "0" => Ok(false),
+                other => Err(format!("--{flag} must be on or off (got {other})")),
+            }
+        }
+        _ => Ok(true),
     }
 }
 
@@ -240,12 +279,14 @@ fn apply_config(opts: &mut Options, c: ConfigJson) -> Result<(), String> {
     }
     if let Some(v) = c.quality { opts.quality = v; }
     if let Some(v) = c.limit { opts.limit = Some(v); }
-    if let Some(true) = c.no_guides { opts.guides = false; }
+    if let Some(v) = c.guides { opts.guides = v; }
     if let Some(v) = c.hud { opts.hud = v; }
-    if let Some(true) = c.no_pp { opts.pp = false; }
+    if let Some(v) = c.pp { opts.pp = v; }
     if c.audio.is_some() { opts.audio = c.audio; }
-    if let Some(true) = c.bg { opts.bg = true; }
+    if let Some(v) = c.bg { opts.bg = v; }
     if let Some(v) = c.bg_opacity { opts.bg_opacity = v; }
+    if let Some(v) = c.storyboard { opts.storyboard = v; }
+    if let Some(v) = c.video { opts.video = v; }
     if let Some(v) = c.cursor_size { opts.cursor_size = v; }
     if c.audio_offset.is_some() { opts.audio_offset = c.audio_offset; }
     if let Some(true) = c.autoplay { opts.autoplay = true; }
@@ -282,7 +323,7 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
     let autoplay = args.iter().any(|a| a == "--autoplay");
     let min_args = if autoplay { 2 } else { 3 };
     if args.len() < min_args {
-        return Err(format!("usage: {} <beatmap.osu> [replay.osr] [--autoplay] [--hud on|off] [--hd] [--no-hd] [--out file.mp4] [--png-dir dir] [--size WxH] [--fps n] [--start ms] [--end ms] [--score classic] [--skin argon|argon-pro|dir] [--argon-hud] [--no-guides] [--no-pp] [--audio [file.mp3]] [--audio-offset ms] [--bg] [--bg-opacity 0..1] [--cursor-size 0.1..=2] [--hitsounds] [--skin-colours] [--results secs] [--results-only] [--avatar image] [--config file.json] [--limit n]", args.get(0).map(|s| s.as_str()).unwrap_or("osu_replay_render")));
+        return Err(format!("usage: {} <beatmap.osu> [replay.osr] [--autoplay] [--hud on|off] [--hd auto|on|off] [--out file.mp4] [--png-dir dir] [--size WxH] [--fps n] [--start ms] [--end ms] [--score classic] [--skin argon|argon-pro|dir] [--argon-hud] [--guides on|off] [--pp on|off] [--audio [file.mp3]] [--audio-offset ms] [--bg on|off] [--bg-opacity 0..1] [--storyboard on|off] [--video on|off] [--cursor-size 0.1..=2] [--hitsounds] [--skin-colours] [--results secs|off] [--results-only] [--avatar image] [--config file.json] [--limit n]", args.get(0).map(|s| s.as_str()).unwrap_or("osu_replay_render")));
     }
     let map_path = args[1].clone();
     let replay_path = if autoplay { None } else { Some(args[2].clone()) };
@@ -306,8 +347,10 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
         hud: true,
         pp: true,
         audio: None,
-        bg: false,
+        bg: true,
         bg_opacity: 0.3,
+        storyboard: false,
+        video: false,
         cursor_size: 1.0,
         audio_offset: None,
         autoplay,
@@ -412,8 +455,8 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
                 i += 1;
                 opts.limit = args.get(i).and_then(|v| v.parse().ok());
             }
-            "--no-guides" => {
-                opts.guides = false;
+            "--guides" => {
+                opts.guides = parse_on_off(&args, &mut i, "guides")?;
             }
             "--hud" => {
                 // Optional value: bare `--hud` means on (the default);
@@ -426,8 +469,8 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
                     _ => true,
                 };
             }
-            "--no-pp" => {
-                opts.pp = false;
+            "--pp" => {
+                opts.pp = parse_on_off(&args, &mut i, "pp")?;
             }
             "--audio" => {
                 // Optional value: an explicit file, else the beatmap's own
@@ -441,7 +484,13 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
                 };
             }
             "--bg" => {
-                opts.bg = true;
+                opts.bg = parse_on_off(&args, &mut i, "bg")?;
+            }
+            "--storyboard" => {
+                opts.storyboard = parse_on_off(&args, &mut i, "storyboard")?;
+            }
+            "--video" => {
+                opts.video = parse_on_off(&args, &mut i, "video")?;
             }
             "--bg-opacity" => {
                 i += 1;
@@ -475,10 +524,21 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
                 opts.autoplay = true;
             }
             "--hd" => {
-                opts.hd = HdMode::On;
-            }
-            "--no-hd" => {
-                opts.hd = HdMode::Off;
+                // Optional value: bare `--hd` means on; `--hd auto` restores
+                // following the replay's own mods.
+                opts.hd = match args.get(i + 1) {
+                    Some(v) if !v.starts_with("--") => {
+                        let v = v.clone();
+                        i += 1;
+                        match v.as_str() {
+                            "on" | "true" | "1" => HdMode::On,
+                            "off" | "false" | "0" => HdMode::Off,
+                            "auto" => HdMode::Auto,
+                            other => return Err(format!("--hd must be auto, on or off (got {})", other)),
+                        }
+                    }
+                    _ => HdMode::On,
+                };
             }
             "--hitsounds" => {
                 opts.hitsounds = true;
@@ -491,16 +551,15 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
             }
             "--results" => {
                 i += 1;
-                opts.results = args
-                    .get(i)
-                    .and_then(|v| v.parse().ok())
-                    .ok_or("bad --results (expected seconds)")?;
+                let v = args.get(i).cloned().ok_or("--results needs seconds or off")?;
+                opts.results = if v == "off" || v == "false" || v == "0" {
+                    0.0
+                } else {
+                    v.parse::<f64>().map_err(|_| "bad --results (expected seconds or off)")?
+                };
                 if opts.results < 0.0 || opts.results > 300.0 {
                     return Err("--results must be within 0..300 seconds".into());
                 }
-            }
-            "--no-results" => {
-                opts.results = 0.0;
             }
             "--results-only" => {
                 opts.results_only = true;
@@ -727,8 +786,7 @@ fn main() {
             Some(explicit.clone())
         }
         Some(_) => {
-            let name = osu_general_value(&map_path, "AudioFilename")
-                .unwrap_or_else(|| "audio.mp3".to_string());
+            let name = game.map_audio.clone().unwrap_or_else(|| "audio.mp3".to_string());
             let p = map_dir.join(&name);
             if p.exists() {
                 eprintln!("audio: {} (from beatmap)", p.display());
@@ -746,7 +804,7 @@ fn main() {
     // full-screen at `--bg-opacity` when `--bg` is on (default
     // 1 - DimLevel 0.7, matching lazer); the results screen always draws
     // the blurred copy (lazer `ResultsScreen`).
-    let bg_image: Option<Image> = match osu_background_file(&map_path) {
+    let bg_image: Option<Image> = match game.map_background.clone() {
         Some(name) => {
             let p = map_dir.join(&name);
             match decode_image_file(&p) {
@@ -769,6 +827,50 @@ fn main() {
     };
 
     let has_bg = bg_image.is_some();
+
+    // Storyboard (`--storyboard`) / storyboard video (`--video`): parse
+    // before the atlas when either is on so the composite slots can be
+    // reserved; the GPU layer attaches after the renderer and the two
+    // halves are toggled independently (elements vs video layer).
+    let sb_parsed = if opts.storyboard || opts.video {
+        let parsed = osu_replay_render::storyboard::parse_beatmap(
+            std::path::Path::new(&map_path),
+            game.map_background.as_deref(),
+        );
+        if let Some(p) = &parsed {
+            if let Some(v) = p.video() {
+                eprintln!(
+                    "storyboard video: {} ({}x{}@{:.3}, starts {}ms{})",
+                    v.path.display(),
+                    v.width,
+                    v.height,
+                    v.fps,
+                    v.start_ms,
+                    if v.duration_ms > 0.0 { format!(", {:.1}s", v.duration_ms / 1000.0) } else { String::new() }
+                );
+            }
+            if p.replaces_background() {
+                eprintln!("storyboard replaces the background (lazer ReplacesBackground)");
+            }
+        }
+        if parsed.is_none() {
+            eprintln!("warning: beatmap has no storyboard - rendering without one");
+        }
+        parsed
+    } else {
+        None
+    };
+    // Composite slot size: the output resolution, capped at 1080p so huge
+    // renders don't balloon the atlas (the scene upsamples linearly).
+    let sb_slot = (
+        opts.width.min(1920).max(1) & !1,
+        opts.height.min(1080).max(1) & !1,
+    );
+    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
+        width: sb_slot.0,
+        height: sb_slot.1,
+        foreground: p.has_foreground(),
+    });
 
     // Skin resolution (`--skin <dir>`: user legacy skin with argon
     // fallbacks). Default combo colours: the beatmap's `[Colours]` win
@@ -801,10 +903,21 @@ fn main() {
     // 8192 is the GLES/GL-compat floor for max_texture_dimension2d:
     // capping here keeps the atlas creatable on every backend (desktop
     // Vulkan/dGPU simply packs wider instead of taller).
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut resolved_skin, 8192);
+    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut resolved_skin, 8192, storyboard_slots);
     eprintln!("atlas: {}x{}", atlas.width, atlas.height);
 
     let mut renderer = Renderer::new(opts.width, opts.height, &atlas);
+    // Storyboard GPU layer on the renderer's device; below-layers dim with
+    // the background (osu! DimLevel semantics), full when it is off.
+    let mut sb_layer = sb_parsed.map(|p| {
+        p.into_layer(renderer.device(), renderer.queue(), sb_slot.0, sb_slot.1)
+    });
+    // Independent halves: `--storyboard` drives the sprite layers,
+    // `--video` the video layer (either alone still creates the layer).
+    if let Some(sb) = &mut sb_layer {
+        sb.set_elements_enabled(opts.storyboard);
+        sb.set_video_enabled(opts.video);
+    }
     let mut state = SceneState::new(&game, opts.width, opts.height);
     state.pro_skin = opts.skin == "argon-pro";
     state.hud.ur_guides = opts.guides;
@@ -812,6 +925,18 @@ fn main() {
     state.hud.pp_display = opts.pp;
     state.hud.argon_hud = opts.argon_hud;
     state.bg_opacity = if has_bg && opts.bg { Some(opts.bg_opacity) } else { None };
+    // 任一层(元素/视频)激活即画故事板合成槽位;亮度跟随背景(--bg off
+    // 时全亮 1.0)。
+    let sb_active = sb_layer.as_ref().is_some_and(|l| l.elements_enabled() || l.video_enabled());
+    state.storyboard = if sb_active {
+        Some(if has_bg && opts.bg { opts.bg_opacity } else { 1.0 })
+    } else {
+        None
+    };
+    state.storyboard_fg = sb_layer.as_ref().is_some_and(|l| l.elements_enabled() && l.has_foreground());
+    // 背景规则:故事板/视频任一开启 → 背景图强制关闭(`--bg` 随之无效):
+    // 层自己铺满背景;两者全关时 `--bg` 正常生效。
+    state.sb_replaces_bg = sb_active;
     state.has_bg = has_bg;
     state.has_avatar = opts.avatar.is_some();
     state.cursor_size = opts.cursor_size;
@@ -893,27 +1018,20 @@ fn main() {
     }
 
     // Hitsound track (`--hitsounds`): synthesized offline from the
-    // judgement timeline plus the .osu sample data (hit-only triggers,
-    // beatmap banks/volumes, slider slide loops, samples at their
-    // natural rate — rate mods only compress the trigger times), on the
-    // export's wall timeline so it muxes 1:1 with the video. Written as a
-    // temp WAV, mixed into the output in the second pass below.
+    // judgement timeline plus the .osu sample data parsed with the beatmap
+    // (hit-only triggers, beatmap banks/volumes, slider slide loops,
+    // samples at their natural rate — rate mods only compress the trigger
+    // times), on the export's wall timeline so it muxes 1:1 with the
+    // video. Written as a temp WAV, mixed into the output in the second
+    // pass below.
     let hits_path: Option<String> = if opts.hitsounds && opts.out.is_some() {
-        match std::fs::read_to_string(&map_path) {
-            Ok(content) => {
-                let t0 = frame_times[0];
-                let wall_secs = frame_times.len() as f64 / opts.fps;
-                let wav = hitsound::render_track_wav(&game, &content, t0, wall_secs, game.rate, opts.hitsounds_volume, &resolved_skin);
-                let p = format!("{}.hits.wav", opts.out.as_ref().unwrap());
-                std::fs::write(&p, wav).unwrap_or_else(|e| panic!("write {}: {}", p, e));
-                eprintln!("hitsounds: {} ({} samples, {:.1}s)", p, if resolved_skin.is_legacy() { "user skin mixed with ArgonPro" } else { "ArgonPro" }, wall_secs);
-                Some(p)
-            }
-            Err(e) => {
-                eprintln!("warning: cannot re-read beatmap for hitsounds: {} - skipping", e);
-                None
-            }
-        }
+        let t0 = frame_times[0];
+        let wall_secs = frame_times.len() as f64 / opts.fps;
+        let wav = hitsound::render_track_wav(&game, &game.sample_data, t0, wall_secs, game.rate, opts.hitsounds_volume, &resolved_skin);
+        let p = format!("{}.hits.wav", opts.out.as_ref().unwrap());
+        std::fs::write(&p, wav).unwrap_or_else(|e| panic!("write {}: {}", p, e));
+        eprintln!("hitsounds: {} ({} samples, {:.1}s)", p, if resolved_skin.is_legacy() { "user skin mixed with ArgonPro" } else { "ArgonPro" }, wall_secs);
+        Some(p)
     } else {
         None
     };
@@ -1032,6 +1150,11 @@ fn main() {
             }
         }
         let tb = std::time::Instant::now();
+        // Storyboard composites first: the atlas copies are queue-ordered
+        // ahead of the scene submission below.
+        if let Some(sb) = &mut sb_layer {
+            sb.render(ft as f32, &mut renderer, &atlas);
+        }
         // Pipelined: submit this frame WITHOUT waiting for the GPU, and
         // only read back the OLDEST in-flight frame once the pipeline has
         // reached depth 2. Until then the GPU renders ahead while the CPU

@@ -1,11 +1,13 @@
 [package]
 name = "osu_replay_render"
-version = "0.8.0"
+version = "0.10.0"
 edition = "2024"
 license = "MIT"
 
 [dependencies]
-osu_replay_judge = { git = "https://github.com/Ohdmire/osu-replay-judge.git", rev = "65ca0ff6" }
+osu_replay_judge = { git = "https://github.com/Ohdmire/osu-replay-judge.git" }
+osu-parse = { git = "https://github.com/Ohdmire/osu-parse.git" }
+osu-storyboard-render = { git = "https://github.com/Ohdmire/osu-storyboard-render.git", branch = "main", default-features = false }
 rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", rev = "9a073d29611ef936b581a08d3c5b288ef5427301" }
 # Keep the DX12 backend disabled: wgpu 24's gpu-allocator currently pulls
 # windows 0.54 while the app uses windows 0.58, which fails to compile.

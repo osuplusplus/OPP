@@ -1337,7 +1337,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 match loaded {
                     Ok(mut new_skin) => {
                         let bg_image = if options.bg {
-                            osu_replay_render::osu_background_file(&s.beatmap_path)
+                            s.game.map_background.clone()
                                 .map(|name| {
                                     std::path::Path::new(&s.beatmap_path)
                                         .parent()
@@ -1361,7 +1361,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // (bg_opacity/音频/音效开关)继续生效。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             let (atlas, fonts) =
-                                build_atlas(bg_image, avatar_image, &mut new_skin, 8192);
+                                build_atlas(bg_image, avatar_image, &mut new_skin, 8192, None);
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
                             s.fonts = fonts;
@@ -1415,7 +1415,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             let avatar_changed = options.avatar_path != s.avatar_path;
             if (options.bg != s.has_bg || avatar_changed) && options.skin_path == s.skin_path {
                 let bg_image = if options.bg {
-                    osu_replay_render::osu_background_file(&s.beatmap_path)
+                    s.game.map_background.clone()
                         .map(|name| {
                             std::path::Path::new(&s.beatmap_path)
                                 .parent()
@@ -1437,7 +1437,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // 与皮肤热切换同构:GPU 上载与字段交接一并纳入
                         // catch,panic 时保留当前画面。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192);
+                            let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
                             s.fonts = fonts;
@@ -1542,7 +1542,8 @@ fn open_session(
         .map(|p| p.to_path_buf())
         .unwrap_or_default();
     let bg_image = if options.bg {
-        osu_replay_render::osu_background_file(beatmap_path)
+        game.map_background
+            .clone()
             .map(|name| map_dir.join(name))
             .and_then(|p| osu_replay_render::decode_image_file(&p).ok())
     } else {
@@ -1558,7 +1559,7 @@ fn open_session(
     // Argon-Pro(无判定文字、滑条身体透明度 0.92)。
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192);
+    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
     // 皮肤 combo 色映射(--skin-colours 语义:默认谱面色优先,开关强制
     // 皮肤色;可重入,SetOptions 换肤/切开关后重调)。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
@@ -1581,7 +1582,9 @@ fn open_session(
 
     // BGM([General] AudioFilename,相对谱面目录):open 时只解析路径,
     // 解码在开启音频时进行(SetOptions 切换时懒加载,不重开会话)。
-    let audio_path = osu_replay_render::osu_general_value(beatmap_path, "AudioFilename")
+    let audio_path = game
+        .map_audio
+        .clone()
         .map(|name| map_dir.join(name))
         .filter(|p| p.exists());
     let bgm_data = if options.audio {
@@ -1595,16 +1598,10 @@ fn open_session(
         eprintln!("live_render: BGM 不可用(文件缺失或解码失败),静音播放");
     }
 
-    // 音效事件表与循环音事件(lazer 语义)。
-    let map_content = std::fs::read_to_string(beatmap_path).ok();
-    let hs_events = map_content
-        .as_deref()
-        .map(|content| hitsound::collect_events(&game, content))
-        .unwrap_or_default();
-    let loop_events = map_content
-        .as_deref()
-        .map(|content| hitsound::collect_loop_events(&game, content))
-        .unwrap_or_default();
+    // 音效事件表与循环音事件(lazer 语义;样本数据随 osu-parse 一次
+    // 解析产出,GameData::sample_data)。
+    let hs_events = hitsound::collect_events(&game, &game.sample_data);
+    let loop_events = hitsound::collect_loop_events(&game, &game.sample_data);
     // 转盘变调开关(皮肤 SpinnerFrequencyModulate)。
     let spin_freq_modulate = skin
         .get_config(skin::SkinLookup::Generic("SpinnerFrequencyModulate".into()))
@@ -2067,7 +2064,7 @@ mod repro_tests {
             let _ = renderer.render(&list, CLEAR);
             // BGM 解码(kira/symphonia)也是 open 的一部分(audio 默认开)。
             if let Some(name) =
-                osu_replay_render::osu_general_value(beatmap.to_str().unwrap(), "AudioFilename")
+                game.map_audio.clone()
             {
                 let audio = beatmap.parent().unwrap().join(name);
                 if audio.exists()
@@ -2438,7 +2435,8 @@ fn run_export(
         .map(|p| p.to_path_buf())
         .unwrap_or_default();
     let bg_image = if options.bg {
-        osu_replay_render::osu_background_file(beatmap_path)
+        game.map_background
+            .clone()
             .map(|name| map_dir.join(name))
             .and_then(|p| osu_replay_render::decode_image_file(&p).ok())
     } else {
@@ -2451,7 +2449,7 @@ fn run_export(
         .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192);
+    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
     // 与预览会话同语义的 combo 色映射。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
@@ -2632,23 +2630,20 @@ fn run_export(
     // 不变调、NC 保留 asetrate 变调)与负偏移静音,音效轨由
     // render_track_wav 在墙钟时间轴上离线合成(采样恒原速),直接 amix。
     let bgm_path = if params.audio {
-        osu_replay_render::osu_general_value(beatmap_path, "AudioFilename")
+        game.map_audio
+            .clone()
             .map(|name| map_dir.join(name))
             .filter(|p| p.exists())
     } else {
         None
     };
     let hits_path = if params.hitsounds {
-        std::fs::read_to_string(beatmap_path)
-            .ok()
-            .and_then(|content| {
-                let wall_secs = frame_times.len() as f64 / params.fps as f64;
-                let wav = hitsound::render_track_wav(
-                    &game, &content, t0, wall_secs, game.rate, 0.6, &skin,
-                );
-                let p = format!("{}.hits.wav", params.out_path);
-                std::fs::write(&p, wav).ok().map(|_| p)
-            })
+        let wall_secs = frame_times.len() as f64 / params.fps as f64;
+        let wav = hitsound::render_track_wav(
+            &game, &game.sample_data, t0, wall_secs, game.rate, 0.6, &skin,
+        );
+        let p = format!("{}.hits.wav", params.out_path);
+        std::fs::write(&p, wav).ok().map(|_| p)
     } else {
         None
     };
