@@ -55,11 +55,8 @@ use service_query::{
 #[cfg(test)]
 use service_query::{compare_beatmaps, page};
 
-/// 物化 lazer 谱面集时跳过的视频扩展名：渲染与训练都用不到，
-/// 复制只会白白消耗磁盘与时间。
-const MATERIALIZED_VIDEO_EXTENSIONS: [&str; 7] = ["avi", "mp4", "flv", "wmv", "m4v", "webm", "mov"];
 /// 物化谱面集缓存的总大小上限，超出时按最近使用时间清理最旧目录。
-const MATERIALIZED_SETS_CACHE_LIMIT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const MATERIALIZED_SETS_CACHE_LIMIT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 #[derive(Debug)]
 /// 文件发现阶段的中间结果：候选文件、源文件统计与可展示的诊断信息。
@@ -838,9 +835,10 @@ impl LocalAnalysisService {
     }
 
     /// 把 lazer 谱面集按 Realm 文件清单物化为普通目录布局，返回该谱面
-    /// .osu 的路径。关联文件以原始文件名放在同一目录，使依赖 Stable
-    /// 目录语义的消费方（live render 的 BGM / 背景解析等）直接可用；
-    /// 视频文件渲染与训练都用不到，跳过以避免复制上百 MB 的大文件。
+    /// .osu 的路径。关联文件（音频/背景/故事板/背景视频等）以原始文件名
+    /// 放在同一目录完整物化，使依赖 Stable 目录语义的消费方（live render
+    /// 的 BGM / 背景 / 故事板视频解析、danser 渲染等）直接可用；容量
+    /// 清理按最近使用时间回收，不在物化时挑文件。
     fn materialize_lazer_beatmap(
         &self,
         entry: &IndexedEntry,
@@ -882,16 +880,6 @@ impl LocalAnalysisService {
                 .eq_ignore_ascii_case(&summary.resource.content_hash)
             {
                 beatmap_file = Some(name.to_string());
-            }
-            let extension = Path::new(name)
-                .extension()
-                .and_then(|value| value.to_str())
-                .unwrap_or("");
-            if MATERIALIZED_VIDEO_EXTENSIONS
-                .iter()
-                .any(|video| extension.eq_ignore_ascii_case(video))
-            {
-                continue;
             }
             let destination = directory.join(name);
             if fs::metadata(&destination).is_ok_and(|metadata| metadata.len() == file.size) {
@@ -2534,6 +2522,7 @@ SliderTickRate:1
     fn lazer_beatmap_file_path_materializes_set_layout() {
         let beatmap_hash = "aa11000000000000000000000000000000000000000000000000000000000000";
         let audio_hash = "bb22000000000000000000000000000000000000000000000000000000000000";
+        let video_hash = "cc33000000000000000000000000000000000000000000000000000000000000";
         let beatmap_blob = "a/aa".to_string();
         let cache = tempfile::tempdir().expect("cache");
         let data = tempfile::tempdir().expect("lazer data");
@@ -2542,6 +2531,7 @@ SliderTickRate:1
         for (hash, bytes) in [
             (beatmap_hash, OSU_FIXTURE.as_bytes()),
             (audio_hash, b"fake audio"),
+            (video_hash, b"fake video"),
         ] {
             let relative = lazer_realm::blob_relative_path(hash);
             let blob = files_root.join(&relative);
@@ -2587,7 +2577,7 @@ SliderTickRate:1
                 lazer_realm::LazerRealmFile {
                     filename: "video.mp4".into(),
                     hash: "cc33000000000000000000000000000000000000000000000000000000000000".into(),
-                    size: 1_000_000,
+                    size: b"fake video".len() as u64,
                 },
             ]),
             data: IndexedData::Beatmap {
@@ -2620,7 +2610,12 @@ SliderTickRate:1
             fs::read(directory.join("audio.mp3")).expect("audio content"),
             b"fake audio"
         );
-        assert!(!directory.join("video.mp4").exists(), "video skipped");
+        // 视频完整物化：live render 的背景视频 / 故事板解析依赖
+        // "谱面同目录"语义找到视频文件。
+        assert_eq!(
+            fs::read(directory.join("video.mp4")).expect("video content"),
+            b"fake video"
+        );
         // 重复请求复用已物化的文件，不重复复制。
         let again = service
             .beatmap_file_path(LocalClient::Lazer, &parsed.summary.resource.resource_id)

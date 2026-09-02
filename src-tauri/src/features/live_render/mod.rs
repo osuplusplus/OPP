@@ -2178,11 +2178,10 @@ mod repro_tests {
             // ---- open_session 各段(与 open_session 顺序一致) ----
             let game = game::load(beatmap.to_str().unwrap(), replay.to_str().unwrap()).unwrap();
             let mut skin = skin::load_skin(None).unwrap();
-            let (atlas, fonts) = build_atlas(None, None, &mut skin, 8192);
+            let (atlas, fonts) = build_atlas(None, None, &mut skin, 8192, None);
             let mut state = scene::SceneState::new(&game, 1280, 720);
             state.pro_skin = true;
-            let content = std::fs::read_to_string(beatmap).unwrap();
-            let _events = hitsound::collect_events(&game, &content);
+            let _events = hitsound::collect_events(&game, &game.sample_data);
             let mut renderer = Renderer::new(1280, 720, &atlas);
             let mut list = draw::DrawList::new();
             let t = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);

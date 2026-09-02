@@ -398,12 +398,12 @@ export function LivePreviewPanel() {
           </div> : null}
           {starting ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-white/10 p-4 text-sm text-slate-300"><LoaderCircle className="size-4 animate-spin" />正在加载谱面与回放…</div> : null}
           <div className="mt-5 space-y-4 border-t border-white/[0.06] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">渲染选项(即时生效,无需重载)</h3>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM(谱面自带音频)
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500" title="即时生效,无需重载">渲染选项</h3>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="谱面自带音频([General] AudioFilename)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.hitsounds} onChange={(event) => update("hitsounds", event.target.checked)} />播放音效(命中音/combobreak,ArgonPro)
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="命中音/combobreak,ArgonPro">
+              <input className="accent-cyan-400" type="checkbox" checked={options.hitsounds} onChange={(event) => update("hitsounds", event.target.checked)} />播放音效
             </label>
             {options.audio ? <label className="block text-xs text-slate-400">音频偏移 {audioOffsetText === "" ? 0 : audioOffsetText} ms
               <input
@@ -425,7 +425,7 @@ export function LivePreviewPanel() {
                 }}
               />
             </label> : null}
-            <div className="block text-xs text-slate-400">皮肤(即时热切换,缺件回退 Argon)
+            <div className="block text-xs text-slate-400" title="即时热切换,缺件回退 Argon">皮肤
               <select
                 className="mt-2 min-w-0 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
                 value={options.skinPath ?? ""}
@@ -440,7 +440,7 @@ export function LivePreviewPanel() {
               {skinError ? <p className="mt-1 text-[10px] leading-relaxed text-amber-300">{skinError}</p> : null}
             </div>
             {options.skinPath ? <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="默认使用谱面 [Colours] 的 combo 色(谱面未配色时才用皮肤色);开启后强制使用皮肤的 combo 色(stable 行为)">
-              <input className="accent-cyan-400" type="checkbox" checked={options.skinColours} onChange={(event) => update("skinColours", event.target.checked)} />皮肤 combo 色(覆盖谱面配色)
+              <input className="accent-cyan-400" type="checkbox" checked={options.skinColours} onChange={(event) => update("skinColours", event.target.checked)} />皮肤 combo 色
             </label> : null}
             <label className="block text-xs text-slate-400">光标大小 {Math.round(options.cursorSize * 100)}%
               <input
@@ -466,19 +466,19 @@ export function LivePreviewPanel() {
               <input className="mt-3 w-full accent-cyan-400" type="range" min={0} max={100} value={Math.round(options.bgOpacity * 100)} onChange={(event) => update("bgOpacity", Number(event.target.value) / 100)} />
             </label> : null}
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="玩法 HUD 总开关:关闭后隐藏分数/准确率/连击/血条/UR 条/按键展示/PP 计数,物件与光标照常;预览与视频导出共用">
-              <input className="accent-cyan-400" type="checkbox" checked={options.hud} onChange={(event) => update("hud", event.target.checked)} />HUD(HUD 总开关,预览与导出共用)
+              <input className="accent-cyan-400" type="checkbox" checked={options.hud} onChange={(event) => update("hud", event.target.checked)} />HUD
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.urBar} onChange={(event) => update("urBar", event.target.checked)} />UR 显示(UR 条与数值)
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="UR 条与数值">
+              <input className="accent-cyan-400" type="checkbox" checked={options.urBar} onChange={(event) => update("urBar", event.target.checked)} />UR 显示
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.keyOverlay} onChange={(event) => update("keyOverlay", event.target.checked)} />按键输入展示(Z/X/C 键与计数)
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="Z/X/C 键与计数">
+              <input className="accent-cyan-400" type="checkbox" checked={options.keyOverlay} onChange={(event) => update("keyOverlay", event.target.checked)} />按键输入展示
             </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="游玩过程中的实时性能点数(逐物件渐增,Argon 样式挂在 ACC 行下方)">
-              <input className="accent-cyan-400" type="checkbox" checked={options.ppDisplay} onChange={(event) => update("ppDisplay", event.target.checked)} />PP 计数(实时性能点数)
+              <input className="accent-cyan-400" type="checkbox" checked={options.ppDisplay} onChange={(event) => update("ppDisplay", event.target.checked)} />PP 计数
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线(Follow points)
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="Follow points">
+              <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线
             </label>
           </div>
           <Button className="mt-5 w-full" variant="primary" loading={starting} disabled={!replayPath || !replayInfo?.beatmap_resource_id || active} onClick={() => void start()}>
@@ -528,20 +528,20 @@ export function LivePreviewPanel() {
             </div>
             <label className="block text-xs text-slate-400">编码器
               <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.encoder} onChange={(event) => setExportForm((f) => ({ ...f, encoder: event.target.value as LiveExportParams["encoder"] }))}>
-                <option value="x264">H.264(x264,兼容性最好)</option>
-                <option value="x265">H.265(x265,体积更小)</option>
-                <option value="nvenc" disabled={nvenc !== undefined && !nvenc[0]}>NVENC(NVIDIA 硬件编码,最快){nvenc !== undefined && !nvenc[0] ? "(不可用)" : ""}</option>
-                <option value="hevc_nvenc" disabled={nvenc !== undefined && !nvenc[1]}>H.265 NVENC(NVIDIA 硬件编码,快且体积小){nvenc !== undefined && !nvenc[1] ? "(不可用)" : ""}</option>
+                <option value="x264">H.264</option>
+                <option value="x265">H.265</option>
+                <option value="nvenc" disabled={nvenc !== undefined && !nvenc[0]}>NVENC{nvenc !== undefined && !nvenc[0] ? "(不可用)" : ""}</option>
+                <option value="hevc_nvenc" disabled={nvenc !== undefined && !nvenc[1]}>H.265 NVENC{nvenc !== undefined && !nvenc[1] ? "(不可用)" : ""}</option>
               </select>
             </label>
-            <label className="block text-xs text-slate-400">质量(crf {exportForm.quality},越低画质越高)
+            <label className="block text-xs text-slate-400" title="crf 越低画质越高">质量 crf {exportForm.quality}
               <input className="mt-3 w-full accent-cyan-400" type="range" min={14} max={28} value={exportForm.quality} onChange={(event) => setExportForm((f) => ({ ...f, quality: Number(event.target.value) }))} />
             </label>
             <div className="space-y-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2">
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
-                <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM(谱面自带音频,AAC 192k)
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300" title="谱面自带音频,AAC 192k">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM
               </label>
-              {exportForm.audio ? <label className="block pl-6 text-xs text-slate-400">导出音频偏移 {exportOffsetText === "" ? 0 : exportOffsetText} ms(与预览偏移互相独立)
+              {exportForm.audio ? <label className="block pl-6 text-xs text-slate-400" title="与预览偏移互相独立">导出音频偏移 {exportOffsetText === "" ? 0 : exportOffsetText} ms
                 <input
                   className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-2 text-sm text-white"
                   type="text"
@@ -561,11 +561,11 @@ export function LivePreviewPanel() {
                   }}
                 />
               </label> : null}
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
-                <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效(命中音/combobreak,ArgonPro)
-              <label className="flex items-center gap-2 text-sm">
-                <input className="accent-cyan-400" type="checkbox" checked={exportForm.results} onChange={(event) => setExportForm((f) => ({ ...f, results: event.target.checked }))} />生成结算屏(玩法后追加 4 秒,默认开)
-              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300" title="命中音/combobreak,ArgonPro">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效
+                <label className="flex items-center gap-2 text-sm" title="玩法后追加 4 秒,默认开">
+                  <input className="accent-cyan-400" type="checkbox" checked={exportForm.results} onChange={(event) => setExportForm((f) => ({ ...f, results: event.target.checked }))} />生成结算屏
+                </label>
               </label>
               <p className="pl-6 text-[10px] leading-relaxed text-slate-500">音量按 osu! 默认值(Music/Effect/Master 各 60%),两者同时混入时自动混合为一条音轨</p>
             </div>
