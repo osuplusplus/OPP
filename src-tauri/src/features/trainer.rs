@@ -220,14 +220,8 @@ fn transform_beatmap(source: &str, request: &TrainerRequest) -> CommandResult<(S
                 output.push(format!("Version: Trainer {:.2}x", request.rate));
                 continue;
             }
-            if trimmed.starts_with("BeatmapID:") || trimmed.starts_with("BeatmapSetID:") {
-                output.push(
-                    raw.split_once(':')
-                        .map(|(key, _)| format!("{key}:0"))
-                        .unwrap_or_else(|| raw.to_string()),
-                );
-                continue;
-            }
+            // Keep source IDs: osu! indexes entries by BeatmapSetID in osu!.db.
+            // Zeroing every generated chart causes distinct difficulties to collapse.
         }
         if section == "[TimingPoints]" && !trimmed.is_empty() && !trimmed.starts_with("//") {
             let mut values = raw.split(',').map(str::to_string).collect::<Vec<_>>();
@@ -385,6 +379,18 @@ pub fn generate_trainer_beatmap(
         safe_name(title),
         &Uuid::new_v4().simple().to_string()[..8]
     ));
+    // Give every generated chart a unique positive identity. osu!.db groups
+    // entries by BeatmapSetID; reusing the source IDs makes repeated Trainer
+    // generations appear as a single difficulty in game.
+    let unique_id = u64::from_str_radix(&Uuid::new_v4().simple().to_string()[..12], 16).unwrap_or(1);
+    let beatmap = beatmap
+        .lines()
+        .map(|line| {
+            if line.starts_with("BeatmapID:") { format!("BeatmapID:{unique_id}") }
+            else if line.starts_with("BeatmapSetID:") { format!("BeatmapSetID:{unique_id}") }
+            else { line.to_string() }
+        })
+        .collect::<Vec<_>>().join("\r\n") + "\r\n";
     fs::create_dir_all(&target_dir)
         .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
     for entry in fs::read_dir(source_dir)
@@ -393,6 +399,9 @@ pub fn generate_trainer_beatmap(
         let entry =
             entry.map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
         let path = entry.path();
+        // A generated folder must contain exactly one .osu difficulty. Copy only
+        // non-beatmap assets; copying sibling difficulties makes osu! collapse
+        // the folder into the wrong chart on import.
         if path.is_file()
             && path
                 .extension()

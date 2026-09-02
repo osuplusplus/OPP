@@ -475,7 +475,9 @@ fn parse_beatmap(bytes: &[u8]) -> Result<ParsedBeatmap> {
     let mut beatmap_id = 0_u64;
     let mut beatmapset_id = 0_u64;
     let mut artist = String::new();
+    let mut artist_unicode = String::new();
     let mut title = String::new();
+    let mut title_unicode = String::new();
     let mut version = String::new();
     let mut creator = String::new();
     let mut ar = 5.0;
@@ -510,7 +512,9 @@ fn parse_beatmap(bytes: &[u8]) -> Result<ParsedBeatmap> {
                         "BeatmapID" => beatmap_id = value.trim().parse().unwrap_or(0),
                         "BeatmapSetID" => beatmapset_id = value.trim().parse().unwrap_or(0),
                         "Artist" => artist = value.trim().into(),
+                        "ArtistUnicode" => artist_unicode = value.trim().into(),
                         "Title" => title = value.trim().into(),
+                        "TitleUnicode" => title_unicode = value.trim().into(),
                         "Version" => version = value.trim().into(),
                         "Creator" => creator = value.trim().into(),
                         _ => {}
@@ -618,8 +622,8 @@ fn parse_beatmap(bytes: &[u8]) -> Result<ParsedBeatmap> {
             beatmap_id,
             beatmapset_id,
             checksum: hex::encode(digest),
-            artist,
-            title,
+            artist: if artist_unicode.is_empty() { artist } else { artist_unicode },
+            title: if title_unicode.is_empty() { title } else { title_unicode },
             version,
             creator,
             online_url: format!("https://osu.ppy.sh/b/{beatmap_id}"),

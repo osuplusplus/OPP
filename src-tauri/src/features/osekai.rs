@@ -6,7 +6,9 @@ const BASE: &str = "https://inex.osekai.net/api";
 
 async fn get(path: &str) -> CommandResult<Value> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
+        // Medal detail endpoints are optional; keep the UI responsive when
+        // Osekai is unreachable instead of leaving every dialog spinning.
+        .timeout(std::time::Duration::from_secs(5))
         .user_agent("OPP Osekai medal client")
         .build()
         .map_err(|e| CommandError::network(e.to_string()))?;

@@ -295,7 +295,32 @@ impl SurfaceRenderer {
             return false;
         }
         let mut encoder = self.renderer.encode_scene(list, clear);
-        let Ok(frame) = self.surface.get_current_texture() else { return false };
+        let frame = match self.surface.get_current_texture() {
+            Ok(frame) => frame,
+            // A native child window can briefly invalidate its swapchain when
+            // the WebView is resized, uncovered, or moved between monitors.
+            // Do not silently lose all subsequent frames (audio keeps running):
+            // reconfigure and let the next tick render again.
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                eprintln!("live_render: surface lost/outdated ({}x{}), reconfiguring", w, h);
+                // Force configure even when dimensions did not change.
+                self.surface_size = (0, 0);
+                self.resize(w, h);
+                return false;
+            }
+            Err(wgpu::SurfaceError::Timeout) => {
+                eprintln!("live_render: surface frame timeout ({}x{})", w, h);
+                return false;
+            }
+            Err(wgpu::SurfaceError::OutOfMemory) => {
+                eprintln!("live_render: surface out of memory ({}x{})", w, h);
+                return false;
+            }
+            Err(wgpu::SurfaceError::Other) => {
+                eprintln!("live_render: surface frame error ({}x{})", w, h);
+                return false;
+            }
+        };
         let view = frame.texture.create_view(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

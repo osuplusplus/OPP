@@ -926,7 +926,7 @@ impl Session {
     }
 
     /// 渲染当前 t 的一帧并 present。
-    fn draw_frame(&mut self) {
+    fn draw_frame(&mut self) -> bool {
         let t = self.t;
         let snap = game::snapshot_at(&self.game, t);
         let assets = scene::Assets {
@@ -945,9 +945,7 @@ impl Session {
         let Backend::Native {
             renderer, visible, ..
         } = &mut self.backend;
-        if *visible {
-            renderer.render(&self.list, CLEAR);
-        }
+        let presented = if *visible { renderer.render(&self.list, CLEAR) } else { false };
         let _ = self.app.emit(
             "live-render-time",
             LiveRenderState {
@@ -958,6 +956,7 @@ impl Session {
             },
         );
         self.last_emit = Instant::now();
+        presented
     }
 }
 
@@ -1116,8 +1115,11 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
 
             let visible = s.visible_now();
             if s.dirty && visible {
-                s.draw_frame();
-                s.dirty = false;
+                // Keep dirty set when presentation is temporarily unavailable
+                // (e.g. swapchain Lost/Outdated during WebView resize), so a
+                // paused preview retries the first frame instead of ending up
+                // with audio-only playback until the next seek.
+                s.dirty = !s.draw_frame();
             } else if s.playing && s.last_emit.elapsed() >= Duration::from_millis(100) {
                 let _ = s.app.emit(
                     "live-render-time",
@@ -1662,6 +1664,7 @@ fn open_session(
         } else {
             renderer.resize(0, 0);
         }
+        eprintln!("live_render: native GPU backend: {}", renderer.gpu_info());
         Ok(Backend::Native {
             hwnd,
             popup,
@@ -1699,6 +1702,7 @@ fn open_session(
         } else {
             renderer.resize(0, 0);
         }
+        eprintln!("live_render: native GPU backend: {}", renderer.gpu_info());
         Ok(Backend::Native {
             renderer,
             visible,

@@ -1,0 +1,2114 @@
+{
+  "1": {
+    "Name": "500 连击",
+    "Description": "500 连！不错，已经开始上强度了。",
+    "Instructions": "在任意谱面上冲击 500 Combo 或更高连击",
+    "Solution": "在任意谱面上使用任意 Mod，取得至少 500 Combo。"
+  },
+  "3": {
+    "Name": "750 连击",
+    "Description": "750 个音符一个不落？有点东西。",
+    "Instructions": "在任意谱面上冲击 750 Combo 或更高连击",
+    "Solution": "在任意谱面上使用任意 Mod，取得至少 750 Combo。"
+  },
+  "4": {
+    "Name": "1,000 连击",
+    "Description": "一千个理由证明：你是真的会玩。",
+    "Instructions": "在任意谱面上冲击至少 1,000 Combo（可以试试 <a href='/p/beatmaplist?q=marathon'>marathon</a>）",
+    "Solution": "在任意谱面上使用任意 Mod，取得至少 1,000 Combo。"
+  },
+  "5": {
+    "Name": "2,000 连击",
+    "Description": "现在已经没人拦得住你了。",
+    "Instructions": "在任意谱面上冲击至少 2,000 Combo（可以试试 <a href='/p/beatmaplist?q=marathon'>marathon</a>）",
+    "Solution": "在任意谱面上使用任意 Mod，取得至少 2,000 Combo。"
+  },
+  "6": {
+    "Name": "别被兔子带跑偏！",
+    "Description": "所以答案果然不是“兔子”。",
+    "Instructions": "",
+    "Solution": "在 <i>Chatmonchy - Make Up! Make Up!</i> 的任意难度上取得 PFC。"
+  },
+  "7": {
+    "Name": "电子游戏曲包 vol.1",
+    "Description": "电子游戏精华一包清空。可以，拿下！",
+    "Instructions": "",
+    "Solution": "在曲包“Video Game Pack vol. 1”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "8": {
+    "Name": "节奏游戏曲包 vol.1",
+    "Description": "点过这么多拍子，但节奏可还没结束。",
+    "Instructions": "",
+    "Solution": "在曲包“Rhythm Game Pack vol. 1”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "9": {
+    "Name": "互联网曲包 vol.1",
+    "Description": "刚才是不是有人提到 IRC 和 ICQ？",
+    "Instructions": "",
+    "Solution": "在曲包“Internet! Pack vol. 1”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "10": {
+    "Name": "动漫曲包 vol.1",
+    "Description": "才、才不是因为我为你感到骄傲什么的……",
+    "Instructions": "在 Anime Pack vol.1 曲包的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。",
+    "Solution": "在 Anime Pack vol.1 曲包的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "11": {
+    "Name": "电子游戏曲包 vol.2",
+    "Description": "续作？在你的实力面前也不过如此。",
+    "Instructions": "",
+    "Solution": "在曲包“Video Game Pack vol. 2”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "12": {
+    "Name": "动漫曲包 vol.2",
+    "Description": "这就是对二次元的真爱。",
+    "Instructions": "",
+    "Solution": "在曲包“Anime Pack vol. 2”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "13": {
+    "Name": "接住 20,000 个水果",
+    "Description": "膳食纤维摄入严重超标。",
+    "Instructions": "",
+    "Solution": "累计接住 20,000 个水果。你可以在 osu! 官网个人资料中查看当前已接住的水果数量。"
+  },
+  "14": {
+    "Name": "电子游戏曲包 vol.3",
+    "Description": "你对电子游戏艺术，多少有点信仰了。",
+    "Instructions": "",
+    "Solution": "在曲包“Video Game Pack vol. 3”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "15": {
+    "Name": "S 级选手",
+    "Description": "准度这东西，真的被低估太久了。",
+    "Instructions": "",
+    "Solution": "在 24 小时内，在 5 张不同谱面上取得 S（或 SS）评价。\r\n<solution-note advice>使用 HD 或 FL 时取得的银 S（S+）和银 SS（SS+）同样有效。</solution-note>"
+  },
+  "16": {
+    "Name": "进步神速",
+    "Description": "这才叫真正的“进步”。",
+    "Instructions": "",
+    "Solution": "先在任意谱面上取得分数超过 100,000 的 D 评价，然后在该次成绩后的 24 小时内，在同一张谱面上取得 A 或更高评价。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>"
+  },
+  "17": {
+    "Name": "永不停舞",
+    "Description": "跳完这首，你还感觉得到自己的脚吗？",
+    "Instructions": "",
+    "Solution": "通过 <i>Yoko Ishida - paraparaMAX I</i>，且分数超过 3,000,000。\r\n<solution-note advice><b>不能</b>使用 No-Fail。</solution-note>\r\n<solution-note>在 lazer 中，需要使用 lazer 计分并以超过 100,000 分通过。</solution-note>"
+  },
+  "18": {
+    "Name": "互联网曲包 vol.2",
+    "Description": "来自一只白化的黑羊……等等，什么玩意？",
+    "Instructions": "",
+    "Solution": "在曲包“Internet! Pack vol. 2”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "19": {
+    "Name": "节奏游戏曲包 vol.2",
+    "Description": "这拍子，根本停不下来。",
+    "Instructions": "",
+    "Solution": "在曲包“Rhythm Game Pack vol. 2”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "20": {
+    "Name": "5,000 次游玩",
+    "Description": "这才哪到哪，后面多着呢。",
+    "Instructions": "",
+    "Solution": "累计达到 5,000 次游玩。你可以在 osu! 官网个人资料中查看当前游玩次数。"
+  },
+  "21": {
+    "Name": "15,000 次游玩",
+    "Description": "必……须……点……圈……",
+    "Instructions": "",
+    "Solution": "累计达到 15,000 次游玩。你可以在 osu! 官网个人资料中查看当前游玩次数。"
+  },
+  "22": {
+    "Name": "25,000 次游玩",
+    "Description": "已经没有回头路了。",
+    "Instructions": "",
+    "Solution": "累计达到 25,000 次游玩。你可以在 osu! 官网个人资料中查看当前游玩次数。"
+  },
+  "23": {
+    "Name": "接住 200,000 个水果",
+    "Description": "听说你很喜欢水果……",
+    "Instructions": "",
+    "Solution": "累计接住 200,000 个水果。你可以在 osu! 官网个人资料中查看当前已接住的水果数量。"
+  },
+  "24": {
+    "Name": "接住 2,000,000 个水果",
+    "Description": "健康得有点过头了。",
+    "Instructions": "",
+    "Solution": "累计接住 2,000,000 个水果。你可以在 osu! 官网个人资料中查看当前已接住的水果数量。"
+  },
+  "25": {
+    "Name": "动漫曲包 vol.3",
+    "Description": "为了老婆们，值了。",
+    "Instructions": "",
+    "Solution": "在曲包“Anime Pack vol. 3”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "26": {
+    "Name": "节奏游戏曲包 vol.3",
+    "Description": "众所周知，经典音游曲放 osu! 里才最好玩。",
+    "Instructions": "",
+    "Solution": "在曲包“Rhythm Game Pack vol. 3”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "27": {
+    "Name": "互联网曲包 vol.3",
+    "Description": "我猜你不是随便逛着逛着就撞上这枚的。",
+    "Instructions": "",
+    "Solution": "在曲包“Internet! Pack vol. 3”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "28": {
+    "Name": "50,000 次游玩",
+    "Description": "恭喜，你住这儿了。",
+    "Instructions": "",
+    "Solution": "累计达到 50,000 次游玩。你可以在 osu! 官网个人资料中查看当前游玩次数。"
+  },
+  "31": {
+    "Name": "30,000 次太鼓击打",
+    "Description": "刚才那个鼓……是不是长了张脸？",
+    "Instructions": "",
+    "Solution": "累计达到 30,000 次太鼓击打。你可以在 osu! 官网个人资料中查看当前击打次数。"
+  },
+  "32": {
+    "Name": "300,000 次太鼓击打",
+    "Description": "节奏永不停歇。",
+    "Instructions": "",
+    "Solution": "累计达到 300,000 次太鼓击打。你可以在 osu! 官网个人资料中查看当前击打次数。"
+  },
+  "33": {
+    "Name": "3,000,000 次太鼓击打",
+    "Description": "真正的 Don 中之 Don。",
+    "Instructions": "",
+    "Solution": "累计达到 3,000,000 次太鼓击打。你可以在 osu! 官网个人资料中查看当前击打次数。"
+  },
+  "34": {
+    "Name": "动漫曲包 vol.4",
+    "Description": "你的 CP 还没开船吗？",
+    "Instructions": "",
+    "Solution": "在曲包“Anime Pack vol. 4”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "35": {
+    "Name": "节奏游戏曲包 vol.4",
+    "Description": "只差一“点”？不，就在眼前。",
+    "Instructions": "",
+    "Solution": "在曲包“Rhythm Game Pack vol. 4”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "36": {
+    "Name": "互联网曲包 vol.4",
+    "Description": "还……要……更多……梗……",
+    "Instructions": "",
+    "Solution": "在曲包“Internet! Pack vol. 4”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "37": {
+    "Name": "电子游戏曲包 vol.4",
+    "Description": "你就是 Player 1。",
+    "Instructions": "",
+    "Solution": "在曲包“Video Game Pack vol. 4”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "38": {
+    "Name": "安慰奖",
+    "Description": "嗯……至少还能更惨。",
+    "Instructions": "",
+    "Solution": "在任意谱面上取得分数高于 100,000 的 D 评价。<br>不能使用任何 Mod。\r\n<stable-difference>在 osu! stable 中，需要先获得 <a href=\"https://osekai.net/medals/?medal=Most%20Improved\">Most Improved</a> medal。</stable-difference>"
+  },
+  "39": {
+    "Name": "挑战？接了！",
+    "Description": "哦？你这是要来真的。",
+    "Instructions": "",
+    "Solution": "在任意 Approved 谱面上取得 A 或更高评价并通过。\r\n<stable-difference>在 osu! stable 中，通常不一定需要 A 评价，但这只会在某些情况下发生，我们也不确定原因。</stable-difference>\r\n<stable-difference>如果你遇到“理论上应该拿到 medal 却没拿到”的情况，<a href=\"https://discord.com/channels/639515567233171476/1237885713979146362\">请到这里反馈</a>并提供相关信息，以便进一步确认机制。</stable-difference>"
+  },
+  "40": {
+    "Name": "跌跌撞撞",
+    "Description": "不后悔。",
+    "Instructions": "",
+    "Solution": "在任意谱面上以低于 85% 的准确率取得 PFC。"
+  },
+  "41": {
+    "Name": "头奖！",
+    "Description": "“幸运 7”都不足以形容这运气。",
+    "Instructions": "",
+    "Solution": "通过任意谱面，分数需高于 100,000，且分数中的每一位数字都完全相同（例如 222,222 / 7,777,777 / 99,999,999）。\r\n<solution-note>允许使用包括 NF 在内的降低难度 Mod。</solution-note>"
+  },
+  "42": {
+    "Name": "快枪手",
+    "Description": "正午已到。",
+    "Instructions": "",
+    "Solution": "成为第一位在任意 Ranked 或 Qualified 谱面上提交成绩的玩家。"
+  },
+  "43": {
+    "Name": "上头了",
+    "Description": "不！惜！一！切！也！要！打！过！",
+    "Instructions": "",
+    "Solution": "在 24 小时内，对同一张谱面重试至少 100 次，随后将其通过。\r\n<br><solution-note>每次“重试”都必须至少取得 10,000 分，才会被计为一次有效游玩。</solution-note>"
+  },
+  "44": {
+    "Name": "不间断",
+    "Description": "休息？那是什么？",
+    "Instructions": "",
+    "Solution": "在 Mod 前 drain time 为 8:41 或更长的任意谱面上取得 PFC。\r\n<solution-note>注意看的是谱面的 drain time，而不是总时长！在谱面页面将鼠标悬停在时长上即可查看 drain time。\r\n<br>（对，真的是 8:41。为什么？我们也不知道 lol）</solution-note>"
+  },
+  "45": {
+    "Name": "全能选手",
+    "Description": "啥都会一点，啥都挺能打。",
+    "Instructions": "",
+    "Solution": "在四种游戏模式（Standard / Taiko / Mania / Catch the Beat）中，各自达到超过 5,000 次 playcount。\r\n<br><solution-note>你可以在 osu! 官网个人资料中查看各模式当前的 playcount。</solution-note>"
+  },
+  "46": {
+    "Name": "40,000 次按键",
+    "Description": "彩虹才刚刚开始。",
+    "Instructions": "",
+    "Solution": "累计达到 40,000 次按键。你可以在 osu! 官网个人资料中查看当前按键次数。"
+  },
+  "47": {
+    "Name": "400,000 次按键",
+    "Description": "四十万下了，离终点还远着呢。",
+    "Instructions": "",
+    "Solution": "累计达到 400,000 次按键。你可以在 osu! 官网个人资料中查看当前按键次数。"
+  },
+  "48": {
+    "Name": "4,000,000 次按键",
+    "Description": "这就是彩虹的尽头了吗？",
+    "Instructions": "",
+    "Solution": "累计达到 4,000,000 次按键。你可以在 osu! 官网个人资料中查看当前按键次数。"
+  },
+  "50": {
+    "Name": "看见山顶了",
+    "Description": "坚持有回报。欢迎来到全球前 50,000！",
+    "Instructions": "",
+    "Solution": "在任意游戏模式的 pp 排名中达到全球前 50,000 名。"
+  },
+  "51": {
+    "Name": "步步高升",
+    "Description": "你是真停不下来了。欢迎来到全球前 10,000！",
+    "Instructions": "",
+    "Solution": "在任意游戏模式的 pp 排名中达到全球前 10,000 名。"
+  },
+  "52": {
+    "Name": "再上一层",
+    "Description": "欢迎来到全球前 5,000。别停！",
+    "Instructions": "",
+    "Solution": "在任意游戏模式的 pp 排名中达到全球前 5,000 名。"
+  },
+  "53": {
+    "Name": "逼近巅峰",
+    "Description": "职业级了。欢迎来到全球前 1,000！",
+    "Instructions": "",
+    "Solution": "在任意游戏模式的 pp 排名中达到全球前 1,000 名。"
+  },
+  "54": {
+    "Name": "双子视角",
+    "Description": "你见到了 osu!mania 的双子看板娘 Mani 和 Mari。",
+    "Instructions": "",
+    "Solution": "通过任意一张 Ranked mania 谱面，并取得至少 100 Combo。"
+  },
+  "55": {
+    "Name": "新星升起",
+    "Description": "万丈高楼，先从第一步开始。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面。"
+  },
+  "56": {
+    "Name": "星座奖",
+    "Description": "不是“安慰奖”，真不是。接下来才开始难。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面。"
+  },
+  "57": {
+    "Name": "渐入佳境",
+    "Description": "对，就是这个感觉——你能行。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面。"
+  },
+  "58": {
+    "Name": "疯狂逼近",
+    "Description": "你不是手抖，只是进入状态了。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面。"
+  },
+  "59": {
+    "Name": "澄澈晴空",
+    "Description": "现在一切都看得无比清楚。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面。"
+  },
+  "60": {
+    "Name": "更上一层",
+    "Description": "就是比别人高那么一截。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面。"
+  },
+  "61": {
+    "Name": "至高无上",
+    "Description": "众人皆为你的实力叹服。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面。"
+  },
+  "62": {
+    "Name": "赦免",
+    "Description": "天啊，你满眼都是星星！",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面。"
+  },
+  "63": {
+    "Name": "一个不落",
+    "Description": "所有音符。每一个。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "64": {
+    "Name": "日常操作",
+    "Description": "再来两份，谢谢。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "65": {
+    "Name": "渐入状态",
+    "Description": "欸，好像也没那么难。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "66": {
+    "Name": "继续前进",
+    "Description": "这一下，爽了吧。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "67": {
+    "Name": "范式转移",
+    "Description": "出乎意料地难。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "68": {
+    "Name": "稳住别糊",
+    "Description": "别 choke。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "69": {
+    "Name": "永不言弃",
+    "Description": "优秀本身，就是奖励。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "70": {
+    "Name": "异常值",
+    "Description": "他们说做不到。事实证明，他们错了。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "71": {
+    "Name": "我的第一次 Don",
+    "Description": "跟着自己的鼓点前进。字面意义上的。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面。"
+  },
+  "72": {
+    "Name": "咔！咔！咔！",
+    "Description": "ほら！行くぞ！——来吧，上了！",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面。"
+  },
+  "73": {
+    "Name": "这也叫难？",
+    "Description": "“Muzukashii”？就这？",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面。"
+  },
+  "74": {
+    "Name": "直面恶鬼",
+    "Description": "最初的试炼已经过去——接下来，你能否战胜 Oni？",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面。"
+  },
+  "75": {
+    "Name": "心中之鬼",
+    "Description": "恶人无休。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面。"
+  },
+  "76": {
+    "Name": "碎鼓者",
+    "Description": "太强了。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面。"
+  },
+  "77": {
+    "Name": "鼓王教父",
+    "Description": "你就是 Don 中之 Don。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面。"
+  },
+  "78": {
+    "Name": "节奏化身",
+    "Description": "感受节拍。成为节拍。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面。"
+  },
+  "79": {
+    "Name": "生活切片",
+    "Description": "嘿，接水果这活儿还挺不错。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面。\r\n<solution-note advice>别 fail。</solution-note>"
+  },
+  "80": {
+    "Name": "一路疾驰",
+    "Description": "快，就完事了。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面。"
+  },
+  "81": {
+    "Name": "果味十足",
+    "Description": "吃这么多水果，坏血病是别想靠近你了。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面。"
+  },
+  "82": {
+    "Name": "Hyperdash：启动！",
+    "Description": "时间和距离？都不是问题。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面。"
+  },
+  "83": {
+    "Name": "天降水果",
+    "Description": "而你，一个都接得住。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面。"
+  },
+  "84": {
+    "Name": "水果忍者",
+    "Description": "失传绝技。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面。"
+  },
+  "85": {
+    "Name": "捕梦者",
+    "Description": "已经没有水果了，只剩梦。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面。"
+  },
+  "86": {
+    "Name": "接果之王",
+    "Description": "你的果园王国向你臣服。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面。"
+  },
+  "87": {
+    "Name": "第一步",
+    "Description": "不是朝九晚五，是 1 到 9——说的是键数。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面。"
+  },
+  "88": {
+    "Name": "不再普通",
+    "Description": "至少现在已经不是了。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面。"
+  },
+  "89": {
+    "Name": "脉冲驱动",
+    "Description": "还没到超光速，不过也快了。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面。"
+  },
+  "90": {
+    "Name": "超高速",
+    "Description": "卧槽。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面。"
+  },
+  "91": {
+    "Name": "一路向前",
+    "Description": "下一个挑战，已经在拐角等你。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面。"
+  },
+  "92": {
+    "Name": "再下一城",
+    "Description": "你的实力到底有没有上限？",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面。"
+  },
+  "93": {
+    "Name": "额外学分",
+    "Description": "下课后来找我。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面。"
+  },
+  "94": {
+    "Name": "狂人",
+    "Description": "根本停不下来。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面。"
+  },
+  "95": {
+    "Name": "稳住节拍",
+    "Description": "咚，然后咔。咚，然后咔……",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "96": {
+    "Name": "自己的节奏",
+    "Description": "直、稳、准。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "97": {
+    "Name": "大鼓，大分",
+    "Description": "鼓越大，分也得越大。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "98": {
+    "Name": "逆境已破",
+    "Description": "难？对你来说不存在。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "99": {
+    "Name": "斩鬼者",
+    "Description": "Oni，就此伏诛。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "100": {
+    "Name": "节奏召唤",
+    "Description": "真正实力的号角已经吹响。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "101": {
+    "Name": "永恒节拍",
+    "Description": "没有任何一个拍点能逃过你。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "102": {
+    "Name": "鼓手王座",
+    "Description": "只有王者，才配得上这般鼓点。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "103": {
+    "Name": "酸酸甜甜",
+    "Description": "苹果和橙子——真的是字面意义。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "104": {
+    "Name": "直抵果核",
+    "Description": "成功的种子已经埋下。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "105": {
+    "Name": "光盘行动",
+    "Description": "盘子里没剩失败；至于别的，倒是装得满满当当。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "106": {
+    "Name": "雨隙之间",
+    "Description": "不需要伞。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "107": {
+    "Name": "上瘾了",
+    "Description": "这就算“过量”了？",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "108": {
+    "Name": "加速",
+    "Description": "比正常极限，再快那么一点。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "109": {
+    "Name": "超音速",
+    "Description": "快得已经没有实际必要。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "110": {
+    "Name": "猩红疾驰",
+    "Description": "速度快到凡人无法理解。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "111": {
+    "Name": "键上初遇",
+    "Description": "新故事，由此开始。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>1</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "112": {
+    "Name": "渐入键境",
+    "Description": "找到属于你的 groove。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>2</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "113": {
+    "Name": "超流",
+    "Description": "你真的能“摸到”节奏。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>3</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "114": {
+    "Name": "突破",
+    "Description": "百般技巧，融会贯通。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>4</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "115": {
+    "Name": "火力全开",
+    "Description": "所谓全力以赴，就是把一切都压上。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>5</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "116": {
+    "Name": "等级破坏者",
+    "Description": "细腻到不讲道理。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>6</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "117": {
+    "Name": "再进一步",
+    "Description": "登上少有人见过的悬崖边。",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>7</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "118": {
+    "Name": "帷幕之后",
+    "Description": "超自然！",
+    "Instructions": "",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>8</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "119": {
+    "Name": "终局",
+    "Description": "高风险，零后悔。",
+    "Instructions": "开启 <b>Sudden Death</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "120": {
+    "Name": "完美主义者",
+    "Description": "最好的之外，一概不收。",
+    "Instructions": "开启 <b>Perfect</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "121": {
+    "Name": "摇滚不停歇",
+    "Description": "摇滚可不是说停就停。",
+    "Instructions": "开启 <b>Hard Rock</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "122": {
+    "Name": "一倍半时间",
+    "Description": "玩得正嗨——差不多嗨了“一倍半”。",
+    "Instructions": "开启 <b>DoubleTime</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "123": {
+    "Name": "甜蜜锐舞派对",
+    "Description": "优良传统：把本来好好的东西改得面目全非。",
+    "Instructions": "开启 <b>Nightcore</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "124": {
+    "Name": "盲视",
+    "Description": "我看得可清楚了。真的。",
+    "Instructions": "开启 <b>Hidden</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "125": {
+    "Name": "你怕黑吗？",
+    "Description": "看起来就很难——大概因为你压根看不清。",
+    "Instructions": "开启 <b>Flashlight</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "126": {
+    "Name": "调低一点",
+    "Description": "有时候，人就是想轻松点。",
+    "Instructions": "开启 <b>Easy</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "127": {
+    "Name": "风险厌恶",
+    "Description": "安全网，多好玩啊。",
+    "Instructions": "开启 <b>No Fail</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "128": {
+    "Name": "慢船也能到",
+    "Description": "到了。最终还是到了。",
+    "Instructions": "开启 <b>HalfTime</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "131": {
+    "Name": "转不动了",
+    "Description": "也不是每次都能靠转盘赢。",
+    "Instructions": "开启 <b>Spun Out</b> Mod 并完成一张谱面！",
+    "Solution": "仅使用指定 Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "132": {
+    "Name": "坚持",
+    "Description": "撑住。",
+    "Instructions": "<i>耐力才是关键。</i>",
+    "Solution": "通过任意一张时长至少 7 分钟的谱面。"
+  },
+  "133": {
+    "Name": "燃起来了",
+    "Description": "这可不只是比谁快。",
+    "Instructions": "<i>耐力<strong>和</strong>精度，缺一不可。</i>",
+    "Solution": "在任意一张时长至少 7 分钟的谱面上取得 PFC。"
+  },
+  "134": {
+    "Name": "时间膨胀",
+    "Description": "到头来，越长反而越短。",
+    "Instructions": "<i>快乐的时候时间总是过得飞快，但很少会真的永远持续。</i>",
+    "Solution": "使用指定的任一 Mod，通过一张 Mod 后时长达到 8 分钟或更长的谱面。\r\n不能使用 NF，但允许使用其他降低难度的 Mod。\r\n<solution-note advice>这意味着在应用 DT/NC 前，谱面时长必须至少为 12 分钟。</solution-note>\r\n<solution-note>注意看的是谱面的 drain time，而不是总时长！在谱面页面将鼠标悬停在时长上即可查看 drain time。</solution-note>"
+  },
+  "135": {
+    "Name": "只需一秒",
+    "Description": "然后……啪，没了。",
+    "Instructions": "<i>眨个眼就错过了。</i>",
+    "Solution": "使用指定 Mod，通过任意一张 AR8.5+ 的谱面。"
+  },
+  "136": {
+    "Name": "残像",
+    "Description": "不过是真身留下的一瞥。",
+    "Instructions": "<i>永远慢原像一步。</i>",
+    "Solution": "仅使用指定 Mod，通过任意谱面。"
+  },
+  "137": {
+    "Name": "直抵核心",
+    "Description": "一不做二不休——这次是低音炮狠狠干到底。",
+    "Instructions": "<i>负负有时还真能得正。</i>",
+    "Solution": "使用指定的任一 Mod，通过任意标题或艺术家名中包含 “Nightcore” 的谱面。"
+  },
+  "138": {
+    "Name": "有备而来",
+    "Description": "下次记得来真的。",
+    "Instructions": "<i>凡事想成，准备先行。</i>",
+    "Solution": "使用指定 Mod，在任意谱面上取得 PFC。"
+  },
+  "139": {
+    "Name": "日蚀",
+    "Description": "缺失之中，诞生了新的东西。",
+    "Instructions": "<i>乌云遮日看不见太阳。这里嘛，是月亮也看不见。</i>",
+    "Solution": "使用指定 Mod，通过任意谱面。"
+  },
+  "140": {
+    "Name": "破罐破摔",
+    "Description": "全都扔进风里。",
+    "Instructions": "<i>就因为你能做到，所以去做——哪怕赌注很高。</i>",
+    "Solution": "使用指定 Mod，在 Mod 后难度为 <star-rating>3+</star-rating> 的任意谱面上取得 PFC。"
+  },
+  "141": {
+    "Name": "隧道视野",
+    "Description": "可它明明就在那儿……",
+    "Instructions": "<i>怕黑？</i>",
+    "Solution": "使用 FL，通过任意 Ranked、Loved 或 Approved 谱面，且 Combo 不得达到 200。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>\r\n<solution-note>无论选择哪张谱面，圆圈数量 + 2×滑条数量 + 3×转盘数量的总和必须至少为 400。为什么有这个条件？只有天知道。</solution-note>"
+  },
+  "142": {
+    "Name": "别被表象骗了",
+    "Description": "这哪里 Easy 了！",
+    "Instructions": "<i>有时候，难的路反而更简单。</i>",
+    "Solution": "使用指定 Mod，在 <b>Mod 后</b>难度为 <star-rating>4+</star-rating> 的任意谱面上取得 PFC。"
+  },
+  "143": {
+    "Name": "敢不敢上",
+    "Description": "旋钮直接拧到 11。",
+    "Instructions": "<i>什么都调到 11 才够爽。</i>",
+    "Solution": "在 AR10+、OD10+ 且 HP10+ 的谱面上取得 PFC。"
+  },
+  "144": {
+    "Name": "熄灯",
+    "Description": "派对才刚开始。",
+    "Instructions": "<i>气氛先拉满。</i>",
+    "Solution": "使用指定 Mod，通过任意谱面。"
+  },
+  "145": {
+    "Name": "势不可挡",
+    "Description": "我靠。",
+    "Instructions": "<i>触及凡人技巧的极限。</i>",
+    "Solution": "使用 DTHR 通过任意谱面：仅计算 HR 时需达到至少 AR10、OD10、HP10，并在 DT 后达到至少 240 BPM。\r\n<solution-note advice>在 osu!lazer 中，<b>允许调整 DT 的 rate</b>，只要调整后仍满足上述条件。</solution-note>\r\n<solution-note>也就是说，Mod 前谱面至少需要 AR7.2、OD7.2、HP7.2 且 BPM 不低于 160。必须使用指定 Mod；同时也可以额外使用 HD 等其他 Mod。</solution-note>"
+  },
+  "146": {
+    "Name": "这是真实的吗？",
+    "Description": "你刚才绝对不是把它打出来了吧。",
+    "Instructions": "<i>完美的绝对顶点。</i>",
+    "Solution": "使用 DTHR 在任意谱面上取得 PFC：仅计算 HR 时需达到至少 AR10、OD10、HP10，并在 DT 后达到至少 240 BPM。\r\n<solution-note advice>在 osu!lazer 中，<b>允许调整 DT 的 rate</b>，只要调整后仍满足上述条件。</solution-note>\r\n<solution-note>也就是说，Mod 前谱面至少需要 AR7.2、OD7.2、HP7.2 且 BPM 不低于 160。必须使用指定 Mod；同时也可以额外使用 HD 等其他 Mod。</solution-note>"
+  },
+  "147": {
+    "Name": "镜头恐惧",
+    "Description": "别卖萌了。",
+    "Instructions": "<i>呜咕。</i>",
+    "Solution": "使用指定 Mod，在任意谱面上取得 PFC。"
+  },
+  "148": {
+    "Name": "恐惧之和",
+    "Description": "寄。",
+    "Instructions": "<i>结局总在你最想不到的时候到来。</i>",
+    "Solution": "在任意谱面上打出“伪 PFC”：除第一个或最后一个 Combo 处出现一次 Miss 外，其余部分满足 PFC。"
+  },
+  "149": {
+    "Name": "Dekasight",
+    "Description": "这么大，却这么难看清。",
+    "Instructions": "<i>大小并不能说明一切。</i>",
+    "Solution": "使用指定 Mod，在 Mod 后难度为 <star-rating>3+</star-rating> 的任意谱面上取得 PFC。"
+  },
+  "150": {
+    "Name": "黎明前一小时",
+    "Description": "十一重天幕，永恒日出。",
+    "Instructions": "<i>夜晚才是我们的归处。</i>",
+    "Solution": "在 <i>ginkiha - EOS</i> 的任意难度上取得 PFC。"
+  },
+  "151": {
+    "Name": "慢而稳",
+    "Description": "要么赢下这场比赛，要么重来。",
+    "Instructions": "<i>慢慢来。</i>",
+    "Solution": "使用指定 Mod，在 <b>Mod 后</b>难度为 <star-rating>3+</star-rating> 的任意谱面上取得 PFC。"
+  },
+  "152": {
+    "Name": "分秒必争",
+    "Description": "有地方要去，有事情要做。",
+    "Instructions": "<i>想得快，点得快，整个人都得快。</i>",
+    "Solution": "使用指定 Mod，在 Mod 后时长不超过 30 秒的任意谱面上取得 PFC。\r\n<br><solution-note advice>DT 与 NC 可以互换使用。</solution-note>"
+  },
+  "153": {
+    "Name": "Sognare",
+    "Description": "一场逐帧停格的梦，很快便永远消散。",
+    "Instructions": "<i>“我看见三座尖塔环绕四周，以及一个停滞在时间中的世界……”</i>",
+    "Solution": "使用指定 Mod，通过 <i>LeaF - Evanescent</i>。\r\n<br><solution-note advice>允许使用包括 NF 在内的降低难度 Mod。</solution-note>"
+  },
+  "154": {
+    "Name": "金牌房产中介",
+    "Description": "一步跨出一英亩。",
+    "Instructions": "<i>房子倒是房子，就是方向不太对。</i>",
+    "Solution": "使用指定 Mod，在 <i>cYsmix - House With Legs</i> 的任意难度上取得 PFC。\r\n<br><solution-note advice>DT 与 NC 可以互换使用。</solution-note>"
+  },
+  "155": {
+    "Name": "Realität",
+    "Description": "月下蝴蝶，与三束信标。",
+    "Instructions": "<i>向更高处做梦。</i>",
+    "Solution": "以 90%+ 准确率通过 <i>LeaF - Evanescent</i>。"
+  },
+  "156": {
+    "Name": "机械恩主",
+    "Description": "人类，请解释指令“GREED”。",
+    "Instructions": "<i>近在咫尺，却又遥不可及。</i>",
+    "Solution": "以 85%+ 准确率通过 <i>Traktion - The Near Distant Future</i>。"
+  },
+  "157": {
+    "Name": "一丝不苟",
+    "Description": "这个圈该在这，然后这里，再然后这里……",
+    "Instructions": "<i>本来就“应该”这样打。</i>",
+    "Solution": "使用指定 Mod，通过任意一张 Mod 后难度为 <star-rating>3+</star-rating> 的谱面。"
+  },
+  "158": {
+    "Name": "无穷小",
+    "Description": "名字倒挺大，东西却小得不能再小。",
+    "Instructions": "<i>范围虽小，意义可大。</i>",
+    "Solution": "使用指定 Mod，在 Mod 后 CS7.8+ 的任意谱面上取得 PFC。\r\n<solution-note advice>允许叠加其他 Mod（例如 HDHR）。</solution-note>"
+  },
+  "159": {
+    "Name": "均衡",
+    "Description": "万物皆需平衡。",
+    "Instructions": "<i>寻找中间值。</i>",
+    "Solution": "在任意谱面打出一局成绩，使 300、100、50 的数量完全相同，并且三者各不少于 15 个。"
+  },
+  "160": {
+    "Name": "无可挑剔",
+    "Description": "真正优秀的人，不靠速度证明自己。",
+    "Instructions": "<i>无可挑剔。</i>",
+    "Solution": "使用指定 Mod，通过任意一张 Mod 后难度为 <star-rating>4+</star-rating> 的谱面。\r\n<br><solution-note advice>DT 与 NC 可以互换使用。</solution-note>"
+  },
+  "161": {
+    "Name": "Elite",
+    "Description": "危险的节拍特工。",
+    "Instructions": "<i>在事情做到一半的时候，为了地位、声望和名气去挑战自己，未必是什么聪明事。</i>",
+    "Solution": "在任意一张 <b>Mod 前</b>至少 3.5★、AR8、OD8，且最大 Combo 至少为 1500 的谱面上，恰好打出 1337 Combo。\r\n\r\n<solution-note>如果你游玩的是 taiko 或 mania，谱面的 AR 仍然是硬性条件；可通过 Bathbot / osu!api 或谱面的 .osu 文件查询你所游玩谱面的“AR”。</solution-note>"
+  },
+  "162": {
+    "Name": "2017 年 1/2 月 Spotlight",
+    "Description": "买一送一。",
+    "Instructions": "<i>完成 2017 年 January/February Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "163": {
+    "Name": "2017 年 3 月 Spotlight",
+    "Description": "三月，继续向前。",
+    "Instructions": "<i>完成 2017 年 March Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "164": {
+    "Name": "2017 年 4 月 Spotlight",
+    "Description": "Pitch……啥？！",
+    "Instructions": "<i>完成 2017 年 April Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "165": {
+    "Name": "2017 年 5 月 Spotlight",
+    "Description": "愿你的准度永远又快又准。",
+    "Instructions": "<i>完成 2017 年 May Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "166": {
+    "Name": "2017 年 6 月 Spotlight",
+    "Description": "纯真已毁。",
+    "Instructions": "<i>完成 2017 年 June Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "167": {
+    "Name": "2017 年 7 月 Spotlight",
+    "Description": "一切从这里开始。",
+    "Instructions": "<i>完成 2017 年 July Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "168": {
+    "Name": "50/50",
+    "Description": "半满还是半空？反正 50 可真不少。",
+    "Instructions": "<i>不管你站哪边，反正都很有意见。</i>",
+    "Solution": "在任意谱面中恰好打出 50 个 50。"
+  },
+  "169": {
+    "Name": "2017 年 8 月 Spotlight",
+    "Description": "啊对，就是这种感觉。",
+    "Instructions": "<i>完成 2017 年 August Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "170": {
+    "Name": "追逐的快感",
+    "Description": "心跳加速，手都在抖——但我还在点！",
+    "Instructions": "<i>还有什么比追逐更刺激？多经典的一场追猎。</i>",
+    "Solution": "同时使用指定的两个 Mod，在 <i>cYsmix - Classic Pursuit</i> 的任意难度上取得 PFC，且 Mod 后难度需达到 <star-rating>2.5</star-rating> 或更高。\r\n<solution-note>DT 与 NC 可以互换；也允许在 DT/NC 基础上叠加其他 Mod（例如 HDSDDT、SDNCHR）。</solution-note>"
+  },
+  "171": {
+    "Name": "森林里的女孩",
+    "Description": "现在就算四天王来了也拦不住你。",
+    "Instructions": "<i>回想一切开始的地方——红与蓝的年代。</i>",
+    "Solution": "在 <i>S3RL - Pika Girl</i> 上取得 151 最大 Combo，并达到 95%+ 准确率。"
+  },
+  "172": {
+    "Name": "你躲不掉",
+    "Description": "我会找到你，然后把你们一个不落全点了。",
+    "Instructions": "<i>别想躲。</i>",
+    "Solution": "使用指定 Mod，在任意 <star-rating>4+</star-rating> 谱面上取得 PFC。"
+  },
+  "173": {
+    "Name": "真正折磨",
+    "Description": "仿佛永远不会结束。",
+    "Instructions": "<i>留意那些幽灵。</i>",
+    "Solution": "以 70%+ 准确率通过 <i>Helblinde - The Solace of Oblivion</i>。"
+  },
+  "174": {
+    "Name": "苍穹流转",
+    "Description": "第十四？不，这是第一。",
+    "Instructions": "<i>它三度流转，多数人却只知其一。你要找的，是另一个被再次扭曲三次的版本。</i>",
+    "Solution": "在 <i>cYsmix - Moonlight Sonata</i> 的任意难度上，使用指定 4 个 Mod 中至少 3 个的任意组合，并确保 Mod 后难度达到 <star-rating>3+</star-rating> 后通过。\r\n<solution-note>列出的两个 mapset 均可完成。</solution-note>\r\n<solution-note>在 lazer 中，必须同时使用全部 4 个 Mod。</solution-note>"
+  },
+  "175": {
+    "Name": "太快，太暴躁",
+    "Description": "如果你有八条腿，或许这还能叫进行曲。",
+    "Instructions": "<i>害怕的时候，一般不会做这件事。</i>",
+    "Solution": "在 <i>cYsmix - Fright March</i> 的任意难度上，使用指定的任意一个 Mod 并通过。可以额外使用 HD。"
+  },
+  "176": {
+    "Name": "有感觉了",
+    "Description": "跟上时代了。",
+    "Instructions": "<i>拍子翻倍。很多很多拍子。</i>",
+    "Solution": "提交一局成绩，使你的最大 Combo 是该谱面 BPM 的约数。\r\n<solution-note>例如，Combo 可以等于 BPM，也可以是 BPM 的一半、四分之一等。</solution-note>\r\n<solution-note extra>该 medal 使用的是 <b>beatmapset</b> 的 BPM，而非当前 difficulty 自身的 BPM。因此在极少数 beatmapset BPM 与具体谱面 BPM 不同的情况下，可能会看起来像是 medal 没有正常触发。</solution-note>"
+  },
+  "177": {
+    "Name": "自信过头",
+    "Description": "要不……晚点再来？",
+    "Instructions": "<i>progress 里的 “s”，代表 hubris——傲慢。</i>",
+    "Solution": "使用任意提高难度的 Mod（HD、HR、DT、NC 和/或 FL），以低于 65% 的准确率通过任意谱面。"
+  },
+  "178": {
+    "Name": "吓到了",
+    "Description": "有东西动了。不是你的光标！",
+    "Instructions": "<i>别回头。</i>",
+    "Solution": "使用指定 Mod，以不高于 65% 的准确率通过任意谱面。"
+  },
+  "179": {
+    "Name": "MOtOLOiD",
+    "Description": "由 Guild 的谱师们，将传奇化作现实。",
+    "Instructions": "<i>游玩 MOtOLOiD Mapper's Guild 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“MOtOLOiD”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "180": {
+    "Name": "2017 年 9 月 Spotlight",
+    "Description": "新开端、时间旅行者、会飞的机器人——好家伙。",
+    "Instructions": "<i>完成 2017 年 September Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "181": {
+    "Name": "2017 年 10 月 Spotlight",
+    "Description": "第一步：先把朋克女孩支开。第二步：打开收音机。",
+    "Instructions": "<i>完成 2017 年 October Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "182": {
+    "Name": "2017 年 11 月 Spotlight",
+    "Description": "一个时代的终结，也是新篇章的开始！",
+    "Instructions": "<i>完成 2017 年 November Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "183": {
+    "Name": "2017 年 12 月 Spotlight",
+    "Description": "用一记 Impulse 给这一年收尾！",
+    "Instructions": "<i>完成 2017 年 December Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "184": {
+    "Name": "2018 年 1 月 Spotlight",
+    "Description": "现实开始扭曲。",
+    "Instructions": "<i>完成 2018 年 January Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "185": {
+    "Name": "Mappers' Guild 曲包 I",
+    "Description": "第一包，而且绝不会是最后一包。",
+    "Instructions": "<i>完成 Mappers' Guild I 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Mappers Guild Pack I”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "186": {
+    "Name": "2018 年 2 月 Spotlight",
+    "Description": "为了未来的糖果之梦，一起跳起来！",
+    "Instructions": "<i>完成 2018 年 February Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "187": {
+    "Name": "2018 年 3 月 Spotlight",
+    "Description": "让天使载我去往 Nirvana！",
+    "Instructions": "<i>完成 2018 年 March Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "188": {
+    "Name": "2018 年 4 月 Spotlight",
+    "Description": "DJ 的一课：一脚 Drop Kick，也要踢得迷人。",
+    "Instructions": "<i>完成 2018 年 April Spotlight 的任意游戏模式版本。</i>",
+    "Solution": ""
+  },
+  "189": {
+    "Name": "Cranky",
+    "Description": "音游音乐界的老祖宗，由 Guild 谱师与客座谱师共同复活。",
+    "Instructions": "<i>游玩 Cranky 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Cranky”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "190": {
+    "Name": "Mappers' Guild 曲包 II",
+    "Description": "一场关于未来的变量之梦。",
+    "Instructions": "<i>完成 Mappers' Guild II 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Mappers Guild Pack II”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "191": {
+    "Name": "High Tea Music",
+    "Description": "无声远行，侵入天际。",
+    "Instructions": "<i>完成 Mappers' Guild III/High Tea Music 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“High Tea Music”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "192": {
+    "Name": "苍穹之主",
+    "Description": "一次振翅都别漏。",
+    "Instructions": "<i>翱翔天际，唯有完美才够资格。</i>",
+    "Solution": "在 <i>James Portland - Sky [Master]</i> 上取得 SS。"
+  },
+  "193": {
+    "Name": "B-Rave",
+    "Description": "敢站在大师面前，本身就需要勇气。",
+    "Instructions": "<i>脾气暴躁的 Boss，最适合拿来当最终战。</i>",
+    "Solution": "以 80%+ 准确率通过 <i>Cranky - T&J</i>。\r\n<stable-difference>在 osu! stable 中，mania convert 可以使用 Ranked 的 key Mod；osu! lazer 则不行。</stable-difference>"
+  },
+  "194": {
+    "Name": "Any%",
+    "Description": "速通玩家的最佳拍档。",
+    "Instructions": "<i>有时候想追求速度，就得先把规则掰弯。</i>",
+    "Solution": "在 <i>LukHash - GLITCH</i> 的任意难度上，使用指定的任意一个 Mod 并通过。"
+  },
+  "195": {
+    "Name": "海市蜃楼",
+    "Description": "地平线无穷无尽，无穷无尽……",
+    "Instructions": "<i>这束光，比看上去难得多。</i>",
+    "Solution": "在 <i>Culprate - Relucent feat. ZES</i> 上取得 PFC。\n<stable-difference>在 osu! stable 中，mania convert 可以使用 Ranked 的 key Mod；osu! lazer 则不行。</stable-difference>"
+  },
+  "196": {
+    "Name": "星空之下",
+    "Description": "继续前行，去往黑暗永远无法阻挡我们的地方。",
+    "Instructions": "<i>在群星之下行走，踏上通往别处的旅途。</i>",
+    "Solution": "使用指定 Mod，通过 <i>Phonetic - Journey</i> 任意一个 <star-rating>4+</star-rating> 难度。"
+  },
+  "197": {
+    "Name": "失感",
+    "Description": "听不见。看不见。",
+    "Instructions": "<i>一首存在的歌，以及一种不存在的东西。</i>",
+    "Solution": "使用指定 Mod，通过 <i>Gourski x Himmes - Silence</i> 的任意难度，且 Mod 后难度需达到 <star-rating>4+</star-rating>。"
+  },
+  "199": {
+    "Name": "永劫",
+    "Description": "时间解冻的泥沼里，记忆会为你引路。",
+    "Instructions": "<i>时间放慢、视野失灵时，你还能怎么赢？</i>",
+    "Solution": "使用指定 Mod，在任意一张于 <b>2011 年及以前</b> Ranked 的谱面上取得 PFC。谱面在 <b>Mod 后</b>必须至少达到 <star-rating>4</star-rating>，且时长至少 3 分钟。"
+  },
+  "200": {
+    "Name": "乘风而上",
+    "Description": "狂风之中，再锐利的眼睛也追不上。",
+    "Instructions": "<i>花暴风的中心，藏着一个不可见的世界。</i>",
+    "Solution": "使用指定 Mod，通过 <i>Cranky - Hanaarashi</i> 的任意难度，且 Mod 后难度需达到 <star-rating>4+</star-rating>。"
+  },
+  "201": {
+    "Name": "制高点",
+    "Description": "我们站在那里，看尖塔刺破天空，也看见未来。",
+    "Instructions": "<i>在那里，开创之举赢得满堂喝彩。</i>",
+    "Solution": "以 70%+ 准确率通过 <i>Culprate & Au5 - Impulse</i>。"
+  },
+  "202": {
+    "Name": "速算",
+    "Description": "每分钟拍数除以……等等，这哪门子速算！",
+    "Instructions": "<i>设 x 为每分钟拍数，再设一个未知变量……</i>",
+    "Solution": "在 <i>Function Phantom - Variable<i> 的任意难度上，恰好打出 34 个 Miss。"
+  },
+  "204": {
+    "Name": "盛放",
+    "Description": "为过去哀悼，也向明日一瞥。",
+    "Instructions": "<i>地平线在轰鸣，一朵预兆般的花正在绽放。</i>",
+    "Solution": "通过 <i>sakuraburst - cherry blossoms explode across the dying horizon</i>。"
+  },
+  "205": {
+    "Name": "2018 夏季 Beatmap Spotlights",
+    "Description": "2018 夏天最“热”的谱面都在这了！",
+    "Instructions": "<i>选择一种游戏模式，游玩 Summer 2018 Beatmap Spotlights 的全部谱面。</i>",
+    "Solution": "游玩该曲包中的全部谱面。任意游戏模式与 Mod 组合均可。"
+  },
+  "206": {
+    "Name": "Culprate",
+    "Description": "关于低语、光与未来之物的一场梦。",
+    "Instructions": "<i>完成 Mappers' Guild IV/Culprate 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Culprate”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "207": {
+    "Name": "2018 秋季 Beatmap Spotlights",
+    "Description": "2018 秋天最华丽的谱面都在这里！",
+    "Instructions": "<i>选择一种游戏模式，游玩 Fall 2018 Beatmap Spotlights 的全部谱面。</i>",
+    "Solution": "游玩该曲包中的全部谱面。任意游戏模式与 Mod 组合均可。"
+  },
+  "208": {
+    "Name": "HyuN",
+    "Description": "数码朋克，直接超频！",
+    "Instructions": "<i>游玩 HyuN 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“HyuN”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "209": {
+    "Name": "2019 冬季 Beatmap Spotlights",
+    "Description": "2019 冬天最“凉”的谱面。",
+    "Instructions": "<i>选择一种游戏模式，游玩 Winter 2019 Beatmap Spotlights 的全部谱面。</i>",
+    "Solution": "游玩该曲包中的全部谱面。任意游戏模式与 Mod 组合均可。"
+  },
+  "210": {
+    "Name": "2019 春季 Beatmap Spotlights",
+    "Description": "2019 春天，玩得花都开了。",
+    "Instructions": "<i>选择一种游戏模式，游玩 Spring 2019 Beatmap Spotlights 的全部谱面。</i>",
+    "Solution": "游玩该曲包中的全部谱面。任意游戏模式与 Mod 组合均可。"
+  },
+  "213": {
+    "Name": "Imperial Circus Dead Decadence",
+    "Description": "曾有一只小风筝，为我唱过一首歌……",
+    "Instructions": "<i>游玩 Imperial Circus Dead Decadence 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Imperial Circus Dead Decadence”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "214": {
+    "Name": "tieff",
+    "Description": "流动。",
+    "Instructions": "<i>游玩 tieff 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“tieff”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "215": {
+    "Name": "2019 夏季 Beatmap Spotlights",
+    "Description": "从 2019 盛夏最佳谱面中杀出一条路！",
+    "Instructions": "<i>选择一种游戏模式，游玩 Summer 2019 Beatmap Spotlights 的全部谱面。</i>",
+    "Solution": "游玩该曲包中的全部谱面。任意游戏模式与 Mod 组合均可。"
+  },
+  "216": {
+    "Name": "淹没",
+    "Description": "随浪而去。",
+    "Instructions": "<i>越过潮汐，奔向更远处。</i>",
+    "Solution": "使用指定 Mod，以 85%+ 准确率通过 <i>tieff - Waterflow</i>。"
+  },
+  "217": {
+    "Name": "不是吹的",
+    "Description": "闭着眼都能打。",
+    "Instructions": "<i>有实力兑现，就不叫狂。</i>",
+    "Solution": "使用指定 Mod，在 <i>onumi - ARROGANCE [Hard]</i> 或更高难度上取得 PFC。"
+  },
+  "218": {
+    "Name": "Eureka！",
+    "Description": "天哪，你终于悟了！",
+    "Instructions": "<i>灵感乍现之时……</i>",
+    "Solution": "在歌曲艺术家为 <i>The Flashbulb</i> 的任意谱面、任意难度上取得 PFC，且 Mod 后难度需达到 <star-rating>4+</star-rating>。"
+  },
+  "219": {
+    "Name": "弑君",
+    "Description": "王座已空。",
+    "Instructions": "<i>没有永恒的王座。</i>",
+    "Solution": "在 <i>Cranky - Chandelier - King</i> 的任意难度上取得 PFC，且 Mod 后难度需达到 <star-rating>4+</star-rating>。"
+  },
+  "220": {
+    "Name": "永久死亡",
+    "Description": "一条命，一次机会。",
+    "Instructions": "<i>这一条命可得好好珍惜。看看那只白猫的前车之鉴。</i>",
+    "Solution": "在 <i>antiPLUR - One Life Left to Live</i> 的任意难度上，使用指定的任意一个 Mod 并通过，且 Mod 后难度需达到 <star-rating>4+</star-rating>。"
+  },
+  "221": {
+    "Name": "未来已来",
+    "Description": "群星早已向你展示这一切将如何发生。",
+    "Instructions": "<i>扛住那原初之物。</i>",
+    "Solution": "以 70%+ 准确率通过 <i>Camellia - Exit This Earth's Atomosphere (Camellia's ''PLANETARY//200STEP'' Remix)</i>。\r\n"
+  },
+  "222": {
+    "Name": "天然 20",
+    "Description": "骰到了。",
+    "Instructions": "<i>这可不只是骰子运气，全靠真本事。</i>",
+    "Solution": "在任意 Mod 后难度为 <star-rating>5+</star-rating> 的谱面上取得 PFC，并且该局的 300 数量必须是 20 的倍数。"
+  },
+  "223": {
+    "Name": "万花筒",
+    "Description": "好多漂亮颜色。虽然大部分都是红的。",
+    "Instructions": "<i>贴近万花筒的小小色块仔细看，然后把速度慢下来。</i>",
+    "Solution": "使用指定 Mod，以 80% 或更高准确率通过 <i>The Flashbulb - DIDJ PVC [EX III]</i>。"
+  },
+  "224": {
+    "Name": "AHAHAHAHA",
+    "Description": "永！远！在！一！起！",
+    "Instructions": "<i>我是谁？我在哪？这鬼地方到底是什么？！</i>",
+    "Solution": "在列出的每一张 beatmap 上，各通过任意一个难度。\r\n\r\n<solution-note important>该 medal 只能在 Standard 模式中获得。</solution-note>"
+  },
+  "225": {
+    "Name": "告别",
+    "Description": "最后一次。",
+    "Instructions": "<i>挥手告别时，时间仿佛静止了。</i>",
+    "Solution": "以 90% 或更高准确率通过 <i>a_hisa - Alexithymia | Lupinus | Tokei no Heya to Seishin Sekai</i>。\r\n<br><solution-note advice>允许使用包括 NF 在内的降低难度 Mod。</solution-note>"
+  },
+  "226": {
+    "Name": "Mappers' Guild 曲包 III",
+    "Description": "日出，为某位特别的女孩结束了一个无比魔法的夜晚。",
+    "Instructions": "<i>完成 Mappers' Guild Pack III 中的全部谱面。</i>",
+    "Solution": "在曲包“Mappers Guild Pack III”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "227": {
+    "Name": "Mappers' Guild 曲包 IV",
+    "Description": "这条高速公路很有感觉，而且——它可太爱你了。",
+    "Instructions": "<i>完成 Mappers' Guild Pack IV 中的全部谱面。</i>",
+    "Solution": "在曲包“Mappers Guild Pack IV”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "228": {
+    "Name": "2019 秋季 Beatmap Spotlights",
+    "Description": "一头栽进 2019 秋季最佳谱面里！",
+    "Instructions": "<i>选择一种游戏模式，游玩 Autumn 2019 Beatmap Spotlights 的全部谱面。</i>",
+    "Solution": "游玩该曲包中的全部谱面。任意游戏模式与 Mod 组合均可。"
+  },
+  "229": {
+    "Name": "Afterparty",
+    "Description": "安可到底。",
+    "Instructions": "<i>完成 Afterparty 曲包。</i>",
+    "Solution": "在曲包“Afterparty”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "230": {
+    "Name": "Ben Briggs",
+    "Description": "Chiptune、Pokémon——好家伙，全齐了！",
+    "Instructions": "<i>游玩 Ben Briggs 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Ben Briggs”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "231": {
+    "Name": "Carpool Tunnel",
+    "Description": "别和“腕管综合征”搞混——那是顶尖玩家和追番人群的常见伤。",
+    "Instructions": "<i>游玩 Carpool Tunnel 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Carpool Tunnel”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "232": {
+    "Name": "Creo",
+    "Description": "踩着几何节拍，一路冲到你谱面里。",
+    "Instructions": "<i>游玩 Creo 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Creo”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "233": {
+    "Name": "cYsmix",
+    "Description": "Funky 到死。真的。",
+    "Instructions": "<i>游玩 cYsmix 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“cYsmix”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "234": {
+    "Name": "Fractal Dreamers",
+    "Description": "破碎的梦、沉默的天空，从没这么好听过。",
+    "Instructions": "<i>游玩 Fractal Dreamers 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Fractal Dreamers”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "235": {
+    "Name": "LukHash",
+    "Description": "这台机器里，真的有幽灵。",
+    "Instructions": "<i>游玩 LukHash 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“LukHash”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "236": {
+    "Name": "*namirin",
+    "Description": "五种颜色，让你的世界唱起来！",
+    "Instructions": "<i>游玩 *namirin 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“*namirin”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "237": {
+    "Name": "onumi",
+    "Description": "这里发生的事，可不少。",
+    "Instructions": "<i>游玩 onumi 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“onumi”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "238": {
+    "Name": "The Flashbulb",
+    "Description": "不只是“白炽”那么简单。",
+    "Instructions": "<i>游玩 The Flashbulb 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“The Flashbulb”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "239": {
+    "Name": "Undead Corporation",
+    "Description": "地下资产多元化。字面意义上的“地下”。",
+    "Instructions": "<i>游玩 Undead Corporation 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Undead Corporation”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "240": {
+    "Name": "Wisp X",
+    "Description": "夕阳与月。",
+    "Instructions": "<i>游玩 Wisp X 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Wisp X”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "241": {
+    "Name": "2020 冬季 Beatmap Spotlights",
+    "Description": "把 2020 冬季最佳内容，压进谱面里。",
+    "Instructions": "<i>选择一种游戏模式，游玩 Winter 2020 Beatmap Spotlights 的全部谱面。</i>",
+    "Solution": "游玩该曲包中的全部谱面。任意游戏模式与 Mod 组合均可。"
+  },
+  "242": {
+    "Name": "事件视界",
+    "Description": "没有任何引力能把你拖下去。",
+    "Instructions": "<i>凝视深渊，接受任意 9★ 谱面的试炼。</i>",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>9</star-rating> 的 Ranked 谱面。"
+  },
+  "243": {
+    "Name": "天选之人",
+    "Description": "在 Prometheans 之中称王——那里本就属于你。",
+    "Instructions": "<i>征服最难谱面之一，并 FC 任意 9★ 谱面。</i>",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>9</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "244": {
+    "Name": "幻境",
+    "Description": "热烈的是执念，非凡的是实力。",
+    "Instructions": "<i>逼近人类耐力的极限，并通过任意 10★ 谱面。</i>",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，通过任意一张计入 Mod 后难度为 <star-rating>10</star-rating> 的 Ranked 谱面。"
+  },
+  "245": {
+    "Name": "深不可测",
+    "Description": "你已无敌手。",
+    "Instructions": "<i>用一张 10★ FC，把自己的名字钉进传奇里。</i>",
+    "Solution": "在不使用 EZ/NF/HT Mod 的情况下，对任意一张计入 Mod 后难度为 <star-rating>10</star-rating> 的 Ranked 谱面取得 PFC。"
+  },
+  "246": {
+    "Name": "Camellia I",
+    "Description": "这里就是丛林的入口。",
+    "Instructions": "<i>游玩 Camellia Sets 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Camellia Sets Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "247": {
+    "Name": "Camellia II",
+    "Description": "冲出大气层。",
+    "Instructions": "<i>游玩 Camellia Challenges 曲包中的全部谱面，提交成绩时不能启用任何降低难度的 Mod。</i>",
+    "Solution": "在曲包“Camellia Challenges Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "248": {
+    "Name": "Celldweller",
+    "Description": "帝国终结，也挡不住你。",
+    "Instructions": "<i>游玩 Celldweller 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Celldweller”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "249": {
+    "Name": "Cranky II",
+    "Description": "比上次还 Cranky！",
+    "Instructions": "<i>游玩 Cranky 2 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Cranky II”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "250": {
+    "Name": "萌系动漫女孩",
+    "Description": "别和“可爱火焰烤架”搞混了。",
+    "Instructions": "<i>游玩 Cute Anime Girls 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Cute Anime Girls”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "251": {
+    "Name": "ELFENSJoN",
+    "Description": "一个只属于你的世界。",
+    "Instructions": "<i>游玩 ELFENSJoN 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“ELFENSJoN”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "252": {
+    "Name": "Hyper Potions",
+    "Description": "HP +200。",
+    "Instructions": "<i>游玩 Hyper Potions 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Hyper Potions”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "253": {
+    "Name": "Kola Kid",
+    "Description": "别忘了，地球还指望着你。",
+    "Instructions": "<i>游玩 Kola Kid 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Kola Kid”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "254": {
+    "Name": "LeaF",
+    "Description": "灾厄不在你的命数里。",
+    "Instructions": "<i>游玩 LeaF 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“LeaF”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "255": {
+    "Name": "Panda Eyes",
+    "Description": "拥抱不灭之焰。",
+    "Instructions": "<i>游玩 Panda Eyes 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Panda Eyes”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "256": {
+    "Name": "PUP",
+    "Description": "终于，画上句号。",
+    "Instructions": "<i>游玩 PUP 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“PUP”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "257": {
+    "Name": "Ricky Montgomery",
+    "Description": "全是钩子，连线带坠一起上。",
+    "Instructions": "<i>游玩 Ricky Montgomery 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Ricky Montgomery”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "258": {
+    "Name": "Rin",
+    "Description": "两颗心，一个闹鬼的家。",
+    "Instructions": "<i>游玩 Rin/Function Phantom 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Rin”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "259": {
+    "Name": "S3RL",
+    "Description": "这些旋律一个都别想从脑子里赶出去。",
+    "Instructions": "<i>游玩 S3RL 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“S3RL”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "260": {
+    "Name": "Sound Souler",
+    "Description": "让你的世界重新有颜色。",
+    "Instructions": "<i>游玩 Sound Souler 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Sound Souler”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "261": {
+    "Name": "Teminite",
+    "Description": "全看心态。",
+    "Instructions": "<i>游玩 Teminite 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Teminite”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "262": {
+    "Name": "VINXIS",
+    "Description": "别跑偏，稳住轨道。",
+    "Instructions": "<i>游玩 VINXIS 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“VINXIS”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "263": {
+    "Name": "Mappers' Guild 曲包 V",
+    "Description": "隐形观鸟。",
+    "Instructions": "<i>游玩 Mappers' Guild V 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Mappers Guild Pack V”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "264": {
+    "Name": "Mappers' Guild 曲包 VI",
+    "Description": "超能力，直接开 Hyper。",
+    "Instructions": "<i>游玩 Mappers' Guild VI 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Mappers Guild Pack VI”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "265": {
+    "Name": "Mappers' Guild 曲包 VII",
+    "Description": "一组崭新又鲜艳的挑战。",
+    "Instructions": "<i>游玩 Mappers' Guild VII 曲包中的全部谱面，提交成绩时不能启用任何降低难度的 Mod。</i>",
+    "Solution": "在曲包“Mappers' Guild Pack VII”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "266": {
+    "Name": "Mappers' Guild 曲包 VIII",
+    "Description": "让众声合唱，伴你取胜。",
+    "Instructions": "<i>游玩 Mappers' Guild VIII 曲包中的全部谱面，提交成绩时不能启用任何降低难度的 Mod。</i>",
+    "Solution": "在曲包“Mappers' Guild Pack VIII”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "267": {
+    "Name": "Mappers' Guild 曲包 IX",
+    "Description": "这可不是什么细微变化。",
+    "Instructions": "<i>游玩 Mappers' Guild IX 曲包中的全部谱面，提交成绩时不能启用任何降低难度的 Mod。</i>",
+    "Solution": "在曲包“Mappers' Guild Pack IX”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "268": {
+    "Name": "十到一",
+    "Description": "从一个极端，冲到另一个极端。",
+    "Instructions": "<i>从马拉松，一路冲到短跑。</i>",
+    "Solution": "先通过一张时长至少 10 分钟的谱面，再通过一张时长不超过 1 分钟的谱面。\r\n<br><solution-note advice>允许使用 DT 或 NC，但要确保第一张谱面在应用 Mod 前的时长已经超过 10 分钟。</solution-note>\r\n<solution-note>注意看的是谱面的 drain time，而不是总时长！在谱面页面将鼠标悬停在时长上即可查看 drain time。</solution-note>"
+  },
+  "269": {
+    "Name": "精妙绝伦",
+    "Description": "确实如此。",
+    "Instructions": "<i>真材实料来一次，然后再来一次。</i>",
+    "Solution": "使用指定的任意一个 Mod，连续在两张不同的 <star-rating>3+</star-rating> 谱面上取得 PFC。"
+  },
+  "270": {
+    "Name": "坚持就是胜利",
+    "Description": "别让梦想只停在梦里。",
+    "Instructions": "<i>别放弃！</i>",
+    "Solution": "在 <i>Thaehan - Never Give Up</i> 的任意难度上<b>失败 5 次</b>，然后将其通过。\r\n<br><solution-note advice>允许使用包括 NF 在内的降低难度 Mod。</solution-note>\r\n<solution-note advice>每一次失败都必须至少取得 10,000 分，才会被计为一次有效游玩。</solution-note>"
+  },
+  "271": {
+    "Name": "疯狂科学家",
+    "Description": "实验……全毁了！",
+    "Instructions": "<i>让自己消失。</i>",
+    "Solution": "使用 HD，通过 <i>Thank You Scientist - Mr. Invisible</i> 的全部难度。\r\n<solution-note advice>不能使用任何降低难度的 Mod，包括 No Fail（NF）。</solution-note>"
+  },
+  "272": {
+    "Name": "磨难",
+    "Description": "成功终会到来……迟早。",
+    "Instructions": "<i>挣扎，然后结束这一切。</i>",
+    "Solution": "通过任意一张你已累计游玩 100 次以上、但此前从未通过的谱面。\r\n<solution-note>由于一些代码层面的奇妙行为：如果某张谱面你已有超过 100 次 playcount，再用 convert 后的游戏模式游玩该难度（例如用 taiko 玩 standard 谱面），同样会计数。</solution-note>"
+  },
+  "273": {
+    "Name": "恰逢其时",
+    "Description": "第一分钟永远最难熬。",
+    "Instructions": "<i>一小时有六十分钟，但你的计时器只认第一分钟。</i>",
+    "Solution": "在任意整点后的第一分钟内，于 <i>Kola Kid - timer</i> 提交一局成绩（例如 17:00、18:00）。\r\n<solution-note advice>如果使用 DT，需要在 XX:59 的前半分钟开始游玩，并确保成绩在整点第一分钟（XX:00）内提交。</solution-note>"
+  },
+  "274": {
+    "Name": "复制品",
+    "Description": "一个和另一个，一模一样。",
+    "Instructions": "<i>复制。</i>",
+    "Solution": "在 <i>Zekk - Duplication</i> 的两个不同难度上取得完全相同的准确率。\r\n<solution-note>两局必须来自同一 mapset、同一游戏模式，并且只能在指定谱面上完成。</solution-note>"
+  },
+  "275": {
+    "Name": "都挺好",
+    "Description": "现在好多了，谢谢。",
+    "Instructions": "<i>你可以的。</i>",
+    "Solution": "在 <i>Carpool Tunnel - Better Now</i> 的同一难度上提交两局成绩，第二局的准确率必须高于第一局，或直接取得 SS。\r\n<solution-note advice>允许使用降低难度的 Mod；如果使用 Mod，两局<b>必须</b>使用完全相同的 Mod。</solution-note>\r\n"
+  },
+  "276": {
+    "Name": "正中靶心",
+    "Description": "就该这样。",
+    "Instructions": "<i>完美平衡。</i>",
+    "Solution": "在任意一张 Mod 后难度为 <star-rating>3+</star-rating>，且圆圈数量与滑条数量完全相同的谱面上取得 PFC。"
+  },
+  "277": {
+    "Name": "谨此纪念",
+    "Description": "谨以此纪念你早已逝去的理智。",
+    "Instructions": "<i>征服你能想象到的、最折磨人的 Mod 组合。</i>",
+    "Solution": "使用指定 Mod，在任意一张 Mod 后难度为 <star-rating>4+</star-rating> 的谱面上取得 PFC。"
+  },
+  "278": {
+    "Name": "血色",
+    "Description": "历久不衰的荆棘，照样会扎出血。",
+    "Instructions": "<i>回到过去，回到一切都更简单的时候。</i>",
+    "Solution": "使用指定 Mod，以 92%+ 准确率通过 val0108 的 <i>Lily - Scarlet Rose</i> mapset。"
+  },
+  "279": {
+    "Name": "又来？",
+    "Description": "后悔一切。",
+    "Instructions": "<i>你曾拥有一切，然后一切归零。</i>",
+    "Solution": "通过 <i>ARForest - Regret.</i>，且成绩必须为 1x Miss、99%+ 准确率。"
+  },
+  "280": {
+    "Name": "最终 Boss",
+    "Description": "Game Over。",
+    "Instructions": "<i>让片尾字幕滚起来。</i>",
+    "Solution": "以 92%+ 准确率通过 <i>Yooh - RPG [Divinity]</i>。"
+  },
+  "281": {
+    "Name": "野兽模式",
+    "Description": "释放你体内的野兽！",
+    "Instructions": "<i>彻底野起来。</i>",
+    "Solution": "以 98%+ 准确率通过 <i>meganeko - Feral [Veracious]</i>。"
+  },
+  "282": {
+    "Name": "东方 Project 曲包",
+    "Description": "会跳舞的可不只有竹子！",
+    "Instructions": "<i>游玩 Touhou beatmap 曲包中的全部谱面。</i>",
+    "Solution": ""
+  },
+  "283": {
+    "Name": "ginkiha 曲包",
+    "Description": "夜空中的星，最为耀眼。",
+    "Instructions": "<i>游玩 ginkiha beatmap 曲包中的全部谱面。</i>",
+    "Solution": ""
+  },
+  "284": {
+    "Name": "MUZZ 曲包",
+    "Description": "挣脱终局。",
+    "Instructions": "<i>游玩 MUZZ 曲包中的全部谱面，提交成绩时不能启用任何降低难度的 Mod。</i>",
+    "Solution": "猜。"
+  },
+  "285": {
+    "Name": "深思熟虑",
+    "Description": "挑战依然存在。",
+    "Instructions": "<i>把短挑战，硬生生拖成长挑战。</i>",
+    "Solution": "使用 HT，在任意 Ranked 或 Loved 谱面上取得 PFC，且 Mod 后难度需达到 <star-rating>6+</star-rating>。\r\n<solution-note advice>允许额外叠加其他 Mod（例如 HTHR）。</solution-note>"
+  },
+  "286": {
+    "Name": "无光",
+    "Description": "熟悉的恶魔，总比陌生的好。",
+    "Instructions": "<i>我！什！么！都！看！不！见！</i>",
+    "Solution": "使用指定 Mod，通过 <i>LeaF - MEPHISTO [Extra]</i>。\r\n<solution-note>任意游戏模式均可完成。</solution-note>\r\n"
+  },
+  "287": {
+    "Name": "懂的都懂",
+    "Description": "这三个数字，会阴魂不散地跟你一辈子。",
+    "Instructions": "<i>这个真不用提示。</i>",
+    "Solution": "通过任意歌曲艺术家为 “xi” 的谱面，并让准确率以 X7.27% 结尾（例如 97.27%、87.27% 等）。\r\n<solution-note important>另有一位艺术家名为 “Xi”（X 为大写），不是同一个人；他的谱面不计入该 medal。</solution-note>"
+  },
+  "288": {
+    "Name": "Vocaloid 曲包",
+    "Description": "没有歌的人生，还算人生吗？",
+    "Instructions": "<i>游玩 Vocaloid beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Vocaloid Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "289": {
+    "Name": "Maduk 曲包",
+    "Description": "你掌控了局面。",
+    "Instructions": "<i>游玩 Maduk beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Maduk Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "290": {
+    "Name": "藍月なくる曲包",
+    "Description": "你参加了 Joker 的游行。",
+    "Instructions": "<i>游玩 Aitsuki Nakuru beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Aitsuki Nakuru Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "291": {
+    "Name": "30,000,000 次太鼓击打",
+    "Description": "你的节奏，永恒不灭。",
+    "Instructions": "",
+    "Solution": "累计达到 30,000,000 次太鼓击打。你可以在 osu! 官网个人资料中查看当前击打次数。\r\n\r\n<img src=\"https://c.tenor.com/W-Vpc3IOfgYAAAAC/just-play-more-your-bad.gif\">"
+  },
+  "292": {
+    "Name": "接住 20,000,000 个水果",
+    "Description": "一个都没落下。",
+    "Instructions": "",
+    "Solution": "累计接住 20,000,000 个水果。你可以在 osu! 官网个人资料中查看当前已接住的水果数量。"
+  },
+  "293": {
+    "Name": "40,000,000 次按键",
+    "Description": "以后再有人问你会弹哪些键，你可以回答：‘会，都会。’",
+    "Instructions": "",
+    "Solution": "累计达到 40,000,000 次按键。你可以在 osu! 官网个人资料中查看当前按键次数。"
+  },
+  "294": {
+    "Name": "Ariabl'eyeS 曲包",
+    "Description": "驾驭变幻无常的天空。",
+    "Instructions": "<i>游玩 Ariabl'eyeS 曲包中的全部谱面，且不能启用任何降低难度的 Mod。</i>",
+    "Solution": "别猜。"
+  },
+  "295": {
+    "Name": "Omoi 曲包",
+    "Description": "“Chill”有了全新的含义。",
+    "Instructions": "<i>游玩 Omoi beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Omoi Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "296": {
+    "Name": "Chill 曲包",
+    "Description": "就是一个字：Vibe。",
+    "Instructions": "<i>游玩 Chill beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Chill Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "297": {
+    "Name": "凡世纠缠",
+    "Description": "一个都不能少。",
+    "Instructions": "<i>血肉囚徒，被困在永无止境的末日里。</i>",
+    "Solution": "分别通过 <i>Fleshgod Apocalypse - The Deceit</i> 与 <i>Fleshgod Apocalypse - The Violation</i> 的 Ranked mapset 中任意难度。"
+  },
+  "298": {
+    "Name": "黑暗熟悉感",
+    "Description": "不留失误，也不留目击者。",
+    "Instructions": "<i>别怀疑自己的第一判断。</i>",
+    "Solution": "使用指定 Mod，在 <i>Maduk ft. Veela - Ghost Assassin (Hourglass Bonusmix) [Lumiere]</i> 上取得 PFC。"
+  },
+  "299": {
+    "Name": "创作者的豪赌",
+    "Description": "这我做的。",
+    "Instructions": "<i>自己做奖品，自己拿。</i>",
+    "Solution": "通过一张由你本人发布，或由你本人制作 Guest Difficulty 的 Ranked、Qualified 或 Loved 谱面。\r\n\r\n<solution-note>Guest Difficulty 必须在 beatmap 页面明确标注对应 mapper。</solution-note>"
+  },
+  "300": {
+    "Name": "时间黑洞",
+    "Description": "从深处苏醒，迈入新时代。",
+    "Instructions": "<i>潜入深处，穿越昨日与今日。</i>",
+    "Solution": "按顺序、连续通过 Alestorm - Keelhauled 的两个 mapset：先 AWP 的 2009 版，再 Camo 的 2021 版。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>\r\n<solution-note advice>第一张 AWP mapset 不要求必须通过（只要分数 >10,000 即可）；但如果在 Camo 的 mapset 上失败，则必须从头重新开始 medal 尝试。</solution-note>"
+  },
+  "301": {
+    "Name": "未见高峰",
+    "Description": "向群星伸手。",
+    "Instructions": "<i>去连编辑器都不敢踏足的地方。</i>",
+    "Solution": "通过任意一张 Mod 后难度达到 100★+ 的谱面。\r\n<solution-note advice>convert 谱面同样可以完成，只要 convert 后的星数达到 100★+。</solution-note>"
+  },
+  "302": {
+    "Name": "你住这儿了",
+    "Description": "就知道你还会回来。",
+    "Instructions": "<i>去摸草。</i>",
+    "Solution": "在某个游戏模式至少 2 周没有游玩后，回到该模式并通过任意谱面。\r\n<solution-note>你回归的模式必须已有超过 2,500 playcount，否则不会触发。</solution-note>\r\n<solution-note>提交的这局必须真正通过（不能 restart）；否则失败成绩也会被视为一次已提交游玩，你就得再等 2 周。</solution-note>\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>"
+  },
+  "303": {
+    "Name": "好客之道",
+    "Description": "欢迎。",
+    "Instructions": "<i>从客人，到主人。</i>",
+    "Solution": "先游玩任意 mapper 的一个 Guest Difficulty，然后再通过该 mapper 制作的另一张不同谱面。\r\n<solution-note>不能使用 NF。</solution-note>\r\n<solution-note advice>第二张谱面可以是 Guest Diff，也可以是 Host Diff；但第一张必须明确是 Guest Difficulty。</solution-note>"
+  },
+  "304": {
+    "Name": "真北",
+    "Description": "他们走到哪，你就跟到哪。",
+    "Instructions": "<i>找到你最喜欢的创作者，让他一路带你走。</i>",
+    "Solution": "连续游玩同一位 mapper 制作的 10 张谱面，且每局都必须来自不同的 beatmapset。\r\n<solution-note advice>Guest Difficulty 归功于实际制作该难度的 mapper，而不是 mapset 的 host。</solution-note>"
+  },
+  "305": {
+    "Name": "天文级",
+    "Description": "精密机械。",
+    "Instructions": "<i>天体坐标：284-905。</i>",
+    "Solution": "在艺术家为 <i>II-L</i> 的任意谱面、任意难度上取得 PFC，且 Mod 后难度需达到 <star-rating>6+</star-rating>。\r\n"
+  },
+  "306": {
+    "Name": "超级粉丝",
+    "Description": "这！就！是！我的神曲！",
+    "Instructions": "<i>啊啊啊啊啊是我推！！！</i>",
+    "Solution": "连续游玩同一位 artist 的 10 张谱面，且每局都必须来自不同的 beatmapset。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>"
+  },
+  "307": {
+    "Name": "钢铁意志",
+    "Description": "破碎的羁绊，重铸成传承。",
+    "Instructions": "<i>向前一步，征服三年间那些终结巨人的终极试炼。</i>",
+    "Solution": "通过 2020 至 2022 年 osu! World Cup Grand Finals 的全部 custom tiebreaker 谱面。"
+  },
+  "308": {
+    "Name": "USAO 曲包",
+    "Description": "这才叫真正的对决。",
+    "Instructions": "<i>游玩 USAO 曲包中的全部谱面，且不能启用任何降低难度的 Mod。</i>",
+    "Solution": "我曾经和一个女孩谈了两年恋爱，却一直没告诉她我玩游戏王。背着她和兄弟们偷偷去打店赛，比真的出轨刺激多了——顺带一提，我也确实出轨了（对不起 Patricia）。"
+  },
+  "309": {
+    "Name": "Rohi 曲包",
+    "Description": "真正实力留下的遗物。",
+    "Instructions": "<i>游玩 Rohi beatmap 曲包中的全部谱面。</i>",
+    "Solution": ""
+  },
+  "310": {
+    "Name": "Drum & Bass 曲包",
+    "Description": "727？不不不，是 174，宝。",
+    "Instructions": "<i>游玩 Drum & Bass beatmap 曲包中的全部谱面。</i>",
+    "Solution": "<b style=\"font-size:300px; line-height: 0.7; font-family: 'Comic Sans MS', 'Comic Sans', cursive;\">:3</b>"
+  },
+  "311": {
+    "Name": "Project Loved：2021 冬季",
+    "Description": "这音乐，别客气。",
+    "Instructions": "<i>游玩 Project Loved: Winter 2021 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Winter 2021”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "312": {
+    "Name": "Project Loved：2022 春季",
+    "Description": "你明明答应过，那些笨蛋英雄会对我好的……",
+    "Instructions": "<i>游玩 Project Loved: Spring 2022 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Spring 2022”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "313": {
+    "Name": "Project Loved：2022 夏季",
+    "Description": "行吧行吧。至少你听起来不像 DragonForce。",
+    "Instructions": "<i>游玩 Project Loved: Summer 2022 的任意一个曲包。</i>",
+    "Solution": "比克，我现在就需要你借我 500 美元<br>\r\n想都别想<br>\r\n你居然要在我生日当天剥夺我的幸福<br>\r\n今天根本不是你生日<br>\r\n但这皮肤我就是值得拥有<br>\r\n贝吉塔，来，我们一起在脑子里散个步<br>\r\n好<br>\r\n我们回到 Halo 3。那时候外观部件怎么拿<br>\r\n靠玩游戏完成各种挑战<br>\r\n而且不用花钱<br>\r\n对<br>\r\n那贝吉塔，如果 Hayabusa 护甲要 500 多美元，你买吗<br>\r\n当然买<br>\r\n你他妈认真的？<br>\r\n比克，那可是游戏里最帅的头盔，你在说什么<br>\r\n五百美元啊，贝吉塔<br>\r\n对，500 美元，我愿意花<br>\r\n都快是原版游戏价格的十倍了<br>\r\n对<br>\r\n我救不了你<br>\r\n比克，游戏根本不在乎输赢。游戏的真谛是当个毒瘤，彻底毁掉别人一天的心情。而一款 500 美元的皮肤能轻松做到这一点<br>\r\n闭嘴吧你<br>\r\n500 美元可以买到我的沉默，比克<br>\r\n你就是个不带脑子的消费者<br>\r\n我就喜欢好东西"
+  },
+  "314": {
+    "Name": "Project Loved：2022 秋季",
+    "Description": "我这该死的沙拉里怎么有只“神っぽい”蜜蜂。",
+    "Instructions": "<i>游玩 Project Loved: Autumn 2022 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Winter 2021”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "315": {
+    "Name": "Project Loved：2022 冬季",
+    "Description": "追逐那些方块、外星人和丙烷形态的噩梦。",
+    "Instructions": "<i>游玩 Project Loved: Winter 2022 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Winter 2021”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "316": {
+    "Name": "Project Loved：2023 春季",
+    "Description": "第一阶段：把全人类和他们善变的灵魂做成橙汁。",
+    "Instructions": "<i>游玩 Project Loved: Spring 2023 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Winter 2021”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "317": {
+    "Name": "再燃",
+    "Description": "火焰，再次点燃。",
+    "Instructions": "<i>从灰烬中，再次燃起。</i>",
+    "Solution": "先游玩任意一张歌曲标题中包含 “ashes” 的谱面，然后通过 <i>Panda Eyes & Teminite - Immortal Flame (feat. Anna Yvette)</i> 的任意难度。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>"
+  },
+  "318": {
+    "Name": "澄明",
+    "Description": "可在记忆里，你依旧清晰得如同水晶。",
+    "Instructions": "<i>扭曲的现实，与我们的现实交汇。</i>",
+    "Solution": "通过 rrtyui 的 <i>Camellia vs Akira Complex - Reality Distortion</i> mapset。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>"
+  },
+  "319": {
+    "Name": "自我创生",
+    "Description": "绝对统治。",
+    "Instructions": "<i>一即是全。</i>",
+    "Solution": "通过任意一张歌曲 artist 与 mapset host 为同一人的谱面。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>"
+  },
+  "320": {
+    "Name": "星之力",
+    "Description": "而！且！我！还！要！再！来！一！次！",
+    "Instructions": "<i>当一次安可都已经不够。</i>",
+    "Solution": "先在不使用 HR 的情况下 SS 任意谱面，然后紧接着使用 HR，在任意一张 Mod 后难度为 <star-rating>4+</star-rating> 的谱面上再次取得 SS。第二张谱面中途任何失误或 retry，都必须从 medal 流程最开始重来。\r\n<solution-note>如果在 Taiko 中尝试，该谱面必须完全没有 spinner 或 drumroll。</solution-note>\r\n<solution-note>除 NM/HR 外，可以同时使用其他提高难度的 Mod，但这些额外 Mod 必须在两局中保持一致。例如 HD → HDHR 可以，NM → HDHR 不行。</solution-note>"
+  },
+  "321": {
+    "Name": "因果律",
+    "Description": "反正绝不是给 casual 玩的。",
+    "Instructions": "<i>逃离未来。</i>",
+    "Solution": "以 75%+ 准确率通过 <i>KNOWER - Time Traveler</i>。\r\n<solution-note important>记得开启 storyboard，好好享受这段体验！</solution-note> "
+  },
+  "322": {
+    "Name": "废止",
+    "Description": "勿受天律强加。",
+    "Instructions": "<i>回到规则最初被打破的地方。</i>",
+    "Solution": "以 72%+ 准确率通过 <i>aran - Graces of Heaven</i>。"
+  },
+  "323": {
+    "Name": "囚禁",
+    "Description": "染上疯狂的色彩，它们在四面墙的牢笼中怒吼。",
+    "Instructions": "<a href=\"https://assets.ppy.sh/medals/internment_hint.jpg\"><i>沐浴在病态心智投下的阴影里。</i></a>",
+    "Solution": "在 <i>Frums - theyaremanycolors</i> 的任意 “Insane” 难度（4.0★ - 5.29★）上，连续提交三局成绩，使三局的 Combo 分别等于该谱面在 medal 发布时 osu! 官网难度指示颜色的 R、G、B 数值。可用组合如下：\r\n\r\n<style>.ict th,td{padding:5px; border-bottom: 1px solid rgb(var(--accent));}.ict{border: 2px solid rgb(var(--accent)); background-color: rgb(var(--accentdark)); border-collapse: collapse;}</style><table class=\"ict\"><tr><th>局数</th><th>Combo (<a href=\"https://osu.ppy.sh/beatmapsets/1416051#osu/3022086\">vanchanicalinsane</a>)</th><th>Combo (<a href=\"https://osu.ppy.sh/beatmapsets/1533352#osu/4052455\">celinsane</a>)</th></tr><tr><td>第 1 局</td><td>255x</td><td>243x</td></tr><tr><td>第 2 局</td><td>104x</td><td>76x</td></tr><tr><td>第 3 局</td><td>108x</td><td>133x</td></tr></table>\r\n右侧（移动端在下方）的置顶评论中有该解法的详细解释。\r\n<solution-note>尽管该 medal 所属分类通常不允许，但前两局允许使用降低难度的 Mod，也允许 fail。</solution-note>\r\n<solution-note important>三局成绩<b>必须连续提交</b>，且第三局必须通过；如果第二或第三局任何时候 Combo 超过目标值、第三局失败，或第二/第三局没有达到要求的最大 Combo，都必须从头重新开始。</solution-note>\r\n<solution-note extra>自 2024 年 10 月 SR & PP 重做后，官网显示的 RGB 数值已经与解法不同，但解法<b>没有</b>变化，因为 osu! 团队不希望 medal 的解法随时间改变。</solution-note>"
+  },
+  "324": {
+    "Name": "远征归来",
+    "Description": "这一路，你经历了多么精彩的冒险。",
+    "Instructions": "<i>人生，不过是一场感官之旅。</i>",
+    "Solution": "通过 <i>Kikuo - Sight, Noise, Life and the Earth</i>。"
+  },
+  "325": {
+    "Name": "Project Loved：2023 夏季",
+    "Description": "把那些精神不太正常的虫子离我的花远点！",
+    "Instructions": "<i>游玩 Project Loved: Summer 2023 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Winter 2021”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "326": {
+    "Name": "节日热病",
+    "Description": "叮叮当，叮叮当……根本停不下来。",
+    "Instructions": "<i>嗯，如果你不够小心，铃声最后还是会停的。</i>",
+    "Solution": "在 12 月节日期间，针对每一首 osu! original Christmas song 的每个 mapset，各通过其中一个难度。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>\r\n<solution-note important>虽然该 medal 标为全模式，但实际上只能在 Standard 中获得。</solution-note>\r\n<solution-note important>该 medal 仅可从 12 月 19 日开始，直到节日季结束前后获得。</solution-note>"
+  },
+  "327": {
+    "Name": "字面意思",
+    "Description": "说明已经写得非常清楚了。",
+    "Instructions": "<i>……但大概率不是最优解。</i>",
+    "Solution": "在 <i>BilliumMoto - 1xMISS</i> 的任意难度上打出 1xMiss、0x100 的成绩。"
+  },
+  "328": {
+    "Name": "珍视你的身份",
+    "Description": "你本来就已经足够完美。",
+    "Instructions": "<i>到最后，你自然会知道该怎么做。</i>",
+    "Solution": "在任意谱面提交一局成绩，使最大 Combo 等于你的 User ID 最后三位数字。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>\r\n<solution-note>如果你的 User ID 以 000 结尾，则需要打出 1,000 Combo。</solution-note>"
+  },
+  "329": {
+    "Name": "香蕉共和国",
+    "Description": "钾元素摄入过量。",
+    "Instructions": "<i>更多，不一定更快乐。</i>",
+    "Solution": "先在任意谱面取得 SS，然后使用完全相同的 Mod 再打一局：第二局准确率更低，但总分更高。\r\n<br>两局必须连续完成；如果第二局失误或 retry，就必须重新开始 medal 尝试。\r\n<solution-note advice>实际上只能通过“转得比上一局更多”来做到，也就是收集更多香蕉。第一局请尽量少收香蕉。</solution-note>"
+  },
+  "331": {
+    "Name": "灵活身手",
+    "Description": "真正的高手，从不只堆一个属性。",
+    "Instructions": "<i>别把所有点数都加在一个属性上。</i>",
+    "Solution": "在同一个 mapset 的两个不同难度上分别取得 95%+ 准确率，而且两个难度的键数必须不同（例如 4K 和 7K）。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>\r\n<solution-note>Key Mod 完全不会影响键数判定。例如谱面标注为 [5K]，即便开启 4K Mod，仍会按 5K 计算。</solution-note>\r\n<solution-note>如果使用 convert 谱面，则以 CS 作为键数。</solution-note>\r\n<solution-note>如果任一难度的 CS 是小数（例如 3.8），则<b>不要求键数不同。</i></b></solution-note>"
+  },
+  "332": {
+    "Name": "混合 Hyperion",
+    "Description": "多面全制霸。",
+    "Instructions": "<i>你们这些 Protean，也该多秀一秀了。</i>",
+    "Solution": "在同一个 hybrid set 中，四种游戏模式都要在非 convert 的 <star-rating>4+</star-rating> 难度上取得 A 或更高评价。<br>每一局都必须是你在对应模式下最新的一次游玩。\r\n<solution-note>前三局中，Mod 不会影响系统用于判定的 SR。例如第一局原谱面是 <star-rating>3</star-rating>，即使加 DT 变成 <star-rating>4+</star-rating>，系统仍会按 <star-rating>3</star-rating> 判定，因此不能用于该 medal。</solution-note>\r\n<solution-note>“hybrid set” 指同一个 beatmapset 中，四种游戏模式均有 Ranked 难度。该页面的 “Beatmaps” 区域列出了一些示例。</solution-note>\r\n"
+  },
+  "333": {
+    "Name": "占卜破碎",
+    "Description": "好冷……",
+    "Instructions": "<i>冻结的丝线，碎了。</i>",
+    "Solution": "在 <i>Yooh - Ice Angel</i> 任意 <star-rating>5+</star-rating> 难度上打出“伪 PFC”：仅在第一个或最后一个 Combo 处 Miss。\r\n<solution-note>由于 osu!mania 的 PFC 机制，不建议在 mania 中尝试。</solution-note>"
+  },
+  "334": {
+    "Name": "不曾凋零",
+    "Description": "对一段遗忘记忆的鲜明回想。",
+    "Instructions": "<i>像昨天一样，再次盛放。</i>",
+    "Solution": "在任意 Mod 后难度为 <star-rating>4+</star-rating> 的谱面上，<b>第一次尝试</b>就取得 PFC，并同时满足：\r\n- 你以前已经玩过这张谱面，且该谱面的 top play 是 PFC。\r\n- 你至少已经 1 年没有刷新这张谱面的 top play。\r\n- 本次使用的 Mod 组合与该 top play 完全相同。\r\n<solution-note>如果没能超过原 top score，可以等待 24 小时，让这次成绩从 “Recent Plays” 中消失，再重新尝试。</solution-note>"
+  },
+  "335": {
+    "Name": "in love with a ghost",
+    "Description": "一个关于咖啡、可爱、孤独清晨与笑声的准情人节故事。",
+    "Instructions": "<i>游玩 in love with a ghost beatmap 曲包中的全部谱面。</i>",
+    "Solution": "超级秘密幽灵恋爱评论区\r\n<comments-section dropdown=\"comments_dropdown\" section=\"Custom\" ref=\"12424\" aria-hidden=\"true\"></comments-section>"
+  },
+  "336": {
+    "Name": "每日新芽",
+    "Description": "随时准备出发。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br>在 Daily Challenge 中达成连续 1 天打卡",
+    "Solution": "在 Daily Challenge 中达成连续 1 天打卡。"
+  },
+  "337": {
+    "Name": "每周幼苗",
+    "Description": "昼夜节律校准完成。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br>在 Daily Challenge 中达成连续 7 天打卡",
+    "Solution": "在 Daily Challenge 中达成连续 7 天打卡。"
+  },
+  "338": {
+    "Name": "每月灌木",
+    "Description": "开肝。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br>在 Daily Challenge 中达成连续 1 个月打卡",
+    "Solution": "在 Daily Challenge 中达成连续 30 天打卡。"
+  },
+  "339": {
+    "Name": "换挡",
+    "Description": "把游戏体验调到最适合你的那一档。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>启用任意 <b>Conversion</b> Mod 并完成一张谱面。</i>",
+    "Solution": "使用下方列出的任意 lazer Mod，通过任意 Ranked、Qualified、Loved 或 Approved 谱面。"
+  },
+  "340": {
+    "Name": "游戏之夜",
+    "Description": "我妈说这把轮到我玩谱面了！",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>启用任意 <b>Fun</b> Mod 并完成一张谱面。</i>",
+    "Solution": "启用任意 Fun Mod 并完成一张谱面。"
+  },
+  "341": {
+    "Name": "落叶园丁",
+    "Description": "但生活还得继续。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>打破循环。</i>",
+    "Solution": "先在 Daily Challenge 中达成连续 30 天或更长 streak，让 streak 中断，然后再开始一个新的 streak。"
+  },
+  "342": {
+    "Name": "先驱者",
+    "Description": "呼号：Cedar。",
+    "Instructions": "<i>起飞时刻，精确到最小单元。</i>",
+    "Solution": "按顺序连续通过以下谱面，并让每张谱面的准确率末尾数字对应如下：\r\n<!-- NOTE: this styling should really be applied site-wide but i don't want to deploy a change right now. I'll update it later.) !-->\r\n<div style=\"padding-left: 20px; padding-top: 5px;\">\r\n\r\n1. **II-L feat. amelie xoxo - THE EARTH**：*XX.12% 准确率*\r\n2. **Camellia - Exit This Earth's Atomosphere**：*XX.04% 准确率*\r\n3. **False Noise - Space Angel**：*XX.61% 准确率*\r\n\r\n</div>\r\n<br>\r\n这些数值对应 VOSTOK-1 的发射日期 12/04/1961（日/月/年）。"
+  },
+  "343": {
+    "Name": "煮过头了？",
+    "Description": "来看我表演！",
+    "Instructions": "<i>互联网柠檬水！</i>",
+    "Solution": "以 95%+ 准确率通过 <i>Shawn Wasabi + YDG feat. YUNG GEMMY - Burnt Rice (Aiobahn & Jh-Anu Remix)</i>。"
+  },
+  "344": {
+    "Name": "观星者",
+    "Description": "三次，记入历书。",
+    "Instructions": "<i>明天再来。</i>",
+    "Solution": "连续 3 天，每天在 <i>Tenchio - 3 day observer</i> 的一个不同难度上取得 PFC。\r\n<solution-note important>相邻两局必须间隔超过 24 小时，才会被视为“下一天”。</solution-note>"
+  },
+  "345": {
+    "Name": "炽光",
+    "Description": "由灼热的决意引路。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>不走捷径。</i>",
+    "Solution": "使用 Strict Tracking，以 95%+ 准确率通过 <i>Halozy - Kikoku Doukoku Jigokuraku</i>。\r\n<solution-note advice>在 Ruleset 设置中开启 “<b>Snaking out sliders</b>” 可能会对高速滑条非常有帮助。</solution-note>"
+  },
+  "346": {
+    "Name": "差点就寄",
+    "Description": "你就是能准到这种程度。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>可是你自己说的！</i>",
+    "Solution": "使用 Accuracy Challenge 打出一局成绩，并让最终准确率<b>恰好</b>等于你设定的目标值。\r\n<solution-note>例如 Accuracy Challenge 设为 99%，则最终准确率必须正好是 99.00%。</solution-note>"
+  },
+  "347": {
+    "Name": "最强冰之妖精",
+    "Description": "极符「完美金属」",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>面对过目不忘的图案也毫不动摇。</i>",
+    "Solution": "使用 Freeze Frame，在 <i>UNDEAD CORPORATION - Frozen [Collab Advanced]</i> 或更高难度上取得 PFC。"
+  },
+  "348": {
+    "Name": "感染式热情",
+    "Description": "你是一只蘑菇。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>:)</i>",
+    "Solution": "在多人房间中，与另一位已经拥有该 medal 的玩家一起游玩任意艺术家为 <i>Infected Mushroom</i> 的歌曲谱面。\r\n<solution-note important><b style=\"font-size:30px;\">这是一个 RNG MEDAL。</b><br>每次尝试大约有 1/8 概率获得 medal。如果第一次没出就继续打；极少数情况下可能需要 20 次甚至更多（目前纪录是 140 次）。</solution-note>\r\n<solution-note>单人模式下游玩任意 Infected Mushroom 谱面也有极低概率获得。实际概率未知，但大概率低于 1/100。</solution-note>\r\n<solution-note>如果需要帮助，可以加入 <a href=\"https://discord.gg/8qpNTs6\">osu! Medal Hunters Discord</a>，并在 #hunt-general 使用：\r\n<br><code>/request-mushroom-medal-help</code></solution-note>\r\n<img src=https://media1.tenor.com/m/gN8c7o0TlnQAAAAd/reddit-reddit-gold.gif>"
+  },
+  "349": {
+    "Name": "精密混沌",
+    "Description": "我们到底是怎么走到这一步的？",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>一锅奇怪的混合物，感知上完全混沌。</i>",
+    "Solution": "开启至少 15 个 Mod，通过任意谱面。\r\n<solution-note advice>允许使用降低难度的 Mod。</solution-note>"
+  },
+  "350": {
+    "Name": "Project Loved：2024 年度精选",
+    "Description": "严冬之中，我仍勉强能听见你的声音……",
+    "Instructions": "<i>游玩 Project Loved: Best of 2024 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Best of 2024”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "351": {
+    "Name": "天气遐想",
+    "Description": "飞得更高，越过世界……",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>……就像天上的水果拼盘。</i>",
+    "Solution": "使用 Floating Fruits Mod，通过 Xyris - Nefelibata 的任意难度。"
+  },
+  "352": {
+    "Name": "拉满到 11",
+    "Description": "给我拧上去！",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>打破极限。</i>",
+    "Solution": "在一张 Mod 前难度为 <star-rating>4+</star-rating> 的谱面上使用 Difficulty Adjust，并把至少一个属性调整到 >10 后通过。\r\n\r\n<solution-note>如果同时调整多个属性，任何一个属性都不能被调得低于原始值。</solution-note>\r\n<solution-note advice>在 Difficulty Adjust 设置中开启 Extended Limits，即可把属性调到 10 以上。</solution-note>"
+  },
+  "353": {
+    "Name": "全场焦点",
+    "Description": "全场之星，一部闻名世界的杰作。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>用只有你能做到的方式，比所有人都更耀眼。</i>",
+    "Solution": "在至少 4 人的多人房间中，成为唯一一个 FC 的玩家。\r\n\r\n<solution-note>谱面状态不限，Graveyard 谱面也可以。</solution-note>\r\n\r\n<solution-note important>务必在结算页面停留并等成绩完整显示！该 medal 在客户端侧判定，因此游戏必须完整加载结算页面后才会发放。</solution-note>"
+  },
+  "354": {
+    "Name": "旋风",
+    "Description": "顺时针还是逆时针，这是个问题。",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>在转盘上达到每分钟 477 圈。</i>",
+    "Solution": "在任意 spinner 上达到每分钟 477 圈。"
+  },
+  "355": {
+    "Name": "仓鼠跑轮",
+    "Description": "晕了吗？",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>还能再快点吗？</i>",
+    "Solution": "在任意菜单界面按住鼠标左键，绕圈疯狂甩动光标，直到胳膊先投降。\r\n<solution-note important>请确保设置中的 “Rotate Cursor when dragging” 已启用。</solution-note>"
+  },
+  "356": {
+    "Name": "快递弹射",
+    "Description": "YEET！",
+    "Instructions": "<b>仅限 osu!(lazer)</b><br><i>拒收垃圾邮件，谢谢！</i>",
+    "Solution": "把任意通知向左拖动并“甩”出去。"
+  },
+  "357": {
+    "Name": "消退的记忆",
+    "Description": "一幅重新拼成的影像。",
+    "Instructions": "<i>被隐藏的倒影，还是货真价实的回忆？</i>",
+    "Solution": "通过 <i>Sad Keyboard Guy & Gardens - Waking Shadows feat. eili</i> 的任意难度。\r\n\r\n<solution-note important>如果你<strong>还没有</strong> Fading Reflection medal，则不能使用镜像类 Mod（HR、MR）。</solution-note>\r\n<solution-note important>如果你<strong>已经有</strong> Fading Reflection medal，则必须使用镜像类 Mod（HR、MR）。</solution-note>"
+  },
+  "358": {
+    "Name": "渐逝倒影",
+    "Description": "被装饰过的谎言。",
+    "Instructions": "<i>捏造的记忆，还是揭开的身份？</i>",
+    "Solution": "通过 <i>Imy feat. Natsume Itsuki - Lies playing Truth</i> 的任意难度。\r\n\r\n<solution-note important>如果你<strong>还没有</strong> Waning Memory medal，则不能使用镜像类 Mod（HR、MR）。</solution-note>\r\n<solution-note important>如果你<strong>已经有</strong> Waning Memory medal，则必须使用镜像类 Mod（HR、MR）。</solution-note>"
+  },
+  "359": {
+    "Name": "Project Loved：2025 年度精选",
+    "Description": "是不是该道一声早安了？",
+    "Instructions": "<i>游玩 Project Loved: Best of 2025 的任意一个曲包。</i>",
+    "Solution": "在曲包“Project Loved: Best of 2025”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "360": {
+    "Name": "Chroma 曲包",
+    "Description": "@_@",
+    "Instructions": "<i>游玩 Chroma beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Chroma Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "361": {
+    "Name": "Mili 曲包",
+    "Description": "牺牲了这么多，我甚至都懒得活下去了。",
+    "Instructions": "<i>游玩 Mili beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“Mili Pack”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "362": {
+    "Name": "4K 环球旅行者",
+    "Description": "Around the world，绕～着世界走。",
+    "Instructions": "<i>游玩 4K beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“4K Globetrotter”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  },
+  "363": {
+    "Name": "7K 世界杯选集",
+    "Description": "配得上世界舞台的一桌盛宴。",
+    "Instructions": "<i>游玩 7K beatmap 曲包中的全部谱面。</i>",
+    "Solution": "在曲包“7K World Cup Anthology”的每张谱面任意难度上取得成绩。可以使用包括 NF 在内的任意 Mod。"
+  }
+}

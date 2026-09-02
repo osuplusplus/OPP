@@ -7,7 +7,10 @@ license = "MIT"
 [dependencies]
 osu_replay_judge = { git = "https://github.com/Ohdmire/osu-replay-judge.git", rev = "65ca0ff6" }
 rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", rev = "9a073d29611ef936b581a08d3c5b288ef5427301" }
-wgpu = "24"
+# Keep the DX12 backend disabled: wgpu 24's gpu-allocator currently pulls
+# windows 0.54 while the app uses windows 0.58, which fails to compile.
+# ANGLE/GLES is the portable native-surface backend used by live preview.
+wgpu = { version = "24", default-features = false, features = ["wgsl", "angle"] }
 raw-window-handle = "0.6"
 pollster = "0.4"
 png = "0.17"
