@@ -1749,7 +1749,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2392,7 +2392,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 1.0.69",
- "windows 0.58.0",
+ "windows 0.54.0",
 ]
 
 [[package]]
@@ -4181,7 +4181,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rosu-map",
  "rosu-pp 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?branch=pp-rework-202607)",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301)",
  "rosu-render",
  "semver",
  "serde",
@@ -4268,7 +4268,7 @@ dependencies = [
  "hnsw",
  "memmap2",
  "rand_pcg 0.3.1",
- "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?branch=pp-rework-202607)",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301)",
  "rusqlite",
  "serde",
  "sha2",
@@ -4278,16 +4278,15 @@ dependencies = [
 
 [[package]]
 name = "osu_replay_judge"
-version = "0.1.2"
-source = "git+https://github.com/Ohdmire/osu-replay-judge.git?branch=master#208f5ba040a52a961de727fb4f904e09d277d2f1"
+version = "0.3.1"
+source = "git+https://github.com/Ohdmire/osu-replay-judge.git?rev=65ca0ff6#65ca0ff61e780e7be3bd80512f177c4f036ffb8f"
 dependencies = [
  "lzma-rs",
 ]
 
 [[package]]
 name = "osu_replay_render"
-version = "0.3.4"
-source = "git+https://github.com/Ohdmire/osu-replay-render#d232d2a63a4c338a79967611cd8e4cfcf890a44e"
+version = "0.8.0"
 dependencies = [
  "ab_glyph",
  "jpeg-decoder",
@@ -4295,6 +4294,9 @@ dependencies = [
  "png 0.17.16",
  "pollster",
  "raw-window-handle",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301)",
+ "serde",
+ "serde_json",
  "wgpu",
 ]
 
@@ -4795,7 +4797,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5252,7 +5254,7 @@ dependencies = [
 [[package]]
 name = "rosu-pp"
 version = "4.0.1"
-source = "git+https://github.com/Apeuriox/rosu-pp?branch=pp-rework-202607#9a073d29611ef936b581a08d3c5b288ef5427301"
+source = "git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301#9a073d29611ef936b581a08d3c5b288ef5427301"
 dependencies = [
  "divan",
  "rosu-map",
@@ -5347,7 +5349,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6643,7 +6645,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7837,7 +7839,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

@@ -32,6 +32,7 @@ import type {
   CollectionSyncStatus,
   CollectionTaskProgress,
   CollectionWriteResult,
+  CollectionManagerStatus, CollectionBackupStatus,
   BeatmapCalculationRequest,
   BeatmapCalculationResult,
   BeatmapSourceStatus,
@@ -373,6 +374,12 @@ export const desktopApi = {
   addCollectionEntries: (folderId: string, candidates: CollectionCandidate[]) => call<void>("add_collection_entries", { folderId, candidates }),
   removeCollectionEntry: (folderId: string, entryId: string) => call<void>("remove_collection_entry", { folderId, entryId }),
   writeStableCollections: () => call<CollectionWriteResult>("write_stable_collections"),
+  getCollectionManagerStatus: () => call<CollectionManagerStatus>("get_collection_manager_status"),
+  setCollectionManagerPath: (path: string | null) => call<void>("set_collection_manager_path", { path }),
+  getCollectionBackupStatus: (client: OsuClient) => call<CollectionBackupStatus>("get_collection_backup_status", { client }),
+  createCollectionBackup: (client: OsuClient) => call<CollectionBackupStatus>("create_collection_backup", { client }),
+  writeLazerCollections: () => call<CollectionWriteResult>("write_lazer_collections"),
+  restoreCollectionBackup: (client: OsuClient, backupPath: string) => call<void>("restore_collection_backup", { client, backupPath }),
   exportCollectionShare: (folderId: string, creator: string) => call<string>("export_collection_share", { folderId, creator }),
   previewCollectionShare: (code: string) => call<CollectionSharePreview>("preview_collection_share", { code }),
   importCollectionShare: (code: string) => call<CollectionFolder>("import_collection_share", { code }),
@@ -701,6 +708,8 @@ export const desktopApi = {
   liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),
   liveRenderSetOptions: (options: LiveRenderOptions) =>
     call<void>("live_render_set_options", { options }),
+  liveRenderResolveAvatar: (userId: number, avatarUrl: string) =>
+    call<string | null>("resolve_avatar_file", { userId, avatarUrl }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
   liveRenderListSkins: (client: OsuClient) => call<LiveSkinEntry[]>("live_render_list_skins", { client }),
   liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
@@ -830,14 +839,20 @@ export interface LiveExportParams {
   quality: number;
   audio: boolean;
   hitsounds: boolean;
+  /** 结算屏（lazer ResultsScreen,玩法结束后追加 4 秒）,默认开。 */
+  results: boolean;
   /** 导出专用 BGM 偏移 ms(与预览偏移独立,默认 0)。 */
   audioOffset: number;
 }
 
 export interface LiveRenderOptions {
+  /** 玩法 HUD 总开关(预览与导出共用;off 隐藏整个 HUD,物件/光标照常)。 */
+  hud: boolean;
   urBar: boolean;
   followPoints: boolean;
   keyOverlay: boolean;
+  /** 实时 PP 计数器(逐物件渐增,Argon 样式挂 ACC 行下方;后端字段 ppDisplay)。 */
+  ppDisplay: boolean;
   bg: boolean;
   bgOpacity: number;
   audio: boolean;
@@ -849,6 +864,8 @@ export interface LiveRenderOptions {
   skinPath: string | null;
   /** 强制用皮肤 combo 色覆盖谱面 [Colours](stable 行为,默认关:谱面色优先)。 */
   skinColours: boolean;
+  /** 结算屏头像落盘路径(resolveAvatarFile 产物);null = 首字母占位。 */
+  avatarPath: string | null;
 }
 
 export interface LiveSkinEntry {

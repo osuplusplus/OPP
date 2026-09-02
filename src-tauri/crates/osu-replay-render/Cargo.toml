@@ -1,0 +1,28 @@
+[package]
+name = "osu_replay_render"
+version = "0.8.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+osu_replay_judge = { git = "https://github.com/Ohdmire/osu-replay-judge.git", rev = "65ca0ff6" }
+rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", rev = "9a073d29611ef936b581a08d3c5b288ef5427301" }
+wgpu = "24"
+raw-window-handle = "0.6"
+pollster = "0.4"
+png = "0.17"
+jpeg-decoder = "0.3"
+ab_glyph = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+
+[lib]
+name = "osu_replay_render"
+path = "src/lib.rs"
+
+[[bin]]
+name = "osu_replay_render"
+path = "src/main.rs"

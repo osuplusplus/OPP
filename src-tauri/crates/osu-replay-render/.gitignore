@@ -1,0 +1,14 @@
+# build
+/target/
+
+# render outputs & debug artifacts (test files)
+*.mp4
+frames*/
+probe.json
+ffmpeg_err.log
+atlas_dump.png
+__pycache__/
+tv/
+v340.png
+verify.py
+testset/

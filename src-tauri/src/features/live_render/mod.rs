@@ -61,11 +61,18 @@ pub struct PreviewRect {
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LiveOptions {
+    /// 玩法 HUD 总开关(分数/准确率/连击/血条/UR 条/按键展示/PP 计数),
+    /// 默认开;预览与视频导出共用同一设置,off 时整个 HUD 不画,
+    /// 物件与光标照常(osu-replay-render CLI `--hud off` 的语义)。
+    pub hud: bool,
     /// UR 显示(UR 条:刻度/中心标记/均值箭头/判定色轴/UR 数值)整体
     /// 一个开关,默认开。
     pub ur_bar: bool,
     /// 按键输入展示(右下角 Z/X/C 键位计数,Argon key overlay),默认开。
     pub key_overlay: bool,
+    /// 实时 PP 计数器(逐物件 GradualPerformance,Argon 样式挂 ACC 行
+    /// 下方;渲染库 CLI 的 `--no-pp` 反向开关),默认开。
+    pub pp_display: bool,
     /// 物件之间的引导线(follow points),默认开。
     pub follow_points: bool,
     /// 绘制谱面背景图([Events] 0,0,...,全屏铺满)。
@@ -86,6 +93,9 @@ pub struct LiveOptions {
     /// Argon-Pro。变更时热重建图集与场景(legacy 皮肤缓存随之重置),
     /// 不需要重开会话。
     pub skin_path: Option<String>,
+    /// 结算屏头像图片路径(--avatar 语义);None = 首字母占位。
+    /// 变更时热重建图集。
+    pub avatar_path: Option<String>,
     /// 强制用皮肤 combo 色覆盖谱面 [Colours](stable 行为,= lazer
     /// 「Beatmap skins」设定关;osu-replay-render 的 --skin-colours)。
     /// 默认关:谱面自带色优先,皮肤色仅在谱面未配色时生效。变更时
@@ -96,8 +106,10 @@ pub struct LiveOptions {
 impl Default for LiveOptions {
     fn default() -> Self {
         Self {
+            hud: true,
             ur_bar: true,
             key_overlay: true,
+            pp_display: true,
             follow_points: true,
             bg: false,
             bg_opacity: 0.3,
@@ -106,6 +118,7 @@ impl Default for LiveOptions {
             hitsounds: true,
             cursor_size: 1.0,
             skin_path: None,
+            avatar_path: None,
             skin_colours: false,
         }
     }
@@ -589,6 +602,10 @@ struct Session {
     ffmpeg: Option<std::path::PathBuf>,
     /// 当前是否带背景图(与 SetOptions 的 bg 比较决定是否重建图集)。
     has_bg: bool,
+    /// 当前头像路径(与 SetOptions 的 avatar_path 比较决定是否重建图集)。
+    avatar_path: Option<String>,
+    /// 当前是否带头像图(决定结算屏画头像还是首字母)。
+    has_avatar: bool,
     /// 当前皮肤(None = 内置 Argon-Pro;与 SetOptions 比较决定热重建)。
     skin: skin::ResolvedSkin,
     skin_path: Option<String>,
@@ -597,8 +614,7 @@ struct Session {
     skin_colours: bool,
     game: game::GameData,
     atlas: draw::Atlas,
-    bold: draw::TtfFont,
-    semibold: draw::TtfFont,
+    fonts: osu_replay_render::Fonts,
     state: scene::SceneState,
     list: draw::DrawList,
     backend: Backend,
@@ -915,8 +931,11 @@ impl Session {
         let snap = game::snapshot_at(&self.game, t);
         let assets = scene::Assets {
             atlas: &self.atlas,
-            bold: &self.bold,
-            semibold: &self.semibold,
+            bold: &self.fonts.bold,
+            semibold: &self.fonts.semibold,
+            light: &self.fonts.light,
+            venera: &self.fonts.venera,
+            regular: &self.fonts.regular,
             skin: &self.skin,
         };
         self.list.clear();
@@ -1298,8 +1317,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
         Cmd::SetOptions(options) => {
             let Some(s) = session.as_mut() else { return };
             // ---- 即时字段:下一帧生效 ----
+            s.state.hud.visible = options.hud;
             s.state.hud.ur_bar = options.ur_bar;
             s.state.hud.key_overlay = options.key_overlay;
+            s.state.hud.pp_display = options.pp_display;
             s.state.follow_points = options.follow_points;
             s.state.cursor_size = options.cursor_size;
             let offset_changed = s.audio_offset != options.audio_offset;
@@ -1325,6 +1346,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         } else {
                             None
                         };
+                        let avatar_image = options
+                            .avatar_path
+                            .as_deref()
+                            .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
                         let with_bg = bg_image.is_some();
                         // 兜底:图集构建与 GPU 上载(create_texture 的
                         // 尺寸校验 panic 点)+ 会话字段交接全部包进来。
@@ -1333,12 +1358,11 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // 整个预览炸掉。失败仅终止本分支;后续字段
                         // (bg_opacity/音频/音效开关)继续生效。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let (atlas, bold, semibold) =
-                                build_atlas(bg_image, &mut new_skin, 8192);
+                            let (atlas, fonts) =
+                                build_atlas(bg_image, avatar_image, &mut new_skin, 8192);
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
-                            s.bold = bold;
-                            s.semibold = semibold;
+                            s.fonts = fonts;
                             s.skin = new_skin;
                             s.skin_path = options.skin_path.clone();
                             s.has_bg = with_bg;
@@ -1348,8 +1372,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             game::apply_skin_combo_colours(&mut s.game, &s.skin, s.skin_colours);
                             let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
                             state.pro_skin = s.skin_path.is_none();
+                            state.hud.visible = options.hud;
                             state.hud.ur_bar = options.ur_bar;
                             state.hud.key_overlay = options.key_overlay;
+                            state.hud.pp_display = options.pp_display;
                             state.follow_points = options.follow_points;
                             state.cursor_size = options.cursor_size;
                             s.state = state;
@@ -1383,8 +1409,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 }
             }
 
-            // ---- 背景图:重建图集(字体 rect 补丁依赖图集)+ 热替换纹理 ----
-            if options.bg != s.has_bg && options.skin_path == s.skin_path {
+            // ---- 背景图/头像:重建图集(字体 rect 补丁依赖图集)+ 热替换纹理 ----
+            let avatar_changed = options.avatar_path != s.avatar_path;
+            if (options.bg != s.has_bg || avatar_changed) && options.skin_path == s.skin_path {
                 let bg_image = if options.bg {
                     osu_replay_render::osu_background_file(&s.beatmap_path)
                         .map(|name| {
@@ -1397,6 +1424,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
+                let avatar_image = options
+                    .avatar_path
+                    .as_deref()
+                    .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
                 // 皮肤纹理住在图集里,重建图集必须带上(按当前路径重载,
                 // ResolvedSkin 不可 Clone;assign_regions 回填新区域)。
                 match skin::load_skin(s.skin_path.as_deref().map(std::path::Path::new)) {
@@ -1404,13 +1435,14 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // 与皮肤热切换同构:GPU 上载与字段交接一并纳入
                         // catch,panic 时保留当前画面。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+                            let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192);
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
-                            s.bold = bold;
-                            s.semibold = semibold;
+                            s.fonts = fonts;
                             s.skin = skin;
                             s.has_bg = options.bg;
+                            s.avatar_path = options.avatar_path.clone();
+                            s.has_avatar = options.avatar_path.is_some();
                             // 预加载的采样还挂着旧皮肤的字节,作废待重建。
                             s.hs_sounds.clear();
                         }));
@@ -1515,11 +1547,16 @@ fn open_session(
         None
     };
     let has_bg = bg_image.is_some();
+    let avatar_image = options
+        .avatar_path
+        .as_deref()
+        .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+    let has_avatar = avatar_image.is_some();
     // 皮肤:用户皮肤目录走 legacy 渲染(缺件回退 argon);None = 内置
     // Argon-Pro(无判定文字、滑条身体透明度 0.92)。
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192);
     // 皮肤 combo 色映射(--skin-colours 语义:默认谱面色优先,开关强制
     // 皮肤色;可重入,SetOptions 换肤/切开关后重调)。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
@@ -1529,8 +1566,10 @@ fn open_session(
     let mut state = scene::SceneState::new(&game, RENDER_W, RENDER_H);
     state.pro_skin = options.skin_path.is_none();
     state.cursor_size = options.cursor_size;
+    state.hud.visible = options.hud;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
+    state.hud.pp_display = options.pp_display;
     state.follow_points = options.follow_points;
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))
@@ -1676,13 +1715,14 @@ fn open_session(
         audio_path,
         ffmpeg,
         has_bg,
+        avatar_path: options.avatar_path.clone(),
+        has_avatar,
         skin,
         skin_path: options.skin_path.clone(),
         skin_colours: options.skin_colours,
         game,
         atlas,
-        bold,
-        semibold,
+        fonts,
         state,
         list: draw::DrawList::new(),
         backend,
@@ -1996,7 +2036,7 @@ mod repro_tests {
             // ---- open_session 各段(与 open_session 顺序一致) ----
             let game = game::load(beatmap.to_str().unwrap(), replay.to_str().unwrap()).unwrap();
             let mut skin = skin::load_skin(None).unwrap();
-            let (atlas, _bold, _semibold) = build_atlas(None, &mut skin, 8192);
+            let (atlas, fonts) = build_atlas(None, None, &mut skin, 8192);
             let mut state = scene::SceneState::new(&game, 1280, 720);
             state.pro_skin = true;
             let content = std::fs::read_to_string(beatmap).unwrap();
@@ -2009,8 +2049,11 @@ mod repro_tests {
                 &game,
                 &scene::Assets {
                     atlas: &atlas,
-                    bold: &_bold,
-                    semibold: &_semibold,
+                    bold: &fonts.bold,
+                    semibold: &fonts.semibold,
+                    light: &fonts.light,
+                    venera: &fonts.venera,
+                    regular: &fonts.regular,
                     skin: &skin,
                 },
                 &snap,
@@ -2054,6 +2097,9 @@ pub struct ExportParams {
     /// 混入音效轨(离线合成 ArgonPro 音效,与 BGM amix 求和)。
     #[serde(default = "default_true")]
     pub hitsounds: bool,
+    /// 结算屏(lazer ResultsScreen,玩法结束后追加 4 秒静态展开终态)。
+    #[serde(default = "default_true")]
+    pub results: bool,
     /// 导出专用 BGM 偏移 ms(与实时预览的偏移互相独立:预览偏移含
     /// 输出设备延迟补偿,导出走文件混流不需要;默认 0)。
     #[serde(default)]
@@ -2395,9 +2441,13 @@ fn run_export(
         None
     };
     let has_bg = bg_image.is_some();
+    let avatar_image = options
+        .avatar_path
+        .as_deref()
+        .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, bold, semibold) = build_atlas(bg_image, &mut skin, 8192);
+    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192);
     // 与预览会话同语义的 combo 色映射。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
@@ -2405,8 +2455,10 @@ fn run_export(
     let mut state = scene::SceneState::new(&game, params.width, params.height);
     state.pro_skin = options.skin_path.is_none();
     state.cursor_size = options.cursor_size;
+    state.hud.visible = options.hud;
     state.hud.ur_bar = options.ur_bar;
     state.hud.key_overlay = options.key_overlay;
+    state.hud.pp_display = options.pp_display;
     state.follow_points = options.follow_points;
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))
@@ -2417,7 +2469,7 @@ fn run_export(
     // ---- 帧时间轴(与 CLI 语义一致) ----
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
     let duration = game.snapshots.last().map(|s| s.time).unwrap_or(0.0);
-    let frame_times: Vec<f64> = if params.fps == 60 {
+    let mut frame_times: Vec<f64> = if params.fps == 60 {
         game.snapshots.iter().map(|s| s.time).collect()
     } else {
         let step = 1000.0 / params.fps as f64;
@@ -2429,6 +2481,19 @@ fn run_export(
         }
         v
     };
+    // 结算屏(lazer ResultsScreen 静态展开终态):玩法结束后追加
+    // results × fps 的重复帧 —— state.results_at 切换场景;淡出/淡入
+    // 与桌面 CLI 同语义(玩法淡出 0.35s,结算界面立即显示)。
+    let results_frames = (params.results as i32 as f64 * 4.0 * params.fps as f64).round() as u32;
+    if results_frames > 0 {
+        let last = *frame_times.last().unwrap();
+        for _ in 0..results_frames {
+            frame_times.push(last);
+        }
+        state.results_at = Some(last);
+        state.results_fade_frames = (0.35 * params.fps as f64).round() as u32;
+        state.results_fadein_frames = 0;
+    }
     let total = frame_times.len() as u32;
     if total == 0 {
         return Err("没有可渲染的帧".into());
@@ -2473,8 +2538,11 @@ fn run_export(
     let mut tight = Vec::new();
     let assets = scene::Assets {
         atlas: &atlas,
-        bold: &bold,
-        semibold: &semibold,
+        bold: &fonts.bold,
+        semibold: &fonts.semibold,
+        light: &fonts.light,
+        venera: &fonts.venera,
+        regular: &fonts.regular,
         skin: &skin,
     };
     let mut list = draw::DrawList::new();

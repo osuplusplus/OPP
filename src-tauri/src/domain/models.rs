@@ -146,6 +146,12 @@ pub struct Cached<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default)]
+    pub collection_manager_path: Option<String>,
+    #[serde(default = "default_collection_backup_retention")]
+    pub collection_backup_retention: usize,
+    #[serde(default)]
+    pub collection_backup_directory: Option<String>,
+    #[serde(default)]
     pub onboarding_version: u32,
     #[serde(default)]
     pub page_onboarding_versions: BTreeMap<String, u32>,
@@ -214,6 +220,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub key_bindings: AppKeyBindings,
 }
+
+fn default_collection_backup_retention() -> usize { 10 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DanserRenderPreferences {
@@ -389,6 +397,9 @@ pub enum BeatmapDownloadProvider {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            collection_manager_path: None,
+            collection_backup_retention: default_collection_backup_retention(),
+            collection_backup_directory: None,
             onboarding_version: 0,
             page_onboarding_versions: BTreeMap::new(),
             ignored_update_version: None,
