@@ -77,6 +77,12 @@ pub struct LiveOptions {
     pub follow_points: bool,
     /// 绘制谱面背景图([Events] 0,0,...,全屏铺满)。
     pub bg: bool,
+    /// 渲染故事板(.osu Events + 共享 .osb;与背景视频相互独立,
+    /// 任一开启都会预留合成槽位,切换重建会话)。
+    pub storyboard: bool,
+    /// 背景视频(故事板 Video 元素;桌面经库内 ffmpeg rawvideo 管道
+    /// 逐帧解码,需要 ffmpeg 在 PATH)。
+    pub video: bool,
     /// 背景不透明度 0..1,默认 0.3 = 1 - DimLevel 0.7。
     pub bg_opacity: f32,
     /// 播放 BGM([General] AudioFilename,相对谱面目录)。
@@ -107,6 +113,8 @@ impl Default for LiveOptions {
     fn default() -> Self {
         Self {
             hud: true,
+            storyboard: false,
+            video: false,
             ur_bar: true,
             key_overlay: true,
             pp_display: true,
@@ -653,6 +661,12 @@ struct Session {
     loop_playbacks: Vec<(usize, LoopPlayback)>,
     /// 皮肤 SpinnerFrequencyModulate(默认开)。
     spin_freq_modulate: bool,
+    /// 故事板 GPU 层(元素+视频;开关任一开启时存在)。切换开关会
+    /// 整体重建会话(图集合成槽位是构建期预留的)。
+    sb_layer: Option<osu_replay_render::storyboard::StoryboardLayer>,
+    /// 故事板/视频开关当前值(SetOptions 比较决定重建)。
+    storyboard: bool,
+    video: bool,
 }
 
 impl Session {
@@ -939,12 +953,22 @@ impl Session {
             skin: &self.skin,
         };
         self.list.clear();
-        self.state
-            .build_frame(&self.game, &assets, &snap, &mut self.list);
-        self.list.finish();
+        // 故事板合成先行(图集槽位拷贝排在场景提交之前;视频由库内
+        // ffmpeg 管道按 t 帧对齐驱动,render_ext 内部 pump)。
         let Backend::Native {
             renderer, visible, ..
         } = &mut self.backend;
+        if let Some(sb) = &mut self.sb_layer {
+            sb.render_ext(
+                t as f32,
+                renderer.renderer_mut(),
+                &self.atlas,
+                None,
+            );
+        }
+        self.state
+            .build_frame(&self.game, &assets, &snap, &mut self.list);
+        self.list.finish();
         let presented = if *visible { renderer.render(&self.list, CLEAR) } else { false };
         let _ = self.app.emit(
             "live-render-time",
@@ -1328,6 +1352,92 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             let offset_changed = s.audio_offset != options.audio_offset;
             s.audio_offset = options.audio_offset;
 
+            // ---- 故事板/背景视频开关:图集合成槽位是构建期预留的,
+            // 切换需重建图集 + 场景 + 层(与皮肤热切换同模式:原地
+            // 重建,时间轴/后端/声音不动;失败保留原样)。
+            if options.storyboard != s.storyboard || options.video != s.video {
+                let map_bg = s.game.map_background.clone();
+                let beatmap = s.beatmap_path.clone();
+                let bg_image = if options.bg {
+                    map_bg
+                        .clone()
+                        .map(|name| {
+                            std::path::Path::new(&beatmap)
+                                .parent()
+                                .map(|p| p.join(name))
+                                .unwrap_or_default()
+                        })
+                        .and_then(|p| osu_replay_render::decode_image_file(&p).ok())
+                } else {
+                    None
+                };
+                let avatar_image = s
+                    .avatar_path
+                    .as_deref()
+                    .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+                let with_bg = bg_image.is_some();
+                let reloaded =
+                    skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new));
+                let Ok(mut new_skin) = reloaded else {
+                    eprintln!("live_render: 故事板切换:皮肤重载失败,取消");
+                    return;
+                };
+                // 先离线构建全部产物,再一次赋值(不包 catch_unwind:
+                // s 的可变借用跨闭包会与后续分支冲突;失败即 return,
+                // 会话保持原样 —— 与皮肤分支的兜底语义等价)。
+                let sb_parsed = if options.storyboard || options.video {
+                    osu_replay_render::storyboard::parse_beatmap(
+                        std::path::Path::new(&beatmap),
+                        map_bg.as_deref(),
+                    )
+                } else {
+                    None
+                };
+                let slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
+                    width: RENDER_W.min(1920).max(1) & !1,
+                    height: RENDER_H.min(1080).max(1) & !1,
+                    foreground: p.has_foreground(),
+                });
+                let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut new_skin, 8192, slots);
+                {
+                    let Backend::Native { renderer, .. } = &mut s.backend;
+                    let layer = sb_parsed.map(|p| {
+                        let mut l = p.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
+                        l.set_elements_enabled(options.storyboard);
+                        l.set_video_enabled(options.video);
+                        l
+                    });
+                    s.sb_layer = layer;
+                }
+                let sb_active =
+                    s.sb_layer.as_ref().is_some_and(|l| l.elements_enabled() || l.video_enabled());
+                let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
+                state.pro_skin = s.skin_path.is_none();
+                state.hud.visible = options.hud;
+                state.hud.ur_bar = options.ur_bar;
+                state.hud.key_overlay = options.key_overlay;
+                state.hud.pp_display = options.pp_display;
+                state.follow_points = options.follow_points;
+                state.cursor_size = options.cursor_size;
+                state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
+                state.storyboard_fg = s
+                    .sb_layer
+                    .as_ref()
+                    .is_some_and(|l| l.elements_enabled() && l.has_foreground());
+                state.sb_replaces_bg = s.sb_layer.as_ref().is_some_and(|l| l.elements_enabled());
+                s.set_atlas(&atlas);
+                s.atlas = atlas;
+                s.fonts = fonts;
+                s.skin = new_skin;
+                s.has_bg = with_bg;
+                s.hs_sounds.clear();
+                s.loops_stop();
+                s.storyboard = options.storyboard;
+                s.video = options.video;
+                s.state = state;
+                s.dirty = true;
+            }
+
             // ---- 皮肤:目录变更 → 重载 + 重建图集 + 场景整体重建 ----
             // (legacy 精灵缓存/动画状态是皮肤的派生物,随皮肤作废;
             // 皮肤分支自身会带上当前 bg,故 bg 分支在皮肤未变时才走。)
@@ -1559,7 +1669,22 @@ fn open_session(
     // Argon-Pro(无判定文字、滑条身体透明度 0.92)。
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
+    // 故事板/背景视频(任一开启即解析并预留图集合成槽位;层在渲染器
+    // 创建后接到同一 device 上)。
+    let sb_parsed = if options.storyboard || options.video {
+        osu_replay_render::storyboard::parse_beatmap(
+            std::path::Path::new(beatmap_path),
+            game.map_background.as_deref(),
+        )
+    } else {
+        None
+    };
+    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
+        width: RENDER_W.min(1920).max(1) & !1,
+        height: RENDER_H.min(1080).max(1) & !1,
+        foreground: p.has_foreground(),
+    });
+    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, storyboard_slots);
     // 皮肤 combo 色映射(--skin-colours 语义:默认谱面色优先,开关强制
     // 皮肤色;可重入,SetOptions 换肤/切开关后重调)。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
@@ -1579,6 +1704,10 @@ fn open_session(
     } else {
         None
     };
+    let sb_active = sb_parsed.is_some();
+    state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
+    state.storyboard_fg = sb_parsed.as_ref().is_some_and(|p| options.storyboard && p.has_foreground());
+    state.sb_replaces_bg = sb_active && options.storyboard;
 
     // BGM([General] AudioFilename,相对谱面目录):open 时只解析路径,
     // 解码在开启音频时进行(SetOptions 切换时懒加载,不重开会话)。
@@ -1746,7 +1875,19 @@ fn open_session(
         loop_events,
         loop_playbacks: Vec::new(),
         spin_freq_modulate,
+        sb_layer: None,
+        storyboard: options.storyboard,
+        video: options.video,
     };
+    // 故事板 GPU 层:与窗口渲染器同一 device/queue(合成进图集槽位);
+    // 元素/视频两半分别由两个开关控制。
+    if let Some(parsed) = sb_parsed {
+        let Backend::Native { renderer, .. } = &mut session.backend;
+        let mut layer = parsed.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
+        layer.set_elements_enabled(options.storyboard);
+        layer.set_video_enabled(options.video);
+        session.sb_layer = Some(layer);
+    }
     if session.hitsounds {
         session.ensure_hitsounds();
     }
@@ -2449,11 +2590,35 @@ fn run_export(
         .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
+    // 故事板/背景视频(与预览同开关;视频经库内 ffmpeg 管道逐帧解码)。
+    let sb_parsed = if options.storyboard || options.video {
+        osu_replay_render::storyboard::parse_beatmap(
+            std::path::Path::new(beatmap_path),
+            game.map_background.as_deref(),
+        )
+    } else {
+        None
+    };
+    let sb_slot = (
+        params.width.min(1920).max(1) & !1,
+        params.height.min(1080).max(1) & !1,
+    );
+    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
+        width: sb_slot.0,
+        height: sb_slot.1,
+        foreground: p.has_foreground(),
+    });
+    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, storyboard_slots);
     // 与预览会话同语义的 combo 色映射。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
     let mut renderer = Renderer::new(params.width, params.height, &atlas);
+    let mut sb_layer = sb_parsed.map(|p| {
+        let mut l = p.into_layer(renderer.device(), renderer.queue(), sb_slot.0, sb_slot.1);
+        l.set_elements_enabled(options.storyboard);
+        l.set_video_enabled(options.video);
+        l
+    });
     let mut state = scene::SceneState::new(&game, params.width, params.height);
     state.pro_skin = options.skin_path.is_none();
     state.cursor_size = options.cursor_size;
@@ -2467,6 +2632,14 @@ fn run_export(
     } else {
         None
     };
+    state.storyboard = sb_layer
+        .as_ref()
+        .is_some_and(|l| l.elements_enabled() || l.video_enabled())
+        .then(|| options.bg_opacity.clamp(0.0, 1.0));
+    state.storyboard_fg = sb_layer
+        .as_ref()
+        .is_some_and(|l| l.elements_enabled() && l.has_foreground());
+    state.sb_replaces_bg = sb_layer.as_ref().is_some_and(|l| l.elements_enabled());
 
     // ---- 帧时间轴(与 CLI 语义一致) ----
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
@@ -2556,6 +2729,11 @@ fn run_export(
             break;
         }
         let snap = game::snapshot_at(&game, ft);
+        // 故事板合成先行(图集槽位拷贝排在场景提交之前;视频由库内
+        // ffmpeg 管道按 ft 帧对齐驱动)。
+        if let Some(sb) = &mut sb_layer {
+            sb.render(ft as f32, &mut renderer, &atlas);
+        }
         list.clear();
         state.build_frame(&game, &assets, &snap, &mut list);
         list.finish();

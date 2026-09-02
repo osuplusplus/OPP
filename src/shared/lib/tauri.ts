@@ -854,6 +854,10 @@ export interface LiveRenderOptions {
   /** 实时 PP 计数器(逐物件渐增,Argon 样式挂 ACC 行下方;后端字段 ppDisplay)。 */
   ppDisplay: boolean;
   bg: boolean;
+  /** 故事板渲染(.osu Events + 共享 .osb;切换重建会话)。 */
+  storyboard: boolean;
+  /** 背景视频(故事板 Video 元素,ffmpeg 管道解码)。 */
+  video: boolean;
   bgOpacity: number;
   audio: boolean;
   audioOffset: number;

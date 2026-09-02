@@ -22,6 +22,8 @@ function formatTime(ms: number) {
 
 const defaultOptions: LiveRenderOptions = {
   hud: true,
+  storyboard: false,
+  video: false,
   urBar: true,
   followPoints: true,
   keyOverlay: true,
@@ -453,6 +455,12 @@ export function LivePreviewPanel() {
             </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.bg} onChange={(event) => update("bg", event.target.checked)} />谱面背景图
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="谱面故事板(.osu Events + 共享 .osb);开启后背景图让位。切换会重建会话(约 1 秒)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.storyboard} onChange={(event) => update("storyboard", event.target.checked)} />故事板
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="背景视频(故事板 Video 元素);ffmpeg 管道逐帧解码,需 ffmpeg 在 PATH。开启后背景图让位">
+              <input className="accent-cyan-400" type="checkbox" checked={options.video} onChange={(event) => update("video", event.target.checked)} />背景视频
             </label>
             {options.bg ? <label className="block text-xs text-slate-400">背景不透明度 {Math.round(options.bgOpacity * 100)}%
               <input className="mt-3 w-full accent-cyan-400" type="range" min={0} max={100} value={Math.round(options.bgOpacity * 100)} onChange={(event) => update("bgOpacity", Number(event.target.value) / 100)} />
