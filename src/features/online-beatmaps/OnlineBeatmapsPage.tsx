@@ -16,6 +16,7 @@ import { parseOnlineBeatmapDeepLink } from "./deepLink";
 import { createDefaultSearchQuery, normalizePreviewUrl } from "./filters";
 import { resolveDefaultDownloadProvider } from "./downloadProvider";
 import { OnlineBeatmapFilters } from "./OnlineBeatmapFilters";
+import { OnlineBeatmapSortBar } from "./OnlineBeatmapSortBar";
 import { similarityRouteForBeatmap } from "../similar-beatmaps/navigation";
 import { openCollectionDialog } from "../collections/events";
 import { settingsQueryKey, useSettings } from "../settings/api";
@@ -87,6 +88,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
     ...(item.tags?.split(" ").filter(Boolean).map((tag) => ({ value: tag, detail: "标签" })) ?? []),
   ]), [items]);
   const availableTotal = search.data?.pages[0]?.total ?? null;
+  const onlineMirrorCount = providers.data?.filter((provider) => provider.id !== "official" && provider.online).length ?? 0;
   const queueItems = useMemo(() => [...queue.values()], [queue]);
   const detailFallback = items.find((item) => item.id === detailId) ?? queue.get(detailId ?? -1) ?? null;
 
@@ -140,6 +142,11 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
   };
 
   const reset = () => { const next = createDefaultSearchQuery(ruleset); setDraft(next); setActiveQuery(next); };
+  const changeSort = (sort: string) => {
+    // 排序只作用于已经提交的查询，不能顺带提交仍在编辑的数值范围。
+    setDraft((current) => ({ ...current, sort, cursor_string: null }));
+    setActiveQuery((current) => ({ ...current, sort, cursor_string: null }));
+  };
   const closeDetail = () => {
     setManualDetailId(null);
     const returnTo = location.state?.returnTo;
@@ -157,23 +164,25 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
 
   return <>
     <PageHeader
-      actions={<div className="flex flex-wrap items-center justify-end gap-2"><Badge tone="cyan">官网筛选</Badge>{providers.data?.filter((provider) => provider.id !== "official").map((provider) => <Badge key={provider.id} tone={provider.online ? "success" : "warning"}>{provider.label} · {provider.online ? "在线" : "不可用"}</Badge>)}<Badge tone="pink"><DownloadCloud className="size-4" />批量下载</Badge></div>}
+      actions={<div className="flex flex-wrap items-center justify-end gap-2"><Badge tone="cyan">osu! 官网数据</Badge><Badge tone={onlineMirrorCount ? "success" : "warning"}>{onlineMirrorCount} 个镜像可用</Badge><Badge tone="pink"><DownloadCloud className="size-3.5" />批量下载</Badge></div>}
       description="从官网获取完整谱面信息，选择谱面后使用可选镜像适配器下载。"
       eyebrow="Online beatmaps"
       title="在线谱面"
     />
 
     <div className="space-y-5">
-      <OnlineBeatmapFilters loading={search.isFetching && !search.isFetchingNextPage} onChange={setDraft} onReset={reset} onSubmit={() => setActiveQuery({ ...draft, cursor_string: null })} query={draft} suggestions={searchSuggestions} />
-      <div className="grid grid-cols-[minmax(0,1fr)_300px] items-start gap-5">
+      <OnlineBeatmapFilters loading={search.isFetching && !search.isFetchingNextPage} onChange={setDraft} onReset={reset} onSubmit={(next) => setActiveQuery({ ...next, cursor_string: null })} query={draft} suggestions={searchSuggestions} />
+      <div className="grid grid-cols-[minmax(0,1fr)_clamp(14rem,20vw,17rem)] items-start gap-5">
         <section className="min-w-0" data-page-guide-online-results="true">
-          <div className="mb-4 flex min-h-14 items-center justify-between rounded-2xl border border-white/[0.08] bg-white/[0.025] px-5">
+          <OnlineBeatmapSortBar onChange={changeSort} sort={activeQuery.sort} />
+          <div className="opp-online-panel mb-4 flex min-h-12 items-center justify-between rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] px-4 shadow-[0_14px_34px_rgba(0,0,0,0.08)]">
             <div className="text-sm text-slate-400">已加载 <strong className="font-mono text-slate-100">{items.length}</strong>{availableTotal !== null ? <> / 共 <strong className="font-mono text-slate-100">{availableTotal}</strong></> : null}</div>
             <Button disabled={!items.length} onClick={() => setQueue((current) => { const next = new Map(current); items.forEach((item) => { if (!item.availability?.download_disabled) next.set(item.id, item); }); return next; })} size="sm" variant="ghost"><CheckSquare2 className="size-4" />将当前结果全部加入队列</Button>
           </div>
           {directDownloadError ? <div className="mb-4 rounded-xl border border-amber-300/10 bg-amber-300/[0.05] px-4 py-3 text-sm text-amber-100">{directDownloadError}</div> : null}
-          {search.isLoading ? <div className="space-y-4">{Array.from({ length: 5 }, (_, index) => <Skeleton className="h-44" key={index} />)}</div> : search.error ? <ErrorPanel error={search.error} onRetry={() => search.refetch()} /> : !items.length ? <EmptyState action={<Button onClick={reset}><Music2 className="size-4" />查看近期 Ranked</Button>} description="请放宽筛选条件，或更换内容筛选标签。" icon={<SearchX className="size-5" />} title="没有找到匹配的谱面" /> : <>
-            <div className="space-y-4">{items.map((beatmapset) => <BeatmapsetCard beatmapset={beatmapset} downloading={directDownloadId === beatmapset.id} key={beatmapset.id} onAddToCollection={() => openCollectionDialog(collectionCandidates(beatmapset))} onDownload={() => void downloadBeatmapset(beatmapset)} onOpen={() => setManualDetailId(beatmapset.id)} onPreview={() => togglePreview(beatmapset)} onSelect={() => toggleQueue(beatmapset)} playing={playingId === beatmapset.id} selected={queue.has(beatmapset.id)} />)}</div>
+          {search.isLoading ? <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">{Array.from({ length: 6 }, (_, index) => <Skeleton className="aspect-[136/55] rounded-xl" key={index} />)}</div> : search.error ? <ErrorPanel error={search.error} onRetry={() => search.refetch()} /> : !items.length ? <EmptyState action={<Button onClick={reset}><Music2 className="size-4" />查看近期 Ranked</Button>} description="请放宽筛选条件，或更换内容筛选标签。" icon={<SearchX className="size-5" />} title="没有找到匹配的谱面" /> : <>
+            {/* 常用桌面窗口保持双列，卡片尺寸随结果区宽度按比例缩放。 */}
+            <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">{items.map((beatmapset) => <BeatmapsetCard beatmapset={beatmapset} downloading={directDownloadId === beatmapset.id} key={beatmapset.id} onAddToCollection={() => openCollectionDialog(collectionCandidates(beatmapset))} onDownload={() => void downloadBeatmapset(beatmapset)} onOpen={() => setManualDetailId(beatmapset.id)} onPreview={() => togglePreview(beatmapset)} onSelect={() => toggleQueue(beatmapset)} playing={playingId === beatmapset.id} selected={queue.has(beatmapset.id)} />)}</div>
             {search.hasNextPage ? <Button className="mt-5 w-full" loading={search.isFetchingNextPage} onClick={() => search.fetchNextPage()}><ChevronDown className="size-4" />加载下一页</Button> : <p className="py-8 text-center text-sm text-slate-600">已到达搜索结果末尾</p>}
           </>}
         </section>
