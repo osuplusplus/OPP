@@ -853,11 +853,13 @@ export interface LiveRenderOptions {
   keyOverlay: boolean;
   /** 实时 PP 计数器(逐物件渐增,Argon 样式挂 ACC 行下方;后端字段 ppDisplay)。 */
   ppDisplay: boolean;
+  /** 谱面背景图,默认开。 */
   bg: boolean;
   /** 故事板渲染(.osu Events + 共享 .osb;切换重建会话)。 */
   storyboard: boolean;
   /** 背景视频(故事板 Video 元素,ffmpeg 管道解码)。 */
   video: boolean;
+  /** 背景亮度 0..1,独立常驻选项:同时作用于背景图/故事板/背景视频(拖动即时生效)。 */
   bgOpacity: number;
   audio: boolean;
   audioOffset: number;
