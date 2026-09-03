@@ -8,6 +8,7 @@ mod tools;
 
 use commands::*;
 use features::{game_session::start_game_monitor, obs::start_obs_monitor};
+use infrastructure::logging;
 use infrastructure::portable_update;
 use state::AppState;
 use tauri::{
@@ -34,7 +35,14 @@ pub fn run() {
         }))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
+            let logger = logging::init(&app_data_dir);
+            logger.log(
+                "INFO",
+                "app.lifecycle",
+                format!("OPP {} started", env!("CARGO_PKG_VERSION")),
+            );
             app.manage(AppState::new(&app_data_dir)?);
+            app.manage(logger);
             let state = app.state::<AppState>();
             let local_analysis = state.local_analysis.clone();
             tauri::async_runtime::spawn_blocking(move || local_analysis.load_cached_indexes());

@@ -10,13 +10,13 @@ use sha2::{Digest, Sha256};
 use tauri::State;
 use uuid::Uuid;
 
+use super::adapter;
+use super::{CollectionBackupStatus, CollectionManagerStatus};
 use super::{
     CollectionCandidate, CollectionEntry, CollectionFolder, CollectionSnapshot, CollectionSource,
     CollectionSourceStatus, CollectionSyncStatus, CollectionWriteResult,
     service::CollectionService, task::ensure_collection_task_active,
 };
-use super::adapter;
-use super::{CollectionManagerStatus, CollectionBackupStatus};
 use crate::{
     error::{CommandError, CommandResult},
     features::{
@@ -406,8 +406,12 @@ fn refresh_stable_collections(
                     read_only: false,
                     pending_write: false,
                     entries,
-                    external_id: None, external_fingerprint: None, last_read_at: Some(now.clone()),
-                    backup_path: None, backup_fingerprint: None, backup_confirmed_at: None,
+                    external_id: None,
+                    external_fingerprint: None,
+                    last_read_at: Some(now.clone()),
+                    backup_path: None,
+                    backup_fingerprint: None,
+                    backup_confirmed_at: None,
                 });
             }
         }
@@ -435,8 +439,14 @@ pub async fn refresh_collections(
 ) -> CommandResult<CollectionSnapshot> {
     // 刷新会将 stable 的外部变化合并进内部副本，而不是覆盖本地创建的收藏夹。
     if client == LocalClient::Lazer {
-        if let Ok(folders) = adapter::invoke::<Vec<CollectionFolder>, ()>(&state, "read", None).await {
-            state.collections.update(|file| { file.folders.retain(|f| f.source != CollectionSource::Lazer); file.folders.extend(folders); Ok(()) })?;
+        if let Ok(folders) =
+            adapter::invoke::<Vec<CollectionFolder>, ()>(&state, "read", None).await
+        {
+            state.collections.update(|file| {
+                file.folders.retain(|f| f.source != CollectionSource::Lazer);
+                file.folders.extend(folders);
+                Ok(())
+            })?;
         }
         return state.collections.snapshot(source_statuses(&state));
     }
@@ -457,45 +467,136 @@ pub async fn refresh_collections(
 }
 
 #[tauri::command(async)]
-pub async fn get_collection_manager_status(state: State<'_, AppState>) -> CommandResult<CollectionManagerStatus> { Ok(adapter::status(&state).await) }
-
-#[tauri::command(async)]
-pub fn set_collection_manager_path(path: Option<String>, state: State<'_, AppState>) -> CommandResult<()> {
-    state.store.update(|s| s.settings.collection_manager_path = path.filter(|p| !p.trim().is_empty()))
+pub async fn get_collection_manager_status(
+    state: State<'_, AppState>,
+) -> CommandResult<CollectionManagerStatus> {
+    Ok(adapter::status(&state).await)
 }
 
 #[tauri::command(async)]
-pub fn get_collection_backup_status(client: LocalClient, state: State<'_, AppState>) -> CommandResult<CollectionBackupStatus> {
-    let target = match client { LocalClient::Stable => stable_path(&state).ok(), LocalClient::Lazer => state.local_analysis.source_status(LocalClient::Lazer).ok().and_then(|s| s.install_root).map(|r| PathBuf::from(r).join("client.realm")) };
-    let dir = state.store.snapshot()?.settings.collection_backup_directory.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("collection-backups"));
-    let backups = fs::read_dir(&dir).ok().into_iter().flat_map(|it| it.filter_map(Result::ok)).filter_map(|e| e.path().to_str().map(str::to_string)).collect::<Vec<_>>();
-    let fingerprint = target.as_ref().filter(|p| p.is_file()).and_then(|p| file_fingerprint(p).ok());
-    Ok(CollectionBackupStatus { client, target: target.map(|p| p.display().to_string()), fingerprint, latest: backups.last().cloned(), backups })
+pub fn set_collection_manager_path(
+    path: Option<String>,
+    state: State<'_, AppState>,
+) -> CommandResult<()> {
+    state
+        .store
+        .update(|s| s.settings.collection_manager_path = path.filter(|p| !p.trim().is_empty()))
 }
 
 #[tauri::command(async)]
-pub fn create_collection_backup(client: LocalClient, state: State<'_, AppState>) -> CommandResult<CollectionBackupStatus> {
+pub fn get_collection_backup_status(
+    client: LocalClient,
+    state: State<'_, AppState>,
+) -> CommandResult<CollectionBackupStatus> {
+    let target = match client {
+        LocalClient::Stable => stable_path(&state).ok(),
+        LocalClient::Lazer => state
+            .local_analysis
+            .source_status(LocalClient::Lazer)
+            .ok()
+            .and_then(|s| s.install_root)
+            .map(|r| PathBuf::from(r).join("client.realm")),
+    };
+    let dir = state
+        .store
+        .snapshot()?
+        .settings
+        .collection_backup_directory
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("collection-backups"));
+    let backups = fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flat_map(|it| it.filter_map(Result::ok))
+        .filter_map(|e| e.path().to_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    let fingerprint = target
+        .as_ref()
+        .filter(|p| p.is_file())
+        .and_then(|p| file_fingerprint(p).ok());
+    Ok(CollectionBackupStatus {
+        client,
+        target: target.map(|p| p.display().to_string()),
+        fingerprint,
+        latest: backups.last().cloned(),
+        backups,
+    })
+}
+
+#[tauri::command(async)]
+pub fn create_collection_backup(
+    client: LocalClient,
+    state: State<'_, AppState>,
+) -> CommandResult<CollectionBackupStatus> {
     let status = get_collection_backup_status(client, state.clone())?;
-    let target = status.target.clone().map(PathBuf::from).ok_or_else(|| CommandError::new("COLLECTION_SOURCE_UNAVAILABLE", "收藏夹文件不可用"))?;
-    if !target.is_file() { return Ok(status); }
-    let dir = PathBuf::from("collection-backups"); fs::create_dir_all(&dir)?;
-    let stamp = Utc::now().format("%Y%m%d-%H%M%S"); let fp = status.fingerprint.clone().unwrap_or_default(); let out = dir.join(format!("{}-{}-{}.bak", client, stamp, &fp[..fp.len().min(12)])); fs::copy(&target, &out)?;
+    let target =
+        status.target.clone().map(PathBuf::from).ok_or_else(|| {
+            CommandError::new("COLLECTION_SOURCE_UNAVAILABLE", "收藏夹文件不可用")
+        })?;
+    if !target.is_file() {
+        return Ok(status);
+    }
+    let dir = PathBuf::from("collection-backups");
+    fs::create_dir_all(&dir)?;
+    let stamp = Utc::now().format("%Y%m%d-%H%M%S");
+    let fp = status.fingerprint.clone().unwrap_or_default();
+    let out = dir.join(format!(
+        "{}-{}-{}.bak",
+        client,
+        stamp,
+        &fp[..fp.len().min(12)]
+    ));
+    fs::copy(&target, &out)?;
     get_collection_backup_status(client, state)
 }
 
 #[tauri::command(async)]
-pub fn restore_collection_backup(client: LocalClient, backup_path: String, state: State<'_, AppState>) -> CommandResult<()> {
-    if get_game_status(state.clone())?.clients.iter().any(|c| c.client == client && c.running) { return Err(CommandError::new("GAME_RUNNING", "请关闭游戏后再恢复收藏夹")); }
-    let target = get_collection_backup_status(client, state)?.target.ok_or_else(|| CommandError::new("COLLECTION_SOURCE_UNAVAILABLE", "收藏夹文件不可用"))?;
-    let source = PathBuf::from(backup_path); if !source.is_file() { return Err(CommandError::new("BACKUP_NOT_FOUND", "备份文件不存在")); }
-    fs::copy(source, target)?; Ok(())
+pub fn restore_collection_backup(
+    client: LocalClient,
+    backup_path: String,
+    state: State<'_, AppState>,
+) -> CommandResult<()> {
+    if get_game_status(state.clone())?
+        .clients
+        .iter()
+        .any(|c| c.client == client && c.running)
+    {
+        return Err(CommandError::new(
+            "GAME_RUNNING",
+            "请关闭游戏后再恢复收藏夹",
+        ));
+    }
+    let target = get_collection_backup_status(client, state)?
+        .target
+        .ok_or_else(|| CommandError::new("COLLECTION_SOURCE_UNAVAILABLE", "收藏夹文件不可用"))?;
+    let source = PathBuf::from(backup_path);
+    if !source.is_file() {
+        return Err(CommandError::new("BACKUP_NOT_FOUND", "备份文件不存在"));
+    }
+    fs::copy(source, target)?;
+    Ok(())
 }
 
 #[tauri::command(async)]
-pub async fn write_lazer_collections(state: State<'_, AppState>) -> CommandResult<CollectionWriteResult> {
-    let folders = state.collections.value.lock().map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?.folders.iter().filter(|f| f.source == CollectionSource::Lazer).cloned().collect::<Vec<_>>();
+pub async fn write_lazer_collections(
+    state: State<'_, AppState>,
+) -> CommandResult<CollectionWriteResult> {
+    let folders = state
+        .collections
+        .value
+        .lock()
+        .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?
+        .folders
+        .iter()
+        .filter(|f| f.source == CollectionSource::Lazer)
+        .cloned()
+        .collect::<Vec<_>>();
     let _: serde_json::Value = adapter::invoke(&state, "write", Some(folders)).await?;
-    Ok(CollectionWriteResult { written_folders: 1, skipped_entries: 0, backup_path: None })
+    Ok(CollectionWriteResult {
+        written_folders: 1,
+        skipped_entries: 0,
+        backup_path: None,
+    })
 }
 
 #[tauri::command(async)]

@@ -71,10 +71,3 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphic
 
 [dev-dependencies]
 tempfile = "3"
-
-# ── 临时本地 patch(提交前删除本段)──────────────────────────────
-# 渲染库未推送的修复(结算屏难度图重建、故事板 ffprobe 注入/视频旋转)
-# 经本地 checkout 生效;修复推上远程后删除 [patch] 段即可回到纯远程。
-[patch."https://github.com/Ohdmire/osu-replay-render"]
-osu_replay_render = { path = "../../osu-replay-render" }
-# ────────────────────────────────────────────────────────

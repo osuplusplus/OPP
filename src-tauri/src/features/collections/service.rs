@@ -234,8 +234,12 @@ impl CollectionService {
                 read_only: false,
                 pending_write: true,
                 entries: Vec::new(),
-                external_id: None, external_fingerprint: None, last_read_at: None,
-                backup_path: None, backup_fingerprint: None, backup_confirmed_at: None,
+                external_id: None,
+                external_fingerprint: None,
+                last_read_at: None,
+                backup_path: None,
+                backup_fingerprint: None,
+                backup_confirmed_at: None,
             };
             file.folders.push(folder.clone());
             Ok(folder)

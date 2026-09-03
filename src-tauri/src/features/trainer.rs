@@ -1,5 +1,6 @@
 use std::{
     fs,
+    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -22,6 +23,14 @@ pub struct TrainerRequest {
     pub od: f32,
     pub cs: f32,
     pub hp: f32,
+    #[serde(default)]
+    pub no_spinners: bool,
+    #[serde(default)]
+    pub change_pitch: bool,
+    /// View Trainer sets this for visual-only previews so ffmpeg is never
+    /// started while the user is dragging a control.
+    #[serde(default)]
+    pub preview_only: bool,
     pub min_bpm: Option<f64>,
     pub max_bpm: Option<f64>,
     pub start_time_ms: Option<f64>,
@@ -130,16 +139,16 @@ fn transform_beatmap(source: &str, request: &TrainerRequest) -> CommandResult<(S
             "Rate 必须在 0.75× 到 2.00× 之间",
         ));
     }
-    for (name, value) in [
-        ("AR", request.ar),
-        ("OD", request.od),
-        ("CS", request.cs),
-        ("HP", request.hp),
+    for (name, value, max) in [
+        ("AR", request.ar, 11.0),
+        ("OD", request.od, 11.0),
+        ("CS", request.cs, 10.0),
+        ("HP", request.hp, 10.0),
     ] {
-        if !(0.0..=10.0).contains(&value) {
+        if !(0.0..=max).contains(&value) {
             return Err(CommandError::new(
                 "INVALID_DIFFICULTY",
-                format!("{name} 必须在 0 到 10 之间"),
+                format!("{name} 的取值超出允许范围（AR/OD: 0-11，CS/HP: 0-10）"),
             ));
         }
     }
@@ -159,8 +168,19 @@ fn transform_beatmap(source: &str, request: &TrainerRequest) -> CommandResult<(S
         ));
     }
     let end = request.end_time_ms;
-    let transforms_audio =
-        (request.rate - 1.0).abs() > f64::EPSILON || start > 0.0 || end.is_some();
+    // A full-range, 1x edit should reuse the source BGM. Treating the UI's
+    // default end handle as a trim made every edit invoke ffmpeg and blocked
+    // the preview command for several seconds.
+    let source_duration = source
+        .lines()
+        .filter_map(object_time)
+        .fold(0.0_f64, f64::max);
+    let trims_audio = end.is_some_and(|limit| limit < source_duration - 1.0);
+    let transforms_audio = !request.preview_only
+        && ((request.rate - 1.0).abs() > f64::EPSILON
+            || start > 0.0
+            || trims_audio
+            || request.change_pitch);
     // In osu!mania CircleSize is the key count, not a visual difficulty setting.
     // Always preserve the value from the source chart so rate changes cannot collapse lanes.
     let preserve_circle_size = is_mania_beatmap(source);
@@ -240,6 +260,14 @@ fn transform_beatmap(source: &str, request: &TrainerRequest) -> CommandResult<(S
             let Some(time) = object_time(raw) else {
                 continue;
             };
+            let kind = raw
+                .split(',')
+                .nth(3)
+                .and_then(|value| value.trim().parse::<i32>().ok())
+                .unwrap_or_default();
+            if request.no_spinners && kind & 8 != 0 {
+                continue;
+            }
             let time_ok = time >= start && end.is_none_or(|limit| time <= limit);
             let bpm_ok = bpm_at(&timing_points, time).is_none_or(|bpm| {
                 request.min_bpm.is_none_or(|min| bpm >= min)
@@ -276,6 +304,9 @@ mod tests {
             od: 8.0,
             cs,
             hp: 5.0,
+            no_spinners: false,
+            change_pitch: false,
+            preview_only: false,
             min_bpm: None,
             max_bpm: None,
             start_time_ms: None,
@@ -306,13 +337,49 @@ mod tests {
 
         assert!(output.contains("CircleSize:6.5\r\n"));
     }
+
+    #[test]
+    fn preview_keeps_source_audio_and_can_remove_spinners() {
+        let mut request = request(1.5, 4.0);
+        request.preview_only = true;
+        request.no_spinners = true;
+        let source = "osu file format v14\n\n[General]\nAudioFilename: song.mp3\nMode:0\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:7\nApproachRate:7\n\n[TimingPoints]\n0,500,4,2,1,50,1,0\n\n[HitObjects]\n64,192,1000,1,0,0:0:0:0:\n64,192,1500,8,0,0:0:0:0:";
+        let (output, included) = transform_beatmap(source, &request).unwrap();
+        assert_eq!(included, 1);
+        assert!(output.contains("AudioFilename: song.mp3"));
+        assert!(!output.contains(",1500,8,"));
+    }
+
+    #[test]
+    fn ar_and_od_values_above_ten_are_valid() {
+        let mut request = request(1.0, 4.0);
+        request.ar = 11.0;
+        request.od = 11.0;
+        assert!(transform_beatmap(&source(0), &request).is_ok());
+    }
+
+    #[test]
+    fn generated_identifiers_fit_osu_stable_integer_fields() {
+        let id = (u32::from_str_radix("ffffffff", 16).unwrap() % 2_000_000_000).max(1);
+        assert!(id <= 2_000_000_000);
+    }
+
+    #[test]
+    fn change_pitch_requires_audio_processing_even_at_one_x() {
+        let mut request = request(1.0, 4.0);
+        request.change_pitch = true;
+        let source = "osu file format v14\n\n[General]\nAudioFilename: song.mp3\nMode:0\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:7\nApproachRate:7\n\n[TimingPoints]\n0,500,4,2,1,50,1,0\n\n[HitObjects]\n64,192,1000,1,0,0:0:0:0:";
+        let (output, _) = transform_beatmap(source, &request).unwrap();
+        assert!(output.contains("AudioFilename: opp-trainer-audio.mp3"));
+    }
 }
 
 fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) -> CommandResult<()> {
     // 音频变速需要外部工具；未请求变速时直接复制以避免无损资源被重复编码。
     let requires_transform = (request.rate - 1.0).abs() > f64::EPSILON
         || request.start_time_ms.unwrap_or(0.0) > 0.0
-        || request.end_time_ms.is_some();
+        || request.end_time_ms.is_some()
+        || request.change_pitch;
     if !requires_transform {
         return fs::copy(source, destination)
             .map(|_| ())
@@ -328,14 +395,15 @@ fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) ->
         let duration = (end - request.start_time_ms.unwrap_or(0.0)).max(0.0) / 1000.0;
         command.args(["-t", &duration.to_string()]);
     }
+    let filter = if request.change_pitch {
+        // asetrate changes pitch and duration together, matching the
+        // original osu-trainer option; normalize back to the source rate.
+        format!("asetrate=44100*{:.6},aresample=44100", request.rate)
+    } else {
+        format!("atempo={:.6}", request.rate)
+    };
     command
-        .args([
-            "-filter:a",
-            &format!("atempo={}", request.rate),
-            "-vn",
-            "-q:a",
-            "2",
-        ])
+        .args(["-filter:a", &filter, "-vn", "-q:a", "2"])
         .arg(destination);
     match command.status() {
         Ok(status) if status.success() => Ok(()),
@@ -356,11 +424,71 @@ pub fn generate_trainer_beatmap(
     request: TrainerRequest,
     state: tauri::State<'_, AppState>,
 ) -> CommandResult<TrainerResult> {
+    generate_trainer_beatmap_inner(request, &state, None)
+}
+
+/// Build a private working copy for View Trainer. The staging directory is
+/// outside the osu! Songs tree so merely previewing edits cannot make osu!
+/// index or import a new beatmap.
+pub fn stage_trainer_beatmap(
+    request: TrainerRequest,
+    state: &AppState,
+) -> CommandResult<TrainerResult> {
     let source_path = PathBuf::from(
         state
             .local_analysis
             .beatmap_file_path(request.client, &request.resource_id)?,
     );
+    stage_trainer_beatmap_at_path(request, source_path)
+}
+
+/// Same staging operation with the resolved path supplied by the command
+/// layer. This keeps the expensive file work off the Tauri async executor.
+pub fn stage_trainer_beatmap_at_path(
+    request: TrainerRequest,
+    source_path: PathBuf,
+) -> CommandResult<TrainerResult> {
+    let root = std::env::temp_dir().join("opp").join("view-trainer");
+    fs::create_dir_all(&root)
+        .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
+    // Keep repeated edits cheap without allowing abandoned previews to grow
+    // the temp directory forever.
+    if let Ok(entries) = fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let stale = entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|time| time.elapsed().ok())
+                .is_some_and(|age| age > std::time::Duration::from_secs(24 * 60 * 60));
+            if stale {
+                let _ = fs::remove_dir_all(path);
+            }
+        }
+    }
+
+    generate_trainer_beatmap_from_path(request, source_path, Some(&root))
+}
+
+fn generate_trainer_beatmap_inner(
+    request: TrainerRequest,
+    state: &AppState,
+    staging_root: Option<&Path>,
+) -> CommandResult<TrainerResult> {
+    let source_path = PathBuf::from(
+        state
+            .local_analysis
+            .beatmap_file_path(request.client, &request.resource_id)?,
+    );
+    generate_trainer_beatmap_from_path(request, source_path, staging_root)
+}
+
+fn generate_trainer_beatmap_from_path(
+    request: TrainerRequest,
+    source_path: PathBuf,
+    staging_root: Option<&Path>,
+) -> CommandResult<TrainerResult> {
     let source_text = crate::features::local_analysis::parser::decode_text(
         &fs::read(&source_path)
             .map_err(|error| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", error.to_string()))?,
@@ -374,43 +502,6 @@ pub fn generate_trainer_beatmap(
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("Beatmap");
-    let target_dir = songs_dir.join(format!(
-        "OPP Trainer - {} - {}",
-        safe_name(title),
-        &Uuid::new_v4().simple().to_string()[..8]
-    ));
-    // Give every generated chart a unique positive identity. osu!.db groups
-    // entries by BeatmapSetID; reusing the source IDs makes repeated Trainer
-    // generations appear as a single difficulty in game.
-    let unique_id = u64::from_str_radix(&Uuid::new_v4().simple().to_string()[..12], 16).unwrap_or(1);
-    let beatmap = beatmap
-        .lines()
-        .map(|line| {
-            if line.starts_with("BeatmapID:") { format!("BeatmapID:{unique_id}") }
-            else if line.starts_with("BeatmapSetID:") { format!("BeatmapSetID:{unique_id}") }
-            else { line.to_string() }
-        })
-        .collect::<Vec<_>>().join("\r\n") + "\r\n";
-    fs::create_dir_all(&target_dir)
-        .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
-    for entry in fs::read_dir(source_dir)
-        .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?
-    {
-        let entry =
-            entry.map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
-        let path = entry.path();
-        // A generated folder must contain exactly one .osu difficulty. Copy only
-        // non-beatmap assets; copying sibling difficulties makes osu! collapse
-        // the folder into the wrong chart on import.
-        if path.is_file()
-            && path
-                .extension()
-                .is_none_or(|extension| !extension.eq_ignore_ascii_case("osu"))
-        {
-            let target = target_dir.join(entry.file_name());
-            let _ = fs::copy(path, target);
-        }
-    }
     let audio = source_dir.join(
         source_text
             .lines()
@@ -418,19 +509,180 @@ pub fn generate_trainer_beatmap(
             .map(str::trim)
             .unwrap_or_default(),
     );
+    let stage_key = if staging_root.is_some() {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        source_path.to_string_lossy().hash(&mut hasher);
+        if let Ok(meta) = fs::metadata(&source_path) {
+            meta.len().hash(&mut hasher);
+            meta.modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|time| time.as_nanos())
+                .hash(&mut hasher);
+        }
+        audio.to_string_lossy().hash(&mut hasher);
+        if let Ok(meta) = fs::metadata(&audio) {
+            meta.len().hash(&mut hasher);
+            meta.modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|time| time.as_nanos())
+                .hash(&mut hasher);
+        }
+        format!(
+            "{}:{:.4}:{:.4}:{:.4}:{:.4}:{}:{}:{}:{}:{}:{}",
+            request.rate,
+            request.ar,
+            request.od,
+            request.cs,
+            request.hp,
+            request.no_spinners,
+            request.change_pitch,
+            request.preview_only,
+            request.min_bpm.map_or(String::new(), |v| format!("{v:.4}")),
+            request.max_bpm.map_or(String::new(), |v| format!("{v:.4}")),
+            request
+                .start_time_ms
+                .map_or(String::new(), |v| format!("{v:.1}")),
+        )
+        .hash(&mut hasher);
+        request
+            .end_time_ms
+            .map_or(String::new(), |v| format!("{v:.1}"))
+            .hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    } else {
+        String::new()
+    };
+    let target_dir = staging_root
+        .map(|root| root.join(format!("{} - {}", safe_name(title), stage_key)))
+        .unwrap_or_else(|| {
+            songs_dir.join(format!(
+                "OPP Trainer - {} - {}",
+                safe_name(title),
+                &Uuid::new_v4().simple().to_string()[..8]
+            ))
+        });
+    // Give every generated chart a unique positive identity. osu!.db groups
+    // entries by BeatmapSetID; reusing the source IDs makes repeated Trainer
+    // generations appear as a single difficulty in game.
+    // osu! Stable stores these identifiers as signed 32-bit integers in
+    // osu!.db. Keep generated IDs within that range so imported charts are
+    // accepted by the parser and indexed instead of reported as corrupt.
+    let unique_id = (u32::from_str_radix(&Uuid::new_v4().simple().to_string()[..8], 16)
+        .unwrap_or(1)
+        % 2_000_000_000)
+        .max(1);
+    let beatmap = beatmap
+        .lines()
+        .map(|line| {
+            if line.starts_with("BeatmapID:") {
+                format!("BeatmapID:{unique_id}")
+            } else if line.starts_with("BeatmapSetID:") {
+                format!("BeatmapSetID:{unique_id}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n")
+        + "\r\n";
+    fs::create_dir_all(&target_dir)
+        .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
+    let beatmap_path = target_dir.join("OPP Trainer.osu");
+    if beatmap_path.is_file() {
+        let included_objects = fs::read_to_string(&beatmap_path)
+            .ok()
+            .map(|text| count_hit_objects(&text))
+            .unwrap_or(0);
+        let has_asset = fs::read_dir(&target_dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| entry.path().is_file() && entry.path() != beatmap_path);
+        if included_objects > 0 && has_asset {
+            return Ok(TrainerResult {
+                directory: target_dir.to_string_lossy().into_owned(),
+                beatmap_path: beatmap_path.to_string_lossy().into_owned(),
+                included_objects,
+            });
+        }
+    }
     if !audio.is_file() {
         return Err(CommandError::new(
             "TRAINER_AUDIO_NOT_FOUND",
             "未找到谱面的音频文件",
         ));
     }
-    prepare_audio(&audio, &target_dir.join("opp-trainer-audio.mp3"), &request)?;
-    let beatmap_path = target_dir.join("OPP Trainer.osu");
-    fs::write(&beatmap_path, beatmap)
+    if staging_root.is_none() {
+        for entry in fs::read_dir(source_dir)
+            .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?
+        {
+            let entry = entry
+                .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
+            let path = entry.path();
+            // A generated folder must contain exactly one .osu difficulty. Copy only
+            // non-beatmap assets; copying sibling difficulties makes osu! collapse
+            // the folder into the wrong chart on import.
+            if path.is_file()
+                && path
+                    .extension()
+                    .is_none_or(|extension| !extension.eq_ignore_ascii_case("osu"))
+            {
+                let _ = fs::copy(&path, target_dir.join(entry.file_name()));
+            }
+        }
+    } else {
+        // The renderer only needs the audio for a live preview. Avoid copying
+        // large video/storyboard/skin assets on every slider change.
+        let relative_audio = audio.strip_prefix(source_dir).unwrap_or_else(|_| {
+            audio
+                .file_name()
+                .map(Path::new)
+                .unwrap_or_else(|| Path::new("audio.mp3"))
+        });
+        let staged_audio = target_dir.join(relative_audio);
+        if let Some(parent) = staged_audio.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                CommandError::new("TRAINER_AUDIO_COPY_FAILED", error.to_string())
+            })?;
+        }
+        fs::copy(&audio, staged_audio)
+            .map_err(|error| CommandError::new("TRAINER_AUDIO_COPY_FAILED", error.to_string()))?;
+    }
+    if beatmap
+        .lines()
+        .any(|line| line.trim() == "AudioFilename: opp-trainer-audio.mp3")
+    {
+        prepare_audio(&audio, &target_dir.join("opp-trainer-audio.mp3"), &request)?;
+    }
+    let temporary = target_dir.join(format!(".opp-trainer-{}.tmp", Uuid::new_v4().simple()));
+    fs::write(&temporary, beatmap)
+        .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
+    fs::rename(&temporary, &beatmap_path)
         .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
     Ok(TrainerResult {
         directory: target_dir.to_string_lossy().into_owned(),
         beatmap_path: beatmap_path.to_string_lossy().into_owned(),
         included_objects,
     })
+}
+
+fn count_hit_objects(source: &str) -> usize {
+    let mut section = "";
+    source
+        .lines()
+        .filter(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                section = trimmed;
+                return false;
+            }
+            section == "[HitObjects]"
+                && !trimmed.is_empty()
+                && !trimmed.starts_with("//")
+                && trimmed.split(',').count() >= 4
+        })
+        .count()
 }

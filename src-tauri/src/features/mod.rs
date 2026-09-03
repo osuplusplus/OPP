@@ -15,3 +15,4 @@ pub(crate) mod skin_workshop;
 pub(crate) mod tosu;
 pub(crate) mod trainer;
 pub(crate) mod update;
+pub(crate) mod view_trainer;

@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    ManiaDistanceComponents, ManiaFeatureRecord, ManiaModeFamily, ManiaQueryOptions,
-    MANIA_ANALYZER_VERSION, MANIA_NORMALIZATION_VERSION,
+    MANIA_ANALYZER_VERSION, MANIA_NORMALIZATION_VERSION, ManiaDistanceComponents,
+    ManiaFeatureRecord, ManiaModeFamily, ManiaQueryOptions,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

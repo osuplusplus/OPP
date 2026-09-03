@@ -26,6 +26,7 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 #[cfg(test)]
 use crate::domain::Ruleset;
 use crate::error::{CommandError, CommandResult};
+use crate::infrastructure::logging::global;
 
 use super::{
     lazer_realm,
@@ -308,6 +309,8 @@ impl LocalAnalysisService {
         force: bool,
         emit_event: Arc<dyn Fn(LocalScanProgress) + Send + Sync>,
     ) -> CommandResult<LocalLibrarySummary> {
+        let span =
+            global().map(|logger| logger.operation("local_analysis", format!("scan:{client}")));
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut scans = self
@@ -326,6 +329,16 @@ impl LocalAnalysisService {
         let result = self.run_scan(client, force, emit_event, &cancel);
         if let Ok(mut scans) = self.scans.lock() {
             scans.remove(&client);
+        }
+        if let Some(mut span) = span {
+            match &result {
+                Ok(summary) => span.finish_ok(Some(serde_json::json!({
+                    "client": client,
+                    "beatmaps": summary.beatmap_count,
+                    "beatmap_sets": summary.beatmap_set_count,
+                }))),
+                Err(error) => span.finish_error(error),
+            }
         }
         result
     }

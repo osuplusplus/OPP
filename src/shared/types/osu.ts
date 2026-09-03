@@ -116,6 +116,31 @@ export interface AppSettings {
   preview_volume?: number;
   cache_limit_mb?: number;
   similarity_preferences: SimilarityPreferences;
+  view_trainer_profiles?: ViewTrainerProfile[];
+}
+
+export interface ViewTrainerProfile {
+  name: string;
+  rate: number;
+  bpm_locked: boolean;
+  target_bpm: number | null;
+  scale_ar: boolean;
+  scale_od: boolean;
+  lock_ar: boolean;
+  lock_od: boolean;
+  lock_cs: boolean;
+  lock_hp: boolean;
+  ar: number;
+  od: number;
+  cs: number;
+  hp: number;
+  min_bpm: number | null;
+  max_bpm: number | null;
+  start_time_ms: number | null;
+  end_time_ms: number | null;
+  no_spinners: boolean;
+  change_pitch: boolean;
+  window_ms?: number;
 }
 
 export interface SimilarityManualWeights extends DifficultyFeatureVector {
@@ -512,6 +537,8 @@ export interface TosuStatus {
 }
 
 export interface TosuLogEntry { at: string; stream: string; level: "info" | "warning" | "error"; message: string; }
+export type LogLevel = "debug" | "info" | "warning" | "error" | "critical";
+export interface LogFileInfo { name: string; size_bytes: number; created_at: string; }
 
 export interface TosuLiveSnapshot {
   state: string | null; mode: string | null; artist: string | null; title: string | null; difficulty: string | null;
@@ -1505,6 +1532,46 @@ export interface TrainerResult {
   directory: string;
   beatmap_path: string;
   included_objects: number;
+}
+
+export interface ViewTrainerRequest {
+  client: OsuClient;
+  resourceId: string;
+  rate: number;
+  bpmLocked: boolean;
+  targetBpm: number | null;
+  ar: number;
+  od: number;
+  cs: number;
+  hp: number;
+  scaleAr: boolean;
+  scaleOd: boolean;
+  lockAr: boolean;
+  lockOd: boolean;
+  lockCs: boolean;
+  lockHp: boolean;
+  noSpinners: boolean;
+  changePitch: boolean;
+  previewOnly: boolean;
+  minBpm: number | null;
+  maxBpm: number | null;
+  startTimeMs: number | null;
+  endTimeMs: number | null;
+}
+
+export interface ViewTrainerTimeline {
+  durationMs: number;
+  bpmSegments: Array<[number, number]>;
+  ar: number;
+  od: number;
+  cs: number;
+  hp: number;
+  objectCount: number;
+  mode: number;
+  primaryBpm: number | null;
+  strainSeries: Array<{ key: string; values: number[] }>;
+  strainSectionStartTimeMs: number;
+  strainSectionLengthMs: number;
 }
 
 export interface LocalBeatmapSetSummary {
