@@ -8,10 +8,12 @@
 //! `LegacyKeyCounterDisplay` (see `LegacyHud` below). The UR bar has no
 //! legacy equivalent and always uses the argon implementation.
 
-use crate::draw::{draw_ttf_text, ttf_measure, value_at, Atlas, Blend, Colour, DrawList, Easing, Region};
-use crate::game::{health_at, key_counts_at, key_state_at, GameData, KEY_ACTIONS};
-use crate::scene::{colour_for_result, draw_chevron, Assets, Mapper};
-use crate::skin::{texture::LegacyFont, Skin, SkinTexture};
+use crate::draw::{
+    Atlas, Blend, Colour, DrawList, Easing, Region, draw_ttf_text, ttf_measure, value_at,
+};
+use crate::game::{GameData, KEY_ACTIONS, health_at, key_counts_at, key_state_at};
+use crate::scene::{Assets, Mapper, colour_for_result, draw_chevron};
+use crate::skin::{Skin, SkinTexture, texture::LegacyFont};
 
 const WEDGE_COLOUR: u32 = 0x66CCFF;
 const HEALTH_GLOW: [u8; 4] = [126, 215, 253, 128];
@@ -26,14 +28,24 @@ pub struct Rolling {
 
 impl Rolling {
     pub fn new() -> Rolling {
-        Rolling { display: 0.0, from: 0.0, to: 0.0, start: f64::NEG_INFINITY }
+        Rolling {
+            display: 0.0,
+            from: 0.0,
+            to: 0.0,
+            start: f64::NEG_INFINITY,
+        }
     }
 
     /// Pre-seeded counter (`PercentageCounter`'s constructor sets
     /// `Current.Value = DisplayedCount = 1.0`, so the accuracy counter
     /// starts AT 100% instead of rolling 0→100 on the first frames).
     pub fn with_initial(initial: f64) -> Rolling {
-        Rolling { display: initial, from: initial, to: initial, start: f64::NEG_INFINITY }
+        Rolling {
+            display: initial,
+            from: initial,
+            to: initial,
+            start: f64::NEG_INFINITY,
+        }
     }
 
     pub fn set(&mut self, value: f64, t: f64) {
@@ -45,7 +57,14 @@ impl Rolling {
     }
 
     pub fn update(&mut self, t: f64) {
-        self.display = value_at(t, self.start, self.start + 250.0, self.from, self.to, Easing::OutQuad);
+        self.display = value_at(
+            t,
+            self.start,
+            self.start + 250.0,
+            self.from,
+            self.to,
+            Easing::OutQuad,
+        );
     }
 }
 
@@ -104,7 +123,11 @@ impl<'a> CounterDraw<'a> {
     /// Layout slot for a char at `scale`: texture width - 2, digits
     /// monospaced to the '5' texture.
     fn slot_w(&self, c: char, scale: f32) -> f32 {
-        let base = if c.is_ascii_digit() { self.tex_w('5') } else { self.tex_w(c) };
+        let base = if c.is_ascii_digit() {
+            self.tex_w('5')
+        } else {
+            self.tex_w(c)
+        };
         (base + COUNTER_SPACING) * self.k() * scale
     }
 
@@ -135,9 +158,22 @@ impl<'a> CounterDraw<'a> {
         } else {
             tw - COUNTER_SPACING * self.k() * scale
         };
-        let x = if centre_in_slot { pen_x + (slot - tw) * 0.5 } else { pen_x };
+        let x = if centre_in_slot {
+            pen_x + (slot - tw) * 0.5
+        } else {
+            pen_x
+        };
         let centre = [x + tw * 0.5, top_y + th * 0.5];
-        crate::draw::DrawList::image(list, self.atlas, region, centre, [tw, th], 0.0, colour, blend);
+        crate::draw::DrawList::image(
+            list,
+            self.atlas,
+            region,
+            centre,
+            [tw, th],
+            0.0,
+            colour,
+            blend,
+        );
         slot
     }
 
@@ -193,7 +229,11 @@ struct KeyAnim {
 impl KeyAnim {
     fn new() -> KeyAnim {
         // Finite far-past: value_at clamps to the eased end value.
-        KeyAnim { pressed: false, press_t: -1e12, release_t: -1e12 }
+        KeyAnim {
+            pressed: false,
+            press_t: -1e12,
+            release_t: -1e12,
+        }
     }
 }
 
@@ -333,7 +373,11 @@ impl HudState {
             l_acc: PropRoll::new(1.0),
             l_combo: LegacyCombo::new(),
             l_health: LegacyHealth::new(),
-            l_keys: [LegacyKeyAnim::new(), LegacyKeyAnim::new(), LegacyKeyAnim::new()],
+            l_keys: [
+                LegacyKeyAnim::new(),
+                LegacyKeyAnim::new(),
+                LegacyKeyAnim::new(),
+            ],
             l_score_h: 0.0,
             l_acc_h: 0.0,
             l_acc_w: 0.0,
@@ -376,7 +420,11 @@ impl HudState {
             if ev.time > t {
                 break;
             }
-            score = if self.classic_score { ev.classic_score } else { ev.score };
+            score = if self.classic_score {
+                ev.classic_score
+            } else {
+                ev.score
+            };
             combo = ev.combo;
             accuracy = ev.accuracy;
         }
@@ -390,8 +438,16 @@ impl HudState {
         let legacy_score = use_legacy && self.legacy.as_ref().is_some_and(|l| l.score.is_some());
         let legacy_acc = use_legacy && self.legacy.as_ref().is_some_and(|l| l.score.is_some());
         let legacy_combo = use_legacy && self.legacy.as_ref().is_some_and(|l| l.combo.is_some());
-        let legacy_health = use_legacy && self.legacy.as_ref().is_some_and(|l| l.health_bg.is_some() && l.health_fill.is_some());
-        let legacy_keys = use_legacy && self.legacy.as_ref().is_some_and(|l| l.input_bg.is_some() || l.input_key.is_some());
+        let legacy_health = use_legacy
+            && self
+                .legacy
+                .as_ref()
+                .is_some_and(|l| l.health_bg.is_some() && l.health_fill.is_some());
+        let legacy_keys = use_legacy
+            && self
+                .legacy
+                .as_ref()
+                .is_some_and(|l| l.input_bg.is_some() || l.input_key.is_some());
 
         // --- Score counter --------------------------------------------------
         self.score.set(score as f64, t);
@@ -405,7 +461,10 @@ impl HudState {
             draw_wedge(list, m, [-50.0, 15.0]);
             draw_wedge(list, m, [-50.0 + 4.0, 15.0 + 5.0]);
 
-            let cd = CounterDraw { atlas: assets.atlas, digit_h: COUNTER_INK * m.virt };
+            let cd = CounterDraw {
+                atlas: assets.atlas,
+                digit_h: COUNTER_INK * m.virt,
+            };
             // `score.Position = (components_x_offset + 200, wedge.Y + 30)` with
             // Origin TopRight: the glyph BOX top-left sits at (250, 50), box
             // 30 units tall -> centre 65. The digit ink carries a 31/240 side
@@ -419,10 +478,30 @@ impl HudState {
             // (`updateWireframe`: max of the required digits and the
             // displayed value's own digit count).
             let digits = if self.classic_score { 8 } else { 6 };
-            let score_text = format!("{:0width$}", self.score.display.round() as i64, width = digits);
+            let score_text = format!(
+                "{:0width$}",
+                self.score.display.round() as i64,
+                width = digits
+            );
             let wire_digits = score_text.len();
-            draw_wireframe_run(list, assets.atlas, right, cy, wire_digits, cd.digit_h, m.virt);
-            cd.draw_right(list, &score_text, right, cy, 1.0, Colour::WHITE, Blend::Alpha);
+            draw_wireframe_run(
+                list,
+                assets.atlas,
+                right,
+                cy,
+                wire_digits,
+                cd.digit_h,
+                m.virt,
+            );
+            cd.draw_right(
+                list,
+                &score_text,
+                right,
+                cy,
+                1.0,
+                Colour::WHITE,
+                Blend::Alpha,
+            );
         }
 
         // --- Accuracy counter --------------------------------------------------
@@ -434,7 +513,10 @@ impl HudState {
         if legacy_acc {
             self.draw_legacy_accuracy(assets, list, m, accuracy, t);
         } else {
-            let acc_cd = CounterDraw { atlas: assets.atlas, digit_h: COUNTER_INK * m.virt };
+            let acc_cd = CounterDraw {
+                atlas: assets.atlas,
+                digit_h: COUNTER_INK * m.virt,
+            };
             // `accuracy.Position = (-20, 20)` with Anchor/Origin TopRight:
             // the run's right edge sits 20 local units left of the canvas's
             // right edge (`canvas_w = screen_w / virt` units).
@@ -458,9 +540,33 @@ impl HudState {
             let frac_right = pct_right - w_pct;
             let whole_right = frac_right - w_frac;
 
-            acc_cd.draw_top(list, "%", pct_right, acc_top, 1.0, Colour::WHITE, Blend::Alpha);
-            acc_cd.draw_top(list, &frac_s, frac_right, acc_top + 4.0 * m.virt, 0.5, Colour::WHITE, Blend::Alpha);
-            acc_cd.draw_top(list, &whole_s, whole_right, acc_top, 1.0, Colour::WHITE, Blend::Alpha);
+            acc_cd.draw_top(
+                list,
+                "%",
+                pct_right,
+                acc_top,
+                1.0,
+                Colour::WHITE,
+                Blend::Alpha,
+            );
+            acc_cd.draw_top(
+                list,
+                &frac_s,
+                frac_right,
+                acc_top + 4.0 * m.virt,
+                0.5,
+                Colour::WHITE,
+                Blend::Alpha,
+            );
+            acc_cd.draw_top(
+                list,
+                &whole_s,
+                whole_right,
+                acc_top,
+                1.0,
+                Colour::WHITE,
+                Blend::Alpha,
+            );
         }
 
         // --- PP counter (`ArgonPerformancePointsCounter` style) -----------------
@@ -477,21 +583,38 @@ impl HudState {
 
             // `new ArgonPerformancePointsCounter { Scale = new Vector2(0.8f) }`:
             // the whole counter renders at 0.8x the base counter size.
-            let cd = CounterDraw { atlas: assets.atlas, digit_h: COUNTER_INK * 0.8 * m.virt };
+            let cd = CounterDraw {
+                atlas: assets.atlas,
+                digit_h: COUNTER_INK * 0.8 * m.virt,
+            };
             // Below the accuracy counter: (accuracy.X, accuracy.Y +
             // accuracy.DrawHeight + 10) with TopRight anchors. ...
             let (right, top) = if legacy_acc {
-                (m.screen_w - 17.0 * v, m.virt([0.0, self.l_score_h + 9.0 + self.l_acc_h + 10.0])[1])
+                (
+                    m.screen_w - 17.0 * v,
+                    m.virt([0.0, self.l_score_h + 9.0 + self.l_acc_h + 10.0])[1],
+                )
             } else {
                 // `performancePoints.Position = accuracy.X` (TopRight): the
                 // same right edge as the accuracy counter. The accuracy's
                 // DrawHeight is its glyph box (30 units).
-                (m.screen_w - 20.0 * v, m.virt([0.0, 20.0 + COUNTER_BOX + 10.0])[1])
+                (
+                    m.screen_w - 20.0 * v,
+                    m.virt([0.0, 20.0 + COUNTER_BOX + 10.0])[1],
+                )
             };
             let text = format!("{}", self.pp.display.round() as i64);
             // No wireframe background behind the PP digits (user
             // preference - unlike the score counter).
-            cd.draw_right(list, &text, right, top + cd.k() * TEX_BOX * 0.5, 1.0, Colour::WHITE, Blend::Alpha);
+            cd.draw_right(
+                list,
+                &text,
+                right,
+                top + cd.k() * TEX_BOX * 0.5,
+                1.0,
+                Colour::WHITE,
+                Blend::Alpha,
+            );
 
             // "PP" label (Torus Bold 12, Blue0), 2.5 left of the digits,
             // top-aligned with the digit boxes.
@@ -529,9 +652,11 @@ impl HudState {
             } else if ev.combo != self.last_combo {
                 let increase = ev.combo > self.last_combo;
                 let is_miss = self.last_combo > 1 && ev.combo == 0;
-                let new_scale = (self.combo_scale_now * if increase { 1.1 } else { 0.8 }).clamp(0.6, 1.4);
+                let new_scale =
+                    (self.combo_scale_now * if increase { 1.1 } else { 0.8 }).clamp(0.6, 1.4);
                 let dur = if is_miss { 2000.0 } else { 500.0 };
-                self.combo_scale_anim = Some((ev.time, ev.time + dur, new_scale, 1.0, Easing::OutQuint));
+                self.combo_scale_anim =
+                    Some((ev.time, ev.time + dur, new_scale, 1.0, Easing::OutQuint));
                 if is_miss {
                     self.combo_flash = Some(ev.time);
                 }
@@ -559,7 +684,10 @@ impl HudState {
             // (ArgonSkin), BottomLeft anchor + Position (36, -66): the text
             // BOX bottom sits on the -66 line, so the box centre is half a
             // 30-unit box (scaled) above it.
-            let combo_cd = CounterDraw { atlas: assets.atlas, digit_h: COUNTER_INK * 1.3 * m.virt };
+            let combo_cd = CounterDraw {
+                atlas: assets.atlas,
+                digit_h: COUNTER_INK * 1.3 * m.virt,
+            };
             let base = m.virt([36.0, 768.0 - 66.0]);
             let cy = base[1] - COUNTER_BOX * 1.3 * 0.5 * m.virt;
             let text = format!("{}x", self.combo_roll.display.round() as i64);
@@ -577,7 +705,15 @@ impl HudState {
             // Left-anchored: measure with the same slot widths draw_right
             // places glyphs with.
             let width = combo_cd.run_width(&text, combo_scale as f32);
-            combo_cd.draw_right(list, &text, base[0] + width, cy, combo_scale as f32, col, Blend::Alpha);
+            combo_cd.draw_right(
+                list,
+                &text,
+                base[0] + width,
+                cy,
+                combo_scale as f32,
+                col,
+                Blend::Alpha,
+            );
         }
 
         // --- Song progress circle (`LegacySongProgress`) ------------------------
@@ -608,9 +744,15 @@ impl HudState {
             let last = game.objects.last().map(|o| o.end_time).unwrap_or(0.0);
             let (progress, is_intro) = if t < first {
                 let intro_start = 0.0f64.max(first - 2000.0);
-                (((t - intro_start) / (first - intro_start)).clamp(0.0, 1.0), true)
+                (
+                    ((t - intro_start) / (first - intro_start)).clamp(0.0, 1.0),
+                    true,
+                )
             } else if last > first {
-                (((t.min(last) - first) / (last - first)).clamp(0.0, 1.0), false)
+                (
+                    ((t.min(last) - first) / (last - first)).clamp(0.0, 1.0),
+                    false,
+                )
             } else {
                 (0.0, false)
             };
@@ -618,7 +760,7 @@ impl HudState {
             let v = m.virt;
             let cy = m.virt([0.0, self.l_score_h + 9.0 + self.l_acc_h * 0.5])[1];
             let cx = m.screen_w - (self.l_acc_w + 18.0 + 16.5) * v;
-            let r_dot = 2.0 * v;    // 4-unit centre dot
+            let r_dot = 2.0 * v; // 4-unit centre dot
             let r_arc = 16.5 * 0.92 * v; // CircularProgress in the 0.92 child
 
             // Static white ring (border): 2-unit band just inside the 33
@@ -638,7 +780,11 @@ impl HudState {
             // Progress arc: gameplay white 60% sweeping clockwise from the
             // top; intro green 60% mirrored, showing the countdown (1 - p).
             let (arc_frac, colour, dir) = if is_intro {
-                (1.0 - progress, Colour::from_hex(0xC7FF2F).opacity(0.6), -1.0f32)
+                (
+                    1.0 - progress,
+                    Colour::from_hex(0xC7FF2F).opacity(0.6),
+                    -1.0f32,
+                )
             } else {
                 (progress, Colour::WHITE.opacity(0.6), 1.0f32)
             };
@@ -652,8 +798,10 @@ impl HudState {
                 for i in 0..steps {
                     let f0 = i as f32 / steps as f32;
                     let f1 = (i + 1) as f32 / steps as f32;
-                    let a0 = (-std::f32::consts::FRAC_PI_2) + dir * f0 * std::f32::consts::TAU * arc_frac as f32;
-                    let a1 = (-std::f32::consts::FRAC_PI_2) + dir * f1 * std::f32::consts::TAU * arc_frac as f32;
+                    let a0 = (-std::f32::consts::FRAC_PI_2)
+                        + dir * f0 * std::f32::consts::TAU * arc_frac as f32;
+                    let a1 = (-std::f32::consts::FRAC_PI_2)
+                        + dir * f1 * std::f32::consts::TAU * arc_frac as f32;
                     let pts = [
                         [cx, cy],
                         [cx + r_arc * a0.cos(), cy + r_arc * a0.sin()],
@@ -671,7 +819,6 @@ impl HudState {
         } else {
             self.draw_argon_health(game, list, m, health, t);
         }
-
 
         // --- Unstable rate bar (skin style, bottom centre) ------------------------
         if self.ur_bar {
@@ -699,7 +846,14 @@ impl HudState {
     /// press count (Torus Bold 21) and a top indicator line (4.5 tall, alpha
     /// 0.5 idle) that brightens over 10ms and slides down 4 units over 60ms
     /// OutQuint while held, easing back over 250ms OutQuart on release.
-    fn draw_key_overlay(&mut self, game: &GameData, assets: &Assets, list: &mut DrawList, m: &Mapper, t: f64) {
+    fn draw_key_overlay(
+        &mut self,
+        game: &GameData,
+        assets: &Assets,
+        list: &mut DrawList,
+        m: &Mapper,
+        t: f64,
+    ) {
         const COUNTER_W: f32 = 52.5;
         const COUNTER_H: f32 = 45.0;
         const SPACING: f32 = 2.0;
@@ -738,13 +892,41 @@ impl HudState {
             // on release.
             let (alpha, y_off) = if anim.pressed {
                 (
-                    value_at(t, anim.press_t, anim.press_t + 10.0, 0.5, 1.0, Easing::OutQuint),
-                    value_at(t, anim.press_t, anim.press_t + 60.0, 0.0, 1.0, Easing::OutQuint),
+                    value_at(
+                        t,
+                        anim.press_t,
+                        anim.press_t + 10.0,
+                        0.5,
+                        1.0,
+                        Easing::OutQuint,
+                    ),
+                    value_at(
+                        t,
+                        anim.press_t,
+                        anim.press_t + 60.0,
+                        0.0,
+                        1.0,
+                        Easing::OutQuint,
+                    ),
                 )
             } else {
                 (
-                    value_at(t, anim.release_t, anim.release_t + 250.0, 1.0, 0.5, Easing::OutQuart),
-                    value_at(t, anim.release_t, anim.release_t + 250.0, 1.0, 0.0, Easing::OutQuart),
+                    value_at(
+                        t,
+                        anim.release_t,
+                        anim.release_t + 250.0,
+                        1.0,
+                        0.5,
+                        Easing::OutQuart,
+                    ),
+                    value_at(
+                        t,
+                        anim.release_t,
+                        anim.release_t + 250.0,
+                        1.0,
+                        0.0,
+                        Easing::OutQuart,
+                    ),
                 )
             };
             let r = LINE_H * 0.5 * m.virt;
@@ -759,9 +941,23 @@ impl HudState {
 
             // Key name: Blue0 -> white over 10ms on press, back over 200ms.
             let f = if anim.pressed {
-                value_at(t, anim.press_t, anim.press_t + 10.0, 0.0, 1.0, Easing::OutQuint)
+                value_at(
+                    t,
+                    anim.press_t,
+                    anim.press_t + 10.0,
+                    0.0,
+                    1.0,
+                    Easing::OutQuint,
+                )
             } else {
-                value_at(t, anim.release_t, anim.release_t + 200.0, 1.0, 0.0, Easing::OutQuart)
+                value_at(
+                    t,
+                    anim.release_t,
+                    anim.release_t + 200.0,
+                    1.0,
+                    0.0,
+                    Easing::OutQuart,
+                )
             };
             let col = Colour::lerp(blue0, Colour::WHITE, f as f32);
             let size = NAME_SIZE * m.virt;
@@ -809,7 +1005,14 @@ impl HudState {
     /// out, additive judgement line ticks (0.6 alpha, 100ms pop-in, 5s fade
     /// while shrinking), a Great-coloured centre circle marker and the
     /// moving-average chevron arrow (EMA 0.9/0.1, 800ms OutQuint slides).
-    fn draw_ur_bar(&mut self, game: &GameData, assets: &Assets, list: &mut DrawList, m: &Mapper, t: f64) {
+    fn draw_ur_bar(
+        &mut self,
+        game: &GameData,
+        assets: &Assets,
+        list: &mut DrawList,
+        m: &Mapper,
+        t: f64,
+    ) {
         let n = game.ur_events.partition_point(|e| e.time <= t);
         if n == 0 {
             return; // no timed hits yet
@@ -841,7 +1044,8 @@ impl HudState {
         let centre = [m.screen_w * 0.5, 736.0 * m.virt];
         let cy = centre[1];
         let half_w = 230.0 * m.virt;
-        let px = |ms: f64, scale: f32| -> f32 { (ms / meh).clamp(-1.0, 1.0) as f32 * half_w * scale };
+        let px =
+            |ms: f64, scale: f32| -> f32 { (ms / meh).clamp(-1.0, 1.0) as f32 * half_w * scale };
 
         // Axis growth (ResizeHeightTo(1, 800, OutQuint) from the first hit)
         // and fade-in (FadeTo(1, 500, OutQuint)).
@@ -849,13 +1053,7 @@ impl HudState {
         let axis_a = value_at(t, ft, ft + 500.0, 0.0, 1.0, Easing::OutQuint) as f32;
         let spine_r = 1.0 * m.virt; // bar_width 2
         fn band(list: &mut DrawList, cx: f32, cy: f32, x0: f32, x1: f32, r: f32, col: Colour) {
-            list.capsule(
-                [cx + x0, cy],
-                [cx + x1, cy],
-                r,
-                col,
-                Blend::Alpha,
-            );
+            list.capsule([cx + x0, cy], [cx + x1, cy], r, col, Blend::Alpha);
         }
 
         // Colour axis per side: Great band at the centre, then Ok, then Meh
@@ -876,19 +1074,45 @@ impl HudState {
                     side * px(ok, grow),
                     side * px(meh, grow),
                 );
-                band(list, centre[0], cy, 0.0, g, spine_r, col_great.opacity(axis_a));
+                band(
+                    list,
+                    centre[0],
+                    cy,
+                    0.0,
+                    g,
+                    spine_r,
+                    col_great.opacity(axis_a),
+                );
                 band(list, centre[0], cy, g, o, spine_r, col_ok.opacity(axis_a));
                 // meh band: solid part then fading tail.
                 let split = o + (mm - o) * 0.8;
-                band(list, centre[0], cy, o, split, spine_r, col_meh.opacity(axis_a));
+                band(
+                    list,
+                    centre[0],
+                    cy,
+                    o,
+                    split,
+                    spine_r,
+                    col_meh.opacity(axis_a),
+                );
                 let fade_a = col_meh.opacity(axis_a);
                 let fade_b = col_meh.opacity(0.0);
                 let y0 = cy - spine_r;
                 let y1 = cy + spine_r;
                 let pts = if side < 0.0 {
-                    [[centre[0] + mm, y0], [centre[0] + split, y0], [centre[0] + split, y1], [centre[0] + mm, y1]]
+                    [
+                        [centre[0] + mm, y0],
+                        [centre[0] + split, y0],
+                        [centre[0] + split, y1],
+                        [centre[0] + mm, y1],
+                    ]
                 } else {
-                    [[centre[0] + split, y0], [centre[0] + mm, y0], [centre[0] + mm, y1], [centre[0] + split, y1]]
+                    [
+                        [centre[0] + split, y0],
+                        [centre[0] + mm, y0],
+                        [centre[0] + mm, y1],
+                        [centre[0] + split, y1],
+                    ]
                 };
                 list.quad_gradient(&pts, [fade_a, fade_a, fade_b, fade_b], Blend::Alpha);
             }
@@ -900,7 +1124,13 @@ impl HudState {
         let marker_s = value_at(t, ft, ft + 1000.0, 0.0, 1.0, Easing::OutElasticHalf) as f32;
         let outer_r = 4.0 * m.virt * marker_s; // centre_marker_size 8
         if marker_a > 0.003 && outer_r > 0.1 {
-            list.disc(centre, outer_r, col_great.opacity(marker_a), col_great.opacity(marker_a), Blend::Alpha);
+            list.disc(
+                centre,
+                outer_r,
+                col_great.opacity(marker_a),
+                col_great.opacity(marker_a),
+                Blend::Alpha,
+            );
         }
 
         // Judgement line ticks (`JudgementLine`): additive, judgement colour,
@@ -912,11 +1142,15 @@ impl HudState {
                 continue;
             }
             let (a, wf) = if x < 100.0 {
-                (0.6 * value_at(x, 0.0, 100.0, 0.0, 1.0, Easing::OutQuint) as f32,
-                 value_at(x, 0.0, 100.0, 0.0, 1.0, Easing::OutQuint) as f32)
+                (
+                    0.6 * value_at(x, 0.0, 100.0, 0.0, 1.0, Easing::OutQuint) as f32,
+                    value_at(x, 0.0, 100.0, 0.0, 1.0, Easing::OutQuint) as f32,
+                )
             } else {
-                (0.6 * value_at(x, 100.0, 5100.0, 1.0, 0.0, Easing::Linear) as f32,
-                 value_at(x, 100.0, 5100.0, 1.0, 0.0, Easing::InQuint) as f32)
+                (
+                    0.6 * value_at(x, 100.0, 5100.0, 1.0, 0.0, Easing::Linear) as f32,
+                    value_at(x, 100.0, 5100.0, 1.0, 0.0, Easing::InQuint) as f32,
+                )
             };
             if a <= 0.004 {
                 continue;
@@ -935,7 +1169,13 @@ impl HudState {
 
         // Centre marker front disc (Depth.MinValue - over the ticks).
         if marker_a > 0.003 && outer_r > 0.1 {
-            list.disc(centre, outer_r * 0.5, col_great.darken(0.3).opacity(marker_a), col_great.darken(0.3).opacity(marker_a), Blend::Alpha);
+            list.disc(
+                centre,
+                outer_r * 0.5,
+                col_great.darken(0.3).opacity(marker_a),
+                col_great.darken(0.3).opacity(marker_a),
+                Blend::Alpha,
+            );
         }
 
         // Moving-average chevron arrow (`arrowContainer`: delayed 450ms,
@@ -961,8 +1201,30 @@ impl HudState {
         let label_a = value_at(t, ft, ft + 500.0, 0.0, 1.0, Easing::Linear) as f32 * 0.5;
         if label_a > 0.004 {
             let ey = cy;
-            draw_ttf_text(list, assets.atlas, assets.semibold, false, "EARLY", [centre[0] - half_w - 30.0 * m.virt, ey], 10.0 * m.virt, Colour::WHITE.opacity(label_a), 1.0 * m.virt, Blend::Alpha);
-            draw_ttf_text(list, assets.atlas, assets.semibold, false, "LATE", [centre[0] + half_w + 24.0 * m.virt, ey], 10.0 * m.virt, Colour::WHITE.opacity(label_a), 1.0 * m.virt, Blend::Alpha);
+            draw_ttf_text(
+                list,
+                assets.atlas,
+                assets.semibold,
+                false,
+                "EARLY",
+                [centre[0] - half_w - 30.0 * m.virt, ey],
+                10.0 * m.virt,
+                Colour::WHITE.opacity(label_a),
+                1.0 * m.virt,
+                Blend::Alpha,
+            );
+            draw_ttf_text(
+                list,
+                assets.atlas,
+                assets.semibold,
+                false,
+                "LATE",
+                [centre[0] + half_w + 24.0 * m.virt, ey],
+                10.0 * m.virt,
+                Colour::WHITE.opacity(label_a),
+                1.0 * m.virt,
+                Blend::Alpha,
+            );
         }
 
         // Live UR value above the bar.
@@ -1025,7 +1287,9 @@ fn draw_wedge(list: &mut DrawList, m: &Mapper, top_left_virtual: [f32; 2]) {
     let w = 380.0;
     let h = 72.0;
     let shear = 0.8;
-    let v = |x: f32, y: f32| -> [f32; 2] { m.virt([top_left_virtual[0] + x + shear * y, top_left_virtual[1] + y]) };
+    let v = |x: f32, y: f32| -> [f32; 2] {
+        m.virt([top_left_virtual[0] + x + shear * y, top_left_virtual[1] + y])
+    };
     let pts = [v(0.0, 0.0), v(w, 0.0), v(w, h), v(0.0, h)];
 
     let top = Colour::from_hex(WEDGE_COLOUR).opacity(0.0);
@@ -1056,10 +1320,21 @@ fn draw_wedge(list: &mut DrawList, m: &Mapper, top_left_virtual: [f32; 2]) {
 /// - `onNewJudgement` / `Flash` (successful hits): the glow colour pulses
 ///   white for 30ms, easing back over 300ms.
 impl HudState {
-    fn draw_argon_health(&mut self, game: &GameData, list: &mut DrawList, m: &Mapper, health: f64, t: f64) {
+    fn draw_argon_health(
+        &mut self,
+        game: &GameData,
+        list: &mut DrawList,
+        m: &Mapper,
+        health: f64,
+        t: f64,
+    ) {
         // Frame time for the damps; a backwards seek (live preview) snaps
         // the animated state instead of playing it out.
-        let dt = if t > self.hp_last_t { (t - self.hp_last_t).min(100.0) } else { 0.0 };
+        let dt = if t > self.hp_last_t {
+            (t - self.hp_last_t).min(100.0)
+        } else {
+            0.0
+        };
         if t < self.hp_last_t {
             self.hp_miss = None;
             self.hp_release = None;
@@ -1146,7 +1421,8 @@ impl HudState {
             } else {
                 miss_age = t - mt;
                 if miss_age >= 500.0 {
-                    self.hp_glow_value = value_at(t, mt + 500.0, mt + 800.0, frozen, health, Easing::OutQuint);
+                    self.hp_glow_value =
+                        value_at(t, mt + 500.0, mt + 800.0, frozen, health, Easing::OutQuint);
                 }
                 if miss_age >= 800.0 {
                     self.hp_miss = None;
@@ -1164,7 +1440,11 @@ impl HudState {
             let red = if miss_age < 100.0 {
                 Colour::lerp(Colour::WHITE, Colour::from_hex(0xFF9393), step1)
             } else {
-                Colour::lerp(Colour::from_hex(0xFF9393), Colour::from_hex(0xFF5D5D), step2)
+                Colour::lerp(
+                    Colour::from_hex(0xFF9393),
+                    Colour::from_hex(0xFF5D5D),
+                    step2,
+                )
             };
             Colour::lerp(red, Colour::WHITE, restore)
         } else {
@@ -1207,7 +1487,13 @@ impl HudState {
         // health.Y + MAIN_PATH_RADIUS): the small white dash up-left of
         // the bar start.
         let hl = m.virt([0.0, 30.0]);
-        list.capsule([hl[0] + 1.5 * v, hl[1]], [hl[0] + 45.0 * v - 1.5 * v, hl[1]], 1.5 * v, Colour::WHITE.opacity(alpha), Blend::Alpha);
+        list.capsule(
+            [hl[0] + 1.5 * v, hl[1]],
+            [hl[0] + 45.0 * v - 1.5 * v, hl[1]],
+            1.5 * v,
+            Colour::WHITE.opacity(alpha),
+            Blend::Alpha,
+        );
 
         let hx = left[0] + (right_x - left[0]) * self.hp_bar_value.clamp(0.0, 1.0) as f32;
         let gx = left[0] + (right_x - left[0]) * self.hp_glow_value.clamp(0.0, 1.0) as f32;
@@ -1222,13 +1508,31 @@ impl HudState {
                 Colour::rgba_bytes(HEALTH_GLOW[0], HEALTH_GLOW[1], HEALTH_GLOW[2], 110)
             };
             let col = Colour::lerp(base, Colour::WHITE, flash_f * 0.8);
-            list.capsule([hx, left[1]], [gx, left[1]], radius * 1.6, col.opacity(alpha * 0.5), Blend::Additive);
+            list.capsule(
+                [hx, left[1]],
+                [gx, left[1]],
+                radius * 1.6,
+                col.opacity(alpha * 0.5),
+                Blend::Additive,
+            );
         }
 
         // Main bar (white, additive).
         if hx > left[0] + 0.5 {
-            list.capsule(left, [hx, left[1]], radius, Colour::WHITE.opacity(0.9 * alpha), Blend::Additive);
-            list.capsule(left, [hx, left[1]], radius * 0.5, Colour::WHITE.opacity(alpha), Blend::Additive);
+            list.capsule(
+                left,
+                [hx, left[1]],
+                radius,
+                Colour::WHITE.opacity(0.9 * alpha),
+                Blend::Additive,
+            );
+            list.capsule(
+                left,
+                [hx, left[1]],
+                radius * 0.5,
+                Colour::WHITE.opacity(alpha),
+                Blend::Additive,
+            );
         }
     }
 }
@@ -1269,7 +1573,14 @@ struct PropRoll {
 
 impl PropRoll {
     fn new(initial: f64) -> PropRoll {
-        PropRoll { display: initial, from: initial, to: initial, start: f64::NEG_INFINITY, dur: 0.0, init: false }
+        PropRoll {
+            display: initial,
+            from: initial,
+            to: initial,
+            start: f64::NEG_INFINITY,
+            dur: 0.0,
+            init: false,
+        }
     }
 
     fn set(&mut self, value: f64, t: f64, dur: f64) {
@@ -1289,7 +1600,14 @@ impl PropRoll {
     }
 
     fn update(&mut self, t: f64) {
-        self.display = value_at(t, self.start, self.start + self.dur, self.from, self.to, Easing::Out);
+        self.display = value_at(
+            t,
+            self.start,
+            self.start + self.dur,
+            self.from,
+            self.to,
+            Easing::Out,
+        );
     }
 }
 
@@ -1321,7 +1639,11 @@ impl DigitFont {
         Self::resolve_inner(skin, font, false)
     }
 
-    fn resolve_inner(skin: &crate::skin::ResolvedSkin, font: LegacyFont, require_full: bool) -> Option<DigitFont> {
+    fn resolve_inner(
+        skin: &crate::skin::ResolvedSkin,
+        font: LegacyFont,
+        require_full: bool,
+    ) -> Option<DigitFont> {
         let prefix = crate::skin::get_font_prefix(skin, font);
         let mut digits: [Option<SkinTexture>; 10] = Default::default();
         let mut any = false;
@@ -1360,7 +1682,11 @@ impl DigitFont {
 
     /// Glyph advance in font units (texture px ÷ @2x).
     fn advance(&self, c: char, fixed_width: bool) -> f32 {
-        let w = if fixed_width && c.is_ascii_digit() { self.tex_w('5') } else { self.tex_w(c) };
+        let w = if fixed_width && c.is_ascii_digit() {
+            self.tex_w('5')
+        } else {
+            self.tex_w(c)
+        };
         (w - self.overlap).max(0.0)
     }
 
@@ -1391,7 +1717,15 @@ impl DigitFont {
             if let Some(tex) = self.glyph(c) {
                 let w = tex.display_width() * k;
                 let h = tex.display_height() * k;
-                list.image(atlas, tex.region, [pen + w * 0.5, baseline_y - h * 0.5], [w, h], 0.0, colour, blend);
+                list.image(
+                    atlas,
+                    tex.region,
+                    [pen + w * 0.5, baseline_y - h * 0.5],
+                    [w, h],
+                    0.0,
+                    colour,
+                    blend,
+                );
             }
             pen += self.advance(c, true) * k;
         }
@@ -1417,7 +1751,15 @@ impl DigitFont {
             if let Some(tex) = self.glyph(c) {
                 let w = tex.display_width() * k;
                 let h = tex.display_height() * k;
-                list.image(atlas, tex.region, [pen + w * 0.5, baseline_y - h * 0.5], [w, h], 0.0, colour, blend);
+                list.image(
+                    atlas,
+                    tex.region,
+                    [pen + w * 0.5, baseline_y - h * 0.5],
+                    [w, h],
+                    0.0,
+                    colour,
+                    blend,
+                );
             }
             pen += self.advance(c, fixed_width) * k;
         }
@@ -1425,7 +1767,11 @@ impl DigitFont {
     }
 
     fn max_digit_h(&self) -> f32 {
-        self.digits.iter().filter_map(|d| d.as_ref()).map(|d| d.display_height()).fold(0.0, f32::max)
+        self.digits
+            .iter()
+            .filter_map(|d| d.as_ref())
+            .map(|d| d.display_height())
+            .fold(0.0, f32::max)
     }
 }
 
@@ -1458,9 +1804,9 @@ impl LegacyHud {
                 .and_then(|l| crate::skin::get_animation(l, name, true, true, true, "-"))
         };
         let input_text_colour = skin
-            .get_config(crate::skin::SkinLookup::CustomColour(crate::skin::SkinCustomColourLookup(
-                "InputOverlayText".to_string(),
-            )))
+            .get_config(crate::skin::SkinLookup::CustomColour(
+                crate::skin::SkinCustomColourLookup("InputOverlayText".to_string()),
+            ))
             .and_then(|v| v.as_colour())
             .unwrap_or_else(|| Colour::from_hex(0x000000));
         let health_bg = tex("scorebar-bg");
@@ -1469,7 +1815,11 @@ impl LegacyHud {
             combo: DigitFont::resolve(skin, LegacyFont::Combo),
             entry: DigitFont::resolve_partial(skin, LegacyFont::ScoreEntry),
             health_bg,
-            health_fill: if health_bg.is_some() { anim("scorebar-colour") } else { None },
+            health_fill: if health_bg.is_some() {
+                anim("scorebar-colour")
+            } else {
+                None
+            },
             health_marker: tex("scorebar-marker"),
             health_ki: tex("scorebar-ki"),
             health_kidanger: tex("scorebar-kidanger"),
@@ -1610,7 +1960,13 @@ struct LegacyHealth {
 
 impl LegacyHealth {
     fn new() -> LegacyHealth {
-        LegacyHealth { fill_w: 0.0, prev_hp: 1.0, bulge: None, flash: None, last_t: f64::NEG_INFINITY }
+        LegacyHealth {
+            fill_w: 0.0,
+            prev_hp: 1.0,
+            bulge: None,
+            flash: None,
+            last_t: f64::NEG_INFINITY,
+        }
     }
 }
 
@@ -1625,7 +1981,12 @@ struct LegacyKeyAnim {
 
 impl LegacyKeyAnim {
     fn new() -> LegacyKeyAnim {
-        LegacyKeyAnim { pressed: false, press_t: -1e12, release_t: -1e12, activated: false }
+        LegacyKeyAnim {
+            pressed: false,
+            press_t: -1e12,
+            release_t: -1e12,
+            activated: false,
+        }
     }
 }
 
@@ -1648,13 +2009,22 @@ impl HudState {
     /// `LegacyScoreCounter`: TopRight origin TopRight, Scale 0.96, margin
     /// horizontal 10; score digits, FixedWidth, zero-padded to 6
     /// (standardised) / 8 (classic) digits (`GameplayScoreCounter`).
-    fn draw_legacy_score(&mut self, assets: &Assets, list: &mut DrawList, m: &Mapper, score: i64, t: f64) {
+    fn draw_legacy_score(
+        &mut self,
+        assets: &Assets,
+        list: &mut DrawList,
+        m: &Mapper,
+        score: i64,
+        t: f64,
+    ) {
         self.l_score.set(score as f64, t, 1000.0);
         self.l_score.update(t);
         let value = self.l_score.display.round() as i64;
         let classic = self.classic_score;
 
-        let Some(font) = self.legacy.as_ref().and_then(|l| l.score.as_ref()) else { return };
+        let Some(font) = self.legacy.as_ref().and_then(|l| l.score.as_ref()) else {
+            return;
+        };
         let v = m.virt;
 
         let k = 0.96 * m.virt;
@@ -1670,7 +2040,16 @@ impl HudState {
         // Glyph boxes bottom-aligned on the run's baseline; the run top is
         // flush with the screen top edge (margin vertical 0).
         let baseline = font.max_digit_h() * k;
-        font.draw_right(list, assets.atlas, &text, right, baseline, k, Colour::WHITE, Blend::Alpha);
+        font.draw_right(
+            list,
+            assets.atlas,
+            &text,
+            right,
+            baseline,
+            k,
+            Colour::WHITE,
+            Blend::Alpha,
+        );
         self.l_score_h = font.max_digit_h() * 0.96;
     }
 
@@ -1678,7 +2057,14 @@ impl HudState {
     /// vertical 9 / horizontal 17; its Y is pinned below the score run by
     /// the MainHUD container callback. Text = `FormatAccuracy` ("0.00%",
     /// floored to 4 decimals so a 89.9999% never rounds up to 90%).
-    fn draw_legacy_accuracy(&mut self, assets: &Assets, list: &mut DrawList, m: &Mapper, accuracy: f64, t: f64) {
+    fn draw_legacy_accuracy(
+        &mut self,
+        assets: &Assets,
+        list: &mut DrawList,
+        m: &Mapper,
+        accuracy: f64,
+        t: f64,
+    ) {
         // PercentageCounter rolls the FRACTION with |Δ|·375ms·100 duration.
         self.l_acc.set(accuracy, t, 375.0);
         self.l_acc.update(t);
@@ -1686,7 +2072,9 @@ impl HudState {
         let text = format!("{:.2}%", floored * 100.0);
         let top_units = self.l_score_h + 9.0;
 
-        let Some(font) = self.legacy.as_ref().and_then(|l| l.score.as_ref()) else { return };
+        let Some(font) = self.legacy.as_ref().and_then(|l| l.score.as_ref()) else {
+            return;
+        };
         let v = m.virt;
 
         let k = 0.6 * 0.96 * m.virt;
@@ -1699,7 +2087,16 @@ impl HudState {
         // advance (spacing only applies BETWEEN glyphs), one overlap wider
         // than the run's advance sum.
         self.l_acc_w = (font.run_width(&text, true) + font.overlap) * 0.6 * 0.96;
-        font.draw_right(list, assets.atlas, &text, right, baseline, k, Colour::WHITE, Blend::Alpha);
+        font.draw_right(
+            list,
+            assets.atlas,
+            &text,
+            right,
+            baseline,
+            k,
+            Colour::WHITE,
+            Blend::Alpha,
+        );
     }
 
     /// `LegacyDefaultComboCounter`: BottomLeft + margin 10, Scale 1.28,
@@ -1708,10 +2105,17 @@ impl HudState {
     /// (`transformPopOutSmall`) and steps up 160ms later.
     fn draw_legacy_combo(&mut self, assets: &Assets, list: &mut DrawList, m: &Mapper, t: f64) {
         let combo = &self.l_combo;
-        let (big_pop, small_scale, alpha, displayed, roll_active) =
-            (combo.big_pop, combo.small_scale(t) as f32, combo.alpha as f32, combo.displayed.round() as i64, combo.roll.is_some());
+        let (big_pop, small_scale, alpha, displayed, roll_active) = (
+            combo.big_pop,
+            combo.small_scale(t) as f32,
+            combo.alpha as f32,
+            combo.displayed.round() as i64,
+            combo.roll.is_some(),
+        );
 
-        let Some(font) = self.legacy.as_ref().and_then(|l| l.combo.as_ref()) else { return };
+        let Some(font) = self.legacy.as_ref().and_then(|l| l.combo.as_ref()) else {
+            return;
+        };
 
         let v = m.virt;
         let k = 1.28 * v;
@@ -1769,12 +2173,21 @@ impl HudState {
     /// the marker additively above half; old style swaps
     /// ki/kidanger/kidanger2 at 0.5/0.2. Damage flashes the marker
     /// (additive burst, 120ms Out); gains bulge it (1.2 → 0.8, 150ms).
-    fn draw_legacy_health(&mut self, assets: &Assets, list: &mut DrawList, m: &Mapper, hp: f64, t: f64) {
+    fn draw_legacy_health(
+        &mut self,
+        assets: &Assets,
+        list: &mut DrawList,
+        m: &Mapper,
+        hp: f64,
+        t: f64,
+    ) {
         // Snapshot the skin pieces (cheap: textures are Copy handles, the
         // animation a small frame vec) so the health state can be mutated
         // below without aliasing `self.legacy`.
         let (bg, fill_anim, new_style, marker_new, ki, kidanger, kidanger2) = {
-            let Some(hud) = self.legacy.as_ref() else { return };
+            let Some(hud) = self.legacy.as_ref() else {
+                return;
+            };
             match (hud.health_bg, hud.health_fill.clone()) {
                 (Some(bg), Some(fill)) => (
                     bg,
@@ -1803,26 +2216,50 @@ impl HudState {
         // Background sprite, top-left of the screen.
         let bg_w = bg.display_width() * v;
         let bg_h = bg.display_height() * v;
-        list.image(assets.atlas, bg.region, [bg_w * 0.5, bg_h * 0.5], [bg_w, bg_h], 0.0, Colour::WHITE, Blend::Alpha);
+        list.image(
+            assets.atlas,
+            bg.region,
+            [bg_w * 0.5, bg_h * 0.5],
+            [bg_w, bg_h],
+            0.0,
+            Colour::WHITE,
+            Blend::Alpha,
+        );
 
         // Fill: animated frame (`LegacyFill`'s scorebar-colour animation),
         // masked to the smoothed HP width. The per-frame width tween is
         // `Interpolation.ValueAt(ElapsedFrameTime clamped 200, width,
         // hp·max, 0, 200, OutQuint)`.
-        let (off_x, off_y) = if new_style { (7.5 * 1.6, 7.8 * 1.6) } else { (3.0 * 1.6, 10.0 * 1.6) };
+        let (off_x, off_y) = if new_style {
+            (7.5 * 1.6, 7.8 * 1.6)
+        } else {
+            (3.0 * 1.6, 10.0 * 1.6)
+        };
         let frame = fill_anim.frame_at(t);
         let max_w = frame.display_width() as f64;
         let fill_h = frame.display_height() * v;
-        let dt = if state.last_t.is_finite() && t > state.last_t { (t - state.last_t).clamp(0.0, 200.0) } else { 200.0 };
+        let dt = if state.last_t.is_finite() && t > state.last_t {
+            (t - state.last_t).clamp(0.0, 200.0)
+        } else {
+            200.0
+        };
         state.fill_w = value_at(dt, 0.0, 200.0, state.fill_w, hp * max_w, Easing::OutQuint);
         state.last_t = t;
-        let frac = if max_w > 0.0 { (state.fill_w / max_w).clamp(0.0, 1.0) } else { 0.0 };
+        let frac = if max_w > 0.0 {
+            (state.fill_w / max_w).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
 
         let fill_x = off_x * v;
         let fill_y = off_y * v;
         let fill_w = max_w as f32 * v * frac as f32;
         if fill_w > 0.5 {
-            let tint = if new_style { legacy_fill_colour(hp) } else { Colour::WHITE };
+            let tint = if new_style {
+                legacy_fill_colour(hp)
+            } else {
+                Colour::WHITE
+            };
             list.image_sub(
                 assets.atlas,
                 frame.region,
@@ -1841,7 +2278,11 @@ impl HudState {
         // Marker: rides the fill's leading edge (right-middle for the new
         // style, right-top line for the old one).
         let marker_x = fill_x + fill_w;
-        let marker_y = if new_style { fill_y + fill_h * 0.5 } else { fill_y };
+        let marker_y = if new_style {
+            fill_y + fill_h * 0.5
+        } else {
+            fill_y
+        };
 
         // Bulge animation factor (`Main.ScaleTo(1.2)` then → 0.8, 150ms).
         let bulge_s = match state.bulge {
@@ -1859,7 +2300,11 @@ impl HudState {
         // Pick the marker texture + tint + blend mode for this style/HP.
         let (marker, tint, blend) = if new_style {
             let tint = legacy_fill_colour(hp);
-            let blend = if hp >= 0.5 { Blend::Additive } else { Blend::Alpha };
+            let blend = if hp >= 0.5 {
+                Blend::Additive
+            } else {
+                Blend::Alpha
+            };
             (marker_new, tint, blend)
         } else {
             let tex = if hp < 0.2 {
@@ -1875,7 +2320,15 @@ impl HudState {
         if let Some(marker) = marker {
             let mw = marker.display_width() * v * bulge_s;
             let mh = marker.display_height() * v * bulge_s;
-            list.image(assets.atlas, marker.region, [marker_x, marker_y], [mw, mh], 0.0, tint, blend);
+            list.image(
+                assets.atlas,
+                marker.region,
+                [marker_x, marker_y],
+                [mw, mh],
+                0.0,
+                tint,
+                blend,
+            );
 
             // Flash: additive copy of the current marker texture bursting
             // out (scale → 2 epic / 1.6, FadeOutFromOne, 120ms Out).
@@ -1883,7 +2336,14 @@ impl HudState {
                 let x = t - start;
                 if x < 120.0 {
                     let a = value_at(x, 0.0, 120.0, 1.0, 0.0, Easing::Out) as f32;
-                    let s = value_at(x, 0.0, 120.0, 1.0, if epic { 2.0 } else { 1.6 }, Easing::Out) as f32;
+                    let s = value_at(
+                        x,
+                        0.0,
+                        120.0,
+                        1.0,
+                        if epic { 2.0 } else { 1.6 },
+                        Easing::Out,
+                    ) as f32;
                     let ew = marker.display_width() * v * s;
                     let eh = marker.display_height() * v * s;
                     list.image(
@@ -1908,7 +2368,14 @@ impl HudState {
     /// the cumulative press count (`ScoreEntry` font), tinted
     /// `InputOverlayText`; the box squashes to 0.75 while pressed and the
     /// first two keys light up #ffde00, the third #f8009e.
-    fn draw_legacy_keys(&mut self, game: &GameData, assets: &Assets, list: &mut DrawList, m: &Mapper, t: f64) {
+    fn draw_legacy_keys(
+        &mut self,
+        game: &GameData,
+        assets: &Assets,
+        list: &mut DrawList,
+        m: &Mapper,
+        t: f64,
+    ) {
         let v = m.virt;
 
         const BOX: f32 = 46.0;
@@ -1932,15 +2399,31 @@ impl HudState {
             }
             // Container squash while pressed (160ms Out both ways).
             let press_s = if anim.pressed {
-                value_at(t, anim.press_t, anim.press_t + 160.0, 1.0, 0.75, Easing::Out)
+                value_at(
+                    t,
+                    anim.press_t,
+                    anim.press_t + 160.0,
+                    1.0,
+                    0.75,
+                    Easing::Out,
+                )
             } else {
-                value_at(t, anim.release_t, anim.release_t + 160.0, 0.75, 1.0, Easing::Out)
+                value_at(
+                    t,
+                    anim.release_t,
+                    anim.release_t + 160.0,
+                    0.75,
+                    1.0,
+                    Easing::Out,
+                )
             } as f32;
             rows[k] = (anim.pressed, press_s, anim.activated, counts[k]);
         }
 
         // Phase 2: draw with the skin borrow.
-        let Some(hud) = self.legacy.as_ref() else { return };
+        let Some(hud) = self.legacy.as_ref() else {
+            return;
+        };
         let text_colour = hud.input_text_colour;
 
         // Display container: CentreRight anchor, TopRight origin, (0, -64).
@@ -1960,9 +2443,17 @@ impl HudState {
         // container's right edge.
         if let Some(bg) = hud.input_bg.as_ref() {
             let w = bg.display_width() * 1.05 * v; // u: vertical length
-            let h = bg.display_height() * v;       // v: horizontal thickness
+            let h = bg.display_height() * v; // v: horizontal thickness
             let centre = [tr[0] - h * 0.5, tr[1] + w * 0.5];
-            list.image(assets.atlas, bg.region, centre, [w, h], 90.0, Colour::WHITE, Blend::Alpha);
+            list.image(
+                assets.atlas,
+                bg.region,
+                centre,
+                [w, h],
+                90.0,
+                Colour::WHITE,
+                Blend::Alpha,
+            );
         }
 
         // Key flow: TopRight anchor, X -1.5, Y +7, vertical, spacing 1.8.
@@ -1978,9 +2469,21 @@ impl HudState {
             if let Some(key) = hud.input_key.as_ref() {
                 let kw = key.display_width() * v * press_s;
                 let kh = key.display_height() * v * press_s;
-                let active = if k < 2 { Colour::from_hex(0xFFDE00) } else { Colour::from_hex(0xF8009E) };
+                let active = if k < 2 {
+                    Colour::from_hex(0xFFDE00)
+                } else {
+                    Colour::from_hex(0xF8009E)
+                };
                 let tint = if pressed { active } else { Colour::WHITE };
-                list.image(assets.atlas, key.region, centre, [kw, kh], 0.0, tint, Blend::Alpha);
+                list.image(
+                    assets.atlas,
+                    key.region,
+                    centre,
+                    [kw, kh],
+                    0.0,
+                    tint,
+                    Blend::Alpha,
+                );
             }
 
             // Overlay text: key name until the first press, then the
@@ -1994,7 +2497,17 @@ impl HudState {
                 let text = format!("{}", count);
                 let run_w = font.run_width(&text, false) * v;
                 let baseline = centre[1] + font.max_digit_h() * 0.5 * v;
-                font.draw_left(list, assets.atlas, &text, centre[0] - run_w * 0.5, baseline, v, text_colour, Blend::Alpha, false);
+                font.draw_left(
+                    list,
+                    assets.atlas,
+                    &text,
+                    centre[0] - run_w * 0.5,
+                    baseline,
+                    v,
+                    text_colour,
+                    Blend::Alpha,
+                    false,
+                );
             } else {
                 let size = 20.0 * v;
                 draw_ttf_text(

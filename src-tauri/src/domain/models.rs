@@ -219,9 +219,81 @@ pub struct AppSettings {
     pub cache_limit_mb: u32,
     #[serde(default)]
     pub key_bindings: AppKeyBindings,
+    #[serde(default = "default_view_trainer_profiles")]
+    pub view_trainer_profiles: Vec<ViewTrainerProfile>,
 }
 
-fn default_collection_backup_retention() -> usize { 10 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewTrainerProfile {
+    pub name: String,
+    pub rate: f64,
+    pub bpm_locked: bool,
+    pub target_bpm: Option<f64>,
+    pub scale_ar: bool,
+    pub scale_od: bool,
+    pub lock_ar: bool,
+    pub lock_od: bool,
+    pub lock_cs: bool,
+    pub lock_hp: bool,
+    pub ar: f32,
+    pub od: f32,
+    pub cs: f32,
+    pub hp: f32,
+    pub min_bpm: Option<f64>,
+    pub max_bpm: Option<f64>,
+    pub start_time_ms: Option<f64>,
+    pub end_time_ms: Option<f64>,
+    pub no_spinners: bool,
+    pub change_pitch: bool,
+    #[serde(default = "default_view_trainer_window_ms")]
+    pub window_ms: f64,
+}
+
+fn default_view_trainer_window_ms() -> f64 {
+    30_000.0
+}
+
+impl Default for ViewTrainerProfile {
+    fn default() -> Self {
+        Self {
+            name: "Trainer".into(),
+            rate: 1.0,
+            bpm_locked: false,
+            target_bpm: None,
+            scale_ar: true,
+            scale_od: true,
+            lock_ar: false,
+            lock_od: false,
+            lock_cs: false,
+            lock_hp: false,
+            ar: 5.0,
+            od: 5.0,
+            cs: 4.0,
+            hp: 5.0,
+            min_bpm: None,
+            max_bpm: None,
+            start_time_ms: None,
+            end_time_ms: None,
+            no_spinners: false,
+            change_pitch: false,
+            window_ms: default_view_trainer_window_ms(),
+        }
+    }
+}
+
+pub fn default_view_trainer_profiles() -> Vec<ViewTrainerProfile> {
+    (1..=4)
+        .map(|index| ViewTrainerProfile {
+            name: format!("Profile {index}"),
+            ..Default::default()
+        })
+        .collect()
+}
+
+fn default_collection_backup_retention() -> usize {
+    10
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DanserRenderPreferences {
@@ -433,6 +505,7 @@ impl Default for AppSettings {
             preview_volume: default_preview_volume(),
             cache_limit_mb: default_cache_limit_mb(),
             key_bindings: AppKeyBindings::default(),
+            view_trainer_profiles: default_view_trainer_profiles(),
         }
     }
 }

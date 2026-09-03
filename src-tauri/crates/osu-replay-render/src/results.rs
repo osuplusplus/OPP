@@ -24,7 +24,7 @@
 //! Rank math: `ScoreProcessor.RankFromScore` cutoffs, osu!'s S/X miss
 //! downgrade and `ModHidden.AdjustRank` (silver SH/XH).
 
-use crate::draw::{ttf_measure, draw_ttf_text, Atlas, Blend, Colour, DrawList, TtfFont};
+use crate::draw::{Atlas, Blend, Colour, DrawList, TtfFont, draw_ttf_text, ttf_measure};
 use crate::game::GameData;
 use crate::scene::{Assets, Mapper};
 use osu_replay_judge::mods::Mods;
@@ -159,9 +159,10 @@ fn colour_for_hit_result(result: HitResult) -> Colour {
         HitResult::Meh => Colour::from_hex(0xFFCC22),
         HitResult::Ok => Colour::from_hex(0x88B300),
         HitResult::Good => Colour::from_hex(0xB3D944),
-        HitResult::SmallTickHit | HitResult::LargeTickHit | HitResult::SliderTailHit | HitResult::Great => {
-            Colour::from_hex(0x66CCFF)
-        }
+        HitResult::SmallTickHit
+        | HitResult::LargeTickHit
+        | HitResult::SliderTailHit
+        | HitResult::Great => Colour::from_hex(0x66CCFF),
         _ => Colour::from_hex(0x99EEFF),
     }
 }
@@ -216,7 +217,11 @@ fn sample_gradient(stops: &[(f64, u32)], stars: f64) -> Colour {
         let (p0, c0) = w[0];
         let (p1, c1) = w[1];
         if stars <= p1 {
-            let t = if p1 - p0 <= 0.0 { 0.0 } else { ((stars - p0) / (p1 - p0)).clamp(0.0, 1.0) };
+            let t = if p1 - p0 <= 0.0 {
+                0.0
+            } else {
+                ((stars - p0) / (p1 - p0)).clamp(0.0, 1.0)
+            };
             return Colour::lerp(Colour::from_hex(c0), Colour::from_hex(c1), t as f32);
         }
     }
@@ -296,11 +301,7 @@ fn fmt_thousands(n: i64) -> String {
         }
         out.push(c);
     }
-    if neg {
-        format!("-{}", out)
-    } else {
-        out
-    }
+    if neg { format!("-{}", out) } else { out }
 }
 
 /// `FormatUtils.FormatAccuracy`: floored to 4 decimals, then "0.00%" — a
@@ -434,7 +435,11 @@ fn draw_gradient_text(
 // -- Statistics model -------------------------------------------------------------
 
 fn stat_count(stats: &[(HitResult, i32)], r: HitResult) -> i32 {
-    stats.iter().find(|(s, _)| *s == r).map(|&(_, c)| c).unwrap_or(0)
+    stats
+        .iter()
+        .find(|(s, _)| *s == r)
+        .map(|&(_, c)| c)
+        .unwrap_or(0)
 }
 
 /// One `HitResultStatistic` for the bottom grids.
@@ -451,7 +456,10 @@ impl HitStat {
     /// `ScoreInfo.GetStatisticsForDisplay` for osu!standard, in
     /// `EnumExtensions.GetValuesInOrder` order: the accuracy judgements
     /// first, then the completion counts (only when the map has any).
-    fn rows(stats: &[(HitResult, i32)], max_stats: &[(HitResult, i32)]) -> (Vec<HitStat>, Vec<HitStat>) {
+    fn rows(
+        stats: &[(HitResult, i32)],
+        max_stats: &[(HitResult, i32)],
+    ) -> (Vec<HitStat>, Vec<HitStat>) {
         let mut row1 = Vec::new();
         for (r, name) in [
             (HitResult::Great, "GREAT"),
@@ -459,7 +467,12 @@ impl HitStat {
             (HitResult::Meh, "MEH"),
             (HitResult::Miss, "MISS"),
         ] {
-            row1.push(HitStat { result: r, name, count: stat_count(stats, r), max_count: None });
+            row1.push(HitStat {
+                result: r,
+                name,
+                count: stat_count(stats, r),
+                max_count: None,
+            });
         }
         let mut row2 = Vec::new();
         for (r, name) in [
@@ -471,7 +484,12 @@ impl HitStat {
         ] {
             let max = stat_count(max_stats, r);
             if max > 0 {
-                row2.push(HitStat { result: r, name, count: stat_count(stats, r), max_count: Some(max) });
+                row2.push(HitStat {
+                    result: r,
+                    name,
+                    count: stat_count(stats, r),
+                    max_count: Some(max),
+                });
             }
         }
         (row1, row2)
@@ -498,8 +516,18 @@ pub struct ResultsView<'a> {
 /// rendered in the system's local time like lazer's `ToLocalTime()`.
 fn format_played_on(ticks: u64) -> String {
     const MONTHS: [&str; 12] = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September",
-        "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     // .NET epoch (0001-01-01) is 62135596800 s before 1970-01-01.
     let secs = (ticks / 10_000_000) as i64 - 62_135_596_800;
@@ -517,14 +545,23 @@ fn format_played_on(ticks: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-    format!("Played on {} {} {} {:02}:{:02}", d, MONTHS[(m - 1) as usize], y, hh, mm)
+    format!(
+        "Played on {} {} {} {:02}:{:02}",
+        d,
+        MONTHS[(m - 1) as usize],
+        y,
+        hh,
+        mm
+    )
 }
 
 /// The system zone's UTC offset (seconds) in effect at `unix_secs`,
 /// read from the TZif database at `/etc/localtime` (v1 32-bit block for
 /// old data, v2+ 64-bit block when present). UTC (0) when unavailable.
 fn local_utc_offset(unix_secs: i64) -> i32 {
-    let Ok(data) = std::fs::read("/etc/localtime") else { return 0 };
+    let Ok(data) = std::fs::read("/etc/localtime") else {
+        return 0;
+    };
     if data.len() < 44 || &data[0..4] != b"TZif" {
         return 0;
     }
@@ -549,7 +586,9 @@ fn local_utc_offset(unix_secs: i64) -> i32 {
             from = p + 1;
         }
     }
-    let Some((times, offsets, fallback)) = best else { return 0 };
+    let Some((times, offsets, fallback)) = best else {
+        return 0;
+    };
     let idx = times.partition_point(|&t| t <= unix_secs);
     if idx == 0 { fallback } else { offsets[idx - 1] }
 }
@@ -564,8 +603,14 @@ fn find_sub(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
 
 /// Parses one TZif data block at `pos`: returns (transition times,
 /// per-transition offsets, default offset = first non-DST type).
-fn tzif_block(data: &[u8], pos: usize, time_size: usize) -> Option<(Vec<i64>, Vec<i32>, i32, usize)> {
-    let u32be = |o: usize| -> Option<u32> { Some(u32::from_be_bytes(data.get(o..o + 4)?.try_into().ok()?)) };
+fn tzif_block(
+    data: &[u8],
+    pos: usize,
+    time_size: usize,
+) -> Option<(Vec<i64>, Vec<i32>, i32, usize)> {
+    let u32be = |o: usize| -> Option<u32> {
+        Some(u32::from_be_bytes(data.get(o..o + 4)?.try_into().ok()?))
+    };
     let mut counts = [0usize; 6];
     for (i, c) in counts.iter_mut().enumerate() {
         *c = u32be(pos + i * 4)? as usize;
@@ -671,7 +716,12 @@ fn draw_gradient_arc(
         let (pi1, po1) = (pt(r_in, a1), pt(r_out, a1));
         list.quad_gradient(
             &[pi0, po0, po1, pi1],
-            [col_at(pi0[1]), col_at(po0[1]), col_at(po1[1]), col_at(pi1[1])],
+            [
+                col_at(pi0[1]),
+                col_at(po0[1]),
+                col_at(po1[1]),
+                col_at(pi1[1]),
+            ],
             Blend::Alpha,
         );
     }
@@ -687,7 +737,11 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     let misses = stat_count(&game.final_statistics, HitResult::Miss) as i64;
     let rank = Rank::from_score(game.final_accuracy, misses, game.mods.hidden);
     let failed_s = game.final_accuracy >= ACC_S && rank == Rank::A;
-    let score = if view.classic_score { game.final_classic_score } else { game.final_score };
+    let score = if view.classic_score {
+        game.final_classic_score
+    } else {
+        game.final_score
+    };
 
     // ------------------------------------------------------------------
     // Background: the beatmap image, pre-blurred in the atlas
@@ -698,7 +752,9 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     // clear colour.
     // ------------------------------------------------------------------
     if view.has_bg {
-        let rect = assets.atlas.region_rect(crate::draw::Region::BackgroundBlurred);
+        let rect = assets
+            .atlas
+            .region_rect(crate::draw::Region::BackgroundBlurred);
         let (rw, rh) = (rect.x1 - rect.x0, rect.y1 - rect.y0);
         let k = (m.screen_w / rw).max(m.screen_h / rh);
         list.image(
@@ -717,7 +773,12 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     // ------------------------------------------------------------------
     let bar_top = 768.0 - BOTTOM_BAR_HEIGHT;
     list.quad_gradient(
-        &[px([0.0, bar_top]), px([cw, bar_top]), px([cw, 768.0]), px([0.0, 768.0])],
+        &[
+            px([0.0, bar_top]),
+            px([cw, bar_top]),
+            px([cw, 768.0]),
+            px([0.0, 768.0]),
+        ],
         [
             Colour::from_hex(0x333333),
             Colour::from_hex(0x333333),
@@ -732,7 +793,10 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     // `MoveToX(StatisticsPanel.SIDE_PADDING)`), vertically centred in the
     // content row + the vertical fudge.
     // ------------------------------------------------------------------
-    let c = [SIDE_PADDING + EXPANDED_WIDTH * 0.5, (768.0 - BOTTOM_BAR_HEIGHT) * 0.5 + VERTICAL_FUDGE];
+    let c = [
+        SIDE_PADDING + EXPANDED_WIDTH * 0.5,
+        (768.0 - BOTTOM_BAR_HEIGHT) * 0.5 + VERTICAL_FUDGE,
+    ];
 
     // Top layer strip (#444 -> #333): 360 x 53 sitting above the body.
     // Lazer `ScorePanel` expanded: the top layer (120 tall) moves UP by
@@ -773,7 +837,11 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     // anchors its CENTRE to the strip's top edge, so the avatar straddles
     // the panel's top.
     // ------------------------------------------------------------------
-    let user = if game.player.is_empty() { "osu!" } else { game.player.as_str() };
+    let user = if game.player.is_empty() {
+        "osu!"
+    } else {
+        game.player.as_str()
+    };
     let user_h = line_h(assets.semibold, user, 16.0);
     // Avatar contained from the strip's TOP EDGE downward (lazer lets it
     // straddle above; here it must not reach the very top).
@@ -807,7 +875,11 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
             Blend::Alpha,
         );
     } else {
-        let initial = user.chars().next().map(|ch| ch.to_uppercase().next().unwrap_or(ch)).unwrap_or('?');
+        let initial = user
+            .chars()
+            .next()
+            .map(|ch| ch.to_uppercase().next().unwrap_or(ch))
+            .unwrap_or('?');
         draw_ttf_text(
             list,
             assets.atlas,
@@ -874,15 +946,27 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     } else {
         format!("mapped by {}", game.map_meta.creator)
     };
-    let creator_name = if creator_line.is_empty() { String::new() } else { game.map_meta.creator.clone() };
-    let creator_h = if creator_line.is_empty() { 0.0 } else { line_h(assets.regular, &creator_line, 12.0) };
+    let creator_name = if creator_line.is_empty() {
+        String::new()
+    } else {
+        game.map_meta.creator.clone()
+    };
+    let creator_h = if creator_line.is_empty() {
+        0.0
+    } else {
+        line_h(assets.regular, &creator_line, 12.0)
+    };
     let mods = mod_list(&game.mods);
     let mods_row_h = if mods.is_empty() { 22.0 } else { 40.0 };
 
     let (row1, row2) = HitStat::rows(&game.final_statistics, &game.final_maximum_statistics);
     let counter_h = |t: &str| line_h(assets.regular, t, 20.0);
     let r1_h = 12.0 + counter_h("0") + 2.0;
-    let r2_h = if row2.is_empty() { 0.0 } else { 12.0 + counter_h("0") + 2.0 };
+    let r2_h = if row2.is_empty() {
+        0.0
+    } else {
+        12.0 + counter_h("0") + 2.0
+    };
     let top_stats_h = 12.0 + counter_h("0") + 2.0;
 
     let fixed = title_h
@@ -979,7 +1063,14 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     // Accuracy gauge: full sweep to the adjusted target.
     let target = accuracy_gauge_target(game.final_accuracy, rank, failed_s);
     let acc_thickness = 0.2 * r_out;
-    draw_gradient_arc(list, px(cc), r_out - acc_thickness * 0.5, acc_thickness, r_out, target);
+    draw_gradient_arc(
+        list,
+        px(cc),
+        r_out - acc_thickness * 0.5,
+        acc_thickness,
+        r_out,
+        target,
+    );
 
     // Rank badges around the gauge. The badge container is the circle box
     // padded -20 horizontally / -15 vertically (elliptical placement), and
@@ -992,7 +1083,10 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
         (ACC_C + (ACC_B - ACC_C) * 0.5, Rank::C),
         (ACC_B + (ACC_A - ACC_B) * 0.5, Rank::B),
         (ACC_A + (ACC_S - ACC_A) * 0.25, Rank::A),
-        (ACC_S + (ACC_X - VIRTUAL_SS_PERCENTAGE - ACC_S) * 0.25, Rank::S),
+        (
+            ACC_S + (ACC_X - VIRTUAL_SS_PERCENTAGE - ACC_S) * 0.25,
+            Rank::S,
+        ),
         (ACC_X, Rank::X),
     ] {
         // Badges above the achieved rank stay hidden; the failed-S state
@@ -1080,10 +1174,27 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     let mut rx = c[0];
     // Measure the row to centre it as a whole.
     let stars = game.stars;
-    let star_text = if stars.is_nan() { "-".to_string() } else { fmt_stars(stars) };
-    let pill_w = 12.0 + 8.0 + 3.0 + ttf_measure(assets.bold, &star_text, 14.4, -1.4).0.max(25.0) + 12.0;
-    let mod_w = |n: usize| if n == 0 { 0.0 } else { n as f32 * 40.0 + (n - 1) as f32 * 5.0 };
-    let row_w = pill_w + 5.0 + if mods.is_empty() { 0.0 } else { 5.0 + mod_w(mods.len()) };
+    let star_text = if stars.is_nan() {
+        "-".to_string()
+    } else {
+        fmt_stars(stars)
+    };
+    let pill_w =
+        12.0 + 8.0 + 3.0 + ttf_measure(assets.bold, &star_text, 14.4, -1.4).0.max(25.0) + 12.0;
+    let mod_w = |n: usize| {
+        if n == 0 {
+            0.0
+        } else {
+            n as f32 * 40.0 + (n - 1) as f32 * 5.0
+        }
+    };
+    let row_w = pill_w
+        + 5.0
+        + if mods.is_empty() {
+            0.0
+        } else {
+            5.0 + mod_w(mods.len())
+        };
     rx -= row_w * 0.5;
     // Star rating pill.
     let pill_c = [rx + pill_w * 0.5, row_c];
@@ -1095,14 +1206,25 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
         star_colour(stars),
         Blend::Alpha,
     );
-    draw_star(list, px([rx + 12.0 + 4.0, row_c]), 4.2 * s, star_text_colour(stars));
+    draw_star(
+        list,
+        px([rx + 12.0 + 4.0, row_c]),
+        4.2 * s,
+        star_text_colour(stars),
+    );
     draw_ttf_text(
         list,
         assets.atlas,
         assets.bold,
         true,
         &star_text,
-        px([rx + 12.0 + 8.0 + 3.0 + ttf_measure(assets.bold, &star_text, 14.4, -1.4).0.max(25.0) * 0.5, row_c + 0.8]),
+        px([
+            rx + 12.0
+                + 8.0
+                + 3.0
+                + ttf_measure(assets.bold, &star_text, 14.4, -1.4).0.max(25.0) * 0.5,
+            row_c + 0.8,
+        ]),
         14.4 * s,
         star_text_colour(stars),
         -1.4,
@@ -1192,7 +1314,15 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     // Statistics grids.
     // ------------------------------------------------------------------
     let col_gap = 0.0; // GridContainer: equal columns, no spacing.
-    let draw_stat = |list: &mut DrawList, x0: f32, w: f32, ytop: f32, header: &str, hcol: Colour, value: &str, suffix: Option<&str>, perfect: bool| {
+    let draw_stat = |list: &mut DrawList,
+                     x0: f32,
+                     w: f32,
+                     ytop: f32,
+                     header: &str,
+                     hcol: Colour,
+                     value: &str,
+                     suffix: Option<&str>,
+                     perfect: bool| {
         let cx = x0 + w * 0.5;
         // Header pill (#222, height 12, fully rounded).
         list.rounded_rect(
@@ -1279,7 +1409,11 @@ pub fn draw(view: &ResultsView, assets: &Assets, m: &Mapper, list: &mut DrawList
     let combo_max = game.max_combo_achievable;
     let combo_val = combo.to_string();
     let combo_sfx = format!("/{}", combo_max);
-    let pp_val = if game.pp.is_nan() { "0".to_string() } else { format!("{}", game.pp.round()) };
+    let pp_val = if game.pp.is_nan() {
+        "0".to_string()
+    } else {
+        format!("{}", game.pp.round())
+    };
     let th = 12.0 + 2.0 + line_h(assets.regular, "0", 20.0);
     draw_stat(
         list,
@@ -1464,7 +1598,16 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
     // `MissPoint` x-marks but carry no timing-graph / UR sample).
     let timed: Vec<crate::game::ResultsHitEvent> = ev
         .iter()
-        .filter(|e| matches!(e.result, HitResult::Meh | HitResult::Ok | HitResult::Good | HitResult::Great | HitResult::Perfect))
+        .filter(|e| {
+            matches!(
+                e.result,
+                HitResult::Meh
+                    | HitResult::Ok
+                    | HitResult::Good
+                    | HitResult::Great
+                    | HitResult::Perfect
+            )
+        })
         .copied()
         .collect();
     // Performance Breakdown rows.
@@ -1473,12 +1616,18 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
         ("Aim", breakdown.0.aim, breakdown.1.aim),
         ("Speed", breakdown.0.speed, breakdown.1.speed),
         ("Accuracy", breakdown.0.accuracy, breakdown.1.accuracy),
-        ("Flashlight Bonus", breakdown.0.flashlight, breakdown.1.flashlight),
+        (
+            "Flashlight Bonus",
+            breakdown.0.flashlight,
+            breakdown.1.flashlight,
+        ),
         ("Reading", breakdown.0.reading, breakdown.1.reading),
     ];
     let shown: Vec<&(&str, f64, f64)> = attr_rows.iter().filter(|r| r.2.abs() > 1e-3).collect();
     let row_h = STAT_FONT * 1.25;
-    let pb_content_h = (shown.len() as f32 * (row_h + 4.0)).max(2.0 * row_h + 6.0).max(96.0);
+    let pb_content_h = (shown.len() as f32 * (row_h + 4.0))
+        .max(2.0 * row_h + 6.0)
+        .max(96.0);
 
     // Fill the LEFT panel's vertical extent: top aligned with the panel's
     // top strip, bottom with the panel body (lazer centres a shorter
@@ -1498,7 +1647,10 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
     let has_strains = game.strain_points.len() > 1;
     let strain_content_h = if has_strains { 110.0 } else { 0.0 };
     // The graphs row takes whatever the breakdown and strain rows leave.
-    let row2_content = ((panel_h - pb_content_h - strain_content_h) - 2.0 * chrome - if has_strains { chrome + gap } else { 0.0 } - gap)
+    let row2_content = ((panel_h - pb_content_h - strain_content_h)
+        - 2.0 * chrome
+        - if has_strains { chrome + gap } else { 0.0 }
+        - gap)
         .max(200.0);
     // Timing: graph (incl. its axis row) + gap + the two-line table.
     let graph_h = row2_content - 15.0 - 2.0 * row_h;
@@ -1509,13 +1661,25 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
     // ------------------------------------------------------------------
     // Row 1: Performance Breakdown (full width).
     // ------------------------------------------------------------------
-    let (area, size) = stat_item_box(list, m, left, y0, content_w, pb_content_h, "Performance Breakdown", assets);
+    let (area, size) = stat_item_box(
+        list,
+        m,
+        left,
+        y0,
+        content_w,
+        pb_content_h,
+        "Performance Breakdown",
+        assets,
+    );
     {
         let chart_w = size[0] - 50.0 - 230.0;
         let right_x = area[0] + chart_w + 50.0;
         // The 3px #222 spacer pill centred in the 50px gap.
         list.rounded_rect(
-            [(area[0] + chart_w + 25.0) * s, (area[1] + pb_content_h * 0.5) * s],
+            [
+                (area[0] + chart_w + 25.0) * s,
+                (area[1] + pb_content_h * 0.5) * s,
+            ],
             [3.0 * s, pb_content_h * s],
             1.5 * s,
             Colour::from_hex(0x222222),
@@ -1576,8 +1740,16 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
         // Right column: Achieved PP / Maximum.
         let round_away = |v: f64| (v + 0.5).floor() as i64;
         let rows = [
-            ("Achieved PP", round_away(breakdown.0.total), Colour::from_hex(0x66FFCC)),
-            ("Maximum", round_away(breakdown.1.total), Colour::from_hex(0xB3B3B3)),
+            (
+                "Achieved PP",
+                round_away(breakdown.0.total),
+                Colour::from_hex(0x66FFCC),
+            ),
+            (
+                "Maximum",
+                round_away(breakdown.1.total),
+                Colour::from_hex(0xB3B3B3),
+            ),
         ];
         for (i, (label, value, col)) in rows.iter().enumerate() {
             let ry = area[1] + row_h * 0.5 + i as f32 * (row_h + 6.0);
@@ -1613,8 +1785,26 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
     // ------------------------------------------------------------------
     let half_w = (content_w - gap) * 0.5;
     let y2 = y0 + pb_content_h + chrome + gap;
-    let (t_area, t_size) = stat_item_box(list, m, left, y2, half_w, row2_content, "Timing Distribution", assets);
-    let (h_area, h_size) = stat_item_box(list, m, left + half_w + gap, y2, half_w, row2_content, "Accuracy Heatmap", assets);
+    let (t_area, t_size) = stat_item_box(
+        list,
+        m,
+        left,
+        y2,
+        half_w,
+        row2_content,
+        "Timing Distribution",
+        assets,
+    );
+    let (h_area, h_size) = stat_item_box(
+        list,
+        m,
+        left + half_w + gap,
+        y2,
+        half_w,
+        row2_content,
+        "Accuracy Heatmap",
+        assets,
+    );
 
     // -- Timing distribution graph (`HitEventTimingDistributionGraph`).
     {
@@ -1730,14 +1920,24 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
         let table_y = t_area[1] + graph_h + 15.0;
         let (avg, ur) = hit_error_stats(&timed, game.rate);
         let avg_text = match avg {
-            Some(v) => format!("{:.2} ms {}", v.abs(), if v < 0.0 { "early" } else { "late" }),
+            Some(v) => format!(
+                "{:.2} ms {}",
+                v.abs(),
+                if v < 0.0 { "early" } else { "late" }
+            ),
             None => "(not available)".to_string(),
         };
         let ur_text = match ur {
             Some(v) => format!("{:.2}", v),
             None => "(not available)".to_string(),
         };
-        for (i, (name, value)) in [("Average Hit Error", avg_text.as_str()), ("Unstable Rate", ur_text.as_str())].iter().enumerate() {
+        for (i, (name, value)) in [
+            ("Average Hit Error", avg_text.as_str()),
+            ("Unstable Rate", ur_text.as_str()),
+        ]
+        .iter()
+        .enumerate()
+        {
             let ry = table_y + row_h * 0.5 + i as f32 * row_h;
             draw_ttf_text(
                 list,
@@ -1745,7 +1945,10 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
                 assets.semibold,
                 false,
                 name,
-                [(t_area[0] + ttf_measure(assets.semibold, name, STAT_FONT, 0.0).0 * 0.5) * s, ry * s],
+                [
+                    (t_area[0] + ttf_measure(assets.semibold, name, STAT_FONT, 0.0).0 * 0.5) * s,
+                    ry * s,
+                ],
                 STAT_FONT * s,
                 Colour::WHITE,
                 0.0,
@@ -1778,8 +1981,21 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
         let hs = side * s;
         // Inner circle: dark fill + white border (0.8 portion).
         let inner_r = HEATMAP_INNER * hs * 0.5;
-        list.disc([hx, hy], inner_r, Colour::from_hex(0x202624), Colour::from_hex(0x202624), Blend::Alpha);
-        list.ring([hx, hy], inner_r, 2.0 * s, Colour::WHITE, Colour::WHITE, Blend::Alpha);
+        list.disc(
+            [hx, hy],
+            inner_r,
+            Colour::from_hex(0x202624),
+            Colour::from_hex(0x202624),
+            Blend::Alpha,
+        );
+        list.ring(
+            [hx, hy],
+            inner_r,
+            2.0 * s,
+            Colour::WHITE,
+            Colour::WHITE,
+            Blend::Alpha,
+        );
         // The movement axis (up-right/down-left diagonal, the direction
         // `FindRelativeHitPosition` normalises onto) at full alpha; the
         // crossing diagonal dimmed. Screen y is down, so up-right is
@@ -1807,7 +2023,13 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
         let mut peak = 0i32;
         for e in ev {
             let Some(last) = e.last_pos else { continue };
-            let rel = find_relative_hit_position(last, e.pos, e.cursor, e.radius as f64, HEATMAP_ROTATION);
+            let rel = find_relative_hit_position(
+                last,
+                e.pos,
+                e.cursor,
+                e.radius as f64,
+                HEATMAP_ROTATION,
+            );
             let px = centre + local_inner * rel[0];
             let py = centre + local_inner * rel[1];
             let c = px.round() as i32;
@@ -1846,7 +2068,11 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
                     amount = crate::draw::Easing::OutQuint.apply(amount.min(1.0) as f64) as f32;
                     let alpha = (amount / 0.95).min(1.0);
                     let base = Colour::from_hex(0x66FFCC);
-                    let colour = if amount > 0.95 { base.lighten((amount - 0.95).min(1.0)) } else { base };
+                    let colour = if amount > 0.95 {
+                        base.lighten((amount - 0.95).min(1.0))
+                    } else {
+                        base
+                    };
                     list.disc(
                         [cx, cy],
                         cell * 0.5,
@@ -1918,7 +2144,16 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
     let pts = &game.strain_points;
     if pts.len() > 1 {
         let y3 = y2 + row2_content + chrome + gap;
-        let (d_area, d_size) = stat_item_box(list, m, left, y3, content_w, strain_content_h, "Difficulty Graph", assets);
+        let (d_area, d_size) = stat_item_box(
+            list,
+            m,
+            left,
+            y3,
+            content_w,
+            strain_content_h,
+            "Difficulty Graph",
+            assets,
+        );
         // The time axis starts at the FIRST strain point: the map's intro
         // lead-in (no objects, no strain) is cut, and the curve begins at
         // the plot's left edge instead of wedging back to the origin.
@@ -1938,14 +2173,18 @@ fn draw_statistics(game: &GameData, assets: &Assets, m: &Mapper, list: &mut Draw
         let gw = d_size[0];
         let base_y = d_area[1] + top_pad + plot_h;
         let max_aim = pts.iter().map(|p| p.1).fold(0.0f64, f64::max).max(1e-9);
-        let x_at = |t: f64| -> f32 { (((t - t0) / (last_end - t0)).clamp(0.0, 1.0) * gw as f64) as f32 };
+        let x_at =
+            |t: f64| -> f32 { (((t - t0) / (last_end - t0)).clamp(0.0, 1.0) * gw as f64) as f32 };
         let curve_colour = star_colour(game.stars);
 
         // Aim skill: JUST the curve line - no filled area and no speed
         // overlay, so nothing connects down to the origin/baseline.
         let mut aim_pts: Vec<[f32; 2]> = Vec::with_capacity(pts.len());
         for &(t, aim, _) in pts.iter() {
-            aim_pts.push([(gx0 + x_at(t)) * s, (base_y - (aim / max_aim) as f32 * plot_h) * s]);
+            aim_pts.push([
+                (gx0 + x_at(t)) * s,
+                (base_y - (aim / max_aim) as f32 * plot_h) * s,
+            ]);
         }
         list.stroke_band(&aim_pts, 1.3 * s, 0.0, curve_colour, curve_colour, 1.0);
 
@@ -2028,5 +2267,8 @@ fn find_relative_hit_position(
     let final_angle = angle2 - angle1;
     let dist = (((hit[0] - next[0]).powi(2) + (hit[1] - next[1]).powi(2)).sqrt() as f64) / radius;
     let rotated = final_angle - rotation.to_radians() as f64;
-    [-dist as f32 * rotated.cos() as f32, -dist as f32 * rotated.sin() as f32]
+    [
+        -dist as f32 * rotated.cos() as f32,
+        -dist as f32 * rotated.sin() as f32,
+    ]
 }

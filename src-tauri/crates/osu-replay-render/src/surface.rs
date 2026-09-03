@@ -113,12 +113,13 @@ impl SurfaceRenderer {
             })
         }
         .map_err(|e| format!("create surface: {e:?}"))?;
-        let adapter = crate::render::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }))
-        .ok_or("没有支持该窗口的 GPU 适配器")?;
+        let adapter =
+            crate::render::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            }))
+            .ok_or("没有支持该窗口的 GPU 适配器")?;
 
         let renderer = Renderer::from_adapter(adapter, width, height, atlas);
         let device = renderer.device().clone();
@@ -133,12 +134,19 @@ impl SurfaceRenderer {
         // list it); Android Vulkan offers only Rgba8* — then any non-sRGB
         // format beats `formats.first()`, which is driver-order and
         // commonly the Srgb twin.
-        let surface_format = if caps.formats.iter().any(|f| *f == wgpu::TextureFormat::Bgra8Unorm) {
+        let surface_format = if caps
+            .formats
+            .iter()
+            .any(|f| *f == wgpu::TextureFormat::Bgra8Unorm)
+        {
             wgpu::TextureFormat::Bgra8Unorm
         } else if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
             *f
         } else {
-            caps.formats.first().copied().unwrap_or(wgpu::TextureFormat::Bgra8Unorm)
+            caps.formats
+                .first()
+                .copied()
+                .unwrap_or(wgpu::TextureFormat::Bgra8Unorm)
         };
         let alpha_mode = caps
             .alpha_modes
@@ -250,8 +258,14 @@ impl SurfaceRenderer {
             label: Some("blit bind"),
             layout: &tex_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&target_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
         });
 
@@ -301,7 +315,8 @@ impl SurfaceRenderer {
             },
         );
         let params: [f32; 2] = [self.frame_aspect, width as f32 / height as f32];
-        self.queue.write_buffer(&self.params_buf, 0, f32_bytes(&params));
+        self.queue
+            .write_buffer(&self.params_buf, 0, f32_bytes(&params));
     }
 
     /// Renders one scene list and presents it. Returns false when the frame
@@ -332,7 +347,12 @@ impl SurfaceRenderer {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: clear[0], g: clear[1], b: clear[2], a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: clear[0],
+                            g: clear[1],
+                            b: clear[2],
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

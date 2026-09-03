@@ -27,7 +27,7 @@ use crate::draw::{Atlas, Region};
 use osu_storyboard_render::osb::model::Layer;
 use osu_storyboard_render::osb::timeline::{CompiledStoryboard, FailState};
 use osu_storyboard_render::render::renderer::{
-    build_draws_filtered, Draw, GpuInstance, Renderer as SbRenderer,
+    Draw, GpuInstance, Renderer as SbRenderer, build_draws_filtered,
 };
 use osu_storyboard_render::render::texture::Assets as SbAssets;
 #[cfg(not(target_os = "android"))]
@@ -97,7 +97,16 @@ fn resolve_file(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
 fn probe_video(info: &mut VideoInfo) {
     let run = |entries: &str| -> Option<String> {
         let out = std::process::Command::new("ffprobe")
-            .args(["-v", "error", "-select_streams", "v:0", "-show_entries", entries, "-of", "csv=p=0"])
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                entries,
+                "-of",
+                "csv=p=0",
+            ])
             .arg(&info.path)
             .output()
             .ok()?;
@@ -106,9 +115,14 @@ fn probe_video(info: &mut VideoInfo) {
         }
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
     };
-    let Some(csv) = run("stream=width,height,avg_frame_rate,duration") else { return };
+    let Some(csv) = run("stream=width,height,avg_frame_rate,duration") else {
+        return;
+    };
     let mut parts = csv.split(',');
-    if let (Some(w), Some(h)) = (parts.next().and_then(|v| v.parse().ok()), parts.next().and_then(|v| v.parse().ok())) {
+    if let (Some(w), Some(h)) = (
+        parts.next().and_then(|v| v.parse().ok()),
+        parts.next().and_then(|v| v.parse().ok()),
+    ) {
         info.width = w;
         info.height = h;
     }
@@ -207,7 +221,13 @@ pub fn parse_beatmap(
     let compiled = CompiledStoryboard::compile(story);
     let mut assets = SbAssets::disk(&root);
     assets.set_cache_budget(CACHE_BUDGET);
-    Some(ParsedStoryboard { compiled, assets, foreground, replaces_background, video })
+    Some(ParsedStoryboard {
+        compiled,
+        assets,
+        foreground,
+        replaces_background,
+        video,
+    })
 }
 
 impl ParsedStoryboard {
@@ -241,7 +261,11 @@ impl ParsedStoryboard {
         let make_tex = |label: &str| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
-                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -291,7 +315,8 @@ impl VideoPipe {
     fn spawn(info: &VideoInfo, from_map_ms: f64) -> Option<VideoPipe> {
         let seek_s = ((from_map_ms - info.start_ms as f64).max(0.0) / 1000.0).max(0.0);
         let mut cmd = std::process::Command::new("ffmpeg");
-        cmd.args(["-v", "error", "-nostdin"]).stdout(std::process::Stdio::piped());
+        cmd.args(["-v", "error", "-nostdin"])
+            .stdout(std::process::Stdio::piped());
         if seek_s > 0.01 {
             cmd.arg("-ss").arg(format!("{seek_s:.3}"));
         }
@@ -302,9 +327,19 @@ impl VideoPipe {
         let mut child = cmd.spawn().ok()?;
         let stdout = child.stdout.take()?;
         let frame = vec![0u8; (info.width * info.height * 4) as usize];
-        let step_ms = if info.fps > 0.0 { 1000.0 / info.fps } else { 33.0 };
+        let step_ms = if info.fps > 0.0 {
+            1000.0 / info.fps
+        } else {
+            33.0
+        };
         let next_pts_ms = info.start_ms as f64 + seek_s * 1000.0;
-        Some(VideoPipe { child, stdout, frame, next_pts_ms, step_ms })
+        Some(VideoPipe {
+            child,
+            stdout,
+            frame,
+            next_pts_ms,
+            step_ms,
+        })
     }
 
     /// 读取一帧到 self.frame;EOF/错误返回 false。
@@ -405,8 +440,6 @@ impl StoryboardLayer {
             v.info.height = v.info.height.max(h);
         }
     }
-
-
 
     /// 标记视频时长(Kotlin MediaExtractor 探明后上报;驱动结尾淡出)。
     pub fn set_video_duration(&mut self, ms: f32) {

@@ -409,7 +409,11 @@ fn sample_count() -> u32 {
     // Android (Mali/Adreno/SwiftShader): MSAA costs 4× the fragment work and
     // has driver-side resolve quirks that drop parts of the scene; the
     // software renderer benefits even more from disabling it.
-    if cfg!(target_os = "android") || std::env::var("NO_MSAA").is_ok() { 1 } else { 4 }
+    if cfg!(target_os = "android") || std::env::var("NO_MSAA").is_ok() {
+        1
+    } else {
+        4
+    }
 }
 
 pub fn block_on<F: std::future::Future>(fut: F) -> F::Output {
@@ -458,7 +462,11 @@ impl Renderer {
     /// 热替换图集(背景图开关时用):重建纹理并上传,重绑 bind group,
     /// 管线/设备/窗口全部保留——避免整套 wgpu 初始化重付。
     pub fn set_atlas(&mut self, atlas: &Atlas) {
-        let tex_size = wgpu::Extent3d { width: atlas.width, height: atlas.height, depth_or_array_layers: 1 };
+        let tex_size = wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: 1,
+        };
         let atlas_tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("atlas"),
             size: tex_size,
@@ -488,8 +496,14 @@ impl Renderer {
         self.atlas_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.atlas_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.atlas_sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.atlas_sampler),
+                },
             ],
             label: Some("atlas bind"),
         });
@@ -507,9 +521,11 @@ impl Renderer {
             height: (rect.y1 - rect.y0) as u32,
             depth_or_array_layers: 1,
         };
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("atlas slot copy"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("atlas slot copy"),
+            });
         encoder.copy_texture_to_texture(
             src.as_image_copy(),
             wgpu::TexelCopyTextureInfo {
@@ -595,12 +611,36 @@ impl Renderer {
             array_stride: std::mem::size_of::<Vertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
-                wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
-                wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x2 },
-                wgpu::VertexAttribute { offset: 16, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
-                wgpu::VertexAttribute { offset: 32, shader_location: 3, format: wgpu::VertexFormat::Float32x4 },
-                wgpu::VertexAttribute { offset: 48, shader_location: 4, format: wgpu::VertexFormat::Float32x4 },
-                wgpu::VertexAttribute { offset: 64, shader_location: 5, format: wgpu::VertexFormat::Float32x4 },
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 8,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 16,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: 32,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: 48,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: 64,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
             ],
         };
 
@@ -665,9 +705,12 @@ impl Renderer {
         let pipeline_alpha = make_pipeline(premult_alpha, sc);
         let pipeline_additive = make_pipeline(premult_add, sc);
 
-
         // Atlas texture.
-        let tex_size = wgpu::Extent3d { width: atlas.width, height: atlas.height, depth_or_array_layers: 1 };
+        let tex_size = wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: 1,
+        };
         let atlas_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("atlas"),
             size: tex_size,
@@ -707,8 +750,14 @@ impl Renderer {
         let atlas_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &atlas_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&atlas_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
             label: Some("atlas bind"),
         });
@@ -735,7 +784,11 @@ impl Renderer {
                 },
             ],
         });
-        let body_size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+        let body_size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
         let body_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("body distfield"),
             size: body_size,
@@ -760,8 +813,14 @@ impl Renderer {
         let body_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &body_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&body_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&body_sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&body_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&body_sampler),
+                },
             ],
             label: Some("body bind"),
         });
@@ -799,10 +858,26 @@ impl Renderer {
             array_stride: std::mem::size_of::<PrepassVertex>() as u64, // 28
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
-                wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x2 },
-                wgpu::VertexAttribute { offset: 8, shader_location: 1, format: wgpu::VertexFormat::Float32x2 },
-                wgpu::VertexAttribute { offset: 16, shader_location: 2, format: wgpu::VertexFormat::Float32x2 },
-                wgpu::VertexAttribute { offset: 24, shader_location: 3, format: wgpu::VertexFormat::Float32 },
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 8,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 16,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 24,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32,
+                },
             ],
         };
         let body_pre_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -851,7 +926,11 @@ impl Renderer {
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
-            multisample: wgpu::MultisampleState { count: sc, mask: !0, alpha_to_coverage_enabled: false },
+            multisample: wgpu::MultisampleState {
+                count: sc,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             multiview: None,
             cache: None,
         });
@@ -878,7 +957,11 @@ impl Renderer {
         });
 
         // Offscreen target + MSAA texture.
-        let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("target"),
             size,
@@ -886,7 +969,9 @@ impl Renderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Bgra8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let msaa = device.create_texture(&wgpu::TextureDescriptor {
@@ -903,13 +988,17 @@ impl Renderer {
         let vbo = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vbo"),
             size: 4 << 20,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let ibo = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ibo"),
             size: 8 << 20,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::INDEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let body_vbo = device.create_buffer(&wgpu::BufferDescriptor {
@@ -988,8 +1077,16 @@ impl Renderer {
     pub fn encode_scene(&mut self, list: &DrawList, clear: [f64; 4]) -> wgpu::CommandEncoder {
         let vbytes = list.vertices.len() * std::mem::size_of::<Vertex>();
         let ibytes = list.indices.len() * 4;
-        assert!(vbytes as u64 <= self.vbo.size(), "vertex buffer overflow: {}", vbytes);
-        assert!(ibytes as u64 <= self.ibo.size(), "index buffer overflow: {}", ibytes);
+        assert!(
+            vbytes as u64 <= self.vbo.size(),
+            "vertex buffer overflow: {}",
+            vbytes
+        );
+        assert!(
+            ibytes as u64 <= self.ibo.size(),
+            "index buffer overflow: {}",
+            ibytes
+        );
 
         let use_msaa = sample_count() > 1;
 
@@ -1034,7 +1131,14 @@ impl Renderer {
                         radius: body.radius,
                     });
                 }
-                prepass_indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                prepass_indices.extend_from_slice(&[
+                    base,
+                    base + 1,
+                    base + 2,
+                    base,
+                    base + 2,
+                    base + 3,
+                ]);
             }
             prepass_ranges.push((start, prepass_indices.len() as u32));
 
@@ -1050,17 +1154,35 @@ impl Renderer {
                         None => [0.0; 2],
                     },
                     color: [body.body.r, body.body.g, body.body.b, body.body.a],
-                    color2: [body.border_colour.r, body.border_colour.g, body.border_colour.b, body.border_colour.a],
+                    color2: [
+                        body.border_colour.r,
+                        body.border_colour.g,
+                        body.border_colour.b,
+                        body.border_colour.a,
+                    ],
                     uv: [corner[0], corner[1], inner.map(|c| c.b).unwrap_or(0.0), 0.0],
-                    aux: [crate::draw::MODE_CAPSULE, body.radius, body.border, if inner.is_some() { 1.0 } else { 0.0 }],
+                    aux: [
+                        crate::draw::MODE_CAPSULE,
+                        body.radius,
+                        body.border,
+                        if inner.is_some() { 1.0 } else { 0.0 },
+                    ],
                 });
             }
             body_indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
         let pre_vbytes = prepass_verts.len() * std::mem::size_of::<Vertex>();
         let pre_ibytes = prepass_indices.len() * 4;
-        assert!(pre_vbytes as u64 <= self.body_vbo.size(), "body vertex buffer overflow: {}", pre_vbytes);
-        assert!(pre_ibytes as u64 <= self.body_ibo.size(), "body index buffer overflow: {}", pre_ibytes);
+        assert!(
+            pre_vbytes as u64 <= self.body_vbo.size(),
+            "body vertex buffer overflow: {}",
+            pre_vbytes
+        );
+        assert!(
+            pre_ibytes as u64 <= self.body_ibo.size(),
+            "body index buffer overflow: {}",
+            pre_ibytes
+        );
 
         // ---- Scene geometry (body composites prepended) ------------------
         let mut all_verts = body_quads.clone();
@@ -1069,18 +1191,28 @@ impl Renderer {
         for i in &list.indices {
             all_idx.push(*i + body_quads.len() as u32);
         }
-        self.queue.write_buffer(&self.body_vbo, 0, cast_slice(&prepass_verts));
-        self.queue.write_buffer(&self.body_ibo, 0, cast_slice(&prepass_indices));
-        self.queue.write_buffer(&self.vbo, 0, cast_slice(&all_verts));
+        self.queue
+            .write_buffer(&self.body_vbo, 0, cast_slice(&prepass_verts));
+        self.queue
+            .write_buffer(&self.body_ibo, 0, cast_slice(&prepass_indices));
+        self.queue
+            .write_buffer(&self.vbo, 0, cast_slice(&all_verts));
         self.queue.write_buffer(&self.ibo, 0, cast_slice(&all_idx));
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("frame encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame encoder"),
+            });
 
         let target_view = self.target.create_view(&Default::default());
         let msaa_view = self.msaa.create_view(&Default::default());
-        let clear_color = wgpu::Color { r: clear[0], g: clear[1], b: clear[2], a: clear[3] };
+        let clear_color = wgpu::Color {
+            r: clear[0],
+            g: clear[1],
+            b: clear[2],
+            a: clear[3],
+        };
 
         let has_bodies = !list.bodies.is_empty();
         let body_view = self.body_tex.create_view(&Default::default());
@@ -1216,7 +1348,10 @@ impl Renderer {
                             pre.set_pipeline(&self.body_pre_pipeline);
                             pre.set_bind_group(0, &self.screen_bind, &[]);
                             pre.set_vertex_buffer(0, self.body_vbo.slice(..));
-                            pre.set_index_buffer(self.body_ibo.slice(..), wgpu::IndexFormat::Uint32);
+                            pre.set_index_buffer(
+                                self.body_ibo.slice(..),
+                                wgpu::IndexFormat::Uint32,
+                            );
                             pre.draw_indexed(start..end, 0, 0..1);
                         }
                         // Pass B: composite this body over the scene.
@@ -1327,7 +1462,11 @@ impl Renderer {
                     rows_per_image: Some(self.height),
                 },
             },
-            wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
         );
         self.queue.submit(Some(encoder.finish()));
         self.readback_pending.push_back(slot);
@@ -1368,67 +1507,81 @@ impl Renderer {
     }
 
     fn init_yuv(&mut self) {
-        assert!(self.yuv_ready(), "GPU YUV path requires width % 8 == 0 and even height");
+        assert!(
+            self.yuv_ready(),
+            "GPU YUV path requires width % 8 == 0 and even height"
+        );
         let (width, height) = (self.width, self.height);
-        let module = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("yuv shader"),
-            source: wgpu::ShaderSource::Wgsl(YUV_SHADER.into()),
-        });
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("yuv shader"),
+                source: wgpu::ShaderSource::Wgsl(YUV_SHADER.into()),
+            });
 
-        let params_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("yuv params layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(8),
-                },
-                count: None,
-            }],
-        });
-        let tex_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("yuv tex layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
-        });
-        let out_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("yuv out layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("yuv layout"),
-            bind_group_layouts: &[&params_layout, &tex_layout, &out_layout],
-            push_constant_ranges: &[],
-        });
+        let params_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("yuv params layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: NonZeroU64::new(8),
+                        },
+                        count: None,
+                    }],
+                });
+        let tex_layout = self
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("yuv tex layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let out_layout = self
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("yuv out layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("yuv layout"),
+                bind_group_layouts: &[&params_layout, &tex_layout, &out_layout],
+                push_constant_ranges: &[],
+            });
 
         let make_pipeline = |entry: &str| {
-            self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("yuv pipeline"),
-                layout: Some(&layout),
-                module: &module,
-                entry_point: Some(entry),
-                compilation_options: Default::default(),
-                cache: None,
-            })
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("yuv pipeline"),
+                    layout: Some(&layout),
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    cache: None,
+                })
         };
         let pipeline_y = make_pipeline("cs_y");
         let pipeline_uv_nv12 = make_pipeline("cs_uv_nv12");
@@ -1440,7 +1593,8 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&params_buf, 0, cast_slice(&[width, height]));
+        self.queue
+            .write_buffer(&params_buf, 0, cast_slice(&[width, height]));
         let params_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &params_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -1539,7 +1693,11 @@ impl Renderer {
             pass.set_bind_group(2, &y.out_bind, &[]);
             pass.set_pipeline(&y.pipeline_y);
             pass.dispatch_workgroups(y.groups_y.0, y.groups_y.1, 1);
-            pass.set_pipeline(if interleaved { &y.pipeline_uv_nv12 } else { &y.pipeline_uv_i420 });
+            pass.set_pipeline(if interleaved {
+                &y.pipeline_uv_nv12
+            } else {
+                &y.pipeline_uv_i420
+            });
             pass.dispatch_workgroups(y.groups_uv.0, y.groups_uv.1, 1);
         }
         let y = self.yuv.as_ref().unwrap();

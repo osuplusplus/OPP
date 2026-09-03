@@ -8,6 +8,7 @@ use url::Url;
 use crate::{
     domain::{OwnProfile, Ruleset, Score, TokenResponse},
     error::{CommandError, CommandResult},
+    infrastructure::logging::{LogSpan, global},
 };
 
 const API_BASE_URL: &str = "https://osu.ppy.sh/api/v2";
@@ -53,6 +54,7 @@ impl OsuApi {
         code: &str,
         redirect_uri: &str,
     ) -> CommandResult<TokenResponse> {
+        let span = global().map(|logger| logger.operation("osu_api", "exchange_code"));
         let response = self
             .client
             .post(&self.token_url)
@@ -65,8 +67,12 @@ impl OsuApi {
             ])
             .send()
             .await
-            .map_err(|error| CommandError::network(error.to_string()))?;
-        Self::parse_response(response, "AUTH_EXCHANGE_FAILED").await
+            .map_err(|error| CommandError::from_error("NETWORK_ERROR", error));
+        let result = match response {
+            Ok(response) => Self::parse_response(response, "AUTH_EXCHANGE_FAILED").await,
+            Err(error) => Err(error),
+        };
+        finish_span(span, result)
     }
 
     pub async fn refresh_token(
@@ -75,6 +81,7 @@ impl OsuApi {
         client_secret: &str,
         refresh_token: &str,
     ) -> CommandResult<TokenResponse> {
+        let span = global().map(|logger| logger.operation("osu_api", "refresh_token"));
         let response = self
             .client
             .post(&self.token_url)
@@ -86,8 +93,12 @@ impl OsuApi {
             ])
             .send()
             .await
-            .map_err(|error| CommandError::network(error.to_string()))?;
-        Self::parse_response(response, "TOKEN_REFRESH_FAILED").await
+            .map_err(|error| CommandError::from_error("NETWORK_ERROR", error));
+        let result = match response {
+            Ok(response) => Self::parse_response(response, "TOKEN_REFRESH_FAILED").await,
+            Err(error) => Err(error),
+        };
+        finish_span(span, result)
     }
 
     pub async fn get_own_profile(
@@ -211,6 +222,12 @@ impl OsuApi {
         url: &str,
         access_token: &str,
     ) -> CommandResult<T> {
+        let span = global().map(|logger| {
+            let endpoint = Url::parse(url)
+                .map(|value| value.path().to_string())
+                .unwrap_or_else(|_| "<invalid-url>".into());
+            logger.operation("osu_api", format!("authorized_get {endpoint}"))
+        });
         // 所有携带访问令牌的 GET 请求集中在此处，保证认证头与错误映射保持一致。
         let response = self
             .client
@@ -221,8 +238,12 @@ impl OsuApi {
             .header("x-api-version", "20220705")
             .send()
             .await
-            .map_err(|error| CommandError::network(error.to_string()))?;
-        Self::parse_response(response, "API_ERROR").await
+            .map_err(|error| CommandError::from_error("NETWORK_ERROR", error));
+        let result = match response {
+            Ok(response) => Self::parse_response(response, "API_ERROR").await,
+            Err(error) => Err(error),
+        };
+        finish_span(span, result)
     }
 
     async fn parse_response<T: DeserializeOwned>(
@@ -259,6 +280,16 @@ impl OsuApi {
             _ => CommandError::new(default_code, format!("osu! 请求失败（{status}）")),
         }
     }
+}
+
+fn finish_span<T>(span: Option<LogSpan>, result: CommandResult<T>) -> CommandResult<T> {
+    if let Some(mut span) = span {
+        match &result {
+            Ok(_) => span.finish_ok(None),
+            Err(error) => span.finish_error(error),
+        }
+    }
+    result
 }
 
 #[cfg(test)]

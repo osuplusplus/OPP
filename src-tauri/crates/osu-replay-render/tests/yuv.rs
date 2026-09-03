@@ -26,7 +26,8 @@ fn flat_frame(list: &mut DrawList, color: [f32; 4]) {
             aux: [6.0, 0.0, 0.0, 0.0],
         });
     }
-    list.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    list.indices
+        .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     list.runs.push((Blend::Alpha, base, 6));
 }
 
@@ -61,7 +62,11 @@ fn check(name: &str, got: (u8, u8, u8), want: (i32, i32, i32)) {
     let ok = (got.0 as i32 - want.0).abs() <= 2
         && (got.1 as i32 - want.1).abs() <= 2
         && (got.2 as i32 - want.2).abs() <= 2;
-    assert!(ok, "{name}: got (Y={} U={} V={}), want ~({} {} {})", got.0, got.1, got.2, want.0, want.1, want.2);
+    assert!(
+        ok,
+        "{name}: got (Y={} U={} V={}), want ~({} {} {})",
+        got.0, got.1, got.2, want.0, want.1, want.2
+    );
 }
 
 #[test]
@@ -79,12 +84,25 @@ fn gpu_yuv_nv12_colors() {
     ] {
         let frame = render_color(&mut renderer, rgb, true);
         // Centre and corners-inside: identical flat colour everywhere.
-        for (x, y) in [(W / 2, H / 2), (4, 4), (W - 5, H - 5), (W - 5, 4), (4, H - 5)] {
-            check(&format!("nv12 {name} at ({x},{y})"), nv12_at(&frame, x, y), want);
+        for (x, y) in [
+            (W / 2, H / 2),
+            (4, 4),
+            (W - 5, H - 5),
+            (W - 5, 4),
+            (4, H - 5),
+        ] {
+            check(
+                &format!("nv12 {name} at ({x},{y})"),
+                nv12_at(&frame, x, y),
+                want,
+            );
         }
         // Luma must be uniform across a whole word boundary (4 px groups).
         let row = &frame[(H / 2) * W..(H / 2) * W + W];
-        assert!(row.iter().all(|&v| (v as i32 - want.0).abs() <= 2), "nv12 {name}: luma row not uniform");
+        assert!(
+            row.iter().all(|&v| (v as i32 - want.0).abs() <= 2),
+            "nv12 {name}: luma row not uniform"
+        );
     }
 }
 
@@ -99,7 +117,11 @@ fn gpu_yuv_i420_colors() {
     ] {
         let frame = render_color(&mut renderer, rgb, false);
         for (x, y) in [(W / 2, H / 2), (4, 4), (W - 5, H - 5)] {
-            check(&format!("i420 {name} at ({x},{y})"), i420_at(&frame, x, y), want);
+            check(
+                &format!("i420 {name} at ({x},{y})"),
+                i420_at(&frame, x, y),
+                want,
+            );
         }
     }
 }

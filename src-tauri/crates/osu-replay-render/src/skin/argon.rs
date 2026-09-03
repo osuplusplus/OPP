@@ -36,7 +36,11 @@ impl ArgonSkin {
 
         let decode = |bytes: &[u8]| -> Image {
             let (w, h, rgba) = decode_png_rgba(bytes);
-            Image { width: w, height: h, rgba }
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            }
         };
         ArgonSkin {
             configuration,
@@ -49,7 +53,10 @@ impl ArgonSkin {
     }
 
     fn find(&self, name: &str) -> Option<SkinTexture> {
-        self.textures.iter().find(|(n, _, _)| *n == name).and_then(|(_, _, t)| *t)
+        self.textures
+            .iter()
+            .find(|(n, _, _)| *n == name)
+            .and_then(|(_, _, t)| *t)
     }
 }
 
@@ -79,9 +86,10 @@ impl Skin for ArgonSkin {
     /// `SkinConfiguration.ComboColours`); every other lookup misses.
     fn get_config(&self, lookup: SkinLookup) -> Option<SkinValue> {
         match lookup {
-            SkinLookup::GlobalColour(GlobalSkinColours::ComboColours) => {
-                self.configuration.combo_colours().map(SkinValue::ComboColours)
-            }
+            SkinLookup::GlobalColour(GlobalSkinColours::ComboColours) => self
+                .configuration
+                .combo_colours()
+                .map(SkinValue::ComboColours),
             SkinLookup::ComboColour(SkinComboColourLookup { colour_index, .. }) => {
                 let colours = self.configuration.combo_colours()?;
                 Some(SkinValue::Colour(colours[colour_index % colours.len()]))

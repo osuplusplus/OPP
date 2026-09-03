@@ -14,7 +14,8 @@ use osu_replay_judge::{beatmap, process, replay};
 /// beatmap defines none. Indexed by `ComboIndex % len` (1-based, so the
 /// first combo is GREEN - lazer matches the standard green-blue-red-yellow
 /// progression from slot 1).
-pub const ARGON_COMBO_COLOURS: [u32; 6] = [0xF17400, 0x00F135, 0x0052F1, 0xF10000, 0xE8EB00, 0x5C00F1];
+pub const ARGON_COMBO_COLOURS: [u32; 6] =
+    [0xF17400, 0x00F135, 0x0052F1, 0xF10000, 0xE8EB00, 0x5C00F1];
 
 /// `SkinConfiguration.DefaultComboColours` - the classic default-skin
 /// colours. Only used by skins WITHOUT custom combo colours (Argon has
@@ -101,7 +102,11 @@ impl ObjView {
             let dy = pts[i + 1][1] - pts[i][1];
             let len = (dx * dx + dy * dy).sqrt();
             if acc + len >= target {
-                let t = if len > 1e-6 { (target - acc) / len } else { 0.0 };
+                let t = if len > 1e-6 {
+                    (target - acc) / len
+                } else {
+                    0.0
+                };
                 return [
                     self.position[0] + pts[i][0] + dx * t,
                     self.position[1] + pts[i][1] + dy * t,
@@ -154,7 +159,11 @@ impl ObjView {
             let seg_end = acc + len;
 
             let lerp_at = |d: f32| -> [f32; 2] {
-                let t = if len > 1e-6 { ((d - seg_start) / len).clamp(0.0, 1.0) } else { 0.0 };
+                let t = if len > 1e-6 {
+                    ((d - seg_start) / len).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
                 [pts[i][0] + dx * t, pts[i][1] + dy * t]
             };
 
@@ -187,7 +196,10 @@ impl ObjView {
         if dedup.len() == 1 {
             dedup.push(dedup[0]);
         }
-        dedup.into_iter().map(|p| [self.position[0] + p[0], self.position[1] + p[1]]).collect()
+        dedup
+            .into_iter()
+            .map(|p| [self.position[0] + p[0], self.position[1] + p[1]])
+            .collect()
     }
 }
 
@@ -294,7 +306,11 @@ impl MapMeta {
     /// `Title`/`Artist` with the unicode variants as fallback.
     pub fn from_metadata(m: &osu_parse::beatmap::BeatmapMetadata) -> MapMeta {
         let pick = |romanised: &str, unicode: &str| {
-            if romanised.is_empty() { unicode.to_string() } else { romanised.to_string() }
+            if romanised.is_empty() {
+                unicode.to_string()
+            } else {
+                romanised.to_string()
+            }
         };
         MapMeta {
             title: pick(&m.title, &m.title_unicode),
@@ -434,7 +450,9 @@ fn with_lead_in(mut snapshots: Vec<FrameSnap>, rate: f64) -> Vec<FrameSnap> {
     snapshots
 }
 
-pub fn load(map_path: &str, replay_path: &str) -> Result<GameData, String> {    let content = std::fs::read_to_string(map_path).map_err(|e| format!("cannot read beatmap: {}", e))?;
+pub fn load(map_path: &str, replay_path: &str) -> Result<GameData, String> {
+    let content =
+        std::fs::read_to_string(map_path).map_err(|e| format!("cannot read beatmap: {}", e))?;
     let mut map = beatmap::decode(&content)?;
     let rep = replay::decode_file(replay_path, map.version)?;
 
@@ -447,7 +465,13 @@ pub fn load(map_path: &str, replay_path: &str) -> Result<GameData, String> {    
     let mut engine = Engine::new(processed, &mods);
     engine.run(&rep.frames);
 
-    let mut data = build(mods, classic, map.combo_colours, MapMeta::from_metadata(&map.metadata), &engine)?;
+    let mut data = build(
+        mods,
+        classic,
+        map.combo_colours,
+        MapMeta::from_metadata(&map.metadata),
+        &engine,
+    )?;
     data.player = rep.header.player_name.clone();
     data.played_at_ticks = Some(rep.header.timestamp);
     // Beatmap extras for the assembly stage (audio/background/hitsounds):
@@ -472,7 +496,8 @@ pub fn load(map_path: &str, replay_path: &str) -> Result<GameData, String> {    
 /// file is needed. The engine then judges the generated frames like any
 /// other replay — every judgement/HP/combo/UR readout is real.
 pub fn load_autoplay(map_path: &str) -> Result<GameData, String> {
-    let content = std::fs::read_to_string(map_path).map_err(|e| format!("cannot read beatmap: {}", e))?;
+    let content =
+        std::fs::read_to_string(map_path).map_err(|e| format!("cannot read beatmap: {}", e))?;
     let mut map = beatmap::decode(&content)?;
 
     // Lazer autoplay scores: no rate/visibility mods, standardised scoring.
@@ -481,12 +506,19 @@ pub fn load_autoplay(map_path: &str) -> Result<GameData, String> {
     let difficulty = process::apply_difficulty_mods(map.difficulty, false, false);
     let processed = process::process(&map, difficulty, classic, false);
 
-    let frames = crate::autoplay::AutoGenerator::new(&processed.objects, difficulty.ar as f64).generate();
+    let frames =
+        crate::autoplay::AutoGenerator::new(&processed.objects, difficulty.ar as f64).generate();
 
     let mut engine = Engine::new(processed, &mods);
     engine.run(&frames);
 
-    let mut data = build(mods, classic, map.combo_colours, MapMeta::from_metadata(&map.metadata), &engine)?;
+    let mut data = build(
+        mods,
+        classic,
+        map.combo_colours,
+        MapMeta::from_metadata(&map.metadata),
+        &engine,
+    )?;
     // lazer's autoplay attribution.
     data.player = "osu!".to_string();
     data.map_audio = map.general.audio_filename.clone();
@@ -516,7 +548,10 @@ fn build(
     let combo_colours: Vec<Colour> = if !map_colours.is_empty() {
         map_colours.iter().map(|&c| Colour::from_bytes(c)).collect()
     } else {
-        ARGON_COMBO_COLOURS.iter().map(|&c| Colour::from_hex(c)).collect()
+        ARGON_COMBO_COLOURS
+            .iter()
+            .map(|&c| Colour::from_hex(c))
+            .collect()
     };
 
     let mut objects: Vec<ObjView> = Vec::with_capacity(engine_objects.len());
@@ -525,20 +560,36 @@ fn build(
         let pos = [obj.position.x + stack.x, obj.position.y + stack.y];
         let end_pos = [obj.end_position.x + stack.x, obj.end_position.y + stack.y];
 
-        let (kind, slider_points, span_count, duration, nested_raw, spins_required) = match &obj.kind {
-            ProcKind::Circle => (ObjKind::Circle, Vec::new(), 0, 0.0, None, 0.0),
-            ProcKind::Spinner { spins_required, .. } => {
-                (ObjKind::Spinner, Vec::new(), 0, obj.end_time - obj.start_time, None, *spins_required as f64)
-            }
-            ProcKind::Slider { path, nested, span_count, duration, .. } => {
-                let pts: Vec<[f32; 2]> = path
-                    .calculated_path()
-                    .iter()
-                    .map(|p| [p.x, p.y])
-                    .collect();
-                (ObjKind::Slider, pts, *span_count, *duration, Some(nested), 0.0)
-            }
-        };
+        let (kind, slider_points, span_count, duration, nested_raw, spins_required) =
+            match &obj.kind {
+                ProcKind::Circle => (ObjKind::Circle, Vec::new(), 0, 0.0, None, 0.0),
+                ProcKind::Spinner { spins_required, .. } => (
+                    ObjKind::Spinner,
+                    Vec::new(),
+                    0,
+                    obj.end_time - obj.start_time,
+                    None,
+                    *spins_required as f64,
+                ),
+                ProcKind::Slider {
+                    path,
+                    nested,
+                    span_count,
+                    duration,
+                    ..
+                } => {
+                    let pts: Vec<[f32; 2]> =
+                        path.calculated_path().iter().map(|p| [p.x, p.y]).collect();
+                    (
+                        ObjKind::Slider,
+                        pts,
+                        *span_count,
+                        *duration,
+                        Some(nested),
+                        0.0,
+                    )
+                }
+            };
 
         let mut nested: Vec<NestedView> = Vec::new();
         if let Some(nl) = nested_raw {
@@ -584,7 +635,8 @@ fn build(
                 // indexed by ComboIndex % len. For .osu beatmaps the combo
                 // offsets are always zero, so this equals ComboIndex.
                 Colour::from_hex(
-                    ARGON_COMBO_COLOURS[(obj.combo_index_with_offsets as usize) % ARGON_COMBO_COLOURS.len()],
+                    ARGON_COMBO_COLOURS
+                        [(obj.combo_index_with_offsets as usize) % ARGON_COMBO_COLOURS.len()],
                 )
             },
             number: obj.index_in_current_combo + 1,
@@ -670,7 +722,10 @@ fn build(
     let mut spinner_ticks: Vec<(usize, f64, bool)> = Vec::new();
     let mut spinner_max_ticks: Vec<(usize, f64)> = Vec::new();
     for entry in &engine.timeline {
-        if matches!(entry.result, HitResult::Miss | HitResult::LargeTickMiss | HitResult::SmallTickMiss) {
+        if matches!(
+            entry.result,
+            HitResult::Miss | HitResult::LargeTickMiss | HitResult::SmallTickMiss
+        ) {
             miss_times.push(entry.time);
         }
         let obj = &mut objects[entry.object_index];
@@ -689,7 +744,11 @@ fn build(
             "head" => obj.head_judged = Some((entry.time, entry.result)),
             "slider" | "spinner" => obj.body_judged = Some((entry.time, entry.result)),
             "stick" => {
-                spinner_ticks.push((entry.object_index, entry.time, entry.result == HitResult::LargeBonus));
+                spinner_ticks.push((
+                    entry.object_index,
+                    entry.time,
+                    entry.result == HitResult::LargeBonus,
+                ));
             }
             "smax" => {
                 spinner_max_ticks.push((entry.object_index, entry.time));
@@ -784,7 +843,10 @@ fn build(
                 }
             }
             if cur != prev {
-                key_events.push(KeyCountEvent { time: s.time, counts });
+                key_events.push(KeyCountEvent {
+                    time: s.time,
+                    counts,
+                });
                 prev = cur;
             }
         }
@@ -819,7 +881,10 @@ fn build(
                 l if l.starts_with("tick") || l.starts_with("repeat") => {
                     let digits = l.find(|c: char| c.is_ascii_digit()).unwrap_or(l.len());
                     let idx = l[digits..].parse::<usize>().unwrap_or(0);
-                    obj.nested.get(idx).map(|n| n.position).unwrap_or(obj.position)
+                    obj.nested
+                        .get(idx)
+                        .map(|n| n.position)
+                        .unwrap_or(obj.position)
                 }
                 _ => obj.position,
             }
@@ -839,7 +904,12 @@ fn build(
                 let cursor = presses
                     .iter()
                     .filter(|(t, _)| *t >= t0 && *t <= entry.time + 2.0)
-                    .map(|(_, p)| ((p.x - obj.position[0]).hypot(p.y - obj.position[1]), [p.x, p.y]))
+                    .map(|(_, p)| {
+                        (
+                            (p.x - obj.position[0]).hypot(p.y - obj.position[1]),
+                            [p.x, p.y],
+                        )
+                    })
                     .min_by(|a, b| a.0.total_cmp(&b.0))
                     .map(|(_, p)| p);
                 if let Some(cursor) = cursor {
@@ -974,7 +1044,11 @@ pub fn key_state_at(game: &GameData, t: f64) -> [bool; 3] {
 /// Cumulative key-tap counts at time `t` (lazer `ActivationCount`).
 pub fn key_counts_at(game: &GameData, t: f64) -> [u32; 3] {
     let n = game.key_events.partition_point(|e| e.time <= t);
-    if n == 0 { [0, 0, 0] } else { game.key_events[n - 1].counts }
+    if n == 0 {
+        [0, 0, 0]
+    } else {
+        game.key_events[n - 1].counts
+    }
 }
 
 /// Health at time `t` (judge `HealthProcessor` reconstruction: latest
@@ -998,7 +1072,11 @@ pub fn health_at(game: &GameData, t: f64) -> f64 {
 /// `build()` stored (`combo_colours`: beatmap `[Colours]` or the argon
 /// fallback), so hosts can call it again after a skin swap or a flag
 /// toggle without the previous mapping sticking.
-pub fn apply_skin_combo_colours(game: &mut GameData, skin: &crate::skin::ResolvedSkin, force: bool) {
+pub fn apply_skin_combo_colours(
+    game: &mut GameData,
+    skin: &crate::skin::ResolvedSkin,
+    force: bool,
+) {
     use crate::skin::Skin as _;
     let skin_colours = skin
         .get_config(crate::skin::SkinLookup::GlobalColour(

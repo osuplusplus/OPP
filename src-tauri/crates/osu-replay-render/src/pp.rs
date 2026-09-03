@@ -126,9 +126,9 @@ pub fn calculate(map_path: &str, mods_bits: u32, classic: bool, engine: &Engine)
     let map = rosu_pp::Beatmap::from_path(map_path).ok()?;
     map.check_suspicion().ok()?;
 
-    let difficulty = rosu_pp::Difficulty::new()
-        .lazer(!classic)
-        .mods(rosu_pp::model::mods::rosu_mods::GameModsLegacy::from_bits(mods_bits));
+    let difficulty = rosu_pp::Difficulty::new().lazer(!classic).mods(
+        rosu_pp::model::mods::rosu_mods::GameModsLegacy::from_bits(mods_bits),
+    );
 
     // FC max PP off the full difficulty attributes.
     let attrs = match difficulty.clone().calculate(&map) {
@@ -144,7 +144,9 @@ pub fn calculate(map_path: &str, mods_bits: u32, classic: bool, engine: &Engine)
     };
     let max_pp = rosu_pp::osu::OsuPerformance::new(attrs.clone())
         .lazer(!classic)
-        .mods(rosu_pp::model::mods::rosu_mods::GameModsLegacy::from_bits(mods_bits))
+        .mods(rosu_pp::model::mods::rosu_mods::GameModsLegacy::from_bits(
+            mods_bits,
+        ))
         .calculate()
         .ok()?;
     let breakdown_max = PpBreakdown::of(&max_pp);
@@ -212,7 +214,16 @@ pub fn calculate(map_path: &str, mods_bits: u32, classic: bool, engine: &Engine)
     let pp = events.last().map(|&(_, pp)| pp).unwrap_or(0.0);
     let breakdown = last_attrs.as_ref().map(PpBreakdown::of).unwrap_or_default();
 
-    Some(PpData { pp, pp_max: max_pp, stars: attrs.stars, breakdown, breakdown_max, strain_aim, strain_points, events })
+    Some(PpData {
+        pp,
+        pp_max: max_pp,
+        stars: attrs.stars,
+        breakdown,
+        breakdown_max,
+        strain_aim,
+        strain_points,
+        events,
+    })
 }
 
 /// Live PP at time `t` (latest event at/before `t`; 0.0 before the first).

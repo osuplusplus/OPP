@@ -26,11 +26,15 @@ use std::path::{Path, PathBuf};
 
 use crate::draw::{Colour, Image};
 
-use super::configuration::{SkinConfiguration, LATEST_VERSION};
-use super::decoder::{decode_mania_configurations, decode_skin_configuration, LegacyManiaSkinConfiguration, LegacyNoteBodyStyle, DEFAULT_COLUMN_SIZE};
+use super::configuration::{LATEST_VERSION, SkinConfiguration};
+use super::decoder::{
+    DEFAULT_COLUMN_SIZE, LegacyManiaSkinConfiguration, LegacyNoteBodyStyle,
+    decode_mania_configurations, decode_skin_configuration,
+};
 use super::lookup::{
-    GlobalSkinColours, LegacyManiaSkinConfigurationLookup, LegacyManiaSkinConfigurationLookups as ManiaLookup,
-    SkinComboColourLookup, SkinCustomColourLookup, SkinLookup, SkinValue,
+    GlobalSkinColours, LegacyManiaSkinConfigurationLookup,
+    LegacyManiaSkinConfigurationLookups as ManiaLookup, SkinComboColourLookup,
+    SkinCustomColourLookup, SkinLookup, SkinValue,
 };
 use super::texture::SkinTexture;
 use super::{Skin, SkinTextureSource};
@@ -48,8 +52,12 @@ pub use super::decoder::STABLE_MAGIC_SCALE_FACTOR;
 /// Sprites stable stores in colour and lazer converts to grayscale on
 /// load (`LegacyTextureLoaderStore.grayscale_sprites`), matched with or
 /// without an `@2x` suffix, case-insensitively.
-const GRAYSCALE_SPRITES: [&str; 4] =
-    ["taiko-bar-right", "taikobigcircle", "taikohitcircle", "taikohitcircleoverlay"];
+const GRAYSCALE_SPRITES: [&str; 4] = [
+    "taiko-bar-right",
+    "taikobigcircle",
+    "taikohitcircle",
+    "taikohitcircleoverlay",
+];
 
 /// A user skin directory. File lookups are case-insensitive (stable
 /// behaviour) and walk subdirectories, keyed by each file's path relative
@@ -103,15 +111,27 @@ fn visit_skin_tree(
             continue;
         };
         if file_type.is_dir() {
-            let child_rel = if rel.is_empty() { name.to_string() } else { format!("{}/{}", rel, name) };
+            let child_rel = if rel.is_empty() {
+                name.to_string()
+            } else {
+                format!("{}/{}", rel, name)
+            };
             visit_skin_tree(&path, &child_rel, files, samples);
             continue;
         }
-        let Some(ext) = path.extension().and_then(|e| e.to_str()).map(str::to_lowercase) else {
+        let Some(ext) = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase)
+        else {
             continue;
         };
         let is_texture = TEXTURE_EXTENSIONS.contains(&ext.as_str());
-        let order: &[&str] = if is_texture { &TEXTURE_EXTENSIONS } else { &SAMPLE_EXTENSIONS };
+        let order: &[&str] = if is_texture {
+            &TEXTURE_EXTENSIONS
+        } else {
+            &SAMPLE_EXTENSIONS
+        };
         let key = if rel.is_empty() {
             name.to_lowercase()
         } else {
@@ -215,7 +235,8 @@ impl LegacySkin {
     /// texture table (they would be drawn with legacy authored-size
     /// semantics and render oversized).
     pub fn provides(&self, name: &str) -> bool {
-        self.files.contains_key(&name.to_lowercase().replace('\\', "/"))
+        self.files
+            .contains_key(&name.to_lowercase().replace('\\', "/"))
     }
 
     /// Number of image files discovered (diagnostics).
@@ -225,9 +246,9 @@ impl LegacySkin {
 
     /// `shouldConvertToGrayscale` (name with or without `@2x`).
     fn should_convert_to_grayscale(name: &str) -> bool {
-        GRAYSCALE_SPRITES
-            .iter()
-            .any(|s| name.eq_ignore_ascii_case(s) || name.eq_ignore_ascii_case(&format!("{}@2x", s)))
+        GRAYSCALE_SPRITES.iter().any(|s| {
+            name.eq_ignore_ascii_case(s) || name.eq_ignore_ascii_case(&format!("{}@2x", s))
+        })
     }
 
     /// BT.601 luma (`0.299 r + 0.587 g + 0.114 b`, stable's pTexture).
@@ -247,7 +268,10 @@ impl LegacySkin {
     }
 
     /// `LegacySkin.legacySettingLookup`.
-    fn legacy_setting_lookup(&self, setting: super::configuration::LegacySetting) -> Option<SkinValue> {
+    fn legacy_setting_lookup(
+        &self,
+        setting: super::configuration::LegacySetting,
+    ) -> Option<SkinValue> {
         use super::configuration::LegacySetting;
         match setting {
             LegacySetting::Version => Some(SkinValue::F64(
@@ -340,7 +364,9 @@ impl LegacySkin {
             }
             ManiaLookup::ComboBreakColour => custom_colour("ColourBreak"),
             ManiaLookup::BarLineColour => custom_colour("ColourBarline"),
-            ManiaLookup::MinimumColumnWidth => Some(SkinValue::F32(existing.minimum_column_width())),
+            ManiaLookup::MinimumColumnWidth => {
+                Some(SkinValue::F32(existing.minimum_column_width()))
+            }
             ManiaLookup::BarLineHeight => Some(SkinValue::F32(existing.bar_line_height)),
             ManiaLookup::NoteBodyStyle => {
                 if let Some(style) = existing.note_body_style {
@@ -390,7 +416,9 @@ impl LegacySkin {
             ManiaLookup::Hit300 => mania_image("Hit300"),
             ManiaLookup::Hit300g => mania_image("Hit300g"),
             ManiaLookup::KeysUnderNotes => Some(SkinValue::Bool(existing.keys_under_notes)),
-            ManiaLookup::LightFramePerSecond => Some(SkinValue::I64(existing.light_frame_per_second as i64)),
+            ManiaLookup::LightFramePerSecond => {
+                Some(SkinValue::I64(existing.light_frame_per_second as i64))
+            }
             ManiaLookup::LeftColumnSpacing => {
                 let i = column(lookup.column_index)?;
                 if i == 0 {
@@ -411,11 +439,17 @@ impl LegacySkin {
             }
             ManiaLookup::LeftLineWidth => {
                 let i = lookup.column_index?;
-                existing.column_line_width.get(i).map(|w| SkinValue::F32(*w))
+                existing
+                    .column_line_width
+                    .get(i)
+                    .map(|w| SkinValue::F32(*w))
             }
             ManiaLookup::RightLineWidth => {
                 let i = lookup.column_index?;
-                existing.column_line_width.get(i + 1).map(|w| SkinValue::F32(*w))
+                existing
+                    .column_line_width
+                    .get(i + 1)
+                    .map(|w| SkinValue::F32(*w))
             }
             ManiaLookup::ExplosionScale => {
                 let i = column(lookup.column_index)?;
@@ -423,9 +457,13 @@ impl LegacySkin {
                     return Some(SkinValue::F32(1.0));
                 }
                 if existing.explosion_width[i] != 0.0 {
-                    Some(SkinValue::F32(existing.explosion_width[i] / DEFAULT_COLUMN_SIZE))
+                    Some(SkinValue::F32(
+                        existing.explosion_width[i] / DEFAULT_COLUMN_SIZE,
+                    ))
                 } else {
-                    Some(SkinValue::F32(existing.column_width[i] / DEFAULT_COLUMN_SIZE))
+                    Some(SkinValue::F32(
+                        existing.column_width[i] / DEFAULT_COLUMN_SIZE,
+                    ))
                 }
             }
             ManiaLookup::HoldNoteLightScale => {
@@ -434,9 +472,13 @@ impl LegacySkin {
                     return Some(SkinValue::F32(1.0));
                 }
                 if existing.hold_note_light_width[i] != 0.0 {
-                    Some(SkinValue::F32(existing.hold_note_light_width[i] / DEFAULT_COLUMN_SIZE))
+                    Some(SkinValue::F32(
+                        existing.hold_note_light_width[i] / DEFAULT_COLUMN_SIZE,
+                    ))
                 } else {
-                    Some(SkinValue::F32(existing.column_width[i] / DEFAULT_COLUMN_SIZE))
+                    Some(SkinValue::F32(
+                        existing.column_width[i] / DEFAULT_COLUMN_SIZE,
+                    ))
                 }
             }
             // Lookups lazer's `lookupForMania` does not handle (stage
@@ -497,9 +539,10 @@ impl Skin for LegacySkin {
     fn get_config(&self, lookup: SkinLookup) -> Option<SkinValue> {
         match lookup {
             SkinLookup::GlobalColour(colour) => match colour {
-                GlobalSkinColours::ComboColours => {
-                    self.configuration.combo_colours().map(SkinValue::ComboColours)
-                }
+                GlobalSkinColours::ComboColours => self
+                    .configuration
+                    .combo_colours()
+                    .map(SkinValue::ComboColours),
                 _ => self
                     .configuration
                     .custom_colours
@@ -510,9 +553,12 @@ impl Skin for LegacySkin {
             SkinLookup::ComboColour(SkinComboColourLookup { colour_index, .. }) => {
                 self.get_combo_colour(colour_index).map(SkinValue::Colour)
             }
-            SkinLookup::CustomColour(SkinCustomColourLookup(name)) => {
-                self.configuration.custom_colours.get(&name).copied().map(SkinValue::Colour)
-            }
+            SkinLookup::CustomColour(SkinCustomColourLookup(name)) => self
+                .configuration
+                .custom_colours
+                .get(&name)
+                .copied()
+                .map(SkinValue::Colour),
             SkinLookup::Mania(mania_lookup) => self.lookup_for_mania(mania_lookup),
             SkinLookup::LegacySetting(setting) => self.legacy_setting_lookup(setting),
             SkinLookup::Generic(_) => self.generic_lookup(&lookup),
@@ -751,7 +797,11 @@ pub(crate) fn downscale(image: &Image, scale: f32) -> Image {
             rgba[d..d + 4].copy_from_slice(&out);
         }
     }
-    Image { width: w, height: h, rgba }
+    Image {
+        width: w,
+        height: h,
+        rgba,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -765,7 +815,8 @@ mod tests {
     use crate::skin::configuration::LegacySetting;
 
     fn skin_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("orr_skin_test_{}_{}", std::process::id(), name));
+        let dir =
+            std::env::temp_dir().join(format!("orr_skin_test_{}_{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -812,17 +863,37 @@ mod tests {
         let skin = LegacySkin::from_directory(&dir).unwrap();
         assert_eq!(skin.name(), "MySkin");
         assert_eq!(skin.configuration().legacy_version, Some(2.4));
-        let colours = skin.get_config(SkinLookup::GlobalColour(GlobalSkinColours::ComboColours)).unwrap();
-        assert_eq!(colours, SkinValue::ComboColours(vec![Colour::rgba_bytes(20, 30, 40, 255)]));
-        let combo = skin
-            .get_config(SkinLookup::ComboColour(SkinComboColourLookup { colour_index: 3, combo_index: 0 }))
+        let colours = skin
+            .get_config(SkinLookup::GlobalColour(GlobalSkinColours::ComboColours))
             .unwrap();
-        assert_eq!(combo, SkinValue::Colour(Colour::rgba_bytes(20, 30, 40, 255)));
-        let ball = skin.get_config(SkinLookup::CustomColour(SkinCustomColourLookup("SliderBall".into()))).unwrap();
-        assert_eq!(ball, SkinValue::Colour(Colour::rgba_bytes(2, 170, 255, 255)));
+        assert_eq!(
+            colours,
+            SkinValue::ComboColours(vec![Colour::rgba_bytes(20, 30, 40, 255)])
+        );
+        let combo = skin
+            .get_config(SkinLookup::ComboColour(SkinComboColourLookup {
+                colour_index: 3,
+                combo_index: 0,
+            }))
+            .unwrap();
+        assert_eq!(
+            combo,
+            SkinValue::Colour(Colour::rgba_bytes(20, 30, 40, 255))
+        );
+        let ball = skin
+            .get_config(SkinLookup::CustomColour(SkinCustomColourLookup(
+                "SliderBall".into(),
+            )))
+            .unwrap();
+        assert_eq!(
+            ball,
+            SkinValue::Colour(Colour::rgba_bytes(2, 170, 255, 255))
+        );
         // Generic dictionary lookup, including the 0/1 boolean special case.
         let slider_tint = skin
-            .get_config(SkinLookup::LegacySetting(LegacySetting::AllowSliderBallTint))
+            .get_config(SkinLookup::LegacySetting(
+                LegacySetting::AllowSliderBallTint,
+            ))
             .unwrap();
         assert_eq!(slider_tint, SkinValue::Str("1".to_string()));
         assert_eq!(slider_tint.as_bool(), Some(true));
@@ -912,7 +983,10 @@ mod tests {
                 lookup: l,
             }))
         };
-        assert_eq!(lookup(ManiaLookup::ColumnWidth).unwrap(), SkinValue::F32(22.4)); // 14 x1.6
+        assert_eq!(
+            lookup(ManiaLookup::ColumnWidth).unwrap(),
+            SkinValue::F32(22.4)
+        ); // 14 x1.6
         assert_eq!(
             lookup(ManiaLookup::NoteImage).unwrap(),
             SkinValue::ManiaImage("mine.png".to_string())
@@ -942,8 +1016,16 @@ mod tests {
         std::fs::write(dir.join("normal-hitnormal.wav"), b"x").unwrap();
         std::fs::write(dir.join("soft-hitclap.ogg"), b"x").unwrap();
         let skin = LegacySkin::from_directory(&dir).unwrap();
-        assert!(skin.get_sample("normal-hitnormal").unwrap().ends_with("normal-hitnormal.wav"));
-        assert!(skin.get_sample("soft-hitclap").unwrap().ends_with("soft-hitclap.ogg"));
+        assert!(
+            skin.get_sample("normal-hitnormal")
+                .unwrap()
+                .ends_with("normal-hitnormal.wav")
+        );
+        assert!(
+            skin.get_sample("soft-hitclap")
+                .unwrap()
+                .ends_with("soft-hitclap.ogg")
+        );
         assert!(skin.get_sample("nope").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -973,18 +1055,28 @@ mod tests {
     #[test]
     fn mixed_case_prefix_resolves() {
         let dir = skin_dir("case_prefix");
-        std::fs::write(dir.join("skin.ini"), "[General]\nVersion: 2.5\nHitCirclePrefix: Mine\n").unwrap();
+        std::fs::write(
+            dir.join("skin.ini"),
+            "[General]\nVersion: 2.5\nHitCirclePrefix: Mine\n",
+        )
+        .unwrap();
         write_png(&dir.join("Mine-0.png"), 2, 2, &[255; 4 * 4]);
         write_png(&dir.join("Mine-9.png"), 2, 2, &[255; 4 * 4]);
         let mut skin = LegacySkin::from_directory(&dir).unwrap();
         assign_atlas(&mut skin);
         assert_eq!(
-            super::super::texture::get_font_prefix(&skin, super::super::texture::LegacyFont::HitCircle),
+            super::super::texture::get_font_prefix(
+                &skin,
+                super::super::texture::LegacyFont::HitCircle
+            ),
             "Mine"
         );
         assert!(skin.get_texture("Mine-0").is_some());
         assert!(skin.get_texture("MINE-9").is_some());
-        assert!(super::super::texture::has_font(&skin, super::super::texture::LegacyFont::HitCircle));
+        assert!(super::super::texture::has_font(
+            &skin,
+            super::super::texture::LegacyFont::HitCircle
+        ));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1000,8 +1092,18 @@ mod tests {
             "[General]\nVersion: 2.5\nHitCirclePrefix: Assets/default/default\nScorePrefix: Assets\\score\\score\n",
         )
         .unwrap();
-        write_png(&dir.join("Assets/default/default-0.png"), 2, 2, &[255; 4 * 4]);
-        write_png(&dir.join("Assets/default/default-1@2x.png"), 4, 4, &[255; 4 * 16]);
+        write_png(
+            &dir.join("Assets/default/default-0.png"),
+            2,
+            2,
+            &[255; 4 * 4],
+        );
+        write_png(
+            &dir.join("Assets/default/default-1@2x.png"),
+            4,
+            4,
+            &[255; 4 * 16],
+        );
         std::fs::create_dir_all(dir.join("Assets/score")).unwrap();
         write_png(&dir.join("Assets/score/score-0.png"), 2, 2, &[255; 4 * 4]);
         let mut skin = LegacySkin::from_directory(&dir).unwrap();

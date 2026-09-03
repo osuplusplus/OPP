@@ -34,7 +34,11 @@ fn legacy_slider_body_gradient_bands() {
     let px = |x: u32, y: u32| -> (f32, f32, f32) {
         let i = y as usize * stride + (x * 4) as usize;
         // Readback is BGRA.
-        (buf[i + 2] as f32 / 255.0, buf[i + 1] as f32 / 255.0, buf[i] as f32 / 255.0)
+        (
+            buf[i + 2] as f32 / 255.0,
+            buf[i + 1] as f32 / 255.0,
+            buf[i] as f32 / 255.0,
+        )
     };
 
     let centre = 80.0f32;
@@ -44,22 +48,33 @@ fn legacy_slider_body_gradient_bands() {
     // Border band: position in (0.078, 0.1875] -> dy in
     // [r*(1-0.1875), r*(1-0.078)) = [48.75, 55.3): white.
     let (br, bg, bb) = sample(-51.0);
-    assert!((br - 1.0).abs() < 0.02 && (bg - 1.0).abs() < 0.02 && (bb - 1.0).abs() < 0.02,
-        "border band should be white, got ({br:.2},{bg:.2},{bb:.2})");
+    assert!(
+        (br - 1.0).abs() < 0.02 && (bg - 1.0).abs() < 0.02 && (bb - 1.0).abs() < 0.02,
+        "border band should be white, got ({br:.2},{bg:.2},{bb:.2})"
+    );
 
     // Body outer edge (just inside the border, position slightly past
     // 0.1875): close to accent.Darken(0.1) = (0.909, 0, 0) at 0.7 alpha
     // over black = (0.636, 0, 0). Allow the first lerp step.
     let (or, og, ob) = sample(-46.0);
-    assert!(og < 0.06 && ob < 0.06, "body outer edge should have ~no green/blue, got ({or:.2},{og:.2},{ob:.2})");
-    assert!((or - 0.636).abs() < 0.1, "body outer red ~0.64, got {or:.2}");
+    assert!(
+        og < 0.06 && ob < 0.06,
+        "body outer edge should have ~no green/blue, got ({or:.2},{og:.2},{ob:.2})"
+    );
+    assert!(
+        (or - 0.636).abs() < 0.1,
+        "body outer red ~0.64, got {or:.2}"
+    );
 
     // Centre: lighten(accent, 0.5) = (1, 0.25, 0.25) at 0.7 alpha over
     // black = (0.7, 0.175, 0.175) - the bright inner core (the
     // "highlight").
     let (cr, cg, cb) = sample(0.0);
     assert!((cr - 0.7).abs() < 0.06, "centre red ~0.70, got {cr:.2}");
-    assert!((cg - 0.175).abs() < 0.05, "centre green ~0.175, got {cg:.2}");
+    assert!(
+        (cg - 0.175).abs() < 0.05,
+        "centre green ~0.175, got {cg:.2}"
+    );
     assert!((cb - 0.175).abs() < 0.05, "centre blue ~0.175, got {cb:.2}");
 
     // Monotonic brightening toward the centre along the body gradient

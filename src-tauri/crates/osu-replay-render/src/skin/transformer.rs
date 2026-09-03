@@ -83,7 +83,9 @@ impl Skin for ResolvedSkin {
     /// (`SkinTransformer`'s pass-through per layer).
     fn get_texture(&self, name: &str) -> Option<SkinTexture> {
         match &self.legacy {
-            Some(l) => l.get_texture(name).or_else(|| self.builtin.get_texture(name)),
+            Some(l) => l
+                .get_texture(name)
+                .or_else(|| self.builtin.get_texture(name)),
             None => self.builtin.get_texture(name),
         }
     }
@@ -93,7 +95,9 @@ impl Skin for ResolvedSkin {
     /// colours default inside `SkinConfiguration`).
     fn get_config(&self, lookup: SkinLookup) -> Option<super::lookup::SkinValue> {
         match &self.legacy {
-            Some(l) => l.get_config(lookup.clone()).or_else(|| self.builtin.get_config(lookup)),
+            Some(l) => l
+                .get_config(lookup.clone())
+                .or_else(|| self.builtin.get_config(lookup)),
             None => self.builtin.get_config(lookup),
         }
     }
@@ -115,8 +119,13 @@ impl SkinTextureSource for ResolvedSkin {
         // (140px) would silently become the builtin 256px one and render
         // oversized. Dropping matches the lookup chain: `get_texture`
         // never reaches the builtin for a name the legacy skin serves.
-        let mut images = self.legacy.as_ref().map(|l| l.texture_images()).unwrap_or_default();
-        let taken: std::collections::HashSet<String> = images.iter().map(|(n, _)| n.clone()).collect();
+        let mut images = self
+            .legacy
+            .as_ref()
+            .map(|l| l.texture_images())
+            .unwrap_or_default();
+        let taken: std::collections::HashSet<String> =
+            images.iter().map(|(n, _)| n.clone()).collect();
         images.extend(
             self.builtin
                 .texture_images()
@@ -158,9 +167,15 @@ pub fn load_skin(path: Option<&Path>) -> Result<ResolvedSkin, String> {
                 legacy.configuration().effective_legacy_version(),
                 legacy.texture_count()
             );
-            Ok(ResolvedSkin { legacy: Some(legacy), builtin })
+            Ok(ResolvedSkin {
+                legacy: Some(legacy),
+                builtin,
+            })
         }
-        None => Ok(ResolvedSkin { legacy: None, builtin }),
+        None => Ok(ResolvedSkin {
+            legacy: None,
+            builtin,
+        }),
     }
 }
 
@@ -173,7 +188,10 @@ mod tests {
         let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w, h);
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
-        enc.write_header().unwrap().write_image_data(&[255; 16]).unwrap();
+        enc.write_header()
+            .unwrap()
+            .write_image_data(&[255; 16])
+            .unwrap();
     }
 
     fn assign_atlas(skin: &mut ResolvedSkin) {

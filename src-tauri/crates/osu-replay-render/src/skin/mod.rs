@@ -35,16 +35,16 @@ pub mod lookup;
 pub mod texture;
 pub mod transformer;
 
-pub use configuration::{default_combo_colours, SkinConfiguration, LATEST_VERSION};
+pub use configuration::{LATEST_VERSION, SkinConfiguration, default_combo_colours};
 pub use lookup::{
     GlobalSkinColours, LegacyManiaSkinConfigurationLookup, LegacyManiaSkinConfigurationLookups,
     SkinComboColourLookup, SkinCustomColourLookup, SkinLookup, SkinValue,
 };
 pub use texture::{
-    get_animation, get_font_overlap, get_font_prefix, has_font, SkinAnimation, SkinTexture,
-    SIXTY_FRAME_TIME,
+    SIXTY_FRAME_TIME, SkinAnimation, SkinTexture, get_animation, get_font_overlap, get_font_prefix,
+    has_font,
 };
-pub use transformer::{load_skin, ResolvedSkin};
+pub use transformer::{ResolvedSkin, load_skin};
 
 use std::path::PathBuf;
 

@@ -105,7 +105,12 @@ pub struct AutoGenerator<'a> {
 
 impl<'a> AutoGenerator<'a> {
     pub fn new(objects: &'a [ProcObject], ar: f64) -> Self {
-        AutoGenerator { objects, frames: Vec::new(), button_index: 0, preempt: preempt_from_ar(ar) }
+        AutoGenerator {
+            objects,
+            frames: Vec::new(),
+            button_index: 0,
+            preempt: preempt_from_ar(ar),
+        }
     }
 
     pub fn generate(mut self) -> Vec<ReplayFrame> {
@@ -114,7 +119,12 @@ impl<'a> AutoGenerator<'a> {
         }
 
         self.button_index = 0;
-        self.add_frame(Frame { time: self.objects[0].start_time - 1500.0, pos: Vec2::new(256.0, 500.0), action: None, key_up: false });
+        self.add_frame(Frame {
+            time: self.objects[0].start_time - 1500.0,
+            pos: Vec2::new(256.0, 500.0),
+            action: None,
+            key_up: false,
+        });
 
         for h in self.objects {
             self.add_hit_object_replay(h);
@@ -160,7 +170,11 @@ impl<'a> AutoGenerator<'a> {
                 return;
             }
             let prev = self.frames[self.frames.len() - 1].pos;
-            Self::calc_spinner_start_pos_and_direction(prev, &mut start_position, &mut spinner_direction);
+            Self::calc_spinner_start_pos_and_direction(
+                prev,
+                &mut start_position,
+                &mut spinner_direction,
+            );
 
             let spin_centre_offset = SPINNER_CENTRE - prev;
             if spin_centre_offset.length() > SPIN_RADIUS {
@@ -182,10 +196,15 @@ impl<'a> AutoGenerator<'a> {
     /// Direct port of `calcSpinnerStartPosAndDirection`, including the C#
     /// statement-order quirk where the Y rotation reads the already
     /// rotated X component (sequential statements in the original).
-    fn calc_spinner_start_pos_and_direction(prev_pos: Vec2, start_position: &mut Vec2, spinner_direction: &mut f32) {
+    fn calc_spinner_start_pos_and_direction(
+        prev_pos: Vec2,
+        start_position: &mut Vec2,
+        spinner_direction: &mut f32,
+    ) {
         let mut spin_centre_offset = SPINNER_CENTRE - prev_pos;
         let dist_from_centre = spin_centre_offset.length();
-        let dist_to_tangent_point = (dist_from_centre * dist_from_centre - SPIN_RADIUS * SPIN_RADIUS).sqrt();
+        let dist_to_tangent_point =
+            (dist_from_centre * dist_from_centre - SPIN_RADIUS * SPIN_RADIUS).sqrt();
 
         if dist_from_centre > SPIN_RADIUS {
             // Previous cursor position was outside spin circle: start at
@@ -207,7 +226,8 @@ impl<'a> AutoGenerator<'a> {
             *start_position = prev_pos + spin_centre_offset;
         } else if spin_centre_offset.length() > 0.0 {
             // Inside the spin circle: start at the nearest point on it.
-            *start_position = SPINNER_CENTRE - spin_centre_offset * (SPIN_RADIUS / spin_centre_offset.length());
+            *start_position =
+                SPINNER_CENTRE - spin_centre_offset * (SPIN_RADIUS / spin_centre_offset.length());
             *spinner_direction = 1.0;
         } else {
             // Cursor exactly at the centre.
@@ -223,7 +243,10 @@ impl<'a> AutoGenerator<'a> {
         let wait_time = h.start_time - (self.preempt - REACTION_TIME).max(0.0);
         let mut has_waited = false;
         if wait_time > last.time {
-            last = Frame { time: wait_time, ..last };
+            last = Frame {
+                time: wait_time,
+                ..last
+            };
             has_waited = true;
             self.add_frame(last);
         }
@@ -238,7 +261,8 @@ impl<'a> AutoGenerator<'a> {
             if self.frames.len() >= 2 && last.key_up && !has_waited {
                 let last_last = self.frames[self.frames.len() - 2];
                 if h.start_time > last_last.time {
-                    let t = ((last.time - last_last.time) / (h.start_time - last_last.time)).clamp(0.0, 1.0);
+                    let t = ((last.time - last_last.time) / (h.start_time - last_last.time))
+                        .clamp(0.0, 1.0);
                     last.pos = Vec2::lerp(last.pos, target_pos, easing(t));
                     self.frames.last_mut().unwrap().pos = last.pos;
                 }
@@ -251,7 +275,12 @@ impl<'a> AutoGenerator<'a> {
             while time < h.start_time {
                 let t = ((time - last.time) / (h.start_time - last.time)).clamp(0.0, 1.0);
                 let pos = Vec2::lerp(last_position, target_pos, easing(t));
-                self.add_frame(Frame { time: time.floor(), pos, action: last.action, key_up: false });
+                self.add_frame(Frame {
+                    time: time.floor(),
+                    pos,
+                    action: last.action,
+                    key_up: false,
+                });
                 time += FRAME_DELAY;
             }
         }
@@ -265,17 +294,40 @@ impl<'a> AutoGenerator<'a> {
         }
     }
 
-    fn add_hit_object_click_frames(&mut self, h: &ProcObject, start_position: Vec2, spinner_direction: f32) {
+    fn add_hit_object_click_frames(
+        &mut self,
+        h: &ProcObject,
+        start_position: Vec2,
+        spinner_direction: f32,
+    ) {
         // Which button to use; mainly determined by buttonIndex parity,
         // possibly forced to alternate below.
-        let mut action = if self.button_index % 2 == 0 { Action::Left } else { Action::Right };
+        let mut action = if self.button_index % 2 == 0 {
+            Action::Left
+        } else {
+            Action::Right
+        };
 
-        let mut start_frame = Frame { time: h.start_time, pos: start_position, action: Some(action), key_up: false };
+        let mut start_frame = Frame {
+            time: h.start_time,
+            pos: start_position,
+            action: Some(action),
+            key_up: false,
+        };
 
         let h_end_time = h.end_time + KEY_UP_DELAY;
         // Why spinners get a 1ms extra delay: TODO in the original too.
-        let end_delay = if matches!(h.kind, ProcKind::Spinner { .. }) { 1.0 } else { 0.0 };
-        let mut end_frame = Frame { time: h_end_time + end_delay, pos: stacked_end_position(h), action: None, key_up: true };
+        let end_delay = if matches!(h.kind, ProcKind::Spinner { .. }) {
+            1.0
+        } else {
+            0.0
+        };
+        let mut end_frame = Frame {
+            time: h_end_time + end_delay,
+            pos: stacked_end_position(h),
+            action: None,
+            key_up: true,
+        };
 
         // Decrement because we want the previous frame, not the next one.
         let index = self.find_insertion_index(start_frame.time) as i64 - 1;
@@ -291,7 +343,11 @@ impl<'a> AutoGenerator<'a> {
                 // If a button is already held, simply alternate when it's
                 // the same button we chose.
                 if prev_action == action {
-                    action = if action == Action::Left { Action::Right } else { Action::Left };
+                    action = if action == Action::Left {
+                        Action::Right
+                    } else {
+                        Action::Left
+                    };
                     start_frame.action = Some(action);
                 }
 
@@ -323,36 +379,71 @@ impl<'a> AutoGenerator<'a> {
                 let difference = start_position - SPINNER_CENTRE;
 
                 let radius = difference.length();
-                let mut angle = if radius == 0.0 { 0.0 } else { difference.y.atan2(difference.x) };
+                let mut angle = if radius == 0.0 {
+                    0.0
+                } else {
+                    difference.y.atan2(difference.x)
+                };
 
                 let mut previous_frame_time = h.start_time;
                 let mut next_frame = h.start_time + FRAME_DELAY;
                 while next_frame < h.end_time {
-                    angle += (next_frame - previous_frame_time) as f32 * spinner_direction * SPIN_RADS_PER_MS;
+                    angle += (next_frame - previous_frame_time) as f32
+                        * spinner_direction
+                        * SPIN_RADS_PER_MS;
 
-                    let pos = SPINNER_CENTRE + Vec2::new(angle.cos() * SPIN_RADIUS, angle.sin() * SPIN_RADIUS);
-                    self.add_frame(Frame { time: next_frame.floor(), pos, action: Some(action), key_up: false });
+                    let pos = SPINNER_CENTRE
+                        + Vec2::new(angle.cos() * SPIN_RADIUS, angle.sin() * SPIN_RADIUS);
+                    self.add_frame(Frame {
+                        time: next_frame.floor(),
+                        pos,
+                        action: Some(action),
+                        key_up: false,
+                    });
 
                     previous_frame_time = next_frame;
                     next_frame += FRAME_DELAY;
                 }
 
-                angle += (h.end_time - previous_frame_time) as f32 * spinner_direction * SPIN_RADS_PER_MS;
-                let end_position = SPINNER_CENTRE + Vec2::new(angle.cos() * SPIN_RADIUS, angle.sin() * SPIN_RADIUS);
+                angle += (h.end_time - previous_frame_time) as f32
+                    * spinner_direction
+                    * SPIN_RADS_PER_MS;
+                let end_position = SPINNER_CENTRE
+                    + Vec2::new(angle.cos() * SPIN_RADIUS, angle.sin() * SPIN_RADIUS);
 
-                self.add_frame(Frame { time: h.end_time, pos: end_position, action: Some(action), key_up: false });
+                self.add_frame(Frame {
+                    time: h.end_time,
+                    pos: end_position,
+                    action: Some(action),
+                    key_up: false,
+                });
 
                 end_frame.pos = end_position;
             }
-            ProcKind::Slider { path, span_count, duration, .. } => {
+            ProcKind::Slider {
+                path,
+                span_count,
+                duration,
+                ..
+            } => {
                 let stacked = stacked_position(h);
                 let mut j = FRAME_DELAY;
                 while j < *duration {
                     let pos = stacked + curve_position_at(path, *span_count, j / *duration);
-                    self.add_frame(Frame { time: h.start_time + j, pos, action: Some(action), key_up: false });
+                    self.add_frame(Frame {
+                        time: h.start_time + j,
+                        pos,
+                        action: Some(action),
+                        key_up: false,
+                    });
                     j += FRAME_DELAY;
                 }
-                self.add_frame(Frame { time: h.end_time, pos: stacked_end_position(h), action: Some(action), key_up: false });
+                self.add_frame(Frame {
+                    time: h.end_time,
+                    pos: stacked_end_position(h),
+                    action: Some(action),
+                    key_up: false,
+                });
             }
             ProcKind::Circle => {}
         }

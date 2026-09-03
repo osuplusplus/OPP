@@ -53,8 +53,7 @@
 
 use crate::game::{GameData, ObjKind};
 use osu_parse::samples::{
-    SampleBank as Bank, SampleBankInfo as BankInfo, SampleData, SampleObject as RawObj,
-    SamplePoint,
+    SampleBank as Bank, SampleBankInfo as BankInfo, SampleData, SampleObject as RawObj, SamplePoint,
 };
 use osu_replay_judge::process::NestedKind;
 use osu_replay_judge::score::hit_result_ext;
@@ -74,12 +73,15 @@ const CONTROL_POINT_LENIENCY: f64 = 5.0;
 /// `CalculateSamplePlaybackBalance`.
 const POSITIONAL_HITSOUNDS_LEVEL: f64 = 0.8;
 
-
 /// `SamplePointAt`: rightmost point with `time <= t`; before the first
 /// point that point itself applies, else normal/100.
 fn point_at(points: &[SamplePoint], t: f64) -> SamplePoint {
     if points.is_empty() {
-        return SamplePoint { time: f64::NEG_INFINITY, bank: Bank::Normal, volume: 100 };
+        return SamplePoint {
+            time: f64::NEG_INFINITY,
+            bank: Bank::Normal,
+            volume: 100,
+        };
     }
     let mut lo = 0usize;
     let mut hi = points.len();
@@ -109,7 +111,11 @@ fn resolve_samples(sound_type: u8, info: &BankInfo, point: SamplePoint) -> Vec<H
     let mut out = Vec::with_capacity(4);
     let mut push = |name: &'static str, bank: Option<Bank>| {
         let bank = bank.unwrap_or(point.bank);
-        let volume = if info.volume > 0 { info.volume } else { point.volume };
+        let volume = if info.volume > 0 {
+            info.volume
+        } else {
+            point.volume
+        };
         out.push(HitSample { name, bank, volume });
     };
     push("hitnormal", info.normal);
@@ -148,7 +154,13 @@ fn balance(x: f32) -> f64 {
     (b * 100.0).round() / 100.0
 }
 
-fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64, resolver: &mut SampleResolver) -> Vec<Placement> {
+fn build_placements(
+    game: &GameData,
+    data: &SampleData,
+    t0: f64,
+    t_map_end: f64,
+    resolver: &mut SampleResolver,
+) -> Vec<Placement> {
     let mut out: Vec<Placement> = Vec::new();
     if game.objects.len() != data.objects.len() {
         return out; // parser mismatch; silence rather than desynced sounds
@@ -161,7 +173,12 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                     if hit_result_ext::is_hit(r) && t >= t0 && t <= t_map_end {
                         let point = point_at(&data.points, obj.end_time + CONTROL_POINT_LENIENCY);
                         for s in resolve_samples(raw.sound_type, &raw.bank, point) {
-                            out.push(Placement { time: t, sample: s, x: obj.position[0], until: None });
+                            out.push(Placement {
+                                time: t,
+                                sample: s,
+                                x: obj.position[0],
+                                until: None,
+                            });
                         }
                     }
                 }
@@ -171,7 +188,12 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                     if hit_result_ext::is_hit(r) && t >= t0 && t <= t_map_end {
                         let point = point_at(&data.points, raw.end_time + CONTROL_POINT_LENIENCY);
                         for s in resolve_samples(raw.sound_type, &raw.bank, point) {
-                            out.push(Placement { time: t, sample: s, x: obj.position[0], until: None });
+                            out.push(Placement {
+                                time: t,
+                                sample: s,
+                                x: obj.position[0],
+                                until: None,
+                            });
                         }
                     }
                 }
@@ -188,7 +210,11 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                     if *oi == obj.index && *large && *time >= t0 && *time <= t_map_end {
                         out.push(Placement {
                             time: *time,
-                            sample: HitSample { name: "spinnerbonus", bank: point.bank, volume: point.volume },
+                            sample: HitSample {
+                                name: "spinnerbonus",
+                                bank: point.bank,
+                                volume: point.volume,
+                            },
                             x: 256.0,
                             until: None,
                         });
@@ -198,7 +224,11 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                     if *oi == obj.index && *time >= t0 && *time <= t_map_end {
                         out.push(Placement {
                             time: *time,
-                            sample: HitSample { name: "spinnerbonus-max", bank: point.bank, volume: point.volume },
+                            sample: HitSample {
+                                name: "spinnerbonus-max",
+                                bank: point.bank,
+                                volume: point.volume,
+                            },
                             x: 256.0,
                             until: None,
                         });
@@ -209,7 +239,11 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                 // Object-level samples resolve at StartTime + leniency + 1
                 // and seed the tick + sliding sounds.
                 let (obj_samples, obj_normal) = slider_object_samples(raw, obj, data);
-                let span_duration = if obj.span_count > 0 { obj.duration / obj.span_count as f64 } else { 0.0 };
+                let span_duration = if obj.span_count > 0 {
+                    obj.duration / obj.span_count as f64
+                } else {
+                    0.0
+                };
 
                 let node_samples = |i: usize| -> Vec<HitSample> {
                     let ty = raw.node_types.get(i).copied().unwrap_or(raw.sound_type);
@@ -225,7 +259,12 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                 if let Some((t, r)) = obj.head_judged {
                     if hit_result_ext::is_hit(r) && t >= t0 && t <= t_map_end {
                         for s in node_samples(0) {
-                            out.push(Placement { time: t, sample: s, x: obj.position[0], until: None });
+                            out.push(Placement {
+                                time: t,
+                                sample: s,
+                                x: obj.position[0],
+                                until: None,
+                            });
                         }
                     }
                 }
@@ -239,7 +278,10 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                         NestedKind::Tick => {
                             out.push(Placement {
                                 time: t,
-                                sample: HitSample { name: "slidertick", ..obj_normal },
+                                sample: HitSample {
+                                    name: "slidertick",
+                                    ..obj_normal
+                                },
                                 x: n.position[0],
                                 until: None,
                             });
@@ -247,7 +289,12 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                         NestedKind::Repeat => {
                             // RepeatIndex + 1 == span index of the repeat.
                             for s in node_samples(n.span_index) {
-                                out.push(Placement { time: t, sample: s, x: n.position[0], until: None });
+                                out.push(Placement {
+                                    time: t,
+                                    sample: s,
+                                    x: n.position[0],
+                                    until: None,
+                                });
                             }
                         }
                         NestedKind::Head | NestedKind::Tail => {}
@@ -258,7 +305,12 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                 if let Some((t, r)) = obj.body_judged {
                     if hit_result_ext::is_hit(r) && t >= t0 && t <= t_map_end {
                         for s in node_samples(obj.span_count) {
-                            out.push(Placement { time: t, sample: s, x: obj.end_position[0], until: None });
+                            out.push(Placement {
+                                time: t,
+                                sample: s,
+                                x: obj.end_position[0],
+                                until: None,
+                            });
                         }
                     }
                 }
@@ -270,12 +322,17 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                 let dbg = std::env::var("HITSOUND_DEBUG").is_ok();
                 let runs = tracked_runs(game, obj);
                 for sample in slide_loop_samples(&obj_samples, obj_normal, raw.sound_type) {
-                    let len_ms = resolver.clip(sample).map(|w| w.duration_ms()).unwrap_or(0.0);
+                    let len_ms = resolver
+                        .clip(sample)
+                        .map(|w| w.duration_ms())
+                        .unwrap_or(0.0);
                     if len_ms <= 0.0 {
                         continue;
                     }
                     for &(a, b) in &runs {
-                        tile_loop(&mut out, obj, a, b, sample, len_ms, game.rate, t0, t_map_end);
+                        tile_loop(
+                            &mut out, obj, a, b, sample, len_ms, game.rate, t0, t_map_end,
+                        );
                     }
                 }
                 if dbg {
@@ -308,7 +365,11 @@ fn build_placements(game: &GameData, data: &SampleData, t0: f64, t_map_end: f64,
                 if e.time >= t0 && e.time <= t_map_end {
                     out.push(Placement {
                         time: e.time,
-                        sample: HitSample { name: "combobreak", bank: Bank::Normal, volume: 100 },
+                        sample: HitSample {
+                            name: "combobreak",
+                            bank: Bank::Normal,
+                            volume: 100,
+                        },
                         x: 256.0,
                         until: None,
                     });
@@ -341,9 +402,18 @@ fn tile_loop(
     let mut t = a;
     while t < b {
         if t >= t0 && t <= t_map_end {
-            let progress = if obj.duration > 0.0 { (t - obj.start_time) / obj.duration } else { 0.0 };
+            let progress = if obj.duration > 0.0 {
+                (t - obj.start_time) / obj.duration
+            } else {
+                0.0
+            };
             let x = obj.slider_ball_at(progress.clamp(0.0, 1.0))[0];
-            out.push(Placement { time: t, sample, x, until: Some(b.min(t_map_end)) });
+            out.push(Placement {
+                time: t,
+                sample,
+                x,
+                until: Some(b.min(t_map_end)),
+            });
         }
         t += len_ms * rate;
     }
@@ -351,25 +421,44 @@ fn tile_loop(
 
 /// Object-level samples of a slider plus the hitnormal fallback that
 /// seeds the sliding loops.
-fn slider_object_samples(raw: &RawObj, obj: &crate::game::ObjView, data: &SampleData) -> (Vec<HitSample>, HitSample) {
+fn slider_object_samples(
+    raw: &RawObj,
+    obj: &crate::game::ObjView,
+    data: &SampleData,
+) -> (Vec<HitSample>, HitSample) {
     let head_point = point_at(&data.points, obj.start_time + CONTROL_POINT_LENIENCY + 1.0);
     let obj_samples = resolve_samples(raw.sound_type, &raw.bank, head_point);
-    let obj_normal = obj_samples.iter().find(|s| s.name == "hitnormal").copied().unwrap_or(HitSample {
-        name: "hitnormal",
-        bank: head_point.bank,
-        volume: head_point.volume,
-    });
+    let obj_normal = obj_samples
+        .iter()
+        .find(|s| s.name == "hitnormal")
+        .copied()
+        .unwrap_or(HitSample {
+            name: "hitnormal",
+            bank: head_point.bank,
+            volume: head_point.volume,
+        });
     (obj_samples, obj_normal)
 }
 
 /// Looping samples of a tracked slider: `sliderslide` always,
 /// `sliderwhistle` when the object's whistle flag is set.
-fn slide_loop_samples(obj_samples: &[HitSample], obj_normal: HitSample, sound_type: u8) -> Vec<HitSample> {
-    let mut out = vec![HitSample { name: "sliderslide", ..obj_normal }];
+fn slide_loop_samples(
+    obj_samples: &[HitSample],
+    obj_normal: HitSample,
+    sound_type: u8,
+) -> Vec<HitSample> {
+    let mut out = vec![HitSample {
+        name: "sliderslide",
+        ..obj_normal
+    }];
     if sound_type & 0b10 != 0 {
         out.push(HitSample {
             name: "sliderwhistle",
-            bank: obj_samples.iter().find(|s| s.name == "hitwhistle").map(|s| s.bank).unwrap_or(obj_normal.bank),
+            bank: obj_samples
+                .iter()
+                .find(|s| s.name == "hitwhistle")
+                .map(|s| s.bank)
+                .unwrap_or(obj_normal.bank),
             volume: obj_normal.volume,
         });
     }
@@ -390,11 +479,19 @@ fn tracked_runs(game: &GameData, obj: &crate::game::ObjView) -> Vec<(f64, f64)> 
             && snap.time <= obj.end_time;
         match (&mut run, tracked) {
             (Some((_, end)), true) => {
-                let next = game.snapshots.get(i + 1).map(|s| s.time).unwrap_or(snap.time);
+                let next = game
+                    .snapshots
+                    .get(i + 1)
+                    .map(|s| s.time)
+                    .unwrap_or(snap.time);
                 *end = next.max(snap.time);
             }
             (None, true) => {
-                let next = game.snapshots.get(i + 1).map(|s| s.time).unwrap_or(snap.time);
+                let next = game
+                    .snapshots
+                    .get(i + 1)
+                    .map(|s| s.time)
+                    .unwrap_or(snap.time);
                 run = Some((snap.time, next.max(snap.time)));
             }
             _ => {
@@ -437,7 +534,10 @@ pub enum LoopControl {
     Slider { object_index: usize },
     /// Playback rate follows spin progress (snapshot time → cumulative
     /// rotation degrees, plus the filled-spinner rotation count).
-    Spin { rotation: Vec<(f64, f32)>, spins_required: f64 },
+    Spin {
+        rotation: Vec<(f64, f32)>,
+        spins_required: f64,
+    },
 }
 
 impl LoopSoundEvent {
@@ -455,15 +555,28 @@ impl LoopSoundEvent {
 
     /// (playback rate, 0..1 amplitude (line volume × envelope), playfield
     /// X) at map time `t` inside run `ri`. Mirrors `synth_spin_loop`.
-    pub fn params_at(&self, ri: usize, t: f64, freq_modulate: bool, game: &GameData) -> (f64, f64, f32) {
+    pub fn params_at(
+        &self,
+        ri: usize,
+        t: f64,
+        freq_modulate: bool,
+        game: &GameData,
+    ) -> (f64, f64, f32) {
         let vol = self.volume.max(MINIMUM_SAMPLE_VOLUME) as f64 / 100.0;
         match &self.control {
             LoopControl::Slider { object_index } => {
                 let obj = &game.objects[*object_index];
-                let progress = if obj.duration > 0.0 { (t - obj.start_time) / obj.duration } else { 0.0 };
+                let progress = if obj.duration > 0.0 {
+                    (t - obj.start_time) / obj.duration
+                } else {
+                    0.0
+                };
                 (1.0, vol, obj.slider_ball_at(progress.clamp(0.0, 1.0))[0])
             }
-            LoopControl::Spin { rotation, spins_required } => {
+            LoopControl::Spin {
+                rotation,
+                spins_required,
+            } => {
                 let (a, b) = self.runs[ri];
                 let env = if t <= b {
                     ((t - a) / SPIN_FADE_IN).clamp(0.0, 1.0)
@@ -508,7 +621,9 @@ pub fn collect_loop_events(game: &GameData, data: &SampleData) -> Vec<LoopSoundE
                         bank: sample.bank.as_str(),
                         volume: sample.volume,
                         runs: runs.clone(),
-                        control: LoopControl::Slider { object_index: obj.index },
+                        control: LoopControl::Slider {
+                            object_index: obj.index,
+                        },
                     });
                 }
             }
@@ -519,7 +634,10 @@ pub fn collect_loop_events(game: &GameData, data: &SampleData) -> Vec<LoopSoundE
                         bank: lp.sample.bank.as_str(),
                         volume: lp.sample.volume,
                         runs: lp.runs,
-                        control: LoopControl::Spin { rotation: lp.rotation, spins_required: lp.spins_required },
+                        control: LoopControl::Spin {
+                            rotation: lp.rotation,
+                            spins_required: lp.spins_required,
+                        },
                     });
                 }
             }
@@ -630,7 +748,9 @@ impl<'a> SampleResolver<'a> {
         SampleResolver {
             skin: skin.is_legacy().then_some(skin),
             frequency_modulate: skin
-                .get_config(crate::skin::SkinLookup::Generic("SpinnerFrequencyModulate".into()))
+                .get_config(crate::skin::SkinLookup::Generic(
+                    "SpinnerFrequencyModulate".into(),
+                ))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true),
             cache: HashMap::new(),
@@ -639,7 +759,11 @@ impl<'a> SampleResolver<'a> {
 
     /// The embedded ArgonPro set alone (no user skin in scope).
     fn builtin() -> SampleResolver<'static> {
-        SampleResolver { skin: None, frequency_modulate: true, cache: HashMap::new() }
+        SampleResolver {
+            skin: None,
+            frequency_modulate: true,
+            cache: HashMap::new(),
+        }
     }
 
     /// Resolve one sample: user skin file → embedded ArgonPro entry →
@@ -648,24 +772,32 @@ impl<'a> SampleResolver<'a> {
         if let Some(hit) = self.cache.get(&(sample.bank, sample.name)) {
             return hit.clone();
         }
-        let mut resolved = self
-            .skin
-            .and_then(|skin| lookup_candidates(sample.bank.as_str(), sample.name).iter().find_map(|n| skin.get_sample(n)));
+        let mut resolved = self.skin.and_then(|skin| {
+            lookup_candidates(sample.bank.as_str(), sample.name)
+                .iter()
+                .find_map(|n| skin.get_sample(n))
+        });
         // `SpinnerBonusMaxSampleInfo.LookupNames`: the "-max" suffix
         // strips back to the plain entry — a skin with only
         // "spinnerbonus" serves the max spins too.
         if resolved.is_none()
             && let Some(stripped) = sample.name.strip_suffix("-max")
         {
-            resolved = self
-                .skin
-                .and_then(|skin| lookup_candidates(sample.bank.as_str(), stripped).iter().find_map(|n| skin.get_sample(n)));
+            resolved = self.skin.and_then(|skin| {
+                lookup_candidates(sample.bank.as_str(), stripped)
+                    .iter()
+                    .find_map(|n| skin.get_sample(n))
+            });
         }
         let clip = match resolved {
             Some(path) => match decode_sample_file(&path) {
                 Ok(clip) => Some(Arc::new(clip)),
                 Err(e) => {
-                    eprintln!("hitsound warning: skin sample {} failed to decode ({}), falling back", path.display(), e);
+                    eprintln!(
+                        "hitsound warning: skin sample {} failed to decode ({}), falling back",
+                        path.display(),
+                        e
+                    );
                     None
                 }
             },
@@ -696,7 +828,10 @@ fn lookup_candidates(bank: &str, name: &str) -> Vec<String> {
     if name == "combobreak" {
         vec!["Gameplay/combobreak".to_string()]
     } else {
-        vec![format!("Gameplay/{bank}-{name}"), format!("Gameplay/{name}")]
+        vec![
+            format!("Gameplay/{bank}-{name}"),
+            format!("Gameplay/{name}"),
+        ]
     }
 }
 
@@ -751,7 +886,19 @@ fn ffmpeg_pcm(path: &Path) -> Option<Clip> {
     let out = std::process::Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(path)
-        .args(["-map", "a:0", "-f", "s16le", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", "pipe:1"])
+        .args([
+            "-map",
+            "a:0",
+            "-f",
+            "s16le",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "pipe:1",
+        ])
         .output()
         .ok()?;
     if !out.status.success() || out.stdout.is_empty() {
@@ -795,7 +942,12 @@ fn decode_wav(bytes: &[u8]) -> Option<Clip> {
     let mut data: Option<(usize, usize)> = None;
     while pos + 8 <= bytes.len() {
         let id = &bytes[pos..pos + 4];
-        let size = u32::from_le_bytes([bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]]) as usize;
+        let size = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
         let body = pos + 8;
         if body + size > bytes.len() {
             break;
@@ -804,14 +956,22 @@ fn decode_wav(bytes: &[u8]) -> Option<Clip> {
             b"fmt " => {
                 let mut audio_format = rd(body);
                 let channels = rd(body + 2);
-                let rate = u32::from_le_bytes([bytes[body + 4], bytes[body + 5], bytes[body + 6], bytes[body + 7]]);
+                let rate = u32::from_le_bytes([
+                    bytes[body + 4],
+                    bytes[body + 5],
+                    bytes[body + 6],
+                    bytes[body + 7],
+                ]);
                 let bits = rd(body + 14);
                 // WAVE_FORMAT_EXTENSIBLE: the real tag is the SubFormat
                 // GUID's Data1 (1 = PCM) at offset 24. The shipped
                 // soft-hitnormal is such a file.
                 if audio_format == 0xFFFE && size >= 40 {
                     let sub = u32::from_le_bytes([
-                        bytes[body + 24], bytes[body + 25], bytes[body + 26], bytes[body + 27],
+                        bytes[body + 24],
+                        bytes[body + 25],
+                        bytes[body + 26],
+                        bytes[body + 27],
                     ]);
                     audio_format = sub as u16;
                 }
@@ -836,7 +996,10 @@ fn decode_wav(bytes: &[u8]) -> Option<Clip> {
             rd(off) as i16 as f32 / 32768.0
         } else {
             // 3 bytes LE, sign-extended to i32.
-            let v = ((rd(off) as u32) | ((rd(off + 1) as u32) << 8) | ((*bytes.get(off + 2).unwrap_or(&0) as u32) << 16)) << 8;
+            let v = ((rd(off) as u32)
+                | ((rd(off + 1) as u32) << 8)
+                | ((*bytes.get(off + 2).unwrap_or(&0) as u32) << 16))
+                << 8;
             (v as i32 >> 8) as f32 / 8388608.0
         }
     };
@@ -976,7 +1139,12 @@ fn collect_spin_loops(game: &GameData, data: &SampleData) -> Vec<SpinLoop> {
 
 /// One spinner's loop descriptor (rotation timeline + audibly-spinning
 /// runs with the 100ms stickiness merge).
-fn spin_loop_for(game: &GameData, data: &SampleData, obj: &crate::game::ObjView, raw: &RawObj) -> Option<SpinLoop> {
+fn spin_loop_for(
+    game: &GameData,
+    data: &SampleData,
+    obj: &crate::game::ObjView,
+    raw: &RawObj,
+) -> Option<SpinLoop> {
     let mut rotation = Vec::new();
     let mut runs: Vec<(f64, f64)> = Vec::new();
     let mut open: Option<f64> = None;
@@ -1000,7 +1168,11 @@ fn spin_loop_for(game: &GameData, data: &SampleData, obj: &crate::game::ObjView,
         };
         // The run extends at least to the NEXT snapshot (the active
         // judgement was made over the interval ending here).
-        let cur_end = game.snapshots.get(si + 1).map(|s| s.time).unwrap_or(snap.time);
+        let cur_end = game
+            .snapshots
+            .get(si + 1)
+            .map(|s| s.time)
+            .unwrap_or(snap.time);
         match (&mut open, active) {
             (None, true) => {
                 if snap.time - last_run_end > SPIN_RUN_MERGE_GAP {
@@ -1039,7 +1211,11 @@ fn spin_loop_for(game: &GameData, data: &SampleData, obj: &crate::game::ObjView,
         sample: HitSample {
             name: "spinnerspin",
             bank: raw.bank.normal.unwrap_or(point.bank),
-            volume: if raw.bank.volume > 0 { raw.bank.volume } else { point.volume },
+            volume: if raw.bank.volume > 0 {
+                raw.bank.volume
+            } else {
+                point.volume
+            },
         },
         runs,
         rotation,
@@ -1070,9 +1246,17 @@ fn rotation_at(rot: &[(f64, f32)], t: f64) -> f64 {
 
 /// Synthesize the spinning loops straight into the mix buffer (clip
 /// resolution via the resolver, then the pure [`synth_spin_loop`]).
-fn render_spin_loops(buf: &mut [f32], loops: &[SpinLoop], resolver: &mut SampleResolver, t0: f64, rate: f64) {
+fn render_spin_loops(
+    buf: &mut [f32],
+    loops: &[SpinLoop],
+    resolver: &mut SampleResolver,
+    t0: f64,
+    rate: f64,
+) {
     for lp in loops {
-        let Some(clip) = resolver.clip(lp.sample) else { continue };
+        let Some(clip) = resolver.clip(lp.sample) else {
+            continue;
+        };
         synth_spin_loop(buf, &clip.data, lp, resolver.frequency_modulate, t0, rate);
     }
 }
@@ -1081,14 +1265,22 @@ fn render_spin_loops(buf: &mut [f32], loops: &[SpinLoop], resolver: &mut SampleR
 /// wraps at the clip length (seamless: the sample is authored to loop),
 /// gain = line volume × the tracking envelope. `progressUnclamped` keeps
 /// rising past 1.0, capped at the `100_000/44_100` frequency ceiling.
-fn synth_spin_loop(buf: &mut [f32], data: &[f32], lp: &SpinLoop, freq_modulate: bool, t0: f64, rate: f64) {
+fn synth_spin_loop(
+    buf: &mut [f32],
+    data: &[f32],
+    lp: &SpinLoop,
+    freq_modulate: bool,
+    t0: f64,
+    rate: f64,
+) {
     let frames = data.len() / 2;
     if frames == 0 {
         return;
     }
     let vol = lp.sample.volume.max(MINIMUM_SAMPLE_VOLUME) as f32 / 100.0;
     for &(a, b) in &lp.runs {
-        let frame_at = |map_ms: f64| ((map_ms - t0) / rate / 1000.0 * SAMPLE_RATE as f64).round() as i64;
+        let frame_at =
+            |map_ms: f64| ((map_ms - t0) / rate / 1000.0 * SAMPLE_RATE as f64).round() as i64;
         let fa = frame_at(a);
         let fe = frame_at(b + SPIN_FADE_OUT);
         let mut phase = 0.0f64;
@@ -1127,24 +1319,29 @@ fn synth_spin_loop(buf: &mut [f32], data: &[f32], lp: &SpinLoop, freq_modulate: 
     }
 }
 
-
 /// All one-shot hitsound events of a replay (sorted by time, loop
 /// sounds excluded — those are [`collect_loop_events`]). `data` is the
 /// sample-side data parsed with the beatmap (`game.sample_data`).
 /// Volume/bank resolution follows the same lazer semantics as the
 /// offline track.
 pub fn collect_events(game: &GameData, data: &SampleData) -> Vec<HitsoundEvent> {
-    let mut events: Vec<HitsoundEvent> = build_placements(game, data, f64::NEG_INFINITY, f64::INFINITY, &mut SampleResolver::builtin())
-        .into_iter()
-        .filter(|p| p.until.is_none())
-        .map(|p| HitsoundEvent {
-            time: p.time,
-            name: p.sample.name,
-            bank: p.sample.bank.as_str(),
-            volume: p.sample.volume,
-            pan_x: p.x,
-        })
-        .collect();
+    let mut events: Vec<HitsoundEvent> = build_placements(
+        game,
+        data,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        &mut SampleResolver::builtin(),
+    )
+    .into_iter()
+    .filter(|p| p.until.is_none())
+    .map(|p| HitsoundEvent {
+        time: p.time,
+        name: p.sample.name,
+        bank: p.sample.bank.as_str(),
+        volume: p.sample.volume,
+        pan_x: p.x,
+    })
+    .collect();
     events.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
     events
 }
@@ -1184,7 +1381,15 @@ pub fn sample_bytes(bank: &str, name: &str) -> Option<&'static [u8]> {
     Some(bytes)
 }
 
-pub fn render_track_wav(game: &GameData, data: &SampleData, t0: f64, wall_secs: f64, rate: f64, master_gain: f32, skin: &dyn crate::skin::Skin) -> Vec<u8> {
+pub fn render_track_wav(
+    game: &GameData,
+    data: &SampleData,
+    t0: f64,
+    wall_secs: f64,
+    rate: f64,
+    master_gain: f32,
+    skin: &dyn crate::skin::Skin,
+) -> Vec<u8> {
     render_track(game, data, t0, wall_secs, rate, master_gain, true, skin)
 }
 
@@ -1196,17 +1401,41 @@ pub fn render_track_wav(game: &GameData, data: &SampleData, t0: f64, wall_secs: 
 /// bus ducked dense stacks 2-4 dB and bent every stack peak; the
 /// float-sum mix only needs the headroom so PCM16 can carry stacks
 /// above unity.
-pub fn render_track_wav_linear(game: &GameData, data: &SampleData, t0: f64, wall_secs: f64, rate: f64, scale: f32, skin: &dyn crate::skin::Skin) -> Vec<u8> {
+pub fn render_track_wav_linear(
+    game: &GameData,
+    data: &SampleData,
+    t0: f64,
+    wall_secs: f64,
+    rate: f64,
+    scale: f32,
+    skin: &dyn crate::skin::Skin,
+) -> Vec<u8> {
     render_track(game, data, t0, wall_secs, rate, scale, false, skin)
 }
 
-fn render_track(game: &GameData, data: &SampleData, t0: f64, wall_secs: f64, rate: f64, gain: f32, limit: bool, skin: &dyn crate::skin::Skin) -> Vec<u8> {
+fn render_track(
+    game: &GameData,
+    data: &SampleData,
+    t0: f64,
+    wall_secs: f64,
+    rate: f64,
+    gain: f32,
+    limit: bool,
+    skin: &dyn crate::skin::Skin,
+) -> Vec<u8> {
     let t_map_end = t0 + wall_secs * rate * 1000.0;
     let mut resolver = SampleResolver::new(skin);
     let placements = build_placements(game, &data, t0, t_map_end, &mut resolver);
     if std::env::var("HITSOUND_DEBUG").is_ok() {
-        eprintln!("hitsound debug: parsed {} objects (game {}), {} points, {} placements in [{},{}]",
-            data.objects.len(), game.objects.len(), data.points.len(), placements.len(), t0, t_map_end);
+        eprintln!(
+            "hitsound debug: parsed {} objects (game {}), {} points, {} placements in [{},{}]",
+            data.objects.len(),
+            game.objects.len(),
+            data.points.len(),
+            placements.len(),
+            t0,
+            t_map_end
+        );
     }
 
     let total = (wall_secs.max(0.0) * SAMPLE_RATE as f64).round() as usize;
@@ -1256,7 +1485,11 @@ fn render_track(game: &GameData, data: &SampleData, t0: f64, wall_secs: f64, rat
 
     if std::env::var("HITSOUND_DEBUG").is_ok() {
         let peak = buf.iter().fold(0.0f32, |m, v| m.max(v.abs()));
-        eprintln!("hitsound debug: {} clips decoded, buffer peak {:.4}", resolver.distinct(), peak);
+        eprintln!(
+            "hitsound debug: {} clips decoded, buffer peak {:.4}",
+            resolver.distinct(),
+            peak
+        );
         let mut names: Vec<(usize, &str)> = Vec::new();
         for p in &placements {
             match names.iter_mut().find(|(_, n)| *n == p.sample.name) {
@@ -1266,7 +1499,14 @@ fn render_track(game: &GameData, data: &SampleData, t0: f64, wall_secs: f64, rat
         }
         eprintln!("hitsound debug: {:?}", names);
         for p in placements.iter().take(6) {
-            eprintln!("hitsound debug: t={:.0} {} {} vol={} x={:.0}", p.time, p.sample.bank.as_str(), p.sample.name, p.sample.volume, p.x);
+            eprintln!(
+                "hitsound debug: t={:.0} {} {} vol={} x={:.0}",
+                p.time,
+                p.sample.bank.as_str(),
+                p.sample.name,
+                p.sample.volume,
+                p.x
+            );
         }
     }
 
@@ -1340,7 +1580,11 @@ mod tests {
     /// The API-level regression: soft hitnormal resolves to a playable clip.
     #[test]
     fn soft_hitnormal_resolves_to_clip() {
-        let sample = HitSample { name: "hitnormal", bank: Bank::Soft, volume: 100 };
+        let sample = HitSample {
+            name: "hitnormal",
+            bank: Bank::Soft,
+            volume: 100,
+        };
         assert!(sample_clip(sample).is_some());
     }
 
@@ -1350,16 +1594,29 @@ mod tests {
     #[test]
     fn place_copies_at_natural_rate() {
         // 100-frame ramp, one channel duplicated to stereo.
-        let clip = Clip { data: (0..100).flat_map(|i| [i as f32 / 100.0; 2]).collect() };
+        let clip = Clip {
+            data: (0..100).flat_map(|i| [i as f32 / 100.0; 2]).collect(),
+        };
         let mut buf = vec![0.0f32; 30000 * 2];
         place(&mut buf, &clip, 0.5, 1.0, 1.0, None);
         for f in 0..100 {
             assert_eq!(buf[(22050 + f) * 2], clip.data[f * 2]);
         }
-        assert_eq!(buf[(22050 + 100) * 2], 0.0, "must not ring past the natural length");
+        assert_eq!(
+            buf[(22050 + 100) * 2],
+            0.0,
+            "must not ring past the natural length"
+        );
 
         let mut cut = vec![0.0f32; 30000 * 2];
-        place(&mut cut, &clip, 0.5, 1.0, 1.0, Some(0.5 + 50.0 / SAMPLE_RATE as f64));
+        place(
+            &mut cut,
+            &clip,
+            0.5,
+            1.0,
+            1.0,
+            Some(0.5 + 50.0 / SAMPLE_RATE as f64),
+        );
         assert_eq!(cut[(22050 + 49) * 2], clip.data[49 * 2]);
         assert_eq!(cut[(22050 + 50) * 2], 0.0, "cut at until");
     }
@@ -1382,23 +1639,75 @@ mod tests {
         assert!(skin.is_legacy());
         let mut resolver = SampleResolver::new(&skin);
 
-        let whistled = resolver.clip(HitSample { name: "hitwhistle", bank: Bank::Normal, volume: 100 }).unwrap();
-        assert!((45.0..55.0).contains(&whistled.duration_ms()), "skin file wins, got {}ms", whistled.duration_ms());
-        let builtin_whistle = sample_clip(HitSample { name: "hitwhistle", bank: Bank::Normal, volume: 100 }).unwrap();
+        let whistled = resolver
+            .clip(HitSample {
+                name: "hitwhistle",
+                bank: Bank::Normal,
+                volume: 100,
+            })
+            .unwrap();
+        assert!(
+            (45.0..55.0).contains(&whistled.duration_ms()),
+            "skin file wins, got {}ms",
+            whistled.duration_ms()
+        );
+        let builtin_whistle = sample_clip(HitSample {
+            name: "hitwhistle",
+            bank: Bank::Normal,
+            volume: 100,
+        })
+        .unwrap();
         assert!(builtin_whistle.duration_ms() > 100.0);
 
         // The skin has no drum-hitfinish: the embedded ArgonPro copy fills it.
-        let finish = resolver.clip(HitSample { name: "hitfinish", bank: Bank::Drum, volume: 100 }).unwrap();
-        assert_eq!(finish.duration_ms(), sample_clip(HitSample { name: "hitfinish", bank: Bank::Drum, volume: 100 }).unwrap().duration_ms());
+        let finish = resolver
+            .clip(HitSample {
+                name: "hitfinish",
+                bank: Bank::Drum,
+                volume: 100,
+            })
+            .unwrap();
+        assert_eq!(
+            finish.duration_ms(),
+            sample_clip(HitSample {
+                name: "hitfinish",
+                bank: Bank::Drum,
+                volume: 100
+            })
+            .unwrap()
+            .duration_ms()
+        );
 
         // Universal bank-less file serves every bank's hitclap (lazer's
         // `Gameplay/{Name}` + raw-name tail of `getLegacyLookupNames`).
-        let clap = resolver.clip(HitSample { name: "hitclap", bank: Bank::Soft, volume: 100 }).unwrap();
+        let clap = resolver
+            .clip(HitSample {
+                name: "hitclap",
+                bank: Bank::Soft,
+                volume: 100,
+            })
+            .unwrap();
         assert!((45.0..55.0).contains(&clap.duration_ms()));
 
         // Nothing provides this: silent, and cached as such.
-        assert!(resolver.clip(HitSample { name: "nosuchsound", bank: Bank::Soft, volume: 100 }).is_none());
-        assert!(resolver.clip(HitSample { name: "nosuchsound", bank: Bank::Soft, volume: 100 }).is_none());
+        assert!(
+            resolver
+                .clip(HitSample {
+                    name: "nosuchsound",
+                    bank: Bank::Soft,
+                    volume: 100
+                })
+                .is_none()
+        );
+        assert!(
+            resolver
+                .clip(HitSample {
+                    name: "nosuchsound",
+                    bank: Bank::Soft,
+                    volume: 100
+                })
+                .is_none()
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1408,8 +1717,19 @@ mod tests {
     fn resolver_builtin_skin_uses_embedded_set() {
         let skin = crate::skin::load_skin(None).unwrap();
         let mut resolver = SampleResolver::new(&skin);
-        let clip = resolver.clip(HitSample { name: "hitnormal", bank: Bank::Normal, volume: 100 }).unwrap();
-        let builtin = sample_clip(HitSample { name: "hitnormal", bank: Bank::Normal, volume: 100 }).unwrap();
+        let clip = resolver
+            .clip(HitSample {
+                name: "hitnormal",
+                bank: Bank::Normal,
+                volume: 100,
+            })
+            .unwrap();
+        let builtin = sample_clip(HitSample {
+            name: "hitnormal",
+            bank: Bank::Normal,
+            volume: 100,
+        })
+        .unwrap();
         assert_eq!(clip.duration_ms(), builtin.duration_ms());
     }
 
@@ -1419,8 +1739,15 @@ mod tests {
     #[test]
     fn spinner_samples_resolve_from_argon_layer() {
         for name in ["spinnerspin", "spinnerbonus", "spinnerbonus-max"] {
-            let sample = HitSample { name, bank: Bank::Normal, volume: 100 };
-            assert!(sample_clip(sample).is_some(), "{name} missing from the embedded set");
+            let sample = HitSample {
+                name,
+                bank: Bank::Normal,
+                volume: 100,
+            };
+            assert!(
+                sample_clip(sample).is_some(),
+                "{name} missing from the embedded set"
+            );
         }
     }
 
@@ -1441,9 +1768,19 @@ mod tests {
         let game = crate::game::load_autoplay(path.to_str().unwrap()).unwrap();
 
         let events = collect_loop_events(&game, &osu_parse::samples::parse(map));
-        let slide = events.iter().find(|e| e.name == "sliderslide").expect("sliderslide event");
-        let spin = events.iter().find(|e| e.name == "spinnerspin").expect("spinnerspin event");
-        assert_eq!(events.len(), 2, "no whistle flag on the slider: slide + spin only");
+        let slide = events
+            .iter()
+            .find(|e| e.name == "sliderslide")
+            .expect("sliderslide event");
+        let spin = events
+            .iter()
+            .find(|e| e.name == "spinnerspin")
+            .expect("spinnerspin event");
+        assert_eq!(
+            events.len(),
+            2,
+            "no whistle flag on the slider: slide + spin only"
+        );
 
         // Both resolve bank/volume from the timing point active at the
         // object (soft, 40%).
@@ -1455,22 +1792,46 @@ mod tests {
         // Slide: exactly the tracking interval, hard start/stop.
         assert_eq!(slide.runs.len(), 1);
         let (a, b) = slide.runs[0];
-        assert!((995.0..1020.0).contains(&a), "slide run starts at the slider head, got {a}");
-        assert!(b > a + 100.0, "slide run spans the slider body, got [{a},{b}]");
+        assert!(
+            (995.0..1020.0).contains(&a),
+            "slide run starts at the slider head, got {a}"
+        );
+        assert!(
+            b > a + 100.0,
+            "slide run spans the slider body, got [{a},{b}]"
+        );
         assert!(slide.run_at(a).is_some() && slide.run_at(b).is_some());
         assert!(slide.run_at(a - 1.0).is_none());
-        assert!(slide.run_at(b + 1.0).is_none(), "no fade tail on slide runs");
+        assert!(
+            slide.run_at(b + 1.0).is_none(),
+            "no fade tail on slide runs"
+        );
         let (rate, amp, x) = slide.params_at(0, a + (b - a) / 2.0, true, &game);
         assert_eq!(rate, 1.0);
-        assert!((amp - 0.4).abs() < 1e-9, "slide amplitude = line volume, got {amp}");
-        assert!((100.0..=300.0).contains(&x), "slide pan follows the ball, got {x}");
+        assert!(
+            (amp - 0.4).abs() < 1e-9,
+            "slide amplitude = line volume, got {amp}"
+        );
+        assert!(
+            (100.0..=300.0).contains(&x),
+            "slide pan follows the ball, got {x}"
+        );
 
         // Spin: run inside the spinnable window [2000, 3500].
         assert!(!spin.runs.is_empty());
         let (a, b) = spin.runs[0];
-        assert!(a >= 2000.0 && a < 2150.0, "spin run starts after the spinner opens, got {a}");
-        assert!(b > 3000.0 && b <= 3500.0 + 1000.0 / 60.0 + 1.0, "spin run ends at the spinner close (+≤1 frame), got {b}");
-        assert!(spin.run_at(b + SPIN_FADE_OUT).is_some(), "fade tail keeps the run audible");
+        assert!(
+            a >= 2000.0 && a < 2150.0,
+            "spin run starts after the spinner opens, got {a}"
+        );
+        assert!(
+            b > 3000.0 && b <= 3500.0 + 1000.0 / 60.0 + 1.0,
+            "spin run ends at the spinner close (+≤1 frame), got {b}"
+        );
+        assert!(
+            spin.run_at(b + SPIN_FADE_OUT).is_some(),
+            "fade tail keeps the run audible"
+        );
         assert!(spin.run_at(b + SPIN_FADE_OUT + 1.0).is_none());
 
         // Envelope: silent at the run start, line volume after the 300ms
@@ -1479,13 +1840,19 @@ mod tests {
         let (_, amp0, _) = spin.params_at(0, a, true, &game);
         assert!(amp0 < 0.01, "fade-in starts silent, got {amp0}");
         let (_, amp1, _) = spin.params_at(0, a + SPIN_FADE_IN, true, &game);
-        assert!((amp1 - 0.4).abs() < 1e-9, "envelope reaches line volume, got {amp1}");
+        assert!(
+            (amp1 - 0.4).abs() < 1e-9,
+            "envelope reaches line volume, got {amp1}"
+        );
         let (r0, _, _) = spin.params_at(0, a + SPIN_FADE_IN, true, &game);
         let (r1, _, _) = spin.params_at(0, b, true, &game);
         assert!(r0 < 1.0, "modulated rate starts below natural, got {r0}");
         assert!(r1 > r0, "rate rises with progress: {r0} -> {r1}");
         let (rn, _, _) = spin.params_at(0, a + SPIN_FADE_IN, false, &game);
-        assert_eq!(rn, 1.0, "SpinnerFrequencyModulate off pins the natural rate");
+        assert_eq!(
+            rn, 1.0,
+            "SpinnerFrequencyModulate off pins the natural rate"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1505,9 +1872,15 @@ mod tests {
         // Constant rotation rate: 144 deg/s -> progress 0.4/s with
         // spins_required = 1 (stays under the 2.27x frequency cap).
         let lp = SpinLoop {
-            sample: HitSample { name: "spinnerspin", bank: Bank::Normal, volume: 100 },
+            sample: HitSample {
+                name: "spinnerspin",
+                bank: Bank::Normal,
+                volume: 100,
+            },
             runs: vec![(100.0, 900.0)],
-            rotation: (0..=20).map(|i| (i as f64 * 100.0, i as f32 * 14.4)).collect(),
+            rotation: (0..=20)
+                .map(|i| (i as f64 * 100.0, i as f32 * 14.4))
+                .collect(),
             spins_required: 1.0,
         };
         let zcr = |buf: &[f32], a: usize, b: usize| {
@@ -1526,11 +1899,22 @@ mod tests {
         synth_spin_loop(&mut buf, &clip, &lp, false, 0.0, 1.0);
         // Natural rate inside the run; silence before it and after the
         // fade tail (900ms + 240ms).
-        assert!((395.0..405.0).contains(&zcr(&buf, sr / 2, sr * 8 / 10)), "natural rate (2 crossings/period)");
-        assert!(buf[..vi(50)].iter().all(|v| *v == 0.0), "silent before the run");
-        assert!(buf[vi(1200)..].iter().all(|v| *v == 0.0), "silent after the fade tail");
+        assert!(
+            (395.0..405.0).contains(&zcr(&buf, sr / 2, sr * 8 / 10)),
+            "natural rate (2 crossings/period)"
+        );
+        assert!(
+            buf[..vi(50)].iter().all(|v| *v == 0.0),
+            "silent before the run"
+        );
+        assert!(
+            buf[vi(1200)..].iter().all(|v| *v == 0.0),
+            "silent after the fade tail"
+        );
         // Full gain well inside the run (fade-in done by 400ms).
-        let peak = buf[vi(600)..vi(800)].iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let peak = buf[vi(600)..vi(800)]
+            .iter()
+            .fold(0.0f32, |m, v| m.max(v.abs()));
         assert!(peak > 0.95, "envelope reaches unity, peak={peak}");
 
         // Modulated: over [300ms, 500ms] the progress spans 0.12..0.2 ->
@@ -1538,7 +1922,10 @@ mod tests {
         let mut buf = vec![0.0f32; vi(2000)];
         synth_spin_loop(&mut buf, &clip, &lp, true, 0.0, 1.0);
         let z = zcr(&buf, sr * 3 / 10, sr / 2);
-        assert!((220.0..260.0).contains(&z), "modulated pitch ~0.6x, got {z}");
+        assert!(
+            (220.0..260.0).contains(&z),
+            "modulated pitch ~0.6x, got {z}"
+        );
         // Later window runs faster: [700ms, 900ms] -> ratio ~0.71..0.78.
         let z2 = zcr(&buf, sr * 7 / 10, sr * 9 / 10);
         assert!(z2 > z + 30.0, "pitch rises with progress: {z} -> {z2}");

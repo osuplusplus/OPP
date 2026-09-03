@@ -96,6 +96,8 @@ import type {
   TosuStatus,
   TrainerRequest,
   TrainerResult,
+  ViewTrainerRequest,
+  ViewTrainerTimeline,
   ObsRefreshResult,
   LazerDiskUsage,
   LazerDedupeProgress,
@@ -146,6 +148,20 @@ function normalizeError(error: unknown): CommandError {
   };
 }
 
+function requestId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `frontend-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function writeLogRaw(level: string, target: string, message: string): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke<void>("write_client_log", { level, target, message });
+  } catch {
+    // Logging must never turn an otherwise valid command into a UI error.
+  }
+}
+
 async function call<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -158,10 +174,14 @@ async function call<T>(
       message: "请通过 OPP 桌面应用运行此功能",
     } satisfies CommandError;
   }
+  const id = requestId();
   try {
-    return await invoke<T>(command, args);
+    const result = await invoke<T>(command, args);
+    return result;
   } catch (error) {
-    throw normalizeError(error);
+    const normalized = normalizeError(error);
+    void writeLogRaw("error", "frontend.command.return_err", JSON.stringify({ event: "return_err", command, request_id: id, code: normalized.code, message: normalized.message, backend_request_id: normalized.request_id }));
+    throw normalized;
   }
 }
 
@@ -275,6 +295,11 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
 }
 
 export const desktopApi = {
+  getLogDirectory: () => call<string>("get_log_directory"),
+  listLogFiles: () => call<import("../types/osu").LogFileInfo[]>("list_log_files"),
+  openLogDirectory: () => call<void>("open_log_directory"),
+  openLogFile: (name: string) => call<void>("open_log_file", { name }),
+  writeClientLog: (level: import("../types/osu").LogLevel, target: string, message: string) => writeLogRaw(level, target, message),
   getAuthStatus: () => call<AuthStatus>("get_auth_status"),
   getBeatmapHubAuthStatus: () => call<BeatmapHubAuthStatus>("get_beatmaphub_auth_status"),
   createBeatmapHubProfile: (displayName: string, deviceName: string) =>
@@ -444,6 +469,12 @@ export const desktopApi = {
     call<void>("open_netease_music_search", { artist, title }),
   generateTrainerBeatmap: (request: TrainerRequest) =>
     call<TrainerResult>("generate_trainer_beatmap", { request }),
+  viewTrainerGetTimeline: (client: OsuClient, resourceId: string) =>
+    call<ViewTrainerTimeline>("view_trainer_get_timeline", { client, resourceId }),
+  viewTrainerGenerate: (request: ViewTrainerRequest) =>
+    call<TrainerResult>("view_trainer_generate", { request }),
+  viewTrainerImport: (client: OsuClient, resourceId: string, stagedPath: string) =>
+    call<string>("view_trainer_import", { client, resourceId, stagedPath }),
   getTosuStatus: () => call<TosuStatus>("get_tosu_status"),
   getTosuLogs: () => call<TosuLogEntry[]>("get_tosu_logs"),
   setTosuExecutable: (path: string) => call<TosuStatus>("set_tosu_executable", { path }),
@@ -703,6 +734,7 @@ export const desktopApi = {
       options,
       rect,
     }),
+  /** 以谱面 Autoplay 打开实时预览时传入空 replayPath。 */
   liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
     call<void>("live_render_move", { rect }),
   liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),

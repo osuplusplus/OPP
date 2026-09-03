@@ -8,6 +8,7 @@ use reqwest::{Response, StatusCode, header::CONTENT_DISPOSITION};
 use serde_json::Value;
 
 use crate::error::{CommandError, CommandResult};
+use crate::infrastructure::logging::{LogSpan, global};
 
 pub const NERINYAN_BASE_URL: &str = "https://api.nerinyan.moe";
 pub const CATBOY_BASE_URL: &str = "https://catboy.best";
@@ -81,6 +82,9 @@ impl ProviderRegistry {
     where
         F: FnMut(u64, Option<u64>),
     {
+        let span = global().map(|logger| {
+            logger.operation("beatmap.provider", format!("download:{provider}:{id}"))
+        });
         let (url, code, fallback_name) = match provider {
             "sayobot" => (
                 format!(
@@ -125,7 +129,7 @@ impl ProviderRegistry {
                 }
                 _ = tokio::time::sleep(Duration::from_millis(50)) => {
                     if cancel.load(Ordering::Relaxed) {
-                        return Err(CommandError::new("DOWNLOAD_CANCELLED", "下载已取消"));
+                        return finish_span(span, Err(CommandError::new("DOWNLOAD_CANCELLED", "下载已取消")));
                     }
                 }
             }
@@ -153,11 +157,14 @@ impl ProviderRegistry {
         } else {
             bytes
         };
-        Ok(ProviderBytes {
-            bytes,
-            suggested_filename,
-            source: provider.into(),
-        })
+        finish_span(
+            span,
+            Ok(ProviderBytes {
+                bytes,
+                suggested_filename,
+                source: provider.into(),
+            }),
+        )
     }
 
     pub async fn catboy_osu(&self, id: u64) -> CommandResult<ProviderBytes> {
@@ -322,30 +329,45 @@ impl ProviderRegistry {
     }
 
     async fn json_get(&self, url: &str, code: &str) -> CommandResult<Value> {
+        let span =
+            global().map(|logger| logger.operation("beatmap.provider", format!("json_get:{code}")));
         let response = self
             .client
             .get(url)
             .header("Accept", "application/json")
             .send()
             .await
-            .map_err(|error| CommandError::network(error.to_string()))?;
-        parse_json(response, code).await
+            .map_err(|error| CommandError::from_error("NETWORK_ERROR", error));
+        let result = match response {
+            Ok(response) => parse_json(response, code).await,
+            Err(error) => Err(error),
+        };
+        finish_span(span, result)
     }
 
     async fn bytes_get(&self, url: &str, code: &str, source: &str) -> CommandResult<ProviderBytes> {
+        let span = global()
+            .map(|logger| logger.operation("beatmap.provider", format!("bytes_get:{code}")));
         let response = self
             .client
             .get(url)
             .send()
             .await
-            .map_err(|error| CommandError::network(error.to_string()))?;
-        let suggested_filename = filename(&response);
-        let bytes = parse_bytes(response, code).await?;
-        Ok(ProviderBytes {
-            bytes,
-            suggested_filename,
-            source: source.into(),
-        })
+            .map_err(|error| CommandError::from_error("NETWORK_ERROR", error));
+        let result = match response {
+            Ok(response) => {
+                let suggested_filename = filename(&response);
+                parse_bytes(response, code)
+                    .await
+                    .map(|bytes| ProviderBytes {
+                        bytes,
+                        suggested_filename,
+                        source: source.into(),
+                    })
+            }
+            Err(error) => Err(error),
+        };
+        finish_span(span, result)
     }
 
     async fn bytes_or_json_get(
@@ -515,4 +537,14 @@ fn filename(response: &Response) -> Option<String> {
                     .then(|| value.trim_matches('"').to_string())
             })
         })
+}
+
+fn finish_span<T>(span: Option<LogSpan>, result: CommandResult<T>) -> CommandResult<T> {
+    if let Some(mut span) = span {
+        match &result {
+            Ok(_) => span.finish_ok(None),
+            Err(error) => span.finish_error(error),
+        }
+    }
+    result
 }

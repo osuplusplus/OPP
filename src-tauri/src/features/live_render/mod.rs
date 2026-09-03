@@ -169,7 +169,9 @@ enum Cmd {
     Seek(f64),
     Play,
     Pause,
-    Close,
+    Close {
+        reply: Sender<()>,
+    },
 }
 
 static CHANNEL: LazyLock<Mutex<Sender<Cmd>>> = LazyLock::new(|| {
@@ -959,17 +961,16 @@ impl Session {
             renderer, visible, ..
         } = &mut self.backend;
         if let Some(sb) = &mut self.sb_layer {
-            sb.render_ext(
-                t as f32,
-                renderer.renderer_mut(),
-                &self.atlas,
-                None,
-            );
+            sb.render_ext(t as f32, renderer.renderer_mut(), &self.atlas, None);
         }
         self.state
             .build_frame(&self.game, &assets, &snap, &mut self.list);
         self.list.finish();
-        let presented = if *visible { renderer.render(&self.list, CLEAR) } else { false };
+        let presented = if *visible {
+            renderer.render(&self.list, CLEAR)
+        } else {
+            false
+        };
         let _ = self.app.emit(
             "live-render-time",
             LiveRenderState {
@@ -1371,10 +1372,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
-                let avatar_image = s
-                    .avatar_path
-                    .as_deref()
-                    .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+                let avatar_image = s.avatar_path.as_deref().and_then(|p| {
+                    osu_replay_render::decode_image_file(std::path::Path::new(p)).ok()
+                });
                 let with_bg = bg_image.is_some();
                 let reloaded =
                     skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new));
@@ -1393,24 +1393,30 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
-                let slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
-                    width: RENDER_W.min(1920).max(1) & !1,
-                    height: RENDER_H.min(1080).max(1) & !1,
-                    foreground: p.has_foreground(),
-                });
-                let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut new_skin, 8192, slots);
+                let slots = sb_parsed
+                    .as_ref()
+                    .map(|p| osu_replay_render::StoryboardSlots {
+                        width: RENDER_W.min(1920).max(1) & !1,
+                        height: RENDER_H.min(1080).max(1) & !1,
+                        foreground: p.has_foreground(),
+                    });
+                let (atlas, fonts) =
+                    build_atlas(bg_image, avatar_image, &mut new_skin, 8192, slots);
                 {
                     let Backend::Native { renderer, .. } = &mut s.backend;
                     let layer = sb_parsed.map(|p| {
-                        let mut l = p.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
+                        let mut l =
+                            p.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
                         l.set_elements_enabled(options.storyboard);
                         l.set_video_enabled(options.video);
                         l
                     });
                     s.sb_layer = layer;
                 }
-                let sb_active =
-                    s.sb_layer.as_ref().is_some_and(|l| l.elements_enabled() || l.video_enabled());
+                let sb_active = s
+                    .sb_layer
+                    .as_ref()
+                    .is_some_and(|l| l.elements_enabled() || l.video_enabled());
                 let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
                 state.pro_skin = s.skin_path.is_none();
                 state.hud.visible = options.hud;
@@ -1447,7 +1453,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 match loaded {
                     Ok(mut new_skin) => {
                         let bg_image = if options.bg {
-                            s.game.map_background.clone()
+                            s.game
+                                .map_background
+                                .clone()
                                 .map(|name| {
                                     std::path::Path::new(&s.beatmap_path)
                                         .parent()
@@ -1458,10 +1466,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         } else {
                             None
                         };
-                        let avatar_image = options
-                            .avatar_path
-                            .as_deref()
-                            .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+                        let avatar_image = options.avatar_path.as_deref().and_then(|p| {
+                            osu_replay_render::decode_image_file(std::path::Path::new(p)).ok()
+                        });
                         let with_bg = bg_image.is_some();
                         // 兜底:图集构建与 GPU 上载(create_texture 的
                         // 尺寸校验 panic 点)+ 会话字段交接全部包进来。
@@ -1525,7 +1532,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             let avatar_changed = options.avatar_path != s.avatar_path;
             if (options.bg != s.has_bg || avatar_changed) && options.skin_path == s.skin_path {
                 let bg_image = if options.bg {
-                    s.game.map_background.clone()
+                    s.game
+                        .map_background
+                        .clone()
                         .map(|name| {
                             std::path::Path::new(&s.beatmap_path)
                                 .parent()
@@ -1536,10 +1545,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
-                let avatar_image = options
-                    .avatar_path
-                    .as_deref()
-                    .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+                let avatar_image = options.avatar_path.as_deref().and_then(|p| {
+                    osu_replay_render::decode_image_file(std::path::Path::new(p)).ok()
+                });
                 // 皮肤纹理住在图集里,重建图集必须带上(按当前路径重载,
                 // ResolvedSkin 不可 Clone;assign_regions 回填新区域)。
                 match skin::load_skin(s.skin_path.as_deref().map(std::path::Path::new)) {
@@ -1547,7 +1555,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // 与皮肤热切换同构:GPU 上载与字段交接一并纳入
                         // catch,panic 时保留当前画面。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
+                            let (atlas, fonts) =
+                                build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
                             s.fonts = fonts;
@@ -1623,7 +1632,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             }
             s.dirty = true;
         }
-        Cmd::Close => {
+        Cmd::Close { reply } => {
             if let Some(mut s) = session.take() {
                 // Kira 的声音归混音器所有:丢弃句柄不会停播(切走页面/
                 // 关闭预览后 BGM/循环音一直响),必须显式 stop。
@@ -1631,6 +1640,7 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 s.loops_stop();
                 s.backend.destroy(&s.app);
             }
+            let _ = reply.send(());
         }
     }
 }
@@ -1643,8 +1653,11 @@ fn open_session(
     rect: PreviewRect,
     ffmpeg: Option<std::path::PathBuf>,
 ) -> Result<Session, String> {
-    let mut game =
-        game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
+    let mut game = if replay_path.trim().is_empty() {
+        game::load_autoplay(beatmap_path).map_err(|e| format!("加载谱面预览失败: {e}"))?
+    } else {
+        game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?
+    };
 
     // 背景([Events] 0,0,"...",相对谱面目录,PNG/JPEG,解码进图集)。
     let map_dir = std::path::Path::new(beatmap_path)
@@ -1679,11 +1692,13 @@ fn open_session(
     } else {
         None
     };
-    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
-        width: RENDER_W.min(1920).max(1) & !1,
-        height: RENDER_H.min(1080).max(1) & !1,
-        foreground: p.has_foreground(),
-    });
+    let storyboard_slots = sb_parsed
+        .as_ref()
+        .map(|p| osu_replay_render::StoryboardSlots {
+            width: RENDER_W.min(1920).max(1) & !1,
+            height: RENDER_H.min(1080).max(1) & !1,
+            foreground: p.has_foreground(),
+        });
     let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, storyboard_slots);
     // 皮肤 combo 色映射(--skin-colours 语义:默认谱面色优先,开关强制
     // 皮肤色;可重入,SetOptions 换肤/切开关后重调)。
@@ -1706,7 +1721,9 @@ fn open_session(
     };
     let sb_active = sb_parsed.is_some();
     state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
-    state.storyboard_fg = sb_parsed.as_ref().is_some_and(|p| options.storyboard && p.has_foreground());
+    state.storyboard_fg = sb_parsed
+        .as_ref()
+        .is_some_and(|p| options.storyboard && p.has_foreground());
     state.sb_replaces_bg = sb_active && options.storyboard;
 
     // BGM([General] AudioFilename,相对谱面目录):open 时只解析路径,
@@ -1974,7 +1991,9 @@ pub fn live_render_pause() {
 
 #[tauri::command]
 pub fn live_render_close() {
-    send(Cmd::Close);
+    let (tx, rx) = channel();
+    send(Cmd::Close { reply: tx });
+    let _ = rx.recv();
 }
 
 /// 一个可选的用户皮肤(客户端 Skins 目录下的子目录)。
@@ -2203,9 +2222,7 @@ mod repro_tests {
             list.finish();
             let _ = renderer.render(&list, CLEAR);
             // BGM 解码(kira/symphonia)也是 open 的一部分(audio 默认开)。
-            if let Some(name) =
-                game.map_audio.clone()
-            {
+            if let Some(name) = game.map_audio.clone() {
                 let audio = beatmap.parent().unwrap().join(name);
                 if audio.exists()
                     && let Ok(bytes) = std::fs::read(&audio)
@@ -2602,11 +2619,13 @@ fn run_export(
         params.width.min(1920).max(1) & !1,
         params.height.min(1080).max(1) & !1,
     );
-    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
-        width: sb_slot.0,
-        height: sb_slot.1,
-        foreground: p.has_foreground(),
-    });
+    let storyboard_slots = sb_parsed
+        .as_ref()
+        .map(|p| osu_replay_render::StoryboardSlots {
+            width: sb_slot.0,
+            height: sb_slot.1,
+            foreground: p.has_foreground(),
+        });
     let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, storyboard_slots);
     // 与预览会话同语义的 combo 色映射。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
@@ -2817,7 +2836,13 @@ fn run_export(
     let hits_path = if params.hitsounds {
         let wall_secs = frame_times.len() as f64 / params.fps as f64;
         let wav = hitsound::render_track_wav(
-            &game, &game.sample_data, t0, wall_secs, game.rate, 0.6, &skin,
+            &game,
+            &game.sample_data,
+            t0,
+            wall_secs,
+            game.rate,
+            0.6,
+            &skin,
         );
         let p = format!("{}.hits.wav", params.out_path);
         std::fs::write(&p, wav).ok().map(|_| p)

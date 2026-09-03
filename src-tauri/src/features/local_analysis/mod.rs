@@ -8,6 +8,6 @@ mod sources;
 pub use commands::*;
 pub use models::{
     LocalBeatmapSummary, LocalClient, LocalSkinSummary, SkinQuery, SkinSort, SortDirection,
-    StrainAnalysis,
+    StrainAnalysis, StrainSeries,
 };
 pub use service::LocalAnalysisService;

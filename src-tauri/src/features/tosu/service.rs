@@ -15,6 +15,7 @@ use url::Url;
 use crate::{
     domain::AppSettings,
     error::{CommandError, CommandResult},
+    infrastructure::logging,
 };
 
 use super::models::{TosuLiveSnapshot, TosuLogEntry};
@@ -162,6 +163,13 @@ fn record(runtime: &TosuRuntime, app: &AppHandle, stream: &str, message: impl In
         level: level.into(),
         message,
     };
+    if let Some(logger) = logging::global() {
+        logger.log(
+            &level.to_ascii_uppercase(),
+            &format!("tosu.{}", stream.replace(':', ".")),
+            &entry.message,
+        );
+    }
     if let Ok(mut logs) = runtime.logs.lock() {
         logs.push_back(entry.clone());
         if logs.len() > MAX_LOG_LINES {

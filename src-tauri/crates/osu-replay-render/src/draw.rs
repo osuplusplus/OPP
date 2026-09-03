@@ -23,8 +23,18 @@ impl Colour {
     pub const fn rgb(r: f32, g: f32, b: f32) -> Colour {
         Colour { r, g, b, a: 1.0 }
     }
-    pub const WHITE: Colour = Colour { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-    pub const BLACK: Colour = Colour { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+    pub const WHITE: Colour = Colour {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
+    pub const BLACK: Colour = Colour {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
 
     pub fn from_hex(hex: u32) -> Colour {
         Colour {
@@ -59,7 +69,12 @@ impl Colour {
     /// NOT the old osuTK `1 - amount` semantics which clamp to black).
     pub fn darken(self, amount: f32) -> Colour {
         let f = 1.0 / (1.0 + amount);
-        Colour { r: self.r * f, g: self.g * f, b: self.b * f, a: self.a }
+        Colour {
+            r: self.r * f,
+            g: self.g * f,
+            b: self.b * f,
+            a: self.a,
+        }
     }
 
     /// `LegacyDrawableSliderPath.lighten`: "lightens in a way more
@@ -77,7 +92,10 @@ impl Colour {
     }
 
     pub fn opacity(self, a: f32) -> Colour {
-        Colour { a: self.a * a, ..self }
+        Colour {
+            a: self.a * a,
+            ..self
+        }
     }
 
     pub fn lerp(a: Colour, b: Colour, t: f32) -> Colour {
@@ -94,10 +112,18 @@ impl Colour {
     /// sRGB). The alpha channel lerps linearly.
     pub fn lerp_linear(a: Colour, b: Colour, t: f32) -> Colour {
         fn to_lin(c: f32) -> f32 {
-            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
         }
         fn to_srgb(c: f32) -> f32 {
-            if c <= 0.003_130_8 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+            if c <= 0.003_130_8 {
+                c * 12.92
+            } else {
+                1.055 * c.powf(1.0 / 2.4) - 0.055
+            }
         }
         Colour {
             r: to_srgb(to_lin(a.r) + (to_lin(b.r) - to_lin(a.r)) * t),
@@ -170,15 +196,13 @@ impl Easing {
             Easing::OutExpo => 1.0 - 2.0f64.powf(-10.0 * time),
             Easing::OutElasticHalf => {
                 let offset = 2.0f64.powf(-10.0) * ((0.5 - ELASTIC_CONST2) * ELASTIC_CONST).sin();
-                2.0f64.powf(-10.0 * time)
-                    * ((0.5 * time - ELASTIC_CONST2) * ELASTIC_CONST).sin()
+                2.0f64.powf(-10.0 * time) * ((0.5 * time - ELASTIC_CONST2) * ELASTIC_CONST).sin()
                     + 1.0
                     - offset * time
             }
             Easing::OutElasticQuarter => {
                 let offset = 2.0f64.powf(-10.0) * ((0.25 - ELASTIC_CONST2) * ELASTIC_CONST).sin();
-                2.0f64.powf(-10.0 * time)
-                    * ((0.25 * time - ELASTIC_CONST2) * ELASTIC_CONST).sin()
+                2.0f64.powf(-10.0 * time) * ((0.25 * time - ELASTIC_CONST2) * ELASTIC_CONST).sin()
                     + 1.0
                     - offset * time
             }
@@ -333,7 +357,8 @@ impl DrawList {
 
     fn flush_run(&mut self) {
         if self.run_len > 0 {
-            self.runs.push((self.cur_blend, self.run_start, self.run_len));
+            self.runs
+                .push((self.cur_blend, self.run_start, self.run_len));
             self.run_start += self.run_len;
             self.run_len = 0;
         }
@@ -353,7 +378,8 @@ impl DrawList {
         }
         let base = self.vertices.len() as u32;
         self.vertices.extend_from_slice(&v);
-        self.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        self.indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         self.run_len += 6;
     }
 
@@ -383,7 +409,19 @@ impl DrawList {
         colour: Colour,
         blend: Blend,
     ) {
-        self.image_sub(atlas, region, center, size, rotation_deg, colour, blend, 0.0, 0.0, 1.0, 1.0);
+        self.image_sub(
+            atlas,
+            region,
+            center,
+            size,
+            rotation_deg,
+            colour,
+            blend,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+        );
     }
 
     /// Textured quad restricted to a sub-rectangle of the region (u/v in
@@ -416,7 +454,10 @@ impl DrawList {
         };
         let (s, c) = rotation_deg.to_radians().sin_cos();
         let rot = |p: [f32; 2]| -> [f32; 2] {
-            [center[0] + p[0] * c - p[1] * s, center[1] + p[0] * s + p[1] * c]
+            [
+                center[0] + p[0] * c - p[1] * s,
+                center[1] + p[0] * s + p[1] * c,
+            ]
         };
         let hx = size[0] * 0.5;
         let hy = size[1] * 0.5;
@@ -502,7 +543,14 @@ impl DrawList {
     }
 
     /// Filled disc with vertical gradient.
-    pub fn disc(&mut self, center: [f32; 2], radius: f32, top: Colour, bottom: Colour, blend: Blend) {
+    pub fn disc(
+        &mut self,
+        center: [f32; 2],
+        radius: f32,
+        top: Colour,
+        bottom: Colour,
+        blend: Blend,
+    ) {
         let r = radius + 1.5;
         let corner = |p: [f32; 2], col: Colour| Vertex {
             pos: [center[0] + p[0], center[1] + p[1]],
@@ -589,7 +637,14 @@ impl DrawList {
     }
 
     /// Capsule (thick line with round caps) between two points.
-    pub fn capsule(&mut self, p0: [f32; 2], p1: [f32; 2], radius: f32, colour: Colour, blend: Blend) {
+    pub fn capsule(
+        &mut self,
+        p0: [f32; 2],
+        p1: [f32; 2],
+        radius: f32,
+        colour: Colour,
+        blend: Blend,
+    ) {
         self.capsule_gradient(p0, p1, radius, colour, colour, blend);
     }
 
@@ -766,7 +821,10 @@ impl DrawList {
             } else if i == n - 1 {
                 (seg_dir(points[n - 2], points[n - 1]), None)
             } else {
-                (seg_dir(points[i - 1], points[i]), seg_dir(points[i], points[i + 1]))
+                (
+                    seg_dir(points[i - 1], points[i]),
+                    seg_dir(points[i], points[i + 1]),
+                )
             };
             let (mx, my, scale) = match (d1, d2) {
                 (Some(a), Some(b)) => {
@@ -810,7 +868,8 @@ impl DrawList {
             push(left[i], 1.0);
             push(left[i + 1], 1.0);
             push(right[i + 1], -1.0);
-            self.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            self.indices
+                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
             self.run_len += 6;
         }
 
@@ -818,14 +877,34 @@ impl DrawList {
         // gap on reversals, bridge it with a join disc (border rim + body).
         let border_w = half_width * portion;
         for i in 1..n - 1 {
-            let (Some(d1), Some(d2)) = (seg_dir(points[i - 1], points[i]), seg_dir(points[i], points[i + 1])) else {
+            let (Some(d1), Some(d2)) = (
+                seg_dir(points[i - 1], points[i]),
+                seg_dir(points[i], points[i + 1]),
+            ) else {
                 continue;
             };
             let turn = d1.0 * d2.0 + d1.1 * d2.1; // cos(turn angle)
             if turn < 0.55 {
-                let body_c = Colour { r: cbody[0], g: cbody[1], b: cbody[2], a: cbody[3] };
-                let border_c = Colour { r: cborder[0], g: cborder[1], b: cborder[2], a: cborder[3] };
-                self.cap_disc(points[i], half_width, border_w, body_c, border_c, Blend::Alpha);
+                let body_c = Colour {
+                    r: cbody[0],
+                    g: cbody[1],
+                    b: cbody[2],
+                    a: cbody[3],
+                };
+                let border_c = Colour {
+                    r: cborder[0],
+                    g: cborder[1],
+                    b: cborder[2],
+                    a: cborder[3],
+                };
+                self.cap_disc(
+                    points[i],
+                    half_width,
+                    border_w,
+                    body_c,
+                    border_c,
+                    Blend::Alpha,
+                );
             }
         }
     }
@@ -840,10 +919,10 @@ impl DrawList {
 pub const TTF_CLASSES: [u32; 3] = [24, 48, 96];
 
 const TTF_CHARS: &[char] = &[
-    'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
-    'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
-    '0','1','2','3','4','5','6','7','8','9','.',',','%','x','+','-','!','/',':',
-    ' ', '(', ')', '\'', '&',
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S',
+    'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+    'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4',
+    '5', '6', '7', '8', '9', '.', ',', '%', 'x', '+', '-', '!', '/', ':', ' ', '(', ')', '\'', '&',
 ];
 
 #[derive(Clone, Copy)]
@@ -893,7 +972,12 @@ impl TtfFont {
                     glyphs.insert(
                         (c, em),
                         TtfGlyph {
-                            rect: Rect { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0 },
+                            rect: Rect {
+                                x0: 0.0,
+                                y0: 0.0,
+                                x1: 0.0,
+                                y1: 0.0,
+                            },
                             w: 0.0,
                             h: 0.0,
                             xoff: 0.0,
@@ -931,7 +1015,12 @@ impl TtfFont {
                 glyphs.insert(
                     (c, em),
                     TtfGlyph {
-                        rect: Rect { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0 },
+                        rect: Rect {
+                            x0: 0.0,
+                            y0: 0.0,
+                            x1: 0.0,
+                            y1: 0.0,
+                        },
                         w: w as f32,
                         h: h as f32,
                         xoff: bounds.min.x as f32,
@@ -941,7 +1030,11 @@ impl TtfFont {
                 );
                 images.push((
                     Region::Glyph { weight, c, em },
-                    Image { width: w, height: h, rgba },
+                    Image {
+                        width: w,
+                        height: h,
+                        rgba,
+                    },
                 ));
             }
         }
@@ -952,7 +1045,11 @@ impl TtfFont {
     /// Patches glyph uv rects after the atlas is built.
     pub fn patch_rects(&mut self, atlas: &Atlas, weight: u8) {
         for ((c, em), g) in self.glyphs.iter_mut() {
-            let region = Region::Glyph { weight, c: *c, em: *em };
+            let region = Region::Glyph {
+                weight,
+                c: *c,
+                em: *em,
+            };
             if let Some(r) = atlas.rects.get(&region) {
                 g.rect = *r;
             }
@@ -1097,7 +1194,11 @@ pub fn draw_ttf_text(
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Region {
     /// TTF glyph rasterised at a specific em size class.
-    Glyph { weight: u8, c: char, em: u32 },
+    Glyph {
+        weight: u8,
+        c: char,
+        em: u32,
+    },
     CounterDigit(u8), // b'0'..=b'9'
     CounterDot,
     CounterPercent,
@@ -1159,7 +1260,12 @@ struct ShelfPacker {
 
 impl ShelfPacker {
     fn new(width: u32) -> ShelfPacker {
-        ShelfPacker { width, y: 0, shelf_height: 0, x: 0 }
+        ShelfPacker {
+            width,
+            y: 0,
+            shelf_height: 0,
+            x: 0,
+        }
     }
     fn alloc(&mut self, w: u32, h: u32) -> (u32, u32) {
         let pad = 2;
@@ -1175,7 +1281,6 @@ impl ShelfPacker {
     }
 }
 
-
 #[derive(Clone)]
 pub struct Image {
     pub width: u32,
@@ -1188,7 +1293,11 @@ fn seg_dir(a: [f32; 2], b: [f32; 2]) -> Option<(f32, f32)> {
     let dx = b[0] - a[0];
     let dy = b[1] - a[1];
     let l = (dx * dx + dy * dy).sqrt();
-    if l < 1e-5 { None } else { Some((dx / l, dy / l)) }
+    if l < 1e-5 {
+        None
+    } else {
+        Some((dx / l, dy / l))
+    }
 }
 
 fn ink_bbox(img: &Image) -> (f32, f32, f32, f32) {
@@ -1262,7 +1371,10 @@ fn pack(images: &[(Region, Image)], width: u32) -> Atlas {
         let mut rgba = vec![0u8; (width * height * 4) as usize];
         for ((_, img), (_, px, py)) in images.iter().zip(placed.iter()) {
             for row in 0..img.height {
-                let src = ((row * img.width * 4) as usize, ((row * img.width + img.width) * 4) as usize);
+                let src = (
+                    (row * img.width * 4) as usize,
+                    ((row * img.width + img.width) * 4) as usize,
+                );
                 let dst = (((py + row) * width + px) as usize * 4)
                     ..(((py + row) * width + px + img.width) as usize * 4);
                 rgba[dst].copy_from_slice(&img.rgba[src.0..src.1]);
@@ -1276,7 +1388,13 @@ fn pack(images: &[(Region, Image)], width: u32) -> Atlas {
             inks.insert(*region, [x0, y0, x1, y1]);
         }
 
-        Atlas { width, height, rgba, rects, inks }
+        Atlas {
+            width,
+            height,
+            rgba,
+            rects,
+            inks,
+        }
     }
 }
 
@@ -1286,18 +1404,26 @@ impl Atlas {
     }
 
     pub fn ink(&self, region: Region) -> [f32; 4] {
-        self.inks.get(&region).copied().unwrap_or([0.0, 0.0, 0.0, 0.0])
+        self.inks
+            .get(&region)
+            .copied()
+            .unwrap_or([0.0, 0.0, 0.0, 0.0])
     }
 }
-
-
 
 #[cfg(test)]
 mod atlas_tests {
     use super::*;
 
     fn solid(region: Region, w: u32, h: u32) -> (Region, Image) {
-        (region, Image { width: w, height: h, rgba: vec![255; (w * h * 4) as usize] })
+        (
+            region,
+            Image {
+                width: w,
+                height: h,
+                rgba: vec![255; (w * h * 4) as usize],
+            },
+        )
     }
 
     /// The width ladder: content that overflows 8192 in height at 4096

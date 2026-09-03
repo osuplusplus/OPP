@@ -11,13 +11,13 @@ pub mod pp;
 pub mod render;
 pub mod results;
 pub mod scene;
+/// osu!(lazer) skinning abstraction port: user skin directories
+/// (`--skin <dir>`) with the built-in argon skin as fallback.
+pub mod skin;
 /// Beatmap storyboard layer (`.osu` Events + shared `.osb`): rendered by
 /// the osu-storyboard-render library into two offscreen composites
 /// (below/above the playfield) and GPU-copied into atlas slots each frame.
 pub mod storyboard;
-/// osu!(lazer) skinning abstraction port: user skin directories
-/// (`--skin <dir>`) with the built-in argon skin as fallback.
-pub mod skin;
 /// 原生窗口直渲(窗口 surface,跨平台:Windows Win32 / Linux Xlib)。
 /// 宿主以 raw window handle 传入自己的窗口;句柄类型经
 /// [`raw_window_handle`] 再导出,宿主无需直接依赖该 crate。
@@ -126,7 +126,11 @@ const RESULTS_BG_BLUR_UNITS: f32 = 10.0 * 768.0 / 1080.0;
 fn blur_image(img: &Image, sigma: f32) -> Image {
     let mut out = img.rgba.clone();
     if sigma <= 0.05 || img.width < 2 || img.height < 2 {
-        return Image { width: img.width, height: img.height, rgba: out };
+        return Image {
+            width: img.width,
+            height: img.height,
+            rgba: out,
+        };
     }
     // Box half-width whose triple pass matches the gaussian: one box pass
     // over [-r, r] has variance r(r+2)/6, three passes r(r+2)/2.
@@ -137,7 +141,11 @@ fn blur_image(img: &Image, sigma: f32) -> Image {
         box_blur_axis(&out, &mut tmp, w, h, r, true);
         box_blur_axis(&tmp, &mut out, w, h, r, false);
     }
-    Image { width: img.width, height: img.height, rgba: out }
+    Image {
+        width: img.width,
+        height: img.height,
+        rgba: out,
+    }
 }
 
 /// One box-blur pass along x (`horizontal`) or y on RGBA8, edge-clamped
@@ -193,11 +201,16 @@ pub fn rounded_avatar(img: &Image, corner_ratio: f32) -> Image {
             }
         }
     }
-    Image { width: side as u32, height: side as u32, rgba }
+    Image {
+        width: side as u32,
+        height: side as u32,
+        rgba,
+    }
 }
 const COUNTER_PERCENT_PNG: &[u8] = include_bytes!("../assets/counter/argon-counter-percentage.png");
 const COUNTER_X_PNG: &[u8] = include_bytes!("../assets/counter/argon-counter-x.png");
-const COUNTER_WIREFRAMES_PNG: &[u8] = include_bytes!("../assets/counter/argon-counter-wireframes.png");
+const COUNTER_WIREFRAMES_PNG: &[u8] =
+    include_bytes!("../assets/counter/argon-counter-wireframes.png");
 
 /// Atlas slots reserved for the storyboard composites (`--storyboard`):
 /// two full-frame regions the storyboard layer renders into GPU-side
@@ -232,7 +245,8 @@ pub fn build_atlas(
     storyboard: Option<StoryboardSlots>,
 ) -> (Atlas, Fonts) {
     let (mut bold, mut bold_images) = TtfFont::rasterize(TORUS_BOLD_FONT, WEIGHT_BOLD);
-    let (mut semibold, mut semibold_images) = TtfFont::rasterize(TORUS_SEMI_BOLD_FONT, WEIGHT_SEMIBOLD);
+    let (mut semibold, mut semibold_images) =
+        TtfFont::rasterize(TORUS_SEMI_BOLD_FONT, WEIGHT_SEMIBOLD);
     let (mut light, mut light_images) = TtfFont::rasterize(TORUS_LIGHT_FONT, WEIGHT_LIGHT);
     let (mut venera, mut venera_images) = TtfFont::rasterize(VENERA_FONT, WEIGHT_VENERA);
     let (mut regular, mut regular_images) = TtfFont::rasterize(TORUS_REGULAR_FONT, WEIGHT_REGULAR);
@@ -255,10 +269,17 @@ pub fn build_atlas(
     // Storyboard composite slots: transparent placeholders — the layer
     // overwrites them GPU-side every frame (copy_texture_to_texture).
     if let Some(slots) = storyboard {
-        let blank = |w, h| Image { width: w, height: h, rgba: vec![0u8; (w * h * 4) as usize] };
+        let blank = |w, h| Image {
+            width: w,
+            height: h,
+            rgba: vec![0u8; (w * h * 4) as usize],
+        };
         images.push((Region::Storyboard, blank(slots.width, slots.height)));
         if slots.foreground {
-            images.push((Region::StoryboardForeground, blank(slots.width, slots.height)));
+            images.push((
+                Region::StoryboardForeground,
+                blank(slots.width, slots.height),
+            ));
         }
     }
     images.append(&mut bold_images);
@@ -269,7 +290,14 @@ pub fn build_atlas(
 
     for (d, png) in COUNTER_DIGITS.iter().enumerate() {
         let (w, h, rgba) = decode_png_bytes(png).expect("embedded png");
-        images.push((Region::CounterDigit(b'0' + d as u8), Image { width: w, height: h, rgba }));
+        images.push((
+            Region::CounterDigit(b'0' + d as u8),
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            },
+        ));
     }
     for (png, region) in [
         (COUNTER_DOT_PNG, Region::CounterDot),
@@ -278,27 +306,69 @@ pub fn build_atlas(
         (COUNTER_WIREFRAMES_PNG, Region::CounterWireframes),
     ] {
         let (w, h, rgba) = decode_png_bytes(png).expect("embedded png");
-        images.push((region, Image { width: w, height: h, rgba }));
+        images.push((
+            region,
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            },
+        ));
     }
     {
         let (w, h, rgba) = decode_png_bytes(CURSOR_TRAIL_PNG).expect("embedded png");
-        images.push((Region::CursorTrail, Image { width: w, height: h, rgba }));
+        images.push((
+            Region::CursorTrail,
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            },
+        ));
     }
     {
         let (w, h, rgba) = decode_png_bytes(REPEAT_EDGE_PNG).expect("embedded png");
-        images.push((Region::RepeatEdge, Image { width: w, height: h, rgba }));
+        images.push((
+            Region::RepeatEdge,
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            },
+        ));
     }
     {
         let (w, h, rgba) = decode_png_bytes(APPROACH_CIRCLE_PNG).expect("embedded png");
-        images.push((Region::ApproachCircle, Image { width: w, height: h, rgba }));
+        images.push((
+            Region::ApproachCircle,
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            },
+        ));
     }
     for (i, png) in MOD_ICON_PNGS.iter().enumerate() {
         let (w, h, rgba) = decode_png_bytes(png).expect("embedded mod icon png");
-        images.push((Region::ModIcon(i as u16), Image { width: w, height: h, rgba }));
+        images.push((
+            Region::ModIcon(i as u16),
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            },
+        ));
     }
     {
         let (w, h, rgba) = decode_png_bytes(MOD_ICON_BG_PNG).expect("embedded mod icon bg png");
-        images.push((Region::ModIconBg, Image { width: w, height: h, rgba }));
+        images.push((
+            Region::ModIconBg,
+            Image {
+                width: w,
+                height: h,
+                rgba,
+            },
+        ));
     }
 
     // Skin textures (`--skin <dir>` / built-in argon sprites): decode,
@@ -317,11 +387,20 @@ pub fn build_atlas(
         let mut skin_regions: Vec<(String, SkinTexture)> = Vec::with_capacity(skin_images.len());
         for (i, (name, img)) in skin_images.iter().enumerate() {
             let region = Region::Skin(i as u32);
-            let scaled = if scale >= 1.0 { img.clone() } else { skin::legacy::downscale(img, scale) };
+            let scaled = if scale >= 1.0 {
+                img.clone()
+            } else {
+                skin::legacy::downscale(img, scale)
+            };
             images.push((region, scaled.clone()));
             skin_regions.push((
                 name.clone(),
-                SkinTexture { region, width: scaled.width, height: scaled.height, scale_adjust: 1.0 },
+                SkinTexture {
+                    region,
+                    width: scaled.width,
+                    height: scaled.height,
+                    scale_adjust: 1.0,
+                },
             ));
         }
         match Atlas::try_build(&images, max_dim) {
@@ -330,7 +409,9 @@ pub fn build_atlas(
                 let new_scale = scale * 0.9;
                 eprintln!(
                     "atlas: {}x{} overflow at max_dim {max_dim}, downscaling skin textures to {:.0}%",
-                    max_dim, max_dim, new_scale * 100.0
+                    max_dim,
+                    max_dim,
+                    new_scale * 100.0
                 );
                 scale = new_scale;
             }
@@ -338,10 +419,31 @@ pub fn build_atlas(
     };
     skin.assign_regions(&skin_regions);
     if std::env::var("ATLAS_DEBUG").is_ok() {
-        for r in [Region::CounterDigit(b'5'), Region::Glyph { weight: WEIGHT_BOLD, c: 'G', em: 24 }, Region::Glyph { weight: WEIGHT_BOLD, c: 'G', em: 96 }, Region::Glyph { weight: WEIGHT_SEMIBOLD, c: '5', em: 48 }, Region::CounterWireframes] {
+        for r in [
+            Region::CounterDigit(b'5'),
+            Region::Glyph {
+                weight: WEIGHT_BOLD,
+                c: 'G',
+                em: 24,
+            },
+            Region::Glyph {
+                weight: WEIGHT_BOLD,
+                c: 'G',
+                em: 96,
+            },
+            Region::Glyph {
+                weight: WEIGHT_SEMIBOLD,
+                c: '5',
+                em: 48,
+            },
+            Region::CounterWireframes,
+        ] {
             let rect = atlas.region_rect(r);
             let ink = atlas.ink(r);
-            eprintln!("ATLAS {:?}: rect=({:.0},{:.0},{:.0},{:.0}) ink=({:.0},{:.0},{:.0},{:.0})", r, rect.x0, rect.y0, rect.x1, rect.y1, ink[0], ink[1], ink[2], ink[3]);
+            eprintln!(
+                "ATLAS {:?}: rect=({:.0},{:.0},{:.0},{:.0}) ink=({:.0},{:.0},{:.0},{:.0})",
+                r, rect.x0, rect.y0, rect.x1, rect.y1, ink[0], ink[1], ink[2], ink[3]
+            );
         }
     }
     bold.patch_rects(&atlas, WEIGHT_BOLD);
@@ -358,7 +460,16 @@ pub fn build_atlas(
         writer.write_image_data(&atlas.rgba).unwrap();
         eprintln!("atlas dumped: {}x{}", atlas.width, atlas.height);
     }
-    (atlas, Fonts { bold, semibold, light, venera, regular })
+    (
+        atlas,
+        Fonts {
+            bold,
+            semibold,
+            light,
+            venera,
+            regular,
+        },
+    )
 }
 
 /// Decodes a PNG or JPEG file into an atlas image (RGBA).
@@ -370,7 +481,8 @@ pub fn build_atlas(
 /// ImageSharp detects the format from the file content rather than the
 /// extension, so a png-extension miss retries as jpeg.
 pub fn decode_image_file(path: &std::path::Path) -> Result<Image, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
     let lower = path.to_string_lossy().to_lowercase();
     if !lower.ends_with(".png") {
         if let Ok(img) = decode_jpeg_bytes(&bytes) {
@@ -378,9 +490,14 @@ pub fn decode_image_file(path: &std::path::Path) -> Result<Image, String> {
         }
     }
     match decode_png_bytes(&bytes) {
-        Ok((w, h, rgba)) => Ok(Image { width: w, height: h, rgba }),
-        Err(png_err) => decode_jpeg_bytes(&bytes)
-            .map_err(|jpeg_err| format!("{}: png: {}; jpeg: {}", path.display(), png_err, jpeg_err)),
+        Ok((w, h, rgba)) => Ok(Image {
+            width: w,
+            height: h,
+            rgba,
+        }),
+        Err(png_err) => decode_jpeg_bytes(&bytes).map_err(|jpeg_err| {
+            format!("{}: png: {}; jpeg: {}", path.display(), png_err, jpeg_err)
+        }),
     }
 }
 
@@ -406,7 +523,11 @@ fn decode_jpeg_bytes(bytes: &[u8]) -> Result<Image, String> {
         }
         other => return Err(format!("unsupported jpeg pixel format {:?}", other)),
     };
-    Ok(Image { width: w, height: h, rgba })
+    Ok(Image {
+        width: w,
+        height: h,
+        rgba,
+    })
 }
 
 pub fn decode_png_bytes(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {

@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use crate::draw::Colour;
 
-use super::configuration::{SkinConfiguration, LATEST_VERSION};
+use super::configuration::{LATEST_VERSION, SkinConfiguration};
 
 /// `LegacySkin.STABLE_MAGIC_SCALE_FACTOR`: legacy positioning values are
 /// based in x480 dimensions and convert to x768 by multiplying by 1.6.
@@ -99,8 +99,11 @@ fn handle_colours(config: &mut SkinConfiguration, line: &str, allow_alpha: bool)
         return;
     }
     let parse_byte = |s: &str| s.parse::<u8>().ok();
-    let (Some(r), Some(g), Some(b)) = (parse_byte(split[0]), parse_byte(split[1]), parse_byte(split[2]))
-    else {
+    let (Some(r), Some(g), Some(b)) = (
+        parse_byte(split[0]),
+        parse_byte(split[1]),
+        parse_byte(split[2]),
+    ) else {
         return;
     };
     let a = if allow_alpha && split.len() == 4 {
@@ -141,7 +144,11 @@ pub fn decode_skin_configuration(content: &str) -> SkinConfiguration {
         }
         // Comments are not stripped from metadata lines (song metadata may
         // contain "//" as valid data).
-        let line = if section != Section::Metadata { strip_comments(line) } else { line };
+        let line = if section != Section::Metadata {
+            strip_comments(line)
+        } else {
+            line
+        };
         let line = line.trim_end();
 
         if line.starts_with('[') && line.ends_with(']') && line.len() > 2 {
@@ -194,7 +201,9 @@ fn parse_skin_line(config: &mut SkinConfiguration, section: Section, line: &str)
         }
 
         if !key.is_empty() {
-            config.config_dictionary.insert(key.to_string(), value.to_string());
+            config
+                .config_dictionary
+                .insert(key.to_string(), value.to_string());
         }
     }
 
@@ -441,12 +450,16 @@ fn flush_pending(config: &mut LegacyManiaSkinConfiguration, pending: &[String]) 
                 || key.starts_with("Lighting")
                 || key == "WarningArrow" =>
             {
-                config.image_lookups.insert(key.to_string(), value.to_string());
+                config
+                    .image_lookups
+                    .insert(key.to_string(), value.to_string());
             }
             _ if key.starts_with("KeyFlipWhenUpsideDown")
                 || key.starts_with("NoteFlipWhenUpsideDown") =>
             {
-                config.flip_settings.insert(key.to_string(), value.to_string());
+                config
+                    .flip_settings
+                    .insert(key.to_string(), value.to_string());
             }
             _ => {}
         }
@@ -525,8 +538,8 @@ impl LegacyComboBurstStyle {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::configuration::default_combo_colours;
+    use super::*;
 
     #[test]
     fn parses_general_and_version() {
@@ -537,7 +550,13 @@ mod tests {
         assert_eq!(config.creator, "someone");
         assert_eq!(config.legacy_version, Some(2.5));
         assert!(!config.is_latest_version);
-        assert_eq!(config.config_dictionary.get("CursorExpand").map(String::as_str), Some("0"));
+        assert_eq!(
+            config
+                .config_dictionary
+                .get("CursorExpand")
+                .map(String::as_str),
+            Some("0")
+        );
     }
 
     #[test]
@@ -563,7 +582,10 @@ mod tests {
         );
         assert_eq!(config.custom_combo_colours.len(), 2);
         // No alpha allowed in [Colours].
-        assert_eq!(config.custom_combo_colours[0], Colour::rgba_bytes(255, 128, 64, 255));
+        assert_eq!(
+            config.custom_combo_colours[0],
+            Colour::rgba_bytes(255, 128, 64, 255)
+        );
         assert_eq!(
             config.custom_colours.get("SliderBall").copied(),
             Some(Colour::rgba_bytes(1, 2, 3, 255))
@@ -589,13 +611,19 @@ mod tests {
         assert_eq!(config.name, "x");
         // Unknown section header keeps the previous section (General), so
         // the pair still lands in the dictionary.
-        assert_eq!(config.config_dictionary.get("Whatever").map(String::as_str), Some("1"));
+        assert_eq!(
+            config.config_dictionary.get("Whatever").map(String::as_str),
+            Some("1")
+        );
     }
 
     #[test]
     fn combo_colours_fallback() {
         let config = decode_skin_configuration("[General]\nName: x\n");
-        assert_eq!(config.combo_colours().unwrap(), default_combo_colours().to_vec());
+        assert_eq!(
+            config.combo_colours().unwrap(),
+            default_combo_colours().to_vec()
+        );
         let config = decode_skin_configuration("[Colours]\nCombo1: 1,1,1\n");
         assert_eq!(config.combo_colours().unwrap().len(), 1);
     }

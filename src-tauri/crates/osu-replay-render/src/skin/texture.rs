@@ -10,9 +10,9 @@
 
 use crate::draw::Region;
 
+use super::Skin;
 use super::configuration::LegacySetting;
 use super::lookup::SkinLookup;
-use super::Skin;
 
 /// The default frame length of legacy skin animations at a 60 FPS rate
 /// (`LegacySkinExtensions.SIXTY_FRAME_TIME`).
@@ -94,15 +94,27 @@ pub fn get_animation(
     if frames.is_empty() {
         // Not allowed or not found: fall back to a sprite retrieval.
         let single = skin.get_texture(component_name)?;
-        return Some(SkinAnimation { frames: vec![single], frame_length: SIXTY_FRAME_TIME, looping });
+        return Some(SkinAnimation {
+            frames: vec![single],
+            frame_length: SIXTY_FRAME_TIME,
+            looping,
+        });
     }
 
     let frame_length = get_frame_length(skin, apply_config_frame_rate, &frames);
-    Some(SkinAnimation { frames, frame_length, looping })
+    Some(SkinAnimation {
+        frames,
+        frame_length,
+        looping,
+    })
 }
 
 /// `LegacySkinExtensions.getFrameLength`.
-fn get_frame_length(skin: &dyn Skin, apply_config_frame_rate: bool, textures: &[SkinTexture]) -> f64 {
+fn get_frame_length(
+    skin: &dyn Skin,
+    apply_config_frame_rate: bool,
+    textures: &[SkinTexture],
+) -> f64 {
     if apply_config_frame_rate {
         let ini_rate = skin
             .get_config(SkinLookup::LegacySetting(LegacySetting::AnimationFramerate))
@@ -144,7 +156,8 @@ pub fn get_font_prefix(skin: &dyn Skin, font: LegacyFont) -> String {
 /// `LegacySkinExtensions.GetFontOverlap`.
 pub fn get_font_overlap(skin: &dyn Skin, font: LegacyFont) -> f32 {
     let setting = |s: LegacySetting| {
-        skin.get_config(SkinLookup::LegacySetting(s)).and_then(|v| v.as_f64())
+        skin.get_config(SkinLookup::LegacySetting(s))
+            .and_then(|v| v.as_f64())
     };
     match font {
         LegacyFont::ScoreEntry => 1.0,
@@ -156,5 +169,6 @@ pub fn get_font_overlap(skin: &dyn Skin, font: LegacyFont) -> f32 {
 
 /// `LegacySkinExtensions.HasFont`.
 pub fn has_font(skin: &dyn Skin, font: LegacyFont) -> bool {
-    skin.get_texture(&format!("{}-0", get_font_prefix(skin, font))).is_some()
+    skin.get_texture(&format!("{}-0", get_font_prefix(skin, font)))
+        .is_some()
 }

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { AppLoading } from "./AppLoading";
 
@@ -19,9 +19,14 @@ const ReplayRenderPage = lazy(() => import("../features/local-media/ReplayRender
 const SettingsPage = lazy(() => import("../features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const ToolsPage = lazy(() => import("../features/tools/ToolsPage").then((module) => ({ default: module.ToolsPage })));
 const TosuPage = lazy(() => import("../features/tools/TosuPage").then((module) => ({ default: module.TosuPage })));
-const TrainerPage = lazy(() => import("../features/trainer/TrainerPage").then((module) => ({ default: module.TrainerPage })));
+const ViewTrainerPage = lazy(() => import("../features/view-trainer/ViewTrainerPage").then((module) => ({ default: module.ViewTrainerPage })));
 const CollectionsPage = lazy(() => import("../features/collections/CollectionsPage").then((module) => ({ default: module.CollectionsPage })));
 const BeatmapHubPage = lazy(() => import("../features/beatmaphub/BeatmapHubPage").then((module) => ({ default: module.BeatmapHubPage })));
+
+function LegacyTrainerRedirect() {
+  const location = useLocation();
+  return <Navigate replace to={`/view-trainer${location.search}`} />;
+}
 
 export function AppRoutes() {
   return (
@@ -45,7 +50,8 @@ export function AppRoutes() {
           <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/beatmaphub" element={<BeatmapHubPage />} />
           <Route path="/online/similar" element={<SimilarBeatmapsPage />} />
-          <Route path="/trainer" element={<TrainerPage />} />
+          <Route path="/trainer" element={<LegacyTrainerRedirect />} />
+          <Route path="/view-trainer" element={<ViewTrainerPage />} />
           <Route path="/local" element={<Navigate replace to="/local/maps" />} />
           <Route path="/local/maps" element={<LocalAnalysisPage section="maps" />} />
           <Route path="/local/skins" element={<SkinWorkshopPage />} />

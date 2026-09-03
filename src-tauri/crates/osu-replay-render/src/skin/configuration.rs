@@ -100,7 +100,10 @@ impl SkinConfiguration {
     /// `LegacySkinDecoder.CreateTemplateObject`: the parse starts at
     /// legacy version 1.0.
     pub fn template() -> SkinConfiguration {
-        SkinConfiguration { legacy_version: Some(1.0), ..Default::default() }
+        SkinConfiguration {
+            legacy_version: Some(1.0),
+            ..Default::default()
+        }
     }
 
     /// `SkinConfiguration.ComboColours`: custom colours when present, the

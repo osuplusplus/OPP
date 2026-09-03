@@ -50,7 +50,10 @@
 //!                          --png-dir out --fps 1 --results 1)
 //!   --limit <n>            Render at most n frames (testing)
 
-use osu_replay_render::{build_atlas, decode_image_file, draw, draw::Image, game, hitsound, render::Renderer, scene, skin};
+use osu_replay_render::{
+    build_atlas, decode_image_file, draw, draw::Image, game, hitsound, render::Renderer, scene,
+    skin,
+};
 
 use scene::{Assets, SceneState};
 use std::io::Write;
@@ -242,7 +245,10 @@ fn set_skin(opts: &mut Options, skin: &str) -> Result<(), String> {
         // with per-element argon fallbacks.
         let p = std::path::Path::new(skin);
         if !p.is_dir() {
-            return Err(format!("skin: not a directory: {} (or argon|argon-pro)", skin));
+            return Err(format!(
+                "skin: not a directory: {} (or argon|argon-pro)",
+                skin
+            ));
         }
         opts.skin_dir = Some(p.to_path_buf());
         opts.skin = "argon".to_string();
@@ -253,16 +259,32 @@ fn set_skin(opts: &mut Options, skin: &str) -> Result<(), String> {
 /// Applies the config over the current options (config wins over the
 /// defaults; CLI wins over the config since it is applied afterwards).
 fn apply_config(opts: &mut Options, c: ConfigJson) -> Result<(), String> {
-    if c.out.is_some() { opts.out = c.out; }
-    if c.png_dir.is_some() { opts.png_dir = c.png_dir; }
+    if c.out.is_some() {
+        opts.out = c.out;
+    }
+    if c.png_dir.is_some() {
+        opts.png_dir = c.png_dir;
+    }
     if let Some(s) = c.size {
         let mut it = s.split('x');
-        opts.width = it.next().and_then(|v| v.parse().ok()).ok_or("config size: bad WxH")?;
-        opts.height = it.next().and_then(|v| v.parse().ok()).ok_or("config size: bad WxH")?;
+        opts.width = it
+            .next()
+            .and_then(|v| v.parse().ok())
+            .ok_or("config size: bad WxH")?;
+        opts.height = it
+            .next()
+            .and_then(|v| v.parse().ok())
+            .ok_or("config size: bad WxH")?;
     }
-    if let Some(v) = c.fps { opts.fps = v; }
-    if c.start.is_some() { opts.start = c.start; }
-    if c.end.is_some() { opts.end = c.end; }
+    if let Some(v) = c.fps {
+        opts.fps = v;
+    }
+    if c.start.is_some() {
+        opts.start = c.start;
+    }
+    if c.end.is_some() {
+        opts.end = c.end;
+    }
     if let Some(v) = c.score {
         if v == "classic" {
             opts.classic_score = true;
@@ -277,19 +299,45 @@ fn apply_config(opts: &mut Options, c: ConfigJson) -> Result<(), String> {
         }
         opts.encoder = v;
     }
-    if let Some(v) = c.quality { opts.quality = v; }
-    if let Some(v) = c.limit { opts.limit = Some(v); }
-    if let Some(v) = c.guides { opts.guides = v; }
-    if let Some(v) = c.hud { opts.hud = v; }
-    if let Some(v) = c.pp { opts.pp = v; }
-    if c.audio.is_some() { opts.audio = c.audio; }
-    if let Some(v) = c.bg { opts.bg = v; }
-    if let Some(v) = c.bg_opacity { opts.bg_opacity = v; }
-    if let Some(v) = c.storyboard { opts.storyboard = v; }
-    if let Some(v) = c.video { opts.video = v; }
-    if let Some(v) = c.cursor_size { opts.cursor_size = v; }
-    if c.audio_offset.is_some() { opts.audio_offset = c.audio_offset; }
-    if let Some(true) = c.autoplay { opts.autoplay = true; }
+    if let Some(v) = c.quality {
+        opts.quality = v;
+    }
+    if let Some(v) = c.limit {
+        opts.limit = Some(v);
+    }
+    if let Some(v) = c.guides {
+        opts.guides = v;
+    }
+    if let Some(v) = c.hud {
+        opts.hud = v;
+    }
+    if let Some(v) = c.pp {
+        opts.pp = v;
+    }
+    if c.audio.is_some() {
+        opts.audio = c.audio;
+    }
+    if let Some(v) = c.bg {
+        opts.bg = v;
+    }
+    if let Some(v) = c.bg_opacity {
+        opts.bg_opacity = v;
+    }
+    if let Some(v) = c.storyboard {
+        opts.storyboard = v;
+    }
+    if let Some(v) = c.video {
+        opts.video = v;
+    }
+    if let Some(v) = c.cursor_size {
+        opts.cursor_size = v;
+    }
+    if c.audio_offset.is_some() {
+        opts.audio_offset = c.audio_offset;
+    }
+    if let Some(true) = c.autoplay {
+        opts.autoplay = true;
+    }
     if let Some(v) = c.hd {
         opts.hd = match v.as_str() {
             "on" => HdMode::On,
@@ -298,21 +346,39 @@ fn apply_config(opts: &mut Options, c: ConfigJson) -> Result<(), String> {
             other => return Err(format!("config hd must be auto, on or off (got {})", other)),
         };
     }
-    if let Some(true) = c.hitsounds { opts.hitsounds = true; }
-    if let Some(v) = c.hitsounds_volume { opts.hitsounds_volume = v; }
-    if let Some(v) = c.bgm_volume { opts.bgm_volume = v; }
-    if let Some(v) = c.master_volume { opts.master_volume = v; }
-    if let Some(true) = c.skin_colours { opts.skin_colours = true; }
-    if let Some(true) = c.argon_hud { opts.argon_hud = true; }
-    if let Some(v) = c.results { opts.results = v; }
+    if let Some(true) = c.hitsounds {
+        opts.hitsounds = true;
+    }
+    if let Some(v) = c.hitsounds_volume {
+        opts.hitsounds_volume = v;
+    }
+    if let Some(v) = c.bgm_volume {
+        opts.bgm_volume = v;
+    }
+    if let Some(v) = c.master_volume {
+        opts.master_volume = v;
+    }
+    if let Some(true) = c.skin_colours {
+        opts.skin_colours = true;
+    }
+    if let Some(true) = c.argon_hud {
+        opts.argon_hud = true;
+    }
+    if let Some(v) = c.results {
+        opts.results = v;
+    }
     if let Some(true) = c.results_only {
         opts.results_only = true;
         if opts.results <= 0.0 {
             opts.results = 4.0;
         }
     }
-    if c.avatar.is_some() { opts.avatar = c.avatar; }
-    if let Some(v) = c.ffmpeg_extra { opts.ffmpeg_extra = v; }
+    if c.avatar.is_some() {
+        opts.avatar = c.avatar;
+    }
+    if let Some(v) = c.ffmpeg_extra {
+        opts.ffmpeg_extra = v;
+    }
     Ok(())
 }
 
@@ -323,10 +389,19 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
     let autoplay = args.iter().any(|a| a == "--autoplay");
     let min_args = if autoplay { 2 } else { 3 };
     if args.len() < min_args {
-        return Err(format!("usage: {} <beatmap.osu> [replay.osr] [--autoplay] [--hud on|off] [--hd auto|on|off] [--out file.mp4] [--png-dir dir] [--size WxH] [--fps n] [--start ms] [--end ms] [--score classic] [--skin argon|argon-pro|dir] [--argon-hud] [--guides on|off] [--pp on|off] [--audio [file.mp3]] [--audio-offset ms] [--bg on|off] [--bg-opacity 0..1] [--storyboard on|off] [--video on|off] [--cursor-size 0.1..=2] [--hitsounds] [--skin-colours] [--results secs|off] [--results-only] [--avatar image] [--config file.json] [--limit n]", args.get(0).map(|s| s.as_str()).unwrap_or("osu_replay_render")));
+        return Err(format!(
+            "usage: {} <beatmap.osu> [replay.osr] [--autoplay] [--hud on|off] [--hd auto|on|off] [--out file.mp4] [--png-dir dir] [--size WxH] [--fps n] [--start ms] [--end ms] [--score classic] [--skin argon|argon-pro|dir] [--argon-hud] [--guides on|off] [--pp on|off] [--audio [file.mp3]] [--audio-offset ms] [--bg on|off] [--bg-opacity 0..1] [--storyboard on|off] [--video on|off] [--cursor-size 0.1..=2] [--hitsounds] [--skin-colours] [--results secs|off] [--results-only] [--avatar image] [--config file.json] [--limit n]",
+            args.get(0)
+                .map(|s| s.as_str())
+                .unwrap_or("osu_replay_render")
+        ));
     }
     let map_path = args[1].clone();
-    let replay_path = if autoplay { None } else { Some(args[2].clone()) };
+    let replay_path = if autoplay {
+        None
+    } else {
+        Some(args[2].clone())
+    };
     let mut opts = Options {
         out: None,
         png_dir: None,
@@ -373,13 +448,16 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
         if args[i] == "--config" {
             i += 1;
             let path = args.get(i).ok_or("--config needs a JSON file")?;
-            let text = std::fs::read_to_string(path).map_err(|e| format!("--config: cannot read {}: {}", path, e))?;
-            let cfg: ConfigJson =
-                serde_json::from_str(&text).map_err(|e| format!("--config: bad JSON in {}: {}", path, e))?;
+            let text = std::fs::read_to_string(path)
+                .map_err(|e| format!("--config: cannot read {}: {}", path, e))?;
+            let cfg: ConfigJson = serde_json::from_str(&text)
+                .map_err(|e| format!("--config: bad JSON in {}: {}", path, e))?;
             let mut cfg = cfg;
             if let Some(a) = &cfg.avatar {
                 if std::path::Path::new(a).is_relative() {
-                    let dir = std::path::Path::new(path).parent().unwrap_or(std::path::Path::new("."));
+                    let dir = std::path::Path::new(path)
+                        .parent()
+                        .unwrap_or(std::path::Path::new("."));
                     let joined = dir.join(a);
                     if joined.exists() {
                         cfg.avatar = Some(joined.to_string_lossy().into_owned());
@@ -404,7 +482,10 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
             }
             "--fps" => {
                 i += 1;
-                opts.fps = args.get(i).and_then(|v| v.parse().ok()).ok_or("bad --fps")?;
+                opts.fps = args
+                    .get(i)
+                    .and_then(|v| v.parse().ok())
+                    .ok_or("bad --fps")?;
                 if opts.fps < 1.0 || opts.fps > 480.0 {
                     return Err("--fps must be within 1..480".into());
                 }
@@ -445,7 +526,10 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
             }
             "--quality" => {
                 i += 1;
-                opts.quality = args.get(i).and_then(|v| v.parse().ok()).ok_or("bad --quality")?;
+                opts.quality = args
+                    .get(i)
+                    .and_then(|v| v.parse().ok())
+                    .ok_or("bad --quality")?;
             }
             "--probe" => {
                 i += 1;
@@ -509,7 +593,9 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
                     .and_then(|v| v.parse().ok())
                     .ok_or("bad --cursor-size (expected 0.1..=2)")?;
                 if !(0.1..=2.0).contains(&opts.cursor_size) {
-                    return Err("--cursor-size must be within 0.1..=2 (lazer GameplayCursorSize)".into());
+                    return Err(
+                        "--cursor-size must be within 0.1..=2 (lazer GameplayCursorSize)".into(),
+                    );
                 }
             }
             "--audio-offset" => {
@@ -534,7 +620,9 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
                             "on" | "true" | "1" => HdMode::On,
                             "off" | "false" | "0" => HdMode::Off,
                             "auto" => HdMode::Auto,
-                            other => return Err(format!("--hd must be auto, on or off (got {})", other)),
+                            other => {
+                                return Err(format!("--hd must be auto, on or off (got {})", other));
+                            }
                         }
                     }
                     _ => HdMode::On,
@@ -551,11 +639,15 @@ fn parse_args() -> Result<(Options, String, Option<String>), String> {
             }
             "--results" => {
                 i += 1;
-                let v = args.get(i).cloned().ok_or("--results needs seconds or off")?;
+                let v = args
+                    .get(i)
+                    .cloned()
+                    .ok_or("--results needs seconds or off")?;
                 opts.results = if v == "off" || v == "false" || v == "0" {
                     0.0
                 } else {
-                    v.parse::<f64>().map_err(|_| "bad --results (expected seconds or off)")?
+                    v.parse::<f64>()
+                        .map_err(|_| "bad --results (expected seconds or off)")?
                 };
                 if opts.results < 0.0 || opts.results > 300.0 {
                     return Err("--results must be within 0..300 seconds".into());
@@ -650,7 +742,14 @@ impl Output {
     /// Takes ownership of `buf` (frame data, padded rows) and queues it to
     /// the writer thread. Cheap unless the writer is more than
     /// `WRITER_QUEUE` frames behind (natural backpressure).
-    fn write_frame(&mut self, mut buf: Vec<u8>, width: u32, height: u32, stride: u32, index: usize) -> std::io::Result<()> {
+    fn write_frame(
+        &mut self,
+        mut buf: Vec<u8>,
+        width: u32,
+        height: u32,
+        stride: u32,
+        index: usize,
+    ) -> std::io::Result<()> {
         match self {
             Output::Ffmpeg { tx, .. } => {
                 let tx = tx.as_ref().expect("writer channel");
@@ -665,7 +764,8 @@ impl Output {
                     buf = tight;
                 }
                 let _ = index;
-                tx.send(buf).map_err(|_| std::io::Error::other("ffmpeg writer exited"))
+                tx.send(buf)
+                    .map_err(|_| std::io::Error::other("ffmpeg writer exited"))
             }
             Output::PngDir(dir) => {
                 let data: &[u8] = &buf;
@@ -718,7 +818,16 @@ const WRITER_QUEUE: usize = 3;
 /// pitch-up. Falls back to 44100 when ffprobe is missing or fails.
 fn probe_sample_rate(path: &str) -> u32 {
     std::process::Command::new("ffprobe")
-        .args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "csv=p=0"])
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=sample_rate",
+            "-of",
+            "csv=p=0",
+        ])
         .arg(path)
         .output()
         .ok()
@@ -767,8 +876,16 @@ fn main() {
         game.snapshots.len(),
         game.final_score,
         game.final_max_combo,
-        if game.pp.is_nan() { "-".to_string() } else { format!("{:.2}", game.pp) },
-        if game.pp_max.is_nan() { "-".to_string() } else { format!("{:.2}", game.pp_max) },
+        if game.pp.is_nan() {
+            "-".to_string()
+        } else {
+            format!("{:.2}", game.pp)
+        },
+        if game.pp_max.is_nan() {
+            "-".to_string()
+        } else {
+            format!("{:.2}", game.pp_max)
+        },
     );
 
     // Resolve optional BGM: explicit file, or the beatmap's own audio
@@ -786,13 +903,19 @@ fn main() {
             Some(explicit.clone())
         }
         Some(_) => {
-            let name = game.map_audio.clone().unwrap_or_else(|| "audio.mp3".to_string());
+            let name = game
+                .map_audio
+                .clone()
+                .unwrap_or_else(|| "audio.mp3".to_string());
             let p = map_dir.join(&name);
             if p.exists() {
                 eprintln!("audio: {} (from beatmap)", p.display());
                 Some(p.to_string_lossy().into_owned())
             } else {
-                eprintln!("warning: beatmap audio not found: {} - rendering without BGM", p.display());
+                eprintln!(
+                    "warning: beatmap audio not found: {} - rendering without BGM",
+                    p.display()
+                );
                 None
             }
         }
@@ -820,7 +943,9 @@ fn main() {
         }
         None => {
             if opts.bg {
-                eprintln!("warning: beatmap has no background image - rendering without background");
+                eprintln!(
+                    "warning: beatmap has no background image - rendering without background"
+                );
             }
             None
         }
@@ -846,7 +971,11 @@ fn main() {
                     v.height,
                     v.fps,
                     v.start_ms,
-                    if v.duration_ms > 0.0 { format!(", {:.1}s", v.duration_ms / 1000.0) } else { String::new() }
+                    if v.duration_ms > 0.0 {
+                        format!(", {:.1}s", v.duration_ms / 1000.0)
+                    } else {
+                        String::new()
+                    }
                 );
             }
             if p.replaces_background() {
@@ -866,11 +995,13 @@ fn main() {
         opts.width.min(1920).max(1) & !1,
         opts.height.min(1080).max(1) & !1,
     );
-    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
-        width: sb_slot.0,
-        height: sb_slot.1,
-        foreground: p.has_foreground(),
-    });
+    let storyboard_slots = sb_parsed
+        .as_ref()
+        .map(|p| osu_replay_render::StoryboardSlots {
+            width: sb_slot.0,
+            height: sb_slot.1,
+            foreground: p.has_foreground(),
+        });
 
     // Skin resolution (`--skin <dir>`: user legacy skin with argon
     // fallbacks). Default combo colours: the beatmap's `[Colours]` win
@@ -903,15 +1034,20 @@ fn main() {
     // 8192 is the GLES/GL-compat floor for max_texture_dimension2d:
     // capping here keeps the atlas creatable on every backend (desktop
     // Vulkan/dGPU simply packs wider instead of taller).
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut resolved_skin, 8192, storyboard_slots);
+    let (atlas, fonts) = build_atlas(
+        bg_image,
+        avatar_image,
+        &mut resolved_skin,
+        8192,
+        storyboard_slots,
+    );
     eprintln!("atlas: {}x{}", atlas.width, atlas.height);
 
     let mut renderer = Renderer::new(opts.width, opts.height, &atlas);
     // Storyboard GPU layer on the renderer's device; below-layers dim with
     // the background (osu! DimLevel semantics), full when it is off.
-    let mut sb_layer = sb_parsed.map(|p| {
-        p.into_layer(renderer.device(), renderer.queue(), sb_slot.0, sb_slot.1)
-    });
+    let mut sb_layer =
+        sb_parsed.map(|p| p.into_layer(renderer.device(), renderer.queue(), sb_slot.0, sb_slot.1));
     // Independent halves: `--storyboard` drives the sprite layers,
     // `--video` the video layer (either alone still creates the layer).
     if let Some(sb) = &mut sb_layer {
@@ -924,16 +1060,28 @@ fn main() {
     state.hud.visible = opts.hud;
     state.hud.pp_display = opts.pp;
     state.hud.argon_hud = opts.argon_hud;
-    state.bg_opacity = if has_bg && opts.bg { Some(opts.bg_opacity) } else { None };
-    // 任一层(元素/视频)激活即画故事板合成槽位;亮度跟随背景(--bg off
-    // 时全亮 1.0)。
-    let sb_active = sb_layer.as_ref().is_some_and(|l| l.elements_enabled() || l.video_enabled());
-    state.storyboard = if sb_active {
-        Some(if has_bg && opts.bg { opts.bg_opacity } else { 1.0 })
+    state.bg_opacity = if has_bg && opts.bg {
+        Some(opts.bg_opacity)
     } else {
         None
     };
-    state.storyboard_fg = sb_layer.as_ref().is_some_and(|l| l.elements_enabled() && l.has_foreground());
+    // 任一层(元素/视频)激活即画故事板合成槽位;亮度跟随背景(--bg off
+    // 时全亮 1.0)。
+    let sb_active = sb_layer
+        .as_ref()
+        .is_some_and(|l| l.elements_enabled() || l.video_enabled());
+    state.storyboard = if sb_active {
+        Some(if has_bg && opts.bg {
+            opts.bg_opacity
+        } else {
+            1.0
+        })
+    } else {
+        None
+    };
+    state.storyboard_fg = sb_layer
+        .as_ref()
+        .is_some_and(|l| l.elements_enabled() && l.has_foreground());
     // 背景规则:故事板/视频任一开启 → 背景图强制关闭(`--bg` 随之无效):
     // 层自己铺满背景;两者全关时 `--bg` 正常生效。
     state.sb_replaces_bg = sb_active;
@@ -1010,7 +1158,10 @@ fn main() {
         // results screen appears instantly after the fade-out.
         state.results_fade_frames = (0.35 * opts.fps).round() as u32;
         state.results_fadein_frames = 0;
-        eprintln!("results: +{} frames ({:.1}s, expanded panel, gameplay fade-out 0.35s)", results_frames, opts.results);
+        eprintln!(
+            "results: +{} frames ({:.1}s, expanded panel, gameplay fade-out 0.35s)",
+            results_frames, opts.results
+        );
     }
 
     if opts.hitsounds && opts.out.is_none() {
@@ -1027,10 +1178,27 @@ fn main() {
     let hits_path: Option<String> = if opts.hitsounds && opts.out.is_some() {
         let t0 = frame_times[0];
         let wall_secs = frame_times.len() as f64 / opts.fps;
-        let wav = hitsound::render_track_wav(&game, &game.sample_data, t0, wall_secs, game.rate, opts.hitsounds_volume, &resolved_skin);
+        let wav = hitsound::render_track_wav(
+            &game,
+            &game.sample_data,
+            t0,
+            wall_secs,
+            game.rate,
+            opts.hitsounds_volume,
+            &resolved_skin,
+        );
         let p = format!("{}.hits.wav", opts.out.as_ref().unwrap());
         std::fs::write(&p, wav).unwrap_or_else(|e| panic!("write {}: {}", p, e));
-        eprintln!("hitsounds: {} ({} samples, {:.1}s)", p, if resolved_skin.is_legacy() { "user skin mixed with ArgonPro" } else { "ArgonPro" }, wall_secs);
+        eprintln!(
+            "hitsounds: {} ({} samples, {:.1}s)",
+            p,
+            if resolved_skin.is_legacy() {
+                "user skin mixed with ArgonPro"
+            } else {
+                "ArgonPro"
+            },
+            wall_secs
+        );
         Some(p)
     } else {
         None
@@ -1039,12 +1207,28 @@ fn main() {
     // auto: probe NVENC with a tiny test encode, fall back to x264.
     let encoder = if opts.encoder == "auto" {
         let probe = std::process::Command::new("ffmpeg")
-            .args(["-hide_banner", "-v", "error", "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.04",
-                   "-c:v", "h264_nvenc", "-f", "null", "-"])
+            .args([
+                "-hide_banner",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "nullsrc=s=256x256:d=0.04",
+                "-c:v",
+                "h264_nvenc",
+                "-f",
+                "null",
+                "-",
+            ])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
-        if probe.map(|st| st.success()).unwrap_or(false) { "nvenc" } else { "x264" }
+        if probe.map(|st| st.success()).unwrap_or(false) {
+            "nvenc"
+        } else {
+            "x264"
+        }
     } else {
         opts.encoder.as_str()
     };
@@ -1062,31 +1246,62 @@ fn main() {
             (
                 "bgr0",
                 vec![
-                    "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
-                    "-rc", "vbr", "-cq", &opts.quality.to_string(), "-b:v", "0",
-                    "-movflags", "+faststart",
+                    "-c:v",
+                    "h264_nvenc",
+                    "-preset",
+                    "p5",
+                    "-tune",
+                    "hq",
+                    "-rc",
+                    "vbr",
+                    "-cq",
+                    &opts.quality.to_string(),
+                    "-b:v",
+                    "0",
+                    "-movflags",
+                    "+faststart",
                 ]
-                .iter().map(|s| s.to_string()).collect(),
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             )
         } else {
-            let codec = if encoder == "x265" { "libx265" } else { "libx264" };
+            let codec = if encoder == "x265" {
+                "libx265"
+            } else {
+                "libx264"
+            };
             (
                 "bgra",
                 vec![
-                    "-c:v", codec, "-preset", "medium",
-                    "-crf", &opts.quality.to_string(),
-                    "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                    "-c:v",
+                    codec,
+                    "-preset",
+                    "medium",
+                    "-crf",
+                    &opts.quality.to_string(),
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
                 ]
-                .iter().map(|s| s.to_string()).collect(),
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             )
         };
         let mut cmd = std::process::Command::new("ffmpeg");
         cmd.arg("-y")
-            .arg("-f").arg("rawvideo")
-            .arg("-pix_fmt").arg(in_pix_fmt)
-            .arg("-s").arg(format!("{}x{}", opts.width, opts.height))
-            .arg("-r").arg(format!("{}", opts.fps))
-            .arg("-i").arg("-");
+            .arg("-f")
+            .arg("rawvideo")
+            .arg("-pix_fmt")
+            .arg(in_pix_fmt)
+            .arg("-s")
+            .arg(format!("{}x{}", opts.width, opts.height))
+            .arg("-r")
+            .arg(format!("{}", opts.fps))
+            .arg("-i")
+            .arg("-");
         cmd.args(&encode_args);
         // With BGM or hitsounds the audio is muxed in a SECOND ffmpeg pass
         // after rendering (see below): muxing audio directly on the raw
@@ -1118,11 +1333,18 @@ fn main() {
             drop(stdin); // EOF -> ffmpeg finishes the encode
             let status = child.wait()?;
             if !status.success() {
-                return Err(std::io::Error::other(format!("ffmpeg exited with {:?}", status.code())));
+                return Err(std::io::Error::other(format!(
+                    "ffmpeg exited with {:?}",
+                    status.code()
+                )));
             }
             Ok(())
         });
-        Output::Ffmpeg { tx: Some(tx), ret: Some(ret_rx), handle: Some(handle) }
+        Output::Ffmpeg {
+            tx: Some(tx),
+            ret: Some(ret_rx),
+            handle: Some(handle),
+        }
     } else {
         eprintln!("no output specified; use --out <file.mp4> or --png-dir <dir>");
         std::process::exit(2);
@@ -1131,7 +1353,15 @@ fn main() {
     let total = frame_times.len();
     let t0 = std::time::Instant::now();
     let mut list = draw::DrawList::new();
-    let assets = Assets { atlas: &atlas, bold: &fonts.bold, semibold: &fonts.semibold, light: &fonts.light, venera: &fonts.venera, regular: &fonts.regular, skin: &resolved_skin };
+    let assets = Assets {
+        atlas: &atlas,
+        bold: &fonts.bold,
+        semibold: &fonts.semibold,
+        light: &fonts.light,
+        venera: &fonts.venera,
+        regular: &fonts.regular,
+        skin: &resolved_skin,
+    };
     let stats = std::env::var("RENDER_STATS").is_ok();
     let (mut s_build, mut s_render, mut s_write) = (0.0f64, 0.0f64, 0.0f64);
     // Index of the next frame to be written out; lags behind the frame
@@ -1165,7 +1395,9 @@ fn main() {
         if renderer.pending_len() >= 2 {
             let mut buf = output.take_buf((renderer.padded_row as usize) * opts.height as usize);
             renderer.read_oldest_into(&mut buf);
-            if let Err(e) = output.write_frame(buf, opts.width, opts.height, renderer.padded_row, written) {
+            if let Err(e) =
+                output.write_frame(buf, opts.width, opts.height, renderer.padded_row, written)
+            {
                 eprintln!("error writing frame {}: {}", written, e);
                 std::process::exit(1);
             }
@@ -1188,9 +1420,12 @@ fn main() {
     if stats {
         eprintln!(
             "stats: build {:.2}s ({:.2}ms/f) | render+readback {:.2}s ({:.2}ms/f) | write {:.2}s ({:.2}ms/f) | total {:.2}s",
-            s_build, s_build * 1000.0 / total as f64,
-            s_render, s_render * 1000.0 / total as f64,
-            s_write, s_write * 1000.0 / total as f64,
+            s_build,
+            s_build * 1000.0 / total as f64,
+            s_render,
+            s_render * 1000.0 / total as f64,
+            s_write,
+            s_write * 1000.0 / total as f64,
             t0.elapsed().as_secs_f64()
         );
     }
@@ -1199,13 +1434,15 @@ fn main() {
     while renderer.pending_len() > 0 {
         let mut buf = output.take_buf((renderer.padded_row as usize) * opts.height as usize);
         renderer.read_oldest_into(&mut buf);
-        if let Err(e) = output.write_frame(buf, opts.width, opts.height, renderer.padded_row, written) {
+        if let Err(e) =
+            output.write_frame(buf, opts.width, opts.height, renderer.padded_row, written)
+        {
             eprintln!("error writing final frame: {}", e);
             std::process::exit(1);
         }
         written += 1;
     }
-        output.finish();
+    output.finish();
 
     // Second pass: mux the audio into the video (stream copy + AAC).
     // Audio file position = replay_time - offset*rate (offset is a
@@ -1230,12 +1467,16 @@ fn main() {
             let seek_ms = first - offset * rate;
             let tmp = format!("{}.video.tmp.mp4", out);
             if let Some(audio) = &audio_path {
-                eprintln!("muxing audio: {} (offset {}ms, rate {}, file start {}ms)", audio, offset, rate, seek_ms.max(0.0));
+                eprintln!(
+                    "muxing audio: {} (offset {}ms, rate {}, file start {}ms)",
+                    audio,
+                    offset,
+                    rate,
+                    seek_ms.max(0.0)
+                );
             }
             let mut cmd = std::process::Command::new("ffmpeg");
-            cmd.arg("-y")
-                .arg("-v").arg("error")
-                .arg("-i").arg(&tmp);
+            cmd.arg("-y").arg("-v").arg("error").arg("-i").arg(&tmp);
             let mut bgm_filters: Vec<String> = Vec::new();
             if let Some(audio) = &audio_path {
                 if (opts.bgm_volume - 1.0).abs() > 1e-6 {
@@ -1259,7 +1500,11 @@ fn main() {
                         // tempo and pitch scale together (rate 1.5) —
                         // nightcore without the pitch isn't nightcore.
                         let sr = probe_sample_rate(audio);
-                        bgm_filters.push(format!("asetrate={},aresample={}", (sr as f64 * rate).round() as i64, sr));
+                        bgm_filters.push(format!(
+                            "asetrate={},aresample={}",
+                            (sr as f64 * rate).round() as i64,
+                            sr
+                        ));
                     } else {
                         // DT/HT: tempo-only stretch — atempo keeps the
                         // music's pitch, a deliberate deviation from the
@@ -1287,7 +1532,10 @@ fn main() {
             // length to the video track (plain -shortest would cut the
             // results off as soon as the music ends).
             let results_tail = if results_frames > 0 {
-                format!("apad,atrim=duration={:.3}", frame_times.len() as f64 / opts.fps)
+                format!(
+                    "apad,atrim=duration={:.3}",
+                    frame_times.len() as f64 / opts.fps
+                )
             } else {
                 String::new()
             };
@@ -1300,8 +1548,14 @@ fn main() {
                     } else {
                         format!("[1:a]{}[bgm];[bgm]", bgm_filters.join(","))
                     };
-                    let pad = if results_tail.is_empty() { String::new() } else { format!(",{}", results_tail) };
-                    cmd.arg("-filter_complex").arg(format!("{head}amix=inputs=2:normalize=0{master}{pad}[aout]"));
+                    let pad = if results_tail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(",{}", results_tail)
+                    };
+                    cmd.arg("-filter_complex").arg(format!(
+                        "{head}amix=inputs=2:normalize=0{master}{pad}[aout]"
+                    ));
                     cmd.arg("-map").arg("0:v").arg("-map").arg("[aout]");
                 }
                 (Some(_), None) => {
@@ -1333,19 +1587,25 @@ fn main() {
                 }
                 (None, None) => unreachable!(),
             }
-            cmd.arg("-c:v").arg("copy")
+            cmd.arg("-c:v")
+                .arg("copy")
                 // Pin the video track timescale to the fps so each frame is
                 // exactly one tick and the container reports avg_frame_rate
                 // 60/1; a source with microsecond timestamps (e.g. the
                 // raw-h264 demuxer rounds 1/60s to 16667us) would otherwise
                 // yield 1000000/16667 (~59.9988).
-                .arg("-video_track_timescale").arg(opts.fps.round().max(1.0).to_string())
-                .arg("-c:a").arg("aac").arg("-b:a").arg("192k");
+                .arg("-video_track_timescale")
+                .arg(opts.fps.round().max(1.0).to_string())
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("192k");
             if !shortest.is_empty() {
                 cmd.arg(shortest);
             }
             let status = cmd
-                .arg("-movflags").arg("+faststart")
+                .arg("-movflags")
+                .arg("+faststart")
                 .arg(out)
                 .status()
                 .expect("ffmpeg audio mux");
@@ -1362,5 +1622,9 @@ fn main() {
             }
         }
     }
-    eprintln!("done: {} frames in {:.1}s", total, t0.elapsed().as_secs_f32());
+    eprintln!(
+        "done: {} frames in {:.1}s",
+        total,
+        t0.elapsed().as_secs_f32()
+    );
 }

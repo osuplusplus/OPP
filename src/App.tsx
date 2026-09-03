@@ -32,6 +32,16 @@ function WebContextMenuBlocker() {
   return null;
 }
 
+function ClientErrorLogging() {
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => { void desktopApi.writeClientLog("error", "frontend.window", `${event.message} (${event.filename}:${event.lineno})`); };
+    const onRejection = (event: PromiseRejectionEvent) => { void desktopApi.writeClientLog("error", "frontend.promise", String(event.reason)); };
+    window.addEventListener("error", onError); window.addEventListener("unhandledrejection", onRejection);
+    return () => { window.removeEventListener("error", onError); window.removeEventListener("unhandledrejection", onRejection); };
+  }, []);
+  return null;
+}
+
 function ShutdownChoice() {
   const [open, setOpen] = useState(false);
 
@@ -87,6 +97,7 @@ export default function App() {
     <Tooltip.Provider delayDuration={350}>
       <ThemeController />
       <WebContextMenuBlocker />
+      <ClientErrorLogging />
       <ShutdownChoice />
       <HashRouter>
         <TitleBar />

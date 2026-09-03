@@ -622,8 +622,16 @@ fn parse_beatmap(bytes: &[u8]) -> Result<ParsedBeatmap> {
             beatmap_id,
             beatmapset_id,
             checksum: hex::encode(digest),
-            artist: if artist_unicode.is_empty() { artist } else { artist_unicode },
-            title: if title_unicode.is_empty() { title } else { title_unicode },
+            artist: if artist_unicode.is_empty() {
+                artist
+            } else {
+                artist_unicode
+            },
+            title: if title_unicode.is_empty() {
+                title
+            } else {
+                title_unicode
+            },
             version,
             creator,
             online_url: format!("https://osu.ppy.sh/b/{beatmap_id}"),
