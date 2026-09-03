@@ -9,17 +9,14 @@ import type { OsekaiMedal, OsekaiMedalBeatmap, Ruleset } from "../../shared/type
 import { useMode } from "../../app/ModeContext";
 import { useOwnProfile } from "./api";
 import { localizeMedal } from "./medalTranslations";
+import { repairMedalText } from "./medalEncoding";
 
 const base = "https://inex.osekai.net/assets/medals/web/";
 function content<T>(value: { content?: unknown[] }): T[] {
   return (value.content ?? []).map((item) => {
     if (!item || typeof item !== "object") return item as T;
-    return Object.fromEntries(Object.entries(item).map(([key, value]) => [key, typeof value === "string" ? repairText(value) : value])) as T;
+    return Object.fromEntries(Object.entries(item).map(([key, value]) => [key, typeof value === "string" ? repairMedalText(value) : value])) as T;
   });
-}
-function repairText(value: unknown): string {
-  if (typeof value !== "string" || !/[ÃÂâ€™œž]/.test(value)) return typeof value === "string" ? value : "";
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(value, (c) => c.charCodeAt(0) & 0xff)); } catch { return value; }
 }
 function unlockedIds(profile: ReturnType<typeof useOwnProfile>["data"]): Map<number, string> {
   const map = new Map<number, string>();
@@ -42,7 +39,7 @@ function MedalDialog({ medal, obtainedAt, onClose, onOpenBeatmap }: { medal: Ose
     const [detailResult, beatmapsResult] = await Promise.allSettled([detailPromise, beatmapsPromise]);
     const detail = detailResult.status === "fulfilled" && detailResult.value ? content<OsekaiMedal>(detailResult.value)[0] : undefined;
     const beatmaps = beatmapsResult.status === "fulfilled"
-      ? content<OsekaiMedalBeatmap>(beatmapsResult.value).map((item) => ({ ...item, Song_Title: repairText(item.Song_Title), Title: repairText(item.Title), Artist: repairText(item.Artist), Song_Artist: repairText(item.Song_Artist), Version: repairText(item.Version), Difficulty_Name: repairText(item.Difficulty_Name) }))
+      ? content<OsekaiMedalBeatmap>(beatmapsResult.value).map((item) => ({ ...item, Song_Title: repairMedalText(item.Song_Title), Title: repairMedalText(item.Title), Artist: repairMedalText(item.Artist), Song_Artist: repairMedalText(item.Song_Artist), Version: repairMedalText(item.Version), Difficulty_Name: repairMedalText(item.Difficulty_Name) }))
       : [];
     return { medal: detail ?? medal, beatmaps, detailUnavailable: detailResult.status === "rejected", beatmapsUnavailable: beatmapsResult.status === "rejected" };
   }, staleTime: 24 * 60 * 60_000, retry: 1 });
