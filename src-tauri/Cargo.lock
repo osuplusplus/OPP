@@ -4191,7 +4191,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rosu-map",
  "rosu-pp 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301)",
+ "rosu-pp 4.0.1 (git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607)",
  "rosu-render",
  "semver",
  "serde",
@@ -4277,7 +4277,7 @@ dependencies = [
  "hnsw",
  "memmap2",
  "rand_pcg 0.3.1",
- "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301)",
+ "rosu-pp 4.0.1 (git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607)",
  "rusqlite",
  "serde",
  "sha2",
@@ -4310,14 +4310,14 @@ dependencies = [
 [[package]]
 name = "osu_replay_judge"
 version = "0.3.1"
-source = "git+https://github.com/Ohdmire/osu-replay-judge.git#319dad75c4ccc6ae3c9db173ddff663c0990bd6b"
+source = "git+https://github.com/Ohdmire/osu-replay-judge.git?branch=master#319dad75c4ccc6ae3c9db173ddff663c0990bd6b"
 dependencies = [
  "osu-parse",
 ]
 
 [[package]]
 name = "osu_replay_render"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "ab_glyph",
  "jpeg-decoder",
@@ -4327,7 +4327,7 @@ dependencies = [
  "png 0.17.16",
  "pollster",
  "raw-window-handle",
- "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301)",
+ "rosu-pp 4.0.1 (git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607)",
  "serde",
  "serde_json",
  "wgpu",
@@ -5287,7 +5287,7 @@ dependencies = [
 [[package]]
 name = "rosu-pp"
 version = "4.0.1"
-source = "git+https://github.com/Apeuriox/rosu-pp?rev=9a073d29611ef936b581a08d3c5b288ef5427301#9a073d29611ef936b581a08d3c5b288ef5427301"
+source = "git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607#70bf42d79cbcf9eaa351373ec93e609ba6b340ae"
 dependencies = [
  "divan",
  "rosu-map",

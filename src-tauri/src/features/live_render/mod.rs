@@ -75,7 +75,7 @@ pub struct LiveOptions {
     pub pp_display: bool,
     /// 物件之间的引导线(follow points),默认开。
     pub follow_points: bool,
-    /// 绘制谱面背景图([Events] 0,0,...,全屏铺满)。
+    /// 绘制谱面背景图([Events] 0,0,...,全屏铺满),默认开。
     pub bg: bool,
     /// 渲染故事板(.osu Events + 共享 .osb;与背景视频相互独立,
     /// 任一开启都会预留合成槽位,切换重建会话)。
@@ -83,7 +83,9 @@ pub struct LiveOptions {
     /// 背景视频(故事板 Video 元素;桌面经库内 ffmpeg rawvideo 管道
     /// 逐帧解码,需要 ffmpeg 在 PATH)。
     pub video: bool,
-    /// 背景不透明度 0..1,默认 0.3 = 1 - DimLevel 0.7。
+    /// 背景亮度 0..1(独立选项,不随背景图开关):同时作用于背景图 /
+    /// 故事板 / 背景视频 —— osu! 把三者一起按 DimLevel 变暗,此处即
+    /// 1 - DimLevel,默认 0.3。拖动即时生效,不重建会话。
     pub bg_opacity: f32,
     /// 播放 BGM([General] AudioFilename,相对谱面目录)。
     pub audio: bool,
@@ -119,7 +121,7 @@ impl Default for LiveOptions {
             key_overlay: true,
             pp_display: true,
             follow_points: true,
-            bg: false,
+            bg: true,
             bg_opacity: 0.3,
             audio: true,
             audio_offset: 0.0,
@@ -608,7 +610,12 @@ struct Session {
     /// ffmpeg 可执行路径(open 时按 设置手动路径 > PATH > danser 解析
     /// 一次;DT/HT 预览的变调预处理用,缺 None = 回退 kira 变调)。
     ffmpeg: Option<std::path::PathBuf>,
-    /// 当前是否带背景图(与 SetOptions 的 bg 比较决定是否重建图集)。
+    /// 谱面背景图开关的当前值(LiveOptions.bg 镜像;与 SetOptions 比较
+    /// 决定是否重建图集)。注意与 has_bg 区分:地图可能没有背景文件,
+    /// 开关开着但图集里没有背景纹理,不能拿 has_bg 比较开关,否则无
+    /// 背景图的谱面每次改参数都会触发一次无意义的图集重建。
+    bg: bool,
+    /// 当前图集是否带背景纹理(背景实际画出的依据;由解码结果决定)。
     has_bg: bool,
     /// 当前头像路径(与 SetOptions 的 avatar_path 比较决定是否重建图集)。
     avatar_path: Option<String>,
@@ -1385,10 +1392,12 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 // 先离线构建全部产物,再一次赋值(不包 catch_unwind:
                 // s 的可变借用跨闭包会与后续分支冲突;失败即 return,
                 // 会话保持原样 —— 与皮肤分支的兜底语义等价)。
+                let ffprobe = sibling_ffprobe(s.ffmpeg.as_deref());
                 let sb_parsed = if options.storyboard || options.video {
-                    osu_replay_render::storyboard::parse_beatmap(
+                    osu_replay_render::storyboard::parse_beatmap_bins(
                         std::path::Path::new(&beatmap),
                         map_bg.as_deref(),
+                        ffprobe.as_deref(),
                     )
                 } else {
                     None
@@ -1398,11 +1407,13 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                     height: RENDER_H.min(1080).max(1) & !1,
                     foreground: p.has_foreground(),
                 });
-                let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut new_skin, 8192, slots);
+                let (atlas, fonts) =
+                    build_atlas(bg_image, Some(RENDER_W as f32 / RENDER_H as f32), avatar_image, &mut new_skin, 8192, slots);
                 {
                     let Backend::Native { renderer, .. } = &mut s.backend;
                     let layer = sb_parsed.map(|p| {
                         let mut l = p.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
+                        l.set_video_bins(s.ffmpeg.as_deref());
                         l.set_elements_enabled(options.storyboard);
                         l.set_video_enabled(options.video);
                         l
@@ -1419,16 +1430,25 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 state.hud.pp_display = options.pp_display;
                 state.follow_points = options.follow_points;
                 state.cursor_size = options.cursor_size;
+                // 新建 state 的背景图亮度也要带上(漏掉会让背景图在
+                // 切换故事板开关后消失)。
+                state.bg_opacity = if with_bg {
+                    Some(options.bg_opacity.clamp(0.0, 1.0))
+                } else {
+                    None
+                };
                 state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
                 state.storyboard_fg = s
                     .sb_layer
                     .as_ref()
                     .is_some_and(|l| l.elements_enabled() && l.has_foreground());
-                state.sb_replaces_bg = s.sb_layer.as_ref().is_some_and(|l| l.elements_enabled());
+                // 元素/视频任一激活即顶替背景图(与 CLI 语义一致)。
+                state.sb_replaces_bg = sb_active;
                 s.set_atlas(&atlas);
                 s.atlas = atlas;
                 s.fonts = fonts;
                 s.skin = new_skin;
+                s.bg = options.bg;
                 s.has_bg = with_bg;
                 s.hs_sounds.clear();
                 s.loops_stop();
@@ -1463,6 +1483,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             .as_deref()
                             .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
                         let with_bg = bg_image.is_some();
+                        // 故事板槽位必须随图集重建保留(漏掉即槽位缺失
+                        // panic,见 active_sb_slots)。
+                        let sb_slots = active_sb_slots(s.sb_layer.as_ref());
                         // 兜底:图集构建与 GPU 上载(create_texture 的
                         // 尺寸校验 panic 点)+ 会话字段交接全部包进来。
                         // set_atlas 先于字段交接:panic 发生时 renderer
@@ -1470,13 +1493,20 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // 整个预览炸掉。失败仅终止本分支;后续字段
                         // (bg_opacity/音频/音效开关)继续生效。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let (atlas, fonts) =
-                                build_atlas(bg_image, avatar_image, &mut new_skin, 8192, None);
+                            let (atlas, fonts) = build_atlas(
+                                    bg_image,
+                                    Some(RENDER_W as f32 / RENDER_H as f32),
+                                    avatar_image,
+                                    &mut new_skin,
+                                    8192,
+                                    sb_slots,
+                                );
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
                             s.fonts = fonts;
                             s.skin = new_skin;
                             s.skin_path = options.skin_path.clone();
+                            s.bg = options.bg;
                             s.has_bg = with_bg;
                             // 新皮肤就位:按最新开关重映射 combo 色,先于
                             // 场景重建(物件颜色读的是 s.game)。
@@ -1490,6 +1520,22 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             state.hud.pp_display = options.pp_display;
                             state.follow_points = options.follow_points;
                             state.cursor_size = options.cursor_size;
+                            // 新建 state 的背景字段默认全空:按新图集与
+                            // 当前故事板层恢复,否则换肤后背景图/故事板/
+                            // 背景视频从画面上消失。
+                            state.bg_opacity = if s.has_bg {
+                                Some(options.bg_opacity.clamp(0.0, 1.0))
+                            } else {
+                                None
+                            };
+                            let layer = s.sb_layer.as_ref();
+                            let sb_active = layer
+                                .is_some_and(|l| l.elements_enabled() || l.video_enabled());
+                            state.storyboard =
+                                sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
+                            state.storyboard_fg = layer
+                                .is_some_and(|l| l.elements_enabled() && l.has_foreground());
+                            state.sb_replaces_bg = sb_active;
                             s.state = state;
                             // 采样/循环句柄作废待重建;变调开关按新皮肤重读。
                             s.hs_sounds.clear();
@@ -1522,8 +1568,12 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
             }
 
             // ---- 背景图/头像:重建图集(字体 rect 补丁依赖图集)+ 热替换纹理 ----
+            // 开关比较用 bg(用户开关镜像)而非 has_bg:无背景文件的谱面
+            // has_bg 恒为 false,拿它比较会让"开关开着"的每一笔参数修改
+            // (含拖亮度)都进本分支白白重建图集,且旧实现不带故事板槽位,
+            // 开着故事板/视频时重建后下一帧即槽位缺失 panic。
             let avatar_changed = options.avatar_path != s.avatar_path;
-            if (options.bg != s.has_bg || avatar_changed) && options.skin_path == s.skin_path {
+            if (options.bg != s.bg || avatar_changed) && options.skin_path == s.skin_path {
                 let bg_image = if options.bg {
                     s.game.map_background.clone()
                         .map(|name| {
@@ -1540,6 +1590,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                     .avatar_path
                     .as_deref()
                     .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+                let with_bg = bg_image.is_some();
+                let sb_slots = active_sb_slots(s.sb_layer.as_ref());
                 // 皮肤纹理住在图集里,重建图集必须带上(按当前路径重载,
                 // ResolvedSkin 不可 Clone;assign_regions 回填新区域)。
                 match skin::load_skin(s.skin_path.as_deref().map(std::path::Path::new)) {
@@ -1547,12 +1599,23 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // 与皮肤热切换同构:GPU 上载与字段交接一并纳入
                         // catch,panic 时保留当前画面。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, None);
+                            let (atlas, fonts) = build_atlas(
+                                bg_image,
+                                Some(RENDER_W as f32 / RENDER_H as f32),
+                                avatar_image,
+                                &mut skin,
+                                8192,
+                                sb_slots,
+                            );
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
                             s.fonts = fonts;
                             s.skin = skin;
-                            s.has_bg = options.bg;
+                            s.bg = options.bg;
+                            // has_bg 表达图集真实状态(地图可能没有背景
+                            // 文件):开着开关但无纹理时为 false,场景据此
+                            // 不画背景,也不会去查缺失的槽位。
+                            s.has_bg = with_bg;
                             s.avatar_path = options.avatar_path.clone();
                             s.has_avatar = options.avatar_path.is_some();
                             // 预加载的采样还挂着旧皮肤的字节,作废待重建。
@@ -1577,11 +1640,21 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 game::apply_skin_combo_colours(&mut s.game, &s.skin, s.skin_colours);
             }
 
+            // 背景亮度(即时生效,不重建):同时作用于背景图与故事板/
+            // 背景视频(osu! 把故事板与背景一起按 DimLevel 变暗)。
             s.state.bg_opacity = if s.has_bg {
                 Some(options.bg_opacity.clamp(0.0, 1.0))
             } else {
                 None
             };
+            let sb_active = s
+                .sb_layer
+                .as_ref()
+                .is_some_and(|l| l.elements_enabled() || l.video_enabled());
+            s.state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
+            // 视频/元素开关若走了免重建路径,这里同步顶替状态,防止
+            // sb_replaces_bg 残留旧值(背景图该隐不隐)。
+            s.state.sb_replaces_bg = sb_active;
 
             // ---- 音频:开→懒解码(一次性);关→停播 ----
             if options.audio {
@@ -1635,6 +1708,20 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
     }
 }
 
+/// 当前会话活跃故事板/视频层所需的图集槽位。皮肤/背景图热切换重建
+/// 图集时必须带上:槽位是构建期预留的,漏掉会让 Region::Storyboard(-
+/// Foreground) 从图集消失,场景下一帧查询槽位即 panic("atlas region")。
+fn active_sb_slots(
+    sb_layer: Option<&osu_replay_render::storyboard::StoryboardLayer>,
+) -> Option<osu_replay_render::StoryboardSlots> {
+    let layer = sb_layer.filter(|l| l.elements_enabled() || l.video_enabled())?;
+    Some(osu_replay_render::StoryboardSlots {
+        width: RENDER_W.min(1920).max(1) & !1,
+        height: RENDER_H.min(1080).max(1) & !1,
+        foreground: layer.has_foreground(),
+    })
+}
+
 fn open_session(
     app: &AppHandle,
     beatmap_path: &str,
@@ -1643,6 +1730,7 @@ fn open_session(
     rect: PreviewRect,
     ffmpeg: Option<std::path::PathBuf>,
 ) -> Result<Session, String> {
+    let ffprobe = sibling_ffprobe(ffmpeg.as_deref());
     let mut game =
         game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?;
 
@@ -1670,11 +1758,13 @@ fn open_session(
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
     // 故事板/背景视频(任一开启即解析并预留图集合成槽位;层在渲染器
-    // 创建后接到同一 device 上)。
+    // 创建后接到同一 device 上)。ffprobe/ffmpeg 用 OPP 解析出的完整
+    // 路径(danser 发行包/手动路径时不在 PATH)。
     let sb_parsed = if options.storyboard || options.video {
-        osu_replay_render::storyboard::parse_beatmap(
+        osu_replay_render::storyboard::parse_beatmap_bins(
             std::path::Path::new(beatmap_path),
             game.map_background.as_deref(),
+            ffprobe.as_deref(),
         )
     } else {
         None
@@ -1684,7 +1774,14 @@ fn open_session(
         height: RENDER_H.min(1080).max(1) & !1,
         foreground: p.has_foreground(),
     });
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, storyboard_slots);
+    let (atlas, fonts) = build_atlas(
+        bg_image,
+        Some(RENDER_W as f32 / RENDER_H as f32),
+        avatar_image,
+        &mut skin,
+        8192,
+        storyboard_slots,
+    );
     // 皮肤 combo 色映射(--skin-colours 语义:默认谱面色优先,开关强制
     // 皮肤色;可重入,SetOptions 换肤/切开关后重调)。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
@@ -1707,7 +1804,7 @@ fn open_session(
     let sb_active = sb_parsed.is_some();
     state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
     state.storyboard_fg = sb_parsed.as_ref().is_some_and(|p| options.storyboard && p.has_foreground());
-    state.sb_replaces_bg = sb_active && options.storyboard;
+    state.sb_replaces_bg = sb_active && (options.storyboard || options.video);
 
     // BGM([General] AudioFilename,相对谱面目录):open 时只解析路径,
     // 解码在开启音频时进行(SetOptions 切换时懒加载,不重开会话)。
@@ -1843,8 +1940,7 @@ fn open_session(
         app: app.clone(),
         beatmap_path: beatmap_path.to_string(),
         audio_path,
-        ffmpeg,
-        has_bg,
+        ffmpeg: ffmpeg.clone(),
         avatar_path: options.avatar_path.clone(),
         has_avatar,
         skin,
@@ -1876,14 +1972,16 @@ fn open_session(
         loop_playbacks: Vec::new(),
         spin_freq_modulate,
         sb_layer: None,
+        bg: options.bg,
+        has_bg,
         storyboard: options.storyboard,
         video: options.video,
-    };
-    // 故事板 GPU 层:与窗口渲染器同一 device/queue(合成进图集槽位);
+    };    // 故事板 GPU 层:与窗口渲染器同一 device/queue(合成进图集槽位);
     // 元素/视频两半分别由两个开关控制。
     if let Some(parsed) = sb_parsed {
         let Backend::Native { renderer, .. } = &mut session.backend;
         let mut layer = parsed.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
+        layer.set_video_bins(ffmpeg.as_deref());
         layer.set_elements_enabled(options.storyboard);
         layer.set_video_enabled(options.video);
         session.sb_layer = Some(layer);
@@ -2278,6 +2376,16 @@ fn ffmpeg_path(state: &tauri::State<'_, crate::state::AppState>) -> Option<std::
     )
 }
 
+/// ffprobe 与 ffmpeg 同目录推导:ffmpeg 来自 danser 发行包或设置页手动
+/// 路径时,PATH 里通常没有 ffprobe(视频参数探测会静默失败,导致背景
+/// 视频不解码)。找不到同目录 ffprobe 时返回 None,库内退回 PATH。
+fn sibling_ffprobe(ffmpeg: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    let dir = ffmpeg?.parent()?;
+    let name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    let candidate = dir.join(name);
+    candidate.is_file().then_some(candidate)
+}
+
 /// 设置页展示用:当前生效的 FFmpeg(路径 + 版本 + 来源)。
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2589,11 +2697,14 @@ fn run_export(
         .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
-    // 故事板/背景视频(与预览同开关;视频经库内 ffmpeg 管道逐帧解码)。
+    // 故事板/背景视频(与预览同开关;视频经库内 ffmpeg 管道逐帧解码,
+    // 工具路径与预览一致地注入)。
+    let ffprobe = sibling_ffprobe(Some(ffmpeg));
     let sb_parsed = if options.storyboard || options.video {
-        osu_replay_render::storyboard::parse_beatmap(
+        osu_replay_render::storyboard::parse_beatmap_bins(
             std::path::Path::new(beatmap_path),
             game.map_background.as_deref(),
+            ffprobe.as_deref(),
         )
     } else {
         None
@@ -2607,13 +2718,22 @@ fn run_export(
         height: sb_slot.1,
         foreground: p.has_foreground(),
     });
-    let (atlas, fonts) = build_atlas(bg_image, avatar_image, &mut skin, 8192, storyboard_slots);
+    // 导出按 params 分辨率裁剪(可与预览 16:9 不同)。
+    let (atlas, fonts) = build_atlas(
+        bg_image,
+        Some(params.width as f32 / params.height.max(1) as f32),
+        avatar_image,
+        &mut skin,
+        8192,
+        storyboard_slots,
+    );
     // 与预览会话同语义的 combo 色映射。
     game::apply_skin_combo_colours(&mut game, &skin, options.skin_colours);
 
     let mut renderer = Renderer::new(params.width, params.height, &atlas);
     let mut sb_layer = sb_parsed.map(|p| {
         let mut l = p.into_layer(renderer.device(), renderer.queue(), sb_slot.0, sb_slot.1);
+        l.set_video_bins(Some(ffmpeg));
         l.set_elements_enabled(options.storyboard);
         l.set_video_enabled(options.video);
         l
@@ -2631,14 +2751,14 @@ fn run_export(
     } else {
         None
     };
-    state.storyboard = sb_layer
+    let sb_active = sb_layer
         .as_ref()
-        .is_some_and(|l| l.elements_enabled() || l.video_enabled())
-        .then(|| options.bg_opacity.clamp(0.0, 1.0));
+        .is_some_and(|l| l.elements_enabled() || l.video_enabled());
+    state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
     state.storyboard_fg = sb_layer
         .as_ref()
         .is_some_and(|l| l.elements_enabled() && l.has_foreground());
-    state.sb_replaces_bg = sb_layer.as_ref().is_some_and(|l| l.elements_enabled());
+    state.sb_replaces_bg = sb_active;
 
     // ---- 帧时间轴(与 CLI 语义一致) ----
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);

@@ -45,9 +45,9 @@ encoding_rs = "0.8"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 rayon = "1"
 rosu-map = "0.2.1"
-# Pin the rework snapshot so builds do not depend on resolving a remote branch
-# (and remain reproducible when the branch is moved or unavailable).
-rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp", rev = "9a073d29611ef936b581a08d3c5b288ef5427301" }
+# pp-rework-202607(自家 fork;Cargo.lock 钉住具体 rev,分支移动不影响
+# 可复现构建)。
+rosu-pp = { git = "https://github.com/Ohdmire/rosu-pp.git", branch = "pp-rework-202607" }
 rosu-pp-official = { package = "rosu-pp", version = "4.0.1" }
 sha2 = "0.10"
 walkdir = "2"
@@ -58,7 +58,7 @@ mania-converter = { git = "https://github.com/Siflorite/mania-converter-rust", r
 osu-difficulty-runtime = { path = "crates/osu-difficulty-runtime" }
 netease-cloud-music = { path = "crates/netease-cloud-music" }
 osu-beatmap-preview = { git = "https://github.com/L1rics06/osu-beatmap-preview", version = "1.0.7" }
-osu_replay_render = { path = "crates/osu-replay-render" }
+osu_replay_render = { git = "https://github.com/Ohdmire/osu-replay-render" }
 
 kira = "0.10"
 
@@ -71,3 +71,10 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphic
 
 [dev-dependencies]
 tempfile = "3"
+
+# ── 临时本地 patch(提交前删除本段)──────────────────────────────
+# 渲染库未推送的修复(结算屏难度图重建、故事板 ffprobe 注入/视频旋转)
+# 经本地 checkout 生效;修复推上远程后删除 [patch] 段即可回到纯远程。
+[patch."https://github.com/Ohdmire/osu-replay-render"]
+osu_replay_render = { path = "../../osu-replay-render" }
+# ────────────────────────────────────────────────────────

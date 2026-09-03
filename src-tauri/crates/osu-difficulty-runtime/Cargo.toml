@@ -12,7 +12,7 @@ hex = "0.4"
 hnsw = { version = "0.11", features = ["serde1"] }
 memmap2 = "0.9"
 rand_pcg = { version = "0.3", features = ["serde1"] }
-rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp", rev = "9a073d29611ef936b581a08d3c5b288ef5427301" }
+rosu-pp = { git = "https://github.com/Ohdmire/rosu-pp.git", branch = "pp-rework-202607" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
