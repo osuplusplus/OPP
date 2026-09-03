@@ -4191,7 +4191,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rosu-map",
  "rosu-pp 4.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rosu-pp 4.0.1 (git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607)",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp.git?branch=pp-rework-202607)",
  "rosu-render",
  "semver",
  "serde",
@@ -4277,7 +4277,7 @@ dependencies = [
  "hnsw",
  "memmap2",
  "rand_pcg 0.3.1",
- "rosu-pp 4.0.1 (git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607)",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp.git?branch=pp-rework-202607)",
  "rusqlite",
  "serde",
  "sha2",
@@ -4327,7 +4327,7 @@ dependencies = [
  "png 0.17.16",
  "pollster",
  "raw-window-handle",
- "rosu-pp 4.0.1 (git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607)",
+ "rosu-pp 4.0.1 (git+https://github.com/Apeuriox/rosu-pp.git?branch=pp-rework-202607)",
  "serde",
  "serde_json",
  "wgpu",
@@ -5287,7 +5287,7 @@ dependencies = [
 [[package]]
 name = "rosu-pp"
 version = "4.0.1"
-source = "git+https://github.com/Ohdmire/rosu-pp.git?branch=pp-rework-202607#70bf42d79cbcf9eaa351373ec93e609ba6b340ae"
+source = "git+https://github.com/Apeuriox/rosu-pp.git?branch=pp-rework-202607#6bd0e6a4e6e792e3493f4b2f8af48e224dc8b5d1"
 dependencies = [
  "divan",
  "rosu-map",

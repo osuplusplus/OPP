@@ -45,9 +45,9 @@ encoding_rs = "0.8"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 rayon = "1"
 rosu-map = "0.2.1"
-# pp-rework-202607(自家 fork;Cargo.lock 钉住具体 rev,分支移动不影响
-# 可复现构建)。
-rosu-pp = { git = "https://github.com/Ohdmire/rosu-pp.git", branch = "pp-rework-202607" }
+# pp-rework-202607(改动已合入上游;Cargo.lock 钉住具体 rev,分支移动
+# 不影响可复现构建)。
+rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", branch = "pp-rework-202607" }
 rosu-pp-official = { package = "rosu-pp", version = "4.0.1" }
 sha2 = "0.10"
 walkdir = "2"
