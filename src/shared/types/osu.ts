@@ -116,31 +116,6 @@ export interface AppSettings {
   preview_volume?: number;
   cache_limit_mb?: number;
   similarity_preferences: SimilarityPreferences;
-  view_trainer_profiles?: ViewTrainerProfile[];
-}
-
-export interface ViewTrainerProfile {
-  name: string;
-  rate: number;
-  bpm_locked: boolean;
-  target_bpm: number | null;
-  scale_ar: boolean;
-  scale_od: boolean;
-  lock_ar: boolean;
-  lock_od: boolean;
-  lock_cs: boolean;
-  lock_hp: boolean;
-  ar: number;
-  od: number;
-  cs: number;
-  hp: number;
-  min_bpm: number | null;
-  max_bpm: number | null;
-  start_time_ms: number | null;
-  end_time_ms: number | null;
-  no_spinners: boolean;
-  change_pitch: boolean;
-  window_ms?: number;
 }
 
 export interface SimilarityManualWeights extends DifficultyFeatureVector {

@@ -101,16 +101,24 @@ pub fn timeline_for_analysis(
         }
     }
     let primary_bpm = bpms.first().map(|(_, bpm)| *bpm);
-    let (strain_series, strain_section_start_time_ms, strain_section_length_ms) =
-        crate::features::local_analysis::parser::calculate_strains(&bytes)
-            .map(|analysis| {
-                (
-                    analysis.series,
-                    analysis.section_start_time_ms,
-                    analysis.section_length_ms,
-                )
-            })
-            .unwrap_or_default();
+    // Difficulty runtimes are deliberately bounded here. Extremely large or
+    // malformed charts can make rosu-pp spend minutes calculating strains,
+    // leaving the editor looking stuck even though the basic timeline is
+    // already available. The preview remains usable without the optional graph.
+    let strain = if times.len() <= 100_000 {
+        crate::features::local_analysis::parser::calculate_strains(&bytes).ok()
+    } else {
+        None
+    };
+    let (strain_series, strain_section_start_time_ms, strain_section_length_ms) = strain
+        .map(|analysis| {
+            (
+                analysis.series,
+                analysis.section_start_time_ms,
+                analysis.section_length_ms,
+            )
+        })
+        .unwrap_or_default();
     let result = Timeline {
         duration_ms: duration,
         object_count: times.len(),
@@ -162,7 +170,7 @@ fn scale_od(od: f32, rate: f64) -> f32 {
 
 pub fn resolve_request(
     state: &AppState,
-    mut request: ViewTrainerRequest,
+    request: ViewTrainerRequest,
 ) -> CommandResult<ViewTrainerRequest> {
     resolve_request_with_analysis(&state.local_analysis, request)
 }
@@ -353,6 +361,35 @@ pub fn import_staged_at_path(
             fs::copy(entry.path(), temporary_target.join(entry.file_name()))
                 .map_err(|e| CommandError::new("VIEW_TRAINER_IMPORT_FAILED", e.to_string()))?;
         }
+    }
+    // IDs are regenerated at import time as well as at generation time. A
+    // user can import the same staged preview more than once; osu! Stable
+    // de-duplicates charts with the same BeatmapID/BeatmapSetID even when
+    // they live in different Songs folders.
+    let imported_map = temporary_target.join("OPP Trainer.osu");
+    if imported_map.is_file() {
+        let unique_id = (u32::from_str_radix(&uuid::Uuid::new_v4().simple().to_string()[..8], 16)
+            .unwrap_or(1)
+            % 2_000_000_000)
+            .max(1);
+        let text = fs::read_to_string(&imported_map)
+            .map_err(|e| CommandError::new("VIEW_TRAINER_IMPORT_FAILED", e.to_string()))?;
+        let rewritten = text
+            .lines()
+            .map(|line| {
+                if line.trim_start().starts_with("BeatmapID:") {
+                    "BeatmapID:".to_string() + &unique_id.to_string()
+                } else if line.trim_start().starts_with("BeatmapSetID:") {
+                    "BeatmapSetID:".to_string() + &unique_id.to_string()
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\r\n")
+            + "\r\n";
+        fs::write(imported_map, rewritten)
+            .map_err(|e| CommandError::new("VIEW_TRAINER_IMPORT_FAILED", e.to_string()))?;
     }
     fs::rename(&temporary_target, &target)
         .map_err(|e| CommandError::new("VIEW_TRAINER_IMPORT_FAILED", e.to_string()))?;

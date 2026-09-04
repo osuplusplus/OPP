@@ -61,6 +61,7 @@ osu-beatmap-preview = { git = "https://github.com/L1rics06/osu-beatmap-preview",
 osu_replay_render = { git = "https://github.com/Ohdmire/osu-replay-render" }
 
 kira = "0.10"
+wsola = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11-dl = "2"

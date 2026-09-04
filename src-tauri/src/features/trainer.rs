@@ -3,6 +3,7 @@ use std::{
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     process::Command,
+    sync::{LazyLock, Mutex},
 };
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,9 @@ use crate::{
     features::local_analysis::LocalClient,
     state::AppState,
 };
+
+// Prevent overlapping preview requests from racing on the same staging path.
+static GENERATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Debug, Deserialize)]
 pub struct TrainerRequest {
@@ -168,19 +172,10 @@ fn transform_beatmap(source: &str, request: &TrainerRequest) -> CommandResult<(S
         ));
     }
     let end = request.end_time_ms;
-    // A full-range, 1x edit should reuse the source BGM. Treating the UI's
-    // default end handle as a trim made every edit invoke ffmpeg and blocked
-    // the preview command for several seconds.
-    let source_duration = source
-        .lines()
-        .filter_map(object_time)
-        .fold(0.0_f64, f64::max);
-    let trims_audio = end.is_some_and(|limit| limit < source_duration - 1.0);
-    let transforms_audio = !request.preview_only
-        && ((request.rate - 1.0).abs() > f64::EPSILON
-            || start > 0.0
-            || trims_audio
-            || request.change_pitch);
+    // Non-preview generation always uses the normalized ffmpeg output, even
+    // for a 1x/full-range request. This keeps the audio path and the rewritten
+    // chart deterministic and makes pitch handling a single backend concern.
+    let transforms_audio = !request.preview_only;
     // In osu!mania CircleSize is the key count, not a visual difficulty setting.
     // Always preserve the value from the source chart so rate changes cannot collapse lanes.
     let preserve_circle_size = is_mania_beatmap(source);
@@ -375,18 +370,11 @@ mod tests {
 }
 
 fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) -> CommandResult<()> {
-    // 音频变速需要外部工具；未请求变速时直接复制以避免无损资源被重复编码。
-    let requires_transform = (request.rate - 1.0).abs() > f64::EPSILON
-        || request.start_time_ms.unwrap_or(0.0) > 0.0
-        || request.end_time_ms.is_some()
-        || request.change_pitch;
-    if !requires_transform {
-        return fs::copy(source, destination)
-            .map(|_| ())
-            .map_err(|error| CommandError::new("TRAINER_AUDIO_COPY_FAILED", error.to_string()));
-    }
+    // Every generated chart gets a fresh, normalized BGM. Keeping the audio
+    // transform in the same ffmpeg invocation as trim/rate changes guarantees
+    // that the chart timestamps and the rendered audio share one time base.
     let mut command = Command::new("ffmpeg");
-    command.arg("-y");
+    command.args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y"]);
     if let Some(start) = request.start_time_ms {
         command.args(["-ss", &(start / 1000.0).to_string()]);
     }
@@ -396,8 +384,6 @@ fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) ->
         command.args(["-t", &duration.to_string()]);
     }
     let filter = if request.change_pitch {
-        // asetrate changes pitch and duration together, matching the
-        // original osu-trainer option; normalize back to the source rate.
         format!("asetrate=44100*{:.6},aresample=44100", request.rate)
     } else {
         format!("atempo={:.6}", request.rate)
@@ -405,6 +391,11 @@ fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) ->
     command
         .args(["-filter:a", &filter, "-vn", "-q:a", "2"])
         .arg(destination);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
     match command.status() {
         Ok(status) if status.success() => Ok(()),
         Ok(_) => Err(CommandError::new(
@@ -413,7 +404,7 @@ fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) ->
         )),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(CommandError::new(
             "FFMPEG_REQUIRED",
-            "变速或截取训练需要 ffmpeg；请安装 ffmpeg 并加入 PATH 后重试",
+            "生成训练音频需要 ffmpeg；请安装 ffmpeg 并加入 PATH 后重试",
         )),
         Err(error) => Err(CommandError::new("TRAINER_AUDIO_FAILED", error.to_string())),
     }
@@ -489,11 +480,13 @@ fn generate_trainer_beatmap_from_path(
     source_path: PathBuf,
     staging_root: Option<&Path>,
 ) -> CommandResult<TrainerResult> {
+    let _generation_guard = GENERATION_LOCK
+        .lock()
+        .map_err(|_| CommandError::new("TRAINER_OUTPUT_FAILED", "生成器状态锁定失败"))?;
     let source_text = crate::features::local_analysis::parser::decode_text(
         &fs::read(&source_path)
             .map_err(|error| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", error.to_string()))?,
     );
-    let (beatmap, included_objects) = transform_beatmap(&source_text, &request)?;
     let source_dir = source_path
         .parent()
         .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "谱面目录不可用"))?;
@@ -569,6 +562,34 @@ fn generate_trainer_beatmap_from_path(
     // osu! Stable stores these identifiers as signed 32-bit integers in
     // osu!.db. Keep generated IDs within that range so imported charts are
     // accepted by the parser and indexed instead of reported as corrupt.
+    fs::create_dir_all(&target_dir)
+        .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
+    let beatmap_path = target_dir.join("OPP Trainer.osu");
+    if beatmap_path.is_file() {
+        let included_objects = fs::read_to_string(&beatmap_path)
+            .ok()
+            .map(|text| count_hit_objects(&text))
+            .unwrap_or(0);
+        let has_asset = fs::read_dir(&target_dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| entry.path().is_file() && entry.path() != beatmap_path);
+        let audio_ready =
+            !request.preview_only && target_dir.join("opp-trainer-audio.mp3").is_file();
+        if included_objects > 0 && has_asset && (request.preview_only || audio_ready) {
+            return Ok(TrainerResult {
+                directory: target_dir.to_string_lossy().into_owned(),
+                beatmap_path: beatmap_path.to_string_lossy().into_owned(),
+                included_objects,
+            });
+        }
+    }
+    // Only transform the source after the deterministic staging path has been
+    // checked. Slider changes that revisit an existing request now avoid the
+    // full hit-object rewrite.
+    let (beatmap, included_objects) = transform_beatmap(&source_text, &request)?;
     let unique_id = (u32::from_str_radix(&Uuid::new_v4().simple().to_string()[..8], 16)
         .unwrap_or(1)
         % 2_000_000_000)
@@ -587,28 +608,6 @@ fn generate_trainer_beatmap_from_path(
         .collect::<Vec<_>>()
         .join("\r\n")
         + "\r\n";
-    fs::create_dir_all(&target_dir)
-        .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
-    let beatmap_path = target_dir.join("OPP Trainer.osu");
-    if beatmap_path.is_file() {
-        let included_objects = fs::read_to_string(&beatmap_path)
-            .ok()
-            .map(|text| count_hit_objects(&text))
-            .unwrap_or(0);
-        let has_asset = fs::read_dir(&target_dir)
-            .ok()
-            .into_iter()
-            .flatten()
-            .flatten()
-            .any(|entry| entry.path().is_file() && entry.path() != beatmap_path);
-        if included_objects > 0 && has_asset {
-            return Ok(TrainerResult {
-                directory: target_dir.to_string_lossy().into_owned(),
-                beatmap_path: beatmap_path.to_string_lossy().into_owned(),
-                included_objects,
-            });
-        }
-    }
     if !audio.is_file() {
         return Err(CommandError::new(
             "TRAINER_AUDIO_NOT_FOUND",

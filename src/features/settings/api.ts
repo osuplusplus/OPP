@@ -47,13 +47,6 @@ export function useSettings() {
         open_settings: "Alt+,",
       },
       similarity_preferences: defaultSimilarityPreferences,
-      view_trainer_profiles: Array.from({ length: 4 }, (_, index) => ({
-        name: `Profile ${index + 1}`, rate: 1, bpm_locked: false, target_bpm: null,
-        scale_ar: true, scale_od: true, lock_ar: false, lock_od: false,
-        lock_cs: false, lock_hp: false, ar: 5, od: 5, cs: 4, hp: 5,
-        min_bpm: null, max_bpm: null, start_time_ms: null, end_time_ms: null,
-        no_spinners: false, change_pitch: false, window_ms: 30_000,
-      })),
     }),
     staleTime: Infinity,
     retry: false,

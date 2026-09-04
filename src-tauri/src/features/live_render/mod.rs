@@ -388,12 +388,8 @@ mod native {
 /// osu! 默认 Music 通道音量(`OsuGame.GetFrameworkConfigDefaults` 0.6)。
 const MUSIC_VOLUME: f64 = 0.6;
 
-/// 解码 BGM 文件(mp3/flac/ogg/wav,symphonia 全量入内存)。
-/// DT/HT(rate≠1 且非 NC)优先走 ffmpeg「变速不变调」预处理,与导出
-/// 侧 atempo 同语义;ffmpeg 未配置或执行失败时回退原样解码——kira
-/// 的 playback_rate 本就是变速变调(游戏原生 DT 听感),预览不中断。
-/// NC 始终原样(nightcore without the pitch isn't nightcore,与导出
-/// 侧 asetrate 分支一致)。
+/// 解码 BGM 文件(mp3/flac/ogg/wav,symphonia 全量入内存)。DT/HT 优先
+/// 使用 ffmpeg 保持音高的预处理，失败时回退到 Kira 原速变调播放。
 fn load_bgm(
     path: &std::path::Path,
     rate: f64,
@@ -431,7 +427,8 @@ fn load_bgm_pitch_preserved(
         (44100.0 / rate).round() as i64,
         rate
     );
-    let output = std::process::Command::new(ffmpeg)
+    let mut command = std::process::Command::new(ffmpeg);
+    command
         .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
         .arg("-i")
         .arg(path)
@@ -447,9 +444,13 @@ fn load_bgm_pitch_preserved(
             "-f",
             "wav",
             "-",
-        ])
-        .output()
-        .ok()?;
+        ]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let output = command.output().ok()?;
     if !output.status.success() {
         eprintln!(
             "live_render: ffmpeg 变调预处理失败({}),回退 kira 变调播放",
@@ -822,6 +823,9 @@ impl Session {
     /// 必须走 bgm_pending 延迟(见 audio_play),不能拿钳 0 的位置
     /// 立即播。
     fn bgm_position(&self) -> f64 {
+        // `t` is already the chart time. FFmpeg's pitch-preserving path keeps
+        // the decoded buffer on that same time base; Kira's playback rate then
+        // controls wall-clock speed. Do not multiply seek positions again.
         ((self.t - self.audio_offset).max(0.0)) / 1000.0
     }
 
@@ -1402,17 +1406,26 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
-                let slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
-                    width: RENDER_W.min(1920).max(1) & !1,
-                    height: RENDER_H.min(1080).max(1) & !1,
-                    foreground: p.has_foreground(),
-                });
-                let (atlas, fonts) =
-                    build_atlas(bg_image, Some(RENDER_W as f32 / RENDER_H as f32), avatar_image, &mut new_skin, 8192, slots);
+                let slots = sb_parsed
+                    .as_ref()
+                    .map(|p| osu_replay_render::StoryboardSlots {
+                        width: RENDER_W.min(1920).max(1) & !1,
+                        height: RENDER_H.min(1080).max(1) & !1,
+                        foreground: p.has_foreground(),
+                    });
+                let (atlas, fonts) = build_atlas(
+                    bg_image,
+                    Some(RENDER_W as f32 / RENDER_H as f32),
+                    avatar_image,
+                    &mut new_skin,
+                    8192,
+                    slots,
+                );
                 {
                     let Backend::Native { renderer, .. } = &mut s.backend;
                     let layer = sb_parsed.map(|p| {
-                        let mut l = p.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
+                        let mut l =
+                            p.into_layer(renderer.device(), renderer.queue(), RENDER_W, RENDER_H);
                         l.set_video_bins(s.ffmpeg.as_deref());
 
                         l.set_elements_enabled(options.storyboard);
@@ -1498,13 +1511,13 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                         // (bg_opacity/音频/音效开关)继续生效。
                         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             let (atlas, fonts) = build_atlas(
-                                    bg_image,
-                                    Some(RENDER_W as f32 / RENDER_H as f32),
-                                    avatar_image,
-                                    &mut new_skin,
-                                    8192,
-                                    sb_slots,
-                                );
+                                bg_image,
+                                Some(RENDER_W as f32 / RENDER_H as f32),
+                                avatar_image,
+                                &mut new_skin,
+                                8192,
+                                sb_slots,
+                            );
                             s.set_atlas(&atlas);
                             s.atlas = atlas;
                             s.fonts = fonts;
@@ -1533,12 +1546,12 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                                 None
                             };
                             let layer = s.sb_layer.as_ref();
-                            let sb_active = layer
-                                .is_some_and(|l| l.elements_enabled() || l.video_enabled());
+                            let sb_active =
+                                layer.is_some_and(|l| l.elements_enabled() || l.video_enabled());
                             state.storyboard =
                                 sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
-                            state.storyboard_fg = layer
-                                .is_some_and(|l| l.elements_enabled() && l.has_foreground());
+                            state.storyboard_fg =
+                                layer.is_some_and(|l| l.elements_enabled() && l.has_foreground());
                             state.sb_replaces_bg = sb_active;
                             s.state = state;
                             // 采样/循环句柄作废待重建;变调开关按新皮肤重读。
@@ -1592,10 +1605,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 } else {
                     None
                 };
-                let avatar_image = options
-                    .avatar_path
-                    .as_deref()
-                    .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+                let avatar_image = options.avatar_path.as_deref().and_then(|p| {
+                    osu_replay_render::decode_image_file(std::path::Path::new(p)).ok()
+                });
                 let with_bg = bg_image.is_some();
                 let sb_slots = active_sb_slots(s.sb_layer.as_ref());
                 // 皮肤纹理住在图集里,重建图集必须带上(按当前路径重载,
@@ -1779,11 +1791,13 @@ fn open_session(
     } else {
         None
     };
-    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
-        width: RENDER_W.min(1920).max(1) & !1,
-        height: RENDER_H.min(1080).max(1) & !1,
-        foreground: p.has_foreground(),
-    });
+    let storyboard_slots = sb_parsed
+        .as_ref()
+        .map(|p| osu_replay_render::StoryboardSlots {
+            width: RENDER_W.min(1920).max(1) & !1,
+            height: RENDER_H.min(1080).max(1) & !1,
+            foreground: p.has_foreground(),
+        });
     let (atlas, fonts) = build_atlas(
         bg_image,
         Some(RENDER_W as f32 / RENDER_H as f32),
@@ -1813,7 +1827,9 @@ fn open_session(
     };
     let sb_active = sb_parsed.is_some();
     state.storyboard = sb_active.then(|| options.bg_opacity.clamp(0.0, 1.0));
-    state.storyboard_fg = sb_parsed.as_ref().is_some_and(|p| options.storyboard && p.has_foreground());
+    state.storyboard_fg = sb_parsed
+        .as_ref()
+        .is_some_and(|p| options.storyboard && p.has_foreground());
     state.sb_replaces_bg = sb_active && (options.storyboard || options.video);
 
     // BGM([General] AudioFilename,相对谱面目录):open 时只解析路径,
@@ -1986,7 +2002,7 @@ fn open_session(
         has_bg,
         storyboard: options.storyboard,
         video: options.video,
-    };    // 故事板 GPU 层:与窗口渲染器同一 device/queue(合成进图集槽位);
+    }; // 故事板 GPU 层:与窗口渲染器同一 device/queue(合成进图集槽位);
     // 元素/视频两半分别由两个开关控制。
     if let Some(parsed) = sb_parsed {
         let Backend::Native { renderer, .. } = &mut session.backend;
@@ -2391,7 +2407,11 @@ fn ffmpeg_path(state: &tauri::State<'_, crate::state::AppState>) -> Option<std::
 /// 视频不解码)。找不到同目录 ffprobe 时返回 None,库内退回 PATH。
 fn sibling_ffprobe(ffmpeg: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
     let dir = ffmpeg?.parent()?;
-    let name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    let name = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
     let candidate = dir.join(name);
     candidate.is_file().then_some(candidate)
 }
@@ -2723,11 +2743,13 @@ fn run_export(
         params.width.min(1920).max(1) & !1,
         params.height.min(1080).max(1) & !1,
     );
-    let storyboard_slots = sb_parsed.as_ref().map(|p| osu_replay_render::StoryboardSlots {
-        width: sb_slot.0,
-        height: sb_slot.1,
-        foreground: p.has_foreground(),
-    });
+    let storyboard_slots = sb_parsed
+        .as_ref()
+        .map(|p| osu_replay_render::StoryboardSlots {
+            width: sb_slot.0,
+            height: sb_slot.1,
+            foreground: p.has_foreground(),
+        });
     // 导出按 params 分辨率裁剪(可与预览 16:9 不同)。
     let (atlas, fonts) = build_atlas(
         bg_image,
