@@ -1014,6 +1014,7 @@ export interface BeatmapPreviewRequest {
   bid: number;
   start_seconds: number | null;
   end_seconds: number | null;
+  mods?: string[];
 }
 
 export interface BeatmapPreviewResult {

@@ -1,4 +1,4 @@
-import { Check, Download, Headphones, Heart, Info, ListPlus, Pause } from "lucide-react";
+import { Check, Download, Headphones, Heart, Info, ListPlus, Pause, ImageIcon } from "lucide-react";
 import { Badge, Button, Card } from "../../shared/components/ui";
 import { DifficultyIcon } from "../../shared/components/DifficultyIcon";
 import { APP_TIME_ZONE, fullNumber } from "../../shared/lib/format";
@@ -31,7 +31,7 @@ function statusLabel(status: string) {
   return labels[status] ?? status;
 }
 
-export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onAddToCollection = () => undefined, onDownload, onOpen, onPreview, onSelect }: { beatmapset: OnlineBeatmapset; downloading: boolean; playing: boolean; selected: boolean; onAddToCollection?: () => void; onDownload: () => void; onOpen: () => void; onPreview: () => void; onSelect: () => void }) {
+export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onAddToCollection = () => undefined, onDownload, onOpen, onPreview, onVisualPreview, onSelect }: { beatmapset: OnlineBeatmapset; downloading: boolean; playing: boolean; selected: boolean; onAddToCollection?: () => void; onDownload: () => void; onOpen: () => void; onPreview: () => void; onVisualPreview?: () => void; onSelect: () => void }) {
   const preview = normalizePreviewUrl(beatmapset.preview_url);
   const beatmaps = beatmapset.beatmaps ?? [];
   const longest = Math.max(0, ...beatmaps.map((beatmap) => beatmap.total_length ?? 0));
@@ -75,6 +75,7 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
         <div className="opp-beatmap-card__actions relative z-30 flex shrink-0 gap-0.5">
           <Button aria-label="加入收藏夹" onClick={(event) => { event.stopPropagation(); onAddToCollection(); }} size="icon" title="加入收藏夹" variant="ghost"><Heart className="size-4" /></Button>
           <Button aria-label={playing ? "暂停试听" : "试听"} className="hidden min-[1440px]:inline-flex" disabled={!preview} onClick={(event) => { event.stopPropagation(); onPreview(); }} size="icon" variant={playing ? "primary" : "ghost"}>{playing ? <Pause className="size-4" /> : <Headphones className="size-4" />}</Button>
+          {onVisualPreview ? <Button aria-label="预览" onClick={(event) => { event.stopPropagation(); onVisualPreview(); }} size="icon" title="预览" variant="ghost"><ImageIcon className="size-4" /></Button> : null}
           <Button aria-label="下载谱面" disabled={disabled} loading={downloading} onClick={(event) => { event.stopPropagation(); onDownload(); }} size="icon" title="下载谱面" variant="ghost">{downloading ? null : <Download className="size-4" />}</Button>
           <Button aria-label="预览详情" className="hidden min-[1440px]:inline-flex" onClick={(event) => { event.stopPropagation(); onOpen(); }} size="icon" variant="ghost"><Info className="size-4" /></Button>
         </div>

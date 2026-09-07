@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Area, AreaChart, CartesianGrid, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, Database, Download, FileCog, FolderOpen, HardDrive, ImageIcon, Info, Keyboard, Link2, MonitorCog, RefreshCw, RotateCcw, Save, Square, Wrench } from "lucide-react";
 
 import { useMode } from "../../app/ModeContext";
@@ -13,6 +13,7 @@ import { desktopApi, useCapabilities } from "../../shared/lib/tauri";
 
 import type { DefaultFileClients, LazerDedupeProgress, LazerDedupeResult, LazerDiskUsage, ManiaConversionItem, OsuClient } from "../../shared/types/osu";
 import type { BeatmapPreviewInspection, BeatmapPreviewResult } from "../../shared/types/osu";
+import { ModIcon, modeMods } from "../online-beatmaps/BeatmapVisuals";
 
 function formatByteSize(bytes: number) {
   const units = ["B", "K", "M", "G", "T"];
@@ -44,9 +45,9 @@ function roundPreviewTime(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-export function BeatmapPreviewCard() {
+export function BeatmapPreviewCard({ embeddedBid }: { embeddedBid?: number } = {}) {
   const [searchParams] = useSearchParams();
-  const linkedBid = searchParams.get("preview_bid") ?? "";
+  const linkedBid = embeddedBid ? String(embeddedBid) : searchParams.get("preview_bid") ?? "";
   const [bid, setBid] = useState(linkedBid);
   const [inspection, setInspection] = useState<BeatmapPreviewInspection | null>(null);
   const [startSeconds, setStartSeconds] = useState(0);
@@ -58,6 +59,7 @@ export function BeatmapPreviewCard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [result, setResult] = useState<BeatmapPreviewResult | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [mods, setMods] = useState<string[]>([]);
   const previewDragRef = useRef<PreviewDragState | null>(null);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -103,7 +105,7 @@ export function BeatmapPreviewCard() {
     return Array.from({ length: pointCount }, (_, index) => ({
       time:
         ((strains.section_start_time_ms ?? strains.first_object_time_ms) +
-          (index + 1) * strains.section_length_ms) /
+          index * strains.section_length_ms) /
         1_000,
       strain: strains.series.reduce((sum, series) => sum + (series.values[index] ?? 0), 0),
     }));
@@ -122,6 +124,8 @@ export function BeatmapPreviewCard() {
   const previewTimeFromPointer = (element: HTMLDivElement, clientX: number) => {
     const bounds = element.getBoundingClientRect();
     if (bounds.width <= 0 || lengthSeconds <= 0) return 0;
+    // The drag layer is inset to match the chart plot area. Use its own bounds
+    // so the handles map to the same x coordinates as the visible selection.
     return Math.max(0, Math.min(lengthSeconds, ((clientX - bounds.left) / bounds.width) * lengthSeconds));
   };
 
@@ -134,6 +138,20 @@ export function BeatmapPreviewCard() {
     previewDragRef.current = {
       mode,
       pointerTime: previewTimeFromPointer(event.currentTarget, event.clientX),
+      start: startSeconds,
+      end: endSeconds,
+    };
+  };
+
+  const beginHandleDrag = (event: React.PointerEvent<HTMLButtonElement>, mode: PreviewDragMode) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const layer = event.currentTarget.parentElement as HTMLDivElement | null;
+    if (!layer) return;
+    layer.setPointerCapture?.(event.pointerId);
+    previewDragRef.current = {
+      mode,
+      pointerTime: previewTimeFromPointer(layer, event.clientX),
       start: startSeconds,
       end: endSeconds,
     };
@@ -176,6 +194,7 @@ export function BeatmapPreviewCard() {
         bid: inspection.bid,
         start_seconds: inspection.ruleset === "osu" ? startSeconds : null,
         end_seconds: inspection.ruleset === "osu" ? endSeconds : null,
+        ...(mods.length ? { mods } : {}),
       });
       const bytes = await desktopApi.readBeatmapPreviewOutput(generated.output_path);
       setPreviewUrl(URL.createObjectURL(new Blob([bytes], { type: generated.mime_type })));
@@ -223,14 +242,15 @@ export function BeatmapPreviewCard() {
         <div className="flex flex-wrap items-center gap-2"><Badge tone="cyan">{previewModeLabels[inspection.ruleset]}</Badge><Badge>{previewTimestamp(lengthSeconds)}</Badge><span className="text-sm font-semibold text-white">{inspection.title_unicode || inspection.title} [{inspection.difficulty_name}]</span></div>
         <p className="mt-1 text-xs text-slate-400">{inspection.artist_unicode || inspection.artist} · mapped by {inspection.creator}</p>
       </div>
+      <div className="flex flex-wrap gap-2">{modeMods[inspection.ruleset].map((mod) => <ModIcon key={mod} mod={mod} active={mods.includes(mod)} onClick={() => setMods((current) => current.includes(mod) ? current.filter((item) => item !== mod) : [...current, mod])} />)}</div>
 
       {inspection.ruleset === "osu" ? <div className="rounded-2xl border border-violet-300/15 bg-violet-300/[0.035] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-white">选择 GIF 区间</h3><p className="mt-1 text-xs text-slate-400">拖动选中区域可整体平移，拖动两侧边界可调整 1–30 秒区间。</p></div><span className="font-mono text-sm text-violet-100">{previewTimestamp(startSeconds)} – {previewTimestamp(endSeconds)} · {(endSeconds - startSeconds).toFixed(1)}s</span></div>
         <div className="relative mt-4 h-44 w-full select-none">
-          <ResponsiveContainer height="100%" width="100%"><AreaChart data={strainRows} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}><defs><linearGradient id="preview-strain" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#a78bfa" stopOpacity={0.55} /><stop offset="100%" stopColor="#a78bfa" stopOpacity={0.03} /></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.05)" vertical={false} /><XAxis dataKey="time" domain={[0, lengthSeconds]} minTickGap={48} stroke="#64748b" tickFormatter={(value) => previewTimestamp(Number(value))} tickLine={false} type="number" /><YAxis hide domain={[0, "auto"]} /><Tooltip contentStyle={{ background: "#111827", border: "1px solid rgba(255,255,255,.1)", borderRadius: 12 }} formatter={(value) => [Number(value).toFixed(2), "Strain"]} labelFormatter={(value) => previewTimestamp(Number(value))} /><ReferenceArea fill="#22d3ee" fillOpacity={0.13} stroke="#67e8f9" strokeOpacity={0.45} x1={startSeconds} x2={endSeconds} /><Area dataKey="strain" fill="url(#preview-strain)" isAnimationActive={false} stroke="#a78bfa" strokeWidth={1.5} type="monotone" /></AreaChart></ResponsiveContainer>
+          <ResponsiveContainer height="100%" width="100%"><AreaChart data={strainRows} margin={{ left: 0, right: 0, top: 8, bottom: 0 }}><defs><linearGradient id="preview-strain" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#a78bfa" stopOpacity={0.55} /><stop offset="100%" stopColor="#a78bfa" stopOpacity={0.03} /></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.05)" vertical={false} /><XAxis dataKey="time" domain={[0, lengthSeconds]} minTickGap={48} stroke="#64748b" tickFormatter={(value) => previewTimestamp(Number(value))} tickLine={false} type="number" /><YAxis hide domain={[0, "auto"]} /><Tooltip contentStyle={{ background: "#111827", border: "1px solid rgba(255,255,255,.1)", borderRadius: 12 }} formatter={(value) => [Number(value).toFixed(2), "Strain"]} labelFormatter={(value) => previewTimestamp(Number(value))} /><Area dataKey="strain" fill="url(#preview-strain)" isAnimationActive={false} stroke="#a78bfa" strokeWidth={1.5} type="monotone" /></AreaChart></ResponsiveContainer>
           <div
             aria-label="GIF 图表区间选择"
-            className="absolute inset-x-2 bottom-7 top-2 z-10 touch-none"
+            className="absolute inset-x-0 bottom-7 top-2 z-10 touch-none"
             onPointerCancel={endPreviewDrag}
             onPointerDown={beginPreviewDrag}
             onPointerMove={movePreviewDrag}
@@ -238,30 +258,37 @@ export function BeatmapPreviewCard() {
           >
             <button
               aria-label="拖动 GIF 选中区间"
-              className="absolute inset-y-0 cursor-grab border-y border-cyan-200/50 bg-cyan-300/[0.08] active:cursor-grabbing"
+              className="absolute inset-y-0 z-10 cursor-grab border-y border-cyan-200/50 bg-cyan-300/[0.08] active:cursor-grabbing"
               data-preview-drag="move"
               style={{ left: `${(startSeconds / Math.max(lengthSeconds, 1)) * 100}%`, width: `${((endSeconds - startSeconds) / Math.max(lengthSeconds, 1)) * 100}%` }}
               type="button"
             />
             <button
               aria-label="拖动 GIF 开始边界"
-              className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm border border-cyan-100/80 bg-cyan-300/70 shadow-[0_0_12px_rgba(103,232,249,.35)]"
+              className="absolute inset-y-0 z-20 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm border border-cyan-100/80 bg-cyan-300/70 shadow-[0_0_12px_rgba(103,232,249,.35)]"
               data-preview-drag="start"
+              onPointerDown={(event) => beginHandleDrag(event, "start")}
               style={{ left: `${(startSeconds / Math.max(lengthSeconds, 1)) * 100}%` }}
               type="button"
             />
             <button
               aria-label="拖动 GIF 结束边界"
-              className="absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm border border-violet-100/80 bg-violet-300/70 shadow-[0_0_12px_rgba(196,181,253,.35)]"
+              className="absolute inset-y-0 z-20 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm border border-violet-100/80 bg-violet-300/70 shadow-[0_0_12px_rgba(196,181,253,.35)]"
               data-preview-drag="end"
+              onPointerDown={(event) => beginHandleDrag(event, "end")}
               style={{ left: `${(endSeconds / Math.max(lengthSeconds, 1)) * 100}%` }}
               type="button"
             />
           </div>
         </div>
-        <div className="relative mt-3 h-9">
-          <input aria-label="GIF 开始时间" className="pointer-events-none absolute inset-x-0 top-1 w-full accent-cyan-300 [&::-webkit-slider-thumb]:pointer-events-auto" max={Math.max(0, lengthSeconds)} min="0" onChange={(event) => setStart(Number(event.target.value))} step="0.1" type="range" value={startSeconds} />
-          <input aria-label="GIF 结束时间" className="pointer-events-none absolute inset-x-0 top-1 w-full accent-violet-300 [&::-webkit-slider-thumb]:pointer-events-auto" max={Math.max(0, lengthSeconds)} min="0" onChange={(event) => setEnd(Number(event.target.value))} step="0.1" type="range" value={endSeconds} />
+        <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-slate-500">
+          <span>开始 {previewTimestamp(startSeconds)}</span>
+          <span className="text-center text-cyan-200/80">拖动选区移动，拖动两侧边界展开或收窄</span>
+          <span>结束 {previewTimestamp(endSeconds)}</span>
+        </div>
+        <div className="sr-only" aria-hidden="false">
+          <label>GIF 开始时间<input aria-label="GIF 开始时间" max={Math.max(0, lengthSeconds)} min="0" onChange={(event) => setStart(Number(event.target.value))} step="0.1" type="range" value={startSeconds} /></label>
+          <label>GIF 结束时间<input aria-label="GIF 结束时间" max={Math.max(0, lengthSeconds)} min="0" onChange={(event) => setEnd(Number(event.target.value))} step="0.1" type="range" value={endSeconds} /></label>
         </div>
       </div> : <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-sm text-cyan-100">该模式将生成包含全部物件的 PNG 长图，无需选择区间。</div>}
 
@@ -308,7 +335,7 @@ export function LegacySpeedTestCard() {
 }
 
 function SpeedTestCard() {
-  return <><BeatmapPreviewCard /><SpeedTestContent /></>;
+  return <><SpeedTestContent /></>;
 }
 
 function SpeedTestContent() {

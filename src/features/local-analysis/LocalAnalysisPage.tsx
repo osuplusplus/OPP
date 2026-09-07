@@ -296,16 +296,15 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
   }, [client]);
 
   const invalidateLocal = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: localSourcesKey }),
-      queryClient.invalidateQueries({ queryKey: localSummaryKey(client) }),
-      queryClient.invalidateQueries({ queryKey: ["local-beatmaps"] }),
-      queryClient.invalidateQueries({ queryKey: ["local-beatmap-sets"] }),
-      queryClient.invalidateQueries({ queryKey: ["local-beatmap-background"] }),
-      queryClient.invalidateQueries({ queryKey: ["local-skins"] }),
-      queryClient.invalidateQueries({ queryKey: ["local-skin-preview"] }),
-      queryClient.invalidateQueries({ queryKey: ["local-skin-asset"] }),
-    ]);
+    // Lazer libraries can contain tens of thousands of entries. Refetching every
+    // active query at once briefly materializes several large result trees and can
+    // exhaust the WebView2 renderer on Windows. Refresh the small status queries
+    // first, then mark list/detail data stale without forcing an eager refetch.
+    await queryClient.invalidateQueries({ queryKey: localSourcesKey });
+    await queryClient.invalidateQueries({ queryKey: localSummaryKey(client) });
+    for (const queryKey of [["local-beatmaps"], ["local-beatmap-sets"], ["local-skins"], ["local-beatmap-background"], ["local-skin-preview"], ["local-skin-asset"]]) {
+      await queryClient.invalidateQueries({ queryKey, refetchType: "inactive" });
+    }
   };
 
   const chooseDirectory = async () => {

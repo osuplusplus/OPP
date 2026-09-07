@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMode } from "../../app/ModeContext";
-import { PageHeader } from "../../shared/components/PageHeader";
+import { useNavigate } from "react-router-dom";
 import {
   Badge,
   Button,
@@ -137,6 +137,7 @@ function Toggle({
 }
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const stored = useSettings();
   const auth = useAuthStatus();
   const sources = useLocalSources();
@@ -205,23 +206,6 @@ export function SettingsPage() {
   const refreshFfmpeg = async () => {
     try { setFfmpegStatus(await desktopApi.liveRenderGetFfmpegStatus()); } catch { setFfmpegStatus(null); }
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const useIdle = typeof idleWindow.requestIdleCallback === "function";
-    const schedule = useIdle
-      ? idleWindow.requestIdleCallback!(() => { if (!cancelled) void refreshFfmpeg(); }, { timeout: 1500 })
-      : window.setTimeout(() => { if (!cancelled) void refreshFfmpeg(); }, 500);
-    return () => {
-      cancelled = true;
-      if (useIdle) idleWindow.cancelIdleCallback?.(schedule);
-      else window.clearTimeout(schedule);
-    };
-  }, [settings.ffmpeg_executable_path, settings.danser_executable_path]);
 
   const chooseFfmpeg = async () => {
     setFfmpegBusy(true);
@@ -335,12 +319,9 @@ export function SettingsPage() {
   const lightTheme = settings.theme_mode === "light";
 
   return (
-    <>
-      <PageHeader
-        eyebrow="Application"
-        title="设置"
-        description="在这里管理主题、游戏来源和常用偏好。"
-      />
+    <div className="fixed inset-0 z-[70] overflow-y-auto bg-black/65 px-4 py-8 backdrop-blur-sm">
+      <div className="mx-auto max-w-6xl rounded-3xl border border-white/10 bg-[var(--surface)] p-6 shadow-2xl">
+      <div className="mb-5 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[var(--theme-primary)]">Application</p><h1 className="mt-1 text-2xl font-bold text-white">设置</h1><p className="mt-1 text-sm text-slate-400">管理主题、游戏来源和常用偏好。</p></div><Button aria-label="关闭设置" onClick={() => navigate(-1)} size="icon" variant="ghost">×</Button></div>
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-5">
           <Card className="p-6">
@@ -641,8 +622,9 @@ export function SettingsPage() {
               </div>
             </div>
           </Card>
-        </div>
       </div>
-    </>
+      </div>
+      </div>
+      </div>
   );
 }

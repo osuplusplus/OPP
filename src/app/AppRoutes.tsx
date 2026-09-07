@@ -9,6 +9,7 @@ const DataCenterPage = lazy(() => import("../features/profile/DataCenterPage").t
 const OverviewPage = lazy(() => import("../features/profile/OverviewPage").then((module) => ({ default: module.OverviewPage })));
 const ProfileDetailsPage = lazy(() => import("../features/profile/ProfileDetailsPage").then((module) => ({ default: module.ProfileDetailsPage })));
 const MedalsPage = lazy(() => import("../features/profile/MedalsPage").then((module) => ({ default: module.MedalsPage })));
+const CareerPage = lazy(() => import("../features/profile/CareerPage").then((module) => ({ default: module.CareerPage })));
 const ScoresPage = lazy(() => import("../features/scores/ScoresPage").then((module) => ({ default: module.ScoresPage })));
 const OnlineBeatmapsPage = lazy(() => import("../features/online-beatmaps/OnlineBeatmapsPage").then((module) => ({ default: module.OnlineBeatmapsPage })));
 const SimilarBeatmapsPage = lazy(() => import("../features/similar-beatmaps/SimilarBeatmapsPage").then((module) => ({ default: module.SimilarBeatmapsPage })));
@@ -41,6 +42,7 @@ export function AppRoutes() {
             <Route path="recent" element={<ScoresPage category="recent" title="近期成绩" />} />
             <Route path="pinned" element={<ScoresPage category="pinned" title="Pinned 成绩" />} />
             <Route path="medals" element={<MedalsPage />} />
+            <Route path="career" element={<CareerPage />} />
             <Route path="profile" element={<ProfileDetailsPage />} />
           </Route>
           <Route path="/online/overview" element={<Navigate replace to="/data/overview" />} />

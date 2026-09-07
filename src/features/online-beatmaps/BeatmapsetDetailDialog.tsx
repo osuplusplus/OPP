@@ -31,6 +31,7 @@ export function BeatmapsetDetailDialog({
   playing,
   onClose,
   onPreview,
+  onVisualPreview,
 }: {
   beatmapsetId: number | null;
   fallback: OnlineBeatmapset | null;
@@ -40,6 +41,7 @@ export function BeatmapsetDetailDialog({
   playing: boolean;
   onClose: () => void;
   onPreview: (beatmapset: OnlineBeatmapset) => void;
+  onVisualPreview?: (beatmapset: OnlineBeatmapset) => void;
 }) {
   const detailQuery = useOnlineBeatmapsetDetail(beatmapsetId);
   const beatmapset = detailQuery.data ?? fallback;
@@ -108,6 +110,7 @@ export function BeatmapsetDetailDialog({
                   >
                     <X className="size-4" />
                   </Button>
+                  {onVisualPreview ? <Button onClick={() => onVisualPreview(beatmapset)} variant="secondary">预览</Button> : null}
                   <Button onClick={() => onAddToCollection(beatmapset)} variant="secondary"><Heart className="size-4" />加入收藏夹</Button>
                 </div>
                 <div className="absolute bottom-6 left-7 right-7">

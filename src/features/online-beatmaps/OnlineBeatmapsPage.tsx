@@ -20,6 +20,7 @@ import { OnlineBeatmapSortBar } from "./OnlineBeatmapSortBar";
 import { similarityRouteForBeatmap } from "../similar-beatmaps/navigation";
 import { openCollectionDialog } from "../collections/events";
 import { settingsQueryKey, useSettings } from "../settings/api";
+import { BeatmapPreviewCard } from "../tools/ToolsPage";
 
 function uniqueBeatmapsets(items: OnlineBeatmapset[]) {
   const seen = new Set<number>();
@@ -58,6 +59,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
   const [manualDetailId, setManualDetailId] = useState<number | null>(null);
   const detailId = deepLink.beatmapsetId ?? beatmapsetIdFromLookup(beatmapLookup.data ?? {}) ?? manualDetailId;
   const [playingId, setPlayingId] = useState<number | null>(null);
+  const [previewBid, setPreviewBid] = useState<number | null>(null);
   const [directDownloadId, setDirectDownloadId] = useState<number | null>(null);
   const [directDownloadError, setDirectDownloadError] = useState<string | null>(null);
   const [directDownloadDirectory, setDirectDownloadDirectory] = useState(() => localStorage.getItem(beatmapDownloadDirectoryKey) ?? "");
@@ -182,7 +184,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
           {directDownloadError ? <div className="mb-4 rounded-xl border border-amber-300/10 bg-amber-300/[0.05] px-4 py-3 text-sm text-amber-100">{directDownloadError}</div> : null}
           {search.isLoading ? <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">{Array.from({ length: 6 }, (_, index) => <Skeleton className="aspect-[136/55] rounded-xl" key={index} />)}</div> : search.error ? <ErrorPanel error={search.error} onRetry={() => search.refetch()} /> : !items.length ? <EmptyState action={<Button onClick={reset}><Music2 className="size-4" />查看近期 Ranked</Button>} description="请放宽筛选条件，或更换内容筛选标签。" icon={<SearchX className="size-5" />} title="没有找到匹配的谱面" /> : <>
             {/* 常用桌面窗口保持双列，卡片尺寸随结果区宽度按比例缩放。 */}
-            <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">{items.map((beatmapset) => <BeatmapsetCard beatmapset={beatmapset} downloading={directDownloadId === beatmapset.id} key={beatmapset.id} onAddToCollection={() => openCollectionDialog(collectionCandidates(beatmapset))} onDownload={() => void downloadBeatmapset(beatmapset)} onOpen={() => setManualDetailId(beatmapset.id)} onPreview={() => togglePreview(beatmapset)} onSelect={() => toggleQueue(beatmapset)} playing={playingId === beatmapset.id} selected={queue.has(beatmapset.id)} />)}</div>
+            <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">{items.map((beatmapset) => <BeatmapsetCard beatmapset={beatmapset} downloading={directDownloadId === beatmapset.id} key={beatmapset.id} onAddToCollection={() => openCollectionDialog(collectionCandidates(beatmapset))} onDownload={() => void downloadBeatmapset(beatmapset)} onOpen={() => setManualDetailId(beatmapset.id)} onPreview={() => togglePreview(beatmapset)} onVisualPreview={() => setPreviewBid(beatmapset.beatmaps?.[0]?.id ?? null)} onSelect={() => toggleQueue(beatmapset)} playing={playingId === beatmapset.id} selected={queue.has(beatmapset.id)} />)}</div>
             {search.hasNextPage ? <Button className="mt-5 w-full" loading={search.isFetchingNextPage} onClick={() => search.fetchNextPage()}><ChevronDown className="size-4" />加载下一页</Button> : <p className="py-8 text-center text-sm text-slate-600">已到达搜索结果末尾</p>}
           </>}
         </section>
@@ -190,7 +192,8 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
       </div>
     </div>
 
-    <BeatmapsetDetailDialog beatmapsetId={detailId} fallback={detailFallback} initialBeatmapId={deepLink.beatmapId} key={detailId ?? "closed"} onAddToCollection={(beatmapset) => openCollectionDialog(collectionCandidates(beatmapset))} onClose={closeDetail} onFindSimilar={(beatmapId, beatmapRuleset) => navigate(similarityRouteForBeatmap(beatmapId, beatmapRuleset))} onPreview={togglePreview} playing={detailId !== null && playingId === detailId} />
+    <BeatmapsetDetailDialog beatmapsetId={detailId} fallback={detailFallback} initialBeatmapId={deepLink.beatmapId} key={detailId ?? "closed"} onAddToCollection={(beatmapset) => openCollectionDialog(collectionCandidates(beatmapset))} onClose={closeDetail} onFindSimilar={(beatmapId, beatmapRuleset) => navigate(similarityRouteForBeatmap(beatmapId, beatmapRuleset))} onPreview={togglePreview} onVisualPreview={(beatmapset) => setPreviewBid(beatmapset.beatmaps?.[0]?.id ?? null)} playing={detailId !== null && playingId === detailId} />
+    {previewBid ? <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/70 p-5 backdrop-blur-md" onClick={() => setPreviewBid(null)}><div className="mx-auto mt-8 max-w-4xl" onClick={(event) => event.stopPropagation()}><BeatmapPreviewCard embeddedBid={previewBid} /></div></div> : null}
   </>;
 }
 

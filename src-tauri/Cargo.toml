@@ -57,7 +57,7 @@ md-5 = "0.10"
 mania-converter = { git = "https://github.com/Siflorite/mania-converter-rust", rev = "5dcfc2205529485c060345b7f04df1c3bf9897ae" }
 osu-difficulty-runtime = { path = "crates/osu-difficulty-runtime" }
 netease-cloud-music = { path = "crates/netease-cloud-music" }
-osu-beatmap-preview = { git = "https://github.com/L1rics06/osu-beatmap-preview", version = "1.0.7" }
+osu-beatmap-preview = { git = "https://github.com/2710165659/osu-beatmap-preview", rev = "c22b214d7d1d4dc05be80a82c45317f33ad94d40" }
 osu_replay_render = { git = "https://github.com/Ohdmire/osu-replay-render" }
 
 kira = "0.10"

@@ -14,6 +14,7 @@ pub const NERINYAN_BASE_URL: &str = "https://api.nerinyan.moe";
 pub const CATBOY_BASE_URL: &str = "https://catboy.best";
 pub const HINAI_BASE_URL: &str = "https://mirror.hinamizawa.ai";
 pub const SAYOBOT_BASE_URL: &str = "https://dl.sayobot.cn";
+pub const OSU_METADATA_URL: &str = "https://osu.ppy.sh/osu";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProviderStatus {

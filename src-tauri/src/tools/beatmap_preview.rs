@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use osu_beatmap_preview::{PreviewOptions, generate_preview};
+use osu_beatmap_preview::{parse_time_point, PreviewOptions, generate_preview};
 use serde::{Deserialize, Serialize};
 use tauri::{async_runtime, ipc::Response};
 
@@ -39,6 +39,8 @@ pub struct BeatmapPreviewRequest {
     pub bid: u32,
     pub start_seconds: Option<f64>,
     pub end_seconds: Option<f64>,
+    #[serde(default)]
+    pub mods: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,6 +159,7 @@ fn preview_options(
 ) -> CommandResult<PreviewOptions> {
     validate_bid(request.bid)?;
     let mut options = PreviewOptions::new(request.bid.to_string());
+    options.mods = request.mods.clone();
     if ruleset == Ruleset::Osu {
         let start = request.start_seconds.ok_or_else(|| {
             CommandError::new("PREVIEW_RANGE_REQUIRED", "std 预览需要选择开始时间")
@@ -178,8 +181,9 @@ fn preview_options(
             ));
         }
         options.format = Some("gif".into());
-        options.times = Some(format!("{start:.3}+{end:.3}"));
-        options.gif_clip_label = true;
+        options.time_points = vec![parse_time_point(&format!("{start:.3}"))
+            .map_err(|error| CommandError::new("INVALID_PREVIEW_RANGE", error.to_string()))?];
+        options.duration_time = Some(duration);
     } else {
         options.format = Some("png".into());
     }
