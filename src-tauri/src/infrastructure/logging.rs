@@ -8,6 +8,7 @@ use std::{
         mpsc::{self, Sender},
     },
     thread,
+    time::Instant,
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
@@ -178,9 +179,18 @@ impl Logger {
         message: impl AsRef<str>,
         event: Option<&str>,
         request_id: Option<&str>,
-        _duration_ms: Option<u128>,
+        duration_ms: Option<u128>,
         fields: Option<serde_json::Value>,
     ) {
+        let mut record_fields = fields.unwrap_or_else(|| serde_json::json!({}));
+
+        // 添加 duration_ms 到 fields 中（如果存在）
+        if let Some(duration) = duration_ms {
+            if let Some(obj) = record_fields.as_object_mut() {
+                obj.insert("duration_ms".to_string(), serde_json::json!(duration));
+            }
+        }
+
         let record = LogRecord {
             timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             level: level.to_ascii_uppercase(),
@@ -188,7 +198,7 @@ impl Logger {
             message: sanitize(message.as_ref()),
             event: event.map(str::to_string),
             request_id: request_id.map(str::to_string),
-            fields: fields.map(sanitize_json),
+            fields: Some(sanitize_json(record_fields)),
         };
         let line = serde_json::to_string(&record).unwrap_or_else(|error| {
             format!("{{\"level\":\"ERROR\",\"message\":\"log serialization failed: {error}\"}}")
@@ -200,11 +210,25 @@ impl Logger {
         let target = target.into();
         let operation = operation.into();
         let request_id = Uuid::new_v4().to_string();
+        let start_time = Instant::now();
+
+        // 记录操作开始
+        self.event(
+            "INFO",
+            &target,
+            format!("开始操作: {}", operation),
+            Some("operation_start"),
+            Some(&request_id),
+            None,
+            None,
+        );
+
         LogSpan {
             logger: self.clone(),
             target,
             operation,
             request_id,
+            start_time,
             finished: false,
         }
     }
@@ -269,6 +293,7 @@ pub struct LogSpan {
     target: String,
     operation: String,
     request_id: String,
+    start_time: Instant,
     finished: bool,
 }
 
@@ -277,20 +302,167 @@ impl LogSpan {
         &self.request_id
     }
 
+    /// 记录操作成功完成，可选附加结构化字段
     pub fn finish_ok(&mut self, fields: Option<serde_json::Value>) {
         if self.finished {
             return;
         }
         self.finished = true;
-        let _ = fields;
+        let duration_ms = self.start_time.elapsed().as_millis();
+        self.logger.event(
+            "INFO",
+            &self.target,
+            format!("操作完成: {}", self.operation),
+            Some("operation_complete"),
+            Some(&self.request_id),
+            Some(duration_ms),
+            fields,
+        );
     }
 
+    /// 记录操作失败
     pub fn finish_error(&mut self, error: &CommandError) {
         if self.finished {
             return;
         }
         self.finished = true;
-        self.logger.event("ERROR", &self.target, format!("返回错误: {}", error.message), Some("return_err"), error.request_id.as_deref().or(Some(&self.request_id)), None, Some(serde_json::json!({ "function": self.operation, "code": error.code, "origin": error.origin })));
+        let duration_ms = self.start_time.elapsed().as_millis();
+        self.logger.event(
+            "ERROR",
+            &self.target,
+            format!("操作失败: {} - {}", self.operation, error.message),
+            Some("operation_error"),
+            error.request_id.as_deref().or(Some(&self.request_id)),
+            Some(duration_ms),
+            Some(serde_json::json!({
+                "operation": self.operation,
+                "code": error.code,
+                "origin": error.origin,
+                "technical": error.technical,
+            })),
+        );
+    }
+
+    /// 记录中间步骤信息
+    pub fn info(&self, message: impl AsRef<str>, fields: Option<serde_json::Value>) {
+        let duration_ms = self.start_time.elapsed().as_millis();
+        self.logger.event(
+            "INFO",
+            &self.target,
+            message,
+            Some("step"),
+            Some(&self.request_id),
+            Some(duration_ms),
+            fields,
+        );
+    }
+
+    /// 记录警告信息
+    pub fn warn(&self, message: impl AsRef<str>, fields: Option<serde_json::Value>) {
+        let duration_ms = self.start_time.elapsed().as_millis();
+        self.logger.event(
+            "WARN",
+            &self.target,
+            message,
+            Some("warning"),
+            Some(&self.request_id),
+            Some(duration_ms),
+            fields,
+        );
+    }
+
+    /// 记录 IO 操作（文件/网络）
+    pub fn io<T, E>(&self, action: &str, result: &Result<T, E>) -> &Self
+    where
+        E: std::fmt::Display,
+    {
+        let duration_ms = self.start_time.elapsed().as_millis();
+        match result {
+            Ok(_) => {
+                self.logger.event(
+                    "DEBUG",
+                    &self.target,
+                    format!("IO 操作成功: {}", action),
+                    Some("io_success"),
+                    Some(&self.request_id),
+                    Some(duration_ms),
+                    Some(serde_json::json!({ "action": action })),
+                );
+            }
+            Err(e) => {
+                self.logger.event(
+                    "ERROR",
+                    &self.target,
+                    format!("IO 操作失败: {} - {}", action, e),
+                    Some("io_error"),
+                    Some(&self.request_id),
+                    Some(duration_ms),
+                    Some(serde_json::json!({ "action": action, "error": e.to_string() })),
+                );
+            }
+        }
+        self
+    }
+
+    /// 记录文件系统操作
+    pub fn fs_op<T, E>(&self, operation: &str, path: &Path, result: &Result<T, E>) -> &Self
+    where
+        E: std::fmt::Display,
+    {
+        let duration_ms = self.start_time.elapsed().as_millis();
+        let path_str = path.to_string_lossy();
+        match result {
+            Ok(_) => {
+                self.logger.event(
+                    "DEBUG",
+                    &self.target,
+                    format!("文件操作成功: {} - {}", operation, path_str),
+                    Some("fs_success"),
+                    Some(&self.request_id),
+                    Some(duration_ms),
+                    Some(serde_json::json!({ "operation": operation, "path": path_str })),
+                );
+            }
+            Err(e) => {
+                self.logger.event(
+                    "ERROR",
+                    &self.target,
+                    format!("文件操作失败: {} - {} - {}", operation, path_str, e),
+                    Some("fs_error"),
+                    Some(&self.request_id),
+                    Some(duration_ms),
+                    Some(serde_json::json!({
+                        "operation": operation,
+                        "path": path_str,
+                        "error": e.to_string()
+                    })),
+                );
+            }
+        }
+        self
+    }
+
+    /// 记录网络请求
+    pub fn http_request(&self, method: &str, url: &str, status: Option<u16>) {
+        let duration_ms = self.start_time.elapsed().as_millis();
+        let level = if status.is_some_and(|s| s >= 400) {
+            "WARN"
+        } else {
+            "DEBUG"
+        };
+        self.logger.event(
+            level,
+            &self.target,
+            format!("{} {} - {:?}", method, url, status),
+            Some("http_request"),
+            Some(&self.request_id),
+            Some(duration_ms),
+            Some(serde_json::json!({
+                "method": method,
+                "url": url,
+                "status": status,
+            })),
+        );
     }
 }
 
@@ -298,6 +470,16 @@ impl Drop for LogSpan {
     fn drop(&mut self) {
         if !self.finished {
             self.finished = true;
+            let duration_ms = self.start_time.elapsed().as_millis();
+            self.logger.event(
+                "WARN",
+                &self.target,
+                format!("操作未显式完成: {}", self.operation),
+                Some("operation_drop"),
+                Some(&self.request_id),
+                Some(duration_ms),
+                None,
+            );
         }
     }
 }
@@ -431,5 +613,162 @@ mod tests {
         assert_eq!(value["code"], "NETWORK_ERROR");
         assert_eq!(value["access_token"], "<redacted>");
         assert_eq!(value["nested"]["password"], "<redacted>");
+    }
+}
+
+/// 日志宏和辅助函数
+///
+/// 这些宏简化了常见的日志场景，自动处理 span 的创建和完成。
+
+/// 记录简单的信息日志
+#[macro_export]
+macro_rules! log_info {
+    ($target:expr, $($arg:tt)*) => {
+        if let Some(logger) = $crate::infrastructure::logging::global() {
+            logger.log("INFO", $target, format!($($arg)*));
+        }
+    };
+}
+
+/// 记录警告日志
+#[macro_export]
+macro_rules! log_warn {
+    ($target:expr, $($arg:tt)*) => {
+        if let Some(logger) = $crate::infrastructure::logging::global() {
+            logger.log("WARN", $target, format!($($arg)*));
+        }
+    };
+}
+
+/// 记录错误日志
+#[macro_export]
+macro_rules! log_error {
+    ($target:expr, $($arg:tt)*) => {
+        if let Some(logger) = $crate::infrastructure::logging::global() {
+            logger.log("ERROR", $target, format!($($arg)*));
+        }
+    };
+}
+
+/// 记录调试日志
+#[macro_export]
+macro_rules! log_debug {
+    ($target:expr, $($arg:tt)*) => {
+        if let Some(logger) = $crate::infrastructure::logging::global() {
+            logger.log("DEBUG", $target, format!($($arg)*));
+        }
+    };
+}
+
+/// 创建一个日志 span 用于跟踪操作
+///
+/// # Example
+/// ```rust,ignore
+/// let mut span = log_operation!("my_module", "process_data");
+/// // ... 执行操作
+/// span.finish_ok(None);
+/// ```
+#[macro_export]
+macro_rules! log_operation {
+    ($target:expr, $operation:expr) => {
+        $crate::infrastructure::logging::global()
+            .map(|logger| logger.operation($target, $operation))
+    };
+}
+
+/// 包装一个可能失败的操作，自动记录结果
+///
+/// # Example
+/// ```rust,ignore
+/// let result = log_result!(span, "read_file", std::fs::read_to_string(&path));
+/// ```
+#[macro_export]
+macro_rules! log_result {
+    ($span:expr, $action:expr, $result:expr) => {{
+        let result = $result;
+        if let Some(span) = $span.as_ref() {
+            span.io($action, &result);
+        }
+        result
+    }};
+}
+
+/// 辅助函数：包装 Result 并记录 IO 操作
+pub fn log_io_result<T, E>(
+    span: &Option<LogSpan>,
+    action: &str,
+    result: Result<T, E>,
+) -> Result<T, E>
+where
+    E: std::fmt::Display,
+{
+    if let Some(s) = span {
+        s.io(action, &result);
+    }
+    result
+}
+
+/// 辅助函数：包装 Result 并记录文件系统操作
+pub fn log_fs_result<T, E>(
+    span: &Option<LogSpan>,
+    operation: &str,
+    path: &Path,
+    result: Result<T, E>,
+) -> Result<T, E>
+where
+    E: std::fmt::Display,
+{
+    if let Some(s) = span {
+        s.fs_op(operation, path, &result);
+    }
+    result
+}
+
+/// 用于简化 span 完成的辅助函数
+pub fn finish_span_ok<T>(mut span: Option<LogSpan>, result: T) -> T {
+    if let Some(s) = span.as_mut() {
+        s.finish_ok(None);
+    }
+    result
+}
+
+pub fn finish_span_ok_with_fields<T>(
+    mut span: Option<LogSpan>,
+    result: T,
+    fields: serde_json::Value,
+) -> T {
+    if let Some(s) = span.as_mut() {
+        s.finish_ok(Some(fields));
+    }
+    result
+}
+
+pub fn finish_span_err<T>(
+    mut span: Option<LogSpan>,
+    error: CommandError,
+) -> Result<T, CommandError> {
+    if let Some(s) = span.as_mut() {
+        s.finish_error(&error);
+    }
+    Err(error)
+}
+
+pub fn finish_span<T>(
+    mut span: Option<LogSpan>,
+    result: Result<T, CommandError>,
+) -> Result<T, CommandError> {
+    match result {
+        Ok(value) => {
+            if let Some(s) = span.as_mut() {
+                s.finish_ok(None);
+            }
+            Ok(value)
+        }
+        Err(error) => {
+            if let Some(s) = span.as_mut() {
+                s.finish_error(&error);
+            }
+            Err(error)
+        }
     }
 }

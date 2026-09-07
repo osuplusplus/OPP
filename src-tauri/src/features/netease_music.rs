@@ -2,6 +2,7 @@ use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::error::{CommandError, CommandResult};
+use crate::infrastructure::logging::{global, finish_span};
 
 /// Opens NetEase Cloud Music's web search in the user's default browser.
 #[tauri::command]
@@ -12,26 +13,53 @@ pub fn open_netease_music_search(
     artist: String,
     title: String,
 ) -> CommandResult<()> {
-    let query = [artist.trim(), title.trim()]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let span = global().map(|logger| {
+        logger.operation("netease_music", "open_netease_music_search")
+    });
 
-    if query.is_empty() {
-        return Err(CommandError::new(
-            "NETEASE_EMPTY_QUERY",
-            "Song title and artist cannot both be empty.",
-        ));
+    // 记录输入参数
+    if let Some(ref s) = span {
+        s.info(
+            "打开网易云音乐搜索",
+            Some(serde_json::json!({
+                "artist": artist.trim(),
+                "title": title.trim(),
+            }))
+        );
     }
 
-    let search = url::form_urlencoded::Serializer::new(String::new())
-        .append_pair("s", &query)
-        .append_pair("type", "1")
-        .finish();
-    let url = format!("https://music.163.com/#/search/m/?{search}");
+    // 执行主逻辑
+    let result = (|| {
+        let query = [artist.trim(), title.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
 
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|error| CommandError::new("NETEASE_OPEN_FAILED", error.to_string()))
+        if query.is_empty() {
+            return Err(CommandError::new(
+                "NETEASE_EMPTY_QUERY",
+                "Song title and artist cannot both be empty.",
+            ));
+        }
+
+        let search = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("s", &query)
+            .append_pair("type", "1")
+            .finish();
+        let url = format!("https://music.163.com/#/search/m/?{search}");
+
+        if let Some(ref s) = span {
+            s.info(
+                "在浏览器中打开搜索 URL",
+                Some(serde_json::json!({ "query": query }))
+            );
+        }
+
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|error| CommandError::new("NETEASE_OPEN_FAILED", error.to_string()))
+    })();
+
+    finish_span(span, result)
 }

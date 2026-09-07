@@ -11,6 +11,7 @@ use std::{
 use crate::{
     error::{CommandError, CommandResult},
     features::account::ensure_access_token,
+    infrastructure::logging::{global, finish_span},
     state::AppState,
 };
 
@@ -36,7 +37,23 @@ pub async fn search_online_beatmapsets(
     query: OnlineBeatmapSearchQuery,
     state: State<'_, AppState>,
 ) -> CommandResult<Value> {
-    search_with_adapters(&query, &state).await
+    let span = global().map(|logger| logger.operation("online_beatmaps", "search_beatmapsets"));
+
+    if let Some(ref s) = span {
+        s.info(
+            "搜索在线谱面",
+            Some(serde_json::json!({
+                "query": query.query,
+                "title": query.title,
+                "title_unicode": query.title_unicode,
+                "artist": query.artist,
+                "status": query.status,
+            }))
+        );
+    }
+
+    let result = search_with_adapters(&query, &state).await;
+    finish_span(span, result)
 }
 
 #[tauri::command]
@@ -144,14 +161,36 @@ pub async fn download_online_beatmapsets(
     app: AppHandle,
     request: BeatmapDownloadRequest,
 ) -> CommandResult<BeatmapDownloadResult> {
+    let mut span = global().map(|logger| logger.operation("online_beatmaps", "download_batch"));
+
+    if let Some(ref s) = span {
+        s.info(
+            format!("开始批量下载 {} 个谱面", request.items.len()),
+            Some(serde_json::json!({
+                "count": request.items.len(),
+                "provider": request.provider,
+                "include_video": request.include_video,
+                "overwrite": request.overwrite,
+            }))
+        );
+    }
+
     if request.items.is_empty() {
-        return Err(CommandError::new("EMPTY_DOWNLOAD_QUEUE", "下载队列为空"));
+        let error = CommandError::new("EMPTY_DOWNLOAD_QUEUE", "下载队列为空");
+        if let Some(ref mut s) = span {
+            s.finish_error(&error);
+        }
+        return Err(error);
     }
     if request.items.len() > MAX_BATCH_ITEMS {
-        return Err(CommandError::new(
+        let error = CommandError::new(
             "DOWNLOAD_LIMIT_EXCEEDED",
             format!("单次最多下载 {MAX_BATCH_ITEMS} 个谱面集"),
-        ));
+        );
+        if let Some(ref mut s) = span {
+            s.finish_error(&error);
+        }
+        return Err(error);
     }
 
     let state = app.state::<AppState>();
@@ -484,6 +523,17 @@ pub async fn download_online_beatmapsets(
     {
         *runtime = None;
     }
+
+    if let Some(ref mut s) = span {
+        s.finish_ok(Some(serde_json::json!({
+            "total": result.total,
+            "completed": result.completed,
+            "skipped": result.skipped,
+            "failed": result.failed,
+            "cancelled": result.cancelled,
+        })));
+    }
+
     Ok(result)
 }
 

@@ -32,6 +32,7 @@ impl OnlineBeatmapSearchQuery {
         push_free_text(&mut filters, &self.query);
         push_text_filter(&mut filters, "artist", &self.artist);
         push_text_filter(&mut filters, "title", &self.title);
+        push_text_filter(&mut filters, "title_unicode", &self.title_unicode);
         push_text_filter(&mut filters, "source", &self.source);
         push_text_filter(&mut filters, "creator", &self.mapper);
         push_text_filter(&mut filters, "difficulty", &self.difficulty);

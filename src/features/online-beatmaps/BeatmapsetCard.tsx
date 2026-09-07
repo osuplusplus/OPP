@@ -31,6 +31,15 @@ function statusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+/** 优先显示原名（title_unicode/artist_unicode），如果不存在则使用英文名 */
+function getDisplayTitle(beatmapset: OnlineBeatmapset): string {
+  return (beatmapset.title_unicode && beatmapset.title_unicode.trim()) || beatmapset.title;
+}
+
+function getDisplayArtist(beatmapset: OnlineBeatmapset): string {
+  return (beatmapset.artist_unicode && beatmapset.artist_unicode.trim()) || beatmapset.artist;
+}
+
 export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onAddToCollection = () => undefined, onDownload, onOpen, onPreview, onVisualPreview, onSelect }: { beatmapset: OnlineBeatmapset; downloading: boolean; playing: boolean; selected: boolean; onAddToCollection?: () => void; onDownload: () => void; onOpen: () => void; onPreview: () => void; onVisualPreview?: () => void; onSelect: () => void }) {
   const preview = normalizePreviewUrl(beatmapset.preview_url);
   const beatmaps = beatmapset.beatmaps ?? [];
@@ -67,8 +76,8 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
         </button>
         <div className="min-w-0 flex-1">
           <button className="block max-w-full text-left outline-none" onClick={(event) => { event.stopPropagation(); onOpen(); }} type="button">
-            <h3 className="truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-white">{beatmapset.title}</h3>
-            <p className="mt-0.5 truncate text-[13px] font-medium text-slate-300">{beatmapset.artist}</p>
+            <h3 className="truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-white">{getDisplayTitle(beatmapset)}</h3>
+            <p className="mt-0.5 truncate text-[13px] font-medium text-slate-300">{getDisplayArtist(beatmapset)}</p>
           </button>
           <p className="mt-1.5 truncate text-xs text-slate-400">谱师 · <strong className="font-semibold text-slate-200">{beatmapset.creator}</strong></p>
         </div>

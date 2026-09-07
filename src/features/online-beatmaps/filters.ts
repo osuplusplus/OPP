@@ -87,6 +87,7 @@ export function createDefaultSearchQuery(
     sort: "ranked_desc",
     artist: "",
     title: "",
+    title_unicode: "",
     source: "",
     mapper: "",
     difficulty: "",

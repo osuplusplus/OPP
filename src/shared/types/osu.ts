@@ -1059,6 +1059,7 @@ export interface OnlineBeatmapSearchQuery {
   sort: string;
   artist: string;
   title: string;
+  title_unicode: string;
   source: string;
   mapper: string;
   difficulty: string;

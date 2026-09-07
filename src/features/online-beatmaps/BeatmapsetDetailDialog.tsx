@@ -119,10 +119,10 @@ export function BeatmapsetDetailDialog({
                     <Badge>{beatmapset.beatmaps?.length ?? 0} 个难度</Badge>
                   </div>
                   <Dialog.Title className="mt-3 text-2xl font-semibold tracking-tight text-white">
-                    {beatmapset.title}
+                    {(beatmapset.title_unicode && beatmapset.title_unicode.trim()) || beatmapset.title}
                   </Dialog.Title>
                   <Dialog.Description className="mt-1 text-sm text-slate-300">
-                    {beatmapset.artist} · mapped by {beatmapset.creator}
+                    {(beatmapset.artist_unicode && beatmapset.artist_unicode.trim()) || beatmapset.artist} · mapped by {beatmapset.creator}
                   </Dialog.Description>
                 </div>
               </div>

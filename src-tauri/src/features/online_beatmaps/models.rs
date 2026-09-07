@@ -16,6 +16,7 @@ pub struct OnlineBeatmapSearchQuery {
     pub sort: String,
     pub artist: String,
     pub title: String,
+    pub title_unicode: String,
     pub source: String,
     pub mapper: String,
     pub difficulty: String,
