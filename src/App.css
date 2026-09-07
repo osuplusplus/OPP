@@ -386,12 +386,6 @@ select option {
   box-shadow: 0 8px 24px rgba(24, 32, 54, .045);
 }
 
-/* 铺面封面始终使用深色信息层，避免浅色主题削弱封面文字对比度。 */
-:root[data-theme-mode="light"] .opp-beatmap-card [class*="text-white"],
-:root[data-theme-mode="light"] .opp-beatmap-card [class*="text-slate-"] {
-  color: #f4f6f8;
-}
-
 .opp-floating {
   border: 1px solid var(--line-strong);
   border-radius: 10px;

@@ -162,7 +162,7 @@ function SourceBar({
             variant="primary"
           >
             <RefreshCw className="size-3.5" />
-            {summary ? "刷新" : "扫描"}
+            {summary ? "增量刷新" : "扫描"}
           </Button>
         )}
         <Button

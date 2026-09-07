@@ -175,7 +175,7 @@ function OnlineBeatmapsClient({ ruleset }: { ruleset: Ruleset }) {
     <div className="space-y-5">
       <OnlineBeatmapFilters loading={search.isFetching && !search.isFetchingNextPage} onChange={setDraft} onReset={reset} onSubmit={(next) => setActiveQuery({ ...next, cursor_string: null })} query={draft} suggestions={searchSuggestions} />
       <div className="grid grid-cols-[minmax(0,1fr)_clamp(14rem,20vw,17rem)] items-start gap-5">
-        <section className="min-w-0" data-page-guide-online-results="true">
+        <section className="opp-online-results min-w-0" data-page-guide-online-results="true">
           <OnlineBeatmapSortBar onChange={changeSort} sort={activeQuery.sort} />
           <div className="opp-online-panel mb-4 flex min-h-12 items-center justify-between rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] px-4 shadow-[0_14px_34px_rgba(0,0,0,0.08)]">
             <div className="text-sm text-slate-400">已加载 <strong className="font-mono text-slate-100">{items.length}</strong>{availableTotal !== null ? <> / 共 <strong className="font-mono text-slate-100">{availableTotal}</strong></> : null}</div>
