@@ -13,7 +13,7 @@ import { desktopApi, useCapabilities } from "../../shared/lib/tauri";
 
 import type { DefaultFileClients, LazerDedupeProgress, LazerDedupeResult, LazerDiskUsage, ManiaConversionItem, OsuClient } from "../../shared/types/osu";
 import type { BeatmapPreviewInspection, BeatmapPreviewResult } from "../../shared/types/osu";
-import { ModIcon, modeMods } from "../online-beatmaps/BeatmapVisuals";
+import { DifficultyIcon, ModIcon, modeMods } from "../online-beatmaps/BeatmapVisuals";
 
 function formatByteSize(bytes: number) {
   const units = ["B", "K", "M", "G", "T"];
@@ -45,7 +45,7 @@ function roundPreviewTime(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-export function BeatmapPreviewCard({ embeddedBid }: { embeddedBid?: number } = {}) {
+export function BeatmapPreviewCard({ embeddedBid, embeddedBeatmapset }: { embeddedBid?: number; embeddedBeatmapset?: { beatmaps: Array<{ id: number; version: string; mode: string; difficulty_rating: number }> } } = {}) {
   const [searchParams] = useSearchParams();
   const linkedBid = embeddedBid ? String(embeddedBid) : searchParams.get("preview_bid") ?? "";
   const [bid, setBid] = useState(linkedBid);
@@ -227,12 +227,41 @@ export function BeatmapPreviewCard({ embeddedBid }: { embeddedBid?: number } = {
   return <Card className="scroll-mt-8 p-6" id="beatmap-preview">
     <div className="flex items-start gap-4">
       <div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><ImageIcon className="size-5" /></div>
-      <SectionTitle title="谱面预览" description="输入 Beatmap ID；std 选择 strain 区间生成 GIF，其他模式生成完整 PNG。" />
+      <SectionTitle title="谱面预览" description={embeddedBeatmapset ? "选择一个难度生成预览图" : "输入 Beatmap ID；std 选择 strain 区间生成 GIF，其他模式生成完整 PNG。"} />
     </div>
-    <form className="mt-5 flex flex-wrap items-end gap-3" onSubmit={(event) => { event.preventDefault(); void inspect(bid); }}>
-      <label className="min-w-64 flex-1"><span className="mb-1.5 block text-xs text-slate-400">Beatmap ID</span><input aria-label="Beatmap ID" className="min-h-10 w-full rounded-xl border border-white/[0.09] bg-black/20 px-3 font-mono text-sm text-white outline-none focus:border-[var(--theme-primary)]" inputMode="numeric" onChange={(event) => setBid(event.target.value.replace(/\D/g, ""))} placeholder="例如 738063" value={bid} /></label>
-      <Button loading={inspecting} type="submit" variant="primary"><RefreshCw className="size-4" />读取谱面</Button>
-    </form>
+
+    {embeddedBeatmapset ? (
+      <div className="mt-5">
+        <h3 className="text-sm font-semibold text-white">选择难度</h3>
+        <div className="mt-3 space-y-2">
+          {embeddedBeatmapset.beatmaps
+            .slice()
+            .sort((left, right) => left.difficulty_rating - right.difficulty_rating)
+            .map((beatmap) => (
+              <button
+                className={`group w-full rounded-2xl border p-4 text-left transition hover:border-cyan-300/30 hover:bg-cyan-300/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/50 ${bid === String(beatmap.id) ? "border-cyan-300/40 bg-cyan-300/[0.07]" : "border-white/[0.06] bg-white/[0.025]"}`}
+                key={beatmap.id}
+                onClick={() => { setBid(String(beatmap.id)); void inspect(String(beatmap.id)); }}
+                type="button"
+              >
+                <div className="flex items-center gap-3">
+                  <DifficultyIcon mode={beatmap.mode as any} stars={beatmap.difficulty_rating} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-slate-100">{beatmap.version}</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-wider text-slate-600">{beatmap.mode}</p>
+                  </div>
+                  <span className="text-sm font-mono text-cyan-200">{beatmap.difficulty_rating.toFixed(2)}★</span>
+                </div>
+              </button>
+            ))}
+        </div>
+      </div>
+    ) : (
+      <form className="mt-5 flex flex-wrap items-end gap-3" onSubmit={(event) => { event.preventDefault(); void inspect(bid); }}>
+        <label className="min-w-64 flex-1"><span className="mb-1.5 block text-xs text-slate-400">Beatmap ID</span><input aria-label="Beatmap ID" className="min-h-10 w-full rounded-xl border border-white/[0.09] bg-black/20 px-3 font-mono text-sm text-white outline-none focus:border-[var(--theme-primary)]" inputMode="numeric" onChange={(event) => setBid(event.target.value.replace(/\D/g, ""))} placeholder="例如 738063" value={bid} /></label>
+        <Button loading={inspecting} type="submit" variant="primary"><RefreshCw className="size-4" />读取谱面</Button>
+      </form>
+    )}
 
     {error ? <div className="mt-4"><ErrorPanel error={error} onRetry={() => inspection ? void generate() : void inspect(bid)} /></div> : null}
     {notice ? <div className="mt-4 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.08] px-4 py-3 text-sm text-emerald-100">{notice}</div> : null}
