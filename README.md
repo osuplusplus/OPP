@@ -22,6 +22,8 @@ OPP 是一个使用 Tauri、Rust 与 React 构建的跨平台 osu! 桌面工具�
 
 **创了一个交流吹水群： 1059437719 有任何问题或者功能上的建议欢迎来群中吹水**
 
+**B站视频演示：[我做了一个为osu玩家设计的工具箱](https://www.bilibili.com/video/BV1EhuC65EAB/)**
+
 ## 功能概览
 
 - 通过官方 osu! API v2 OAuth 登录，查看玩家资料与成绩数据
@@ -158,6 +160,7 @@ OPP/
 - [Ohdmire/osu-lazer-space-statistics](https://github.com/Ohdmire/osu-lazer-space-statistics)
 - [Ohdmire/realm-db-reader](https://github.com/Ohdmire/realm-db-reader)
 - [Ohdmire/osu-replay-render](https://github.com/Ohdmire/osu-replay-render)
+- [LeoBlackMT/osumania_map_analyser](https://github.com/LeoBlackMT/osumania_map_analyser)
 
 ## 特别鸣谢
 

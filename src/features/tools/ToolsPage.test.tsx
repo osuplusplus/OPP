@@ -74,6 +74,32 @@ describe("BeatmapPreviewCard", () => {
     expect(screen.getByLabelText("GIF 结束时间")).toHaveValue("20");
   });
 
+  it("expands the selected GIF window by dragging its end handle", async () => {
+    vi.spyOn(desktopApi, "inspectBeatmapPreview").mockResolvedValue(standardInspection);
+    renderCard("/tools?preview_bid=123");
+
+    const selectionLayer = await screen.findByLabelText("GIF 图表区间选择");
+    const endHandle = screen.getByLabelText("拖动 GIF 结束边界");
+    vi.spyOn(selectionLayer, "getBoundingClientRect").mockReturnValue({
+      bottom: 120,
+      height: 100,
+      left: 0,
+      right: 600,
+      top: 20,
+      width: 600,
+      x: 0,
+      y: 20,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerDown(endHandle, { clientX: 100, pointerId: 2 });
+    fireEvent.pointerMove(selectionLayer, { clientX: 300, pointerId: 2 });
+    fireEvent.pointerUp(selectionLayer, { clientX: 300, pointerId: 2 });
+
+    expect(screen.getByLabelText("GIF 开始时间")).toHaveValue("0");
+    expect(screen.getByLabelText("GIF 结束时间")).toHaveValue("30");
+  });
+
   it("generates and exposes a full PNG for non-std modes", async () => {
     const user = userEvent.setup();
     vi.spyOn(desktopApi, "inspectBeatmapPreview").mockResolvedValue({ ...standardInspection, ruleset: "mania", strains: null });

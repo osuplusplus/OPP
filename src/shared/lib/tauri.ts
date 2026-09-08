@@ -32,6 +32,7 @@ import type {
   CollectionSyncStatus,
   CollectionTaskProgress,
   CollectionWriteResult,
+  CollectionManagerStatus, CollectionBackupStatus,
   BeatmapCalculationRequest,
   BeatmapCalculationResult,
   BeatmapSourceStatus,
@@ -95,6 +96,8 @@ import type {
   TosuStatus,
   TrainerRequest,
   TrainerResult,
+  ViewTrainerRequest,
+  ViewTrainerTimeline,
   ObsRefreshResult,
   LazerDiskUsage,
   LazerDedupeProgress,
@@ -145,6 +148,20 @@ function normalizeError(error: unknown): CommandError {
   };
 }
 
+function requestId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `frontend-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function writeLogRaw(level: string, target: string, message: string): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke<void>("write_client_log", { level, target, message });
+  } catch {
+    // Logging must never turn an otherwise valid command into a UI error.
+  }
+}
+
 async function call<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -157,10 +174,14 @@ async function call<T>(
       message: "请通过 OPP 桌面应用运行此功能",
     } satisfies CommandError;
   }
+  const id = requestId();
   try {
-    return await invoke<T>(command, args);
+    const result = await invoke<T>(command, args);
+    return result;
   } catch (error) {
-    throw normalizeError(error);
+    const normalized = normalizeError(error);
+    void writeLogRaw("error", "frontend.command.return_err", JSON.stringify({ event: "return_err", command, request_id: id, code: normalized.code, message: normalized.message, backend_request_id: normalized.request_id }));
+    throw normalized;
   }
 }
 
@@ -274,6 +295,11 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
 }
 
 export const desktopApi = {
+  getLogDirectory: () => call<string>("get_log_directory"),
+  listLogFiles: () => call<import("../types/osu").LogFileInfo[]>("list_log_files"),
+  openLogDirectory: () => call<void>("open_log_directory"),
+  openLogFile: (name: string) => call<void>("open_log_file", { name }),
+  writeClientLog: (level: import("../types/osu").LogLevel, target: string, message: string) => writeLogRaw(level, target, message),
   getAuthStatus: () => call<AuthStatus>("get_auth_status"),
   getBeatmapHubAuthStatus: () => call<BeatmapHubAuthStatus>("get_beatmaphub_auth_status"),
   createBeatmapHubProfile: (displayName: string, deviceName: string) =>
@@ -373,6 +399,12 @@ export const desktopApi = {
   addCollectionEntries: (folderId: string, candidates: CollectionCandidate[]) => call<void>("add_collection_entries", { folderId, candidates }),
   removeCollectionEntry: (folderId: string, entryId: string) => call<void>("remove_collection_entry", { folderId, entryId }),
   writeStableCollections: () => call<CollectionWriteResult>("write_stable_collections"),
+  getCollectionManagerStatus: () => call<CollectionManagerStatus>("get_collection_manager_status"),
+  setCollectionManagerPath: (path: string | null) => call<void>("set_collection_manager_path", { path }),
+  getCollectionBackupStatus: (client: OsuClient) => call<CollectionBackupStatus>("get_collection_backup_status", { client }),
+  createCollectionBackup: (client: OsuClient) => call<CollectionBackupStatus>("create_collection_backup", { client }),
+  writeLazerCollections: () => call<CollectionWriteResult>("write_lazer_collections"),
+  restoreCollectionBackup: (client: OsuClient, backupPath: string) => call<void>("restore_collection_backup", { client, backupPath }),
   exportCollectionShare: (folderId: string, creator: string) => call<string>("export_collection_share", { folderId, creator }),
   previewCollectionShare: (code: string) => call<CollectionSharePreview>("preview_collection_share", { code }),
   importCollectionShare: (code: string) => call<CollectionFolder>("import_collection_share", { code }),
@@ -437,6 +469,12 @@ export const desktopApi = {
     call<void>("open_netease_music_search", { artist, title }),
   generateTrainerBeatmap: (request: TrainerRequest) =>
     call<TrainerResult>("generate_trainer_beatmap", { request }),
+  viewTrainerGetTimeline: (client: OsuClient, resourceId: string) =>
+    call<ViewTrainerTimeline>("view_trainer_get_timeline", { client, resourceId }),
+  viewTrainerGenerate: (request: ViewTrainerRequest) =>
+    call<TrainerResult>("view_trainer_generate", { request }),
+  viewTrainerImport: (client: OsuClient, resourceId: string, stagedPath: string) =>
+    call<string>("view_trainer_import", { client, resourceId, stagedPath }),
   getTosuStatus: () => call<TosuStatus>("get_tosu_status"),
   getTosuLogs: () => call<TosuLogEntry[]>("get_tosu_logs"),
   setTosuExecutable: (path: string) => call<TosuStatus>("set_tosu_executable", { path }),
@@ -696,12 +734,16 @@ export const desktopApi = {
       options,
       rect,
     }),
+  /** 以谱面 Autoplay 打开实时预览时传入空 replayPath。 */
   liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
     call<void>("live_render_move", { rect }),
   liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),
   liveRenderSetOptions: (options: LiveRenderOptions) =>
     call<void>("live_render_set_options", { options }),
+  liveRenderResolveAvatar: (userId: number, avatarUrl: string) =>
+    call<string | null>("resolve_avatar_file", { userId, avatarUrl }),
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
+  liveRenderListSkins: (client: OsuClient) => call<LiveSkinEntry[]>("live_render_list_skins", { client }),
   liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {
@@ -763,6 +805,16 @@ export const desktopApi = {
       }),
     );
   },
+  /** 皮肤热切换失败(加载错误;当前皮肤保持不变)。 */
+  onLiveRenderSkinError: async (handler: (message: string) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<string>("live-render-skin-error", (event) => handler(event.payload));
+  },
+  /** 渲染线程异常:会话已被后端清理(停播 + 销毁窗口),UI 需复位。 */
+  onLiveRenderError: async (handler: (message: string) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<string>("live-render-error", (event) => handler(event.payload));
+  },
   onDanserRenderProgress: async (
     handler: (progress: DanserRenderJob) => void,
   ): Promise<UnlistenFn> => {
@@ -819,15 +871,42 @@ export interface LiveExportParams {
   quality: number;
   audio: boolean;
   hitsounds: boolean;
+  /** 结算屏（lazer ResultsScreen,玩法结束后追加 4 秒）,默认开。 */
+  results: boolean;
+  /** 导出专用 BGM 偏移 ms(与预览偏移独立,默认 0)。 */
+  audioOffset: number;
 }
 
 export interface LiveRenderOptions {
+  /** 玩法 HUD 总开关(预览与导出共用;off 隐藏整个 HUD,物件/光标照常)。 */
+  hud: boolean;
   urBar: boolean;
   followPoints: boolean;
   keyOverlay: boolean;
+  /** 实时 PP 计数器(逐物件渐增,Argon 样式挂 ACC 行下方;后端字段 ppDisplay)。 */
+  ppDisplay: boolean;
+  /** 谱面背景图,默认开。 */
   bg: boolean;
+  /** 故事板渲染(.osu Events + 共享 .osb;切换重建会话)。 */
+  storyboard: boolean;
+  /** 背景视频(故事板 Video 元素,ffmpeg 管道解码)。 */
+  video: boolean;
+  /** 背景亮度 0..1,独立常驻选项:同时作用于背景图/故事板/背景视频(拖动即时生效)。 */
   bgOpacity: number;
   audio: boolean;
   audioOffset: number;
   hitsounds: boolean;
+  /** 光标尺寸倍率 0.1..2(lazer GameplayCursorSize,默认 1)。 */
+  cursorSize: number;
+  /** 用户皮肤目录路径;null = 内置 Argon-Pro(后端字段 skinPath)。 */
+  skinPath: string | null;
+  /** 强制用皮肤 combo 色覆盖谱面 [Colours](stable 行为,默认关:谱面色优先)。 */
+  skinColours: boolean;
+  /** 结算屏头像落盘路径(resolveAvatarFile 产物);null = 首字母占位。 */
+  avatarPath: string | null;
+}
+
+export interface LiveSkinEntry {
+  name: string;
+  path: string;
 }

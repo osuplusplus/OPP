@@ -48,7 +48,19 @@ export function DanserRenderPanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // Lazer：皮肤在 Realm + files/ 内容寻址存储中，Danser 用不了——入队时
+  // 后端会按选择的名字导出成 Stable 布局目录；这里列出可选的 lazer 皮肤。
+  const [lazerSkins, setLazerSkins] = useState<string[]>([]);
   const isLinux = useCapabilities().data?.os === "linux";
+
+  useEffect(() => {
+    if (client !== "lazer") return;
+    let active = true;
+    desktopApi.queryLocalSkins({ client, search: "", sort: "name", direction: "asc", offset: 0, limit: 200 })
+      .then((page) => { if (active) setLazerSkins(page.items.map((item) => item.name)); })
+      .catch(() => { if (active) setLazerSkins([]); });
+    return () => { active = false; };
+  }, [client]);
 
   useEffect(() => { settingsRef.current = stored.data; }, [stored.data]);
 
@@ -218,20 +230,22 @@ export function DanserRenderPanel() {
 
         <Card className="p-5"><SectionTitle title="视频质量" description="这些选项只作用于本次导出，不会修改 Danser 的配置文件。" />
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="text-xs text-slate-400">分辨率<select className="opp-input mt-2 w-full" value={`${preferences.frame_width}x${preferences.frame_height}`} onChange={(event) => { const [width, height] = event.target.value.split("x").map(Number); setPreferences((current) => ({ ...current, frame_width: width, frame_height: height })); }}>{recordingResolutions.map(([width, height, label]) => <option key={`${width}x${height}`} value={`${width}x${height}`}>{label}（{width} × {height}）</option>)}</select></label>
+            <label className="text-xs text-slate-400">分辨率<select className="opp-input mt-2 w-full" value={`${preferences.frame_width}x${preferences.frame_height}`} onChange={(event) => { const [width, height] = event.target.value.split("x").map(Number); setPreferences((current) => ({ ...current, frame_width: width, frame_height: height })); }}>{recordingResolutions.map(([width, height, label]) => <option key={`${width}x${height}`} value={`${width}x${height}`}>{label} · {width} × {height}</option>)}</select></label>
             <label className="text-xs text-slate-400">帧率<select className="opp-input mt-2 w-full" value={preferences.fps} onChange={(event) => update("fps", Number(event.target.value))}>{[30, 60, 120, 240].map((fps) => <option key={fps} value={fps}>{fps} FPS</option>)}</select></label>
-            <label className="text-xs text-slate-400">视频编码器<select className="opp-input mt-2 w-full" value={preferences.encoder} onChange={(event) => update("encoder", event.target.value as DanserRenderPreferences["encoder"])}><option value="libx264">CPU · H.264（兼容性最好）</option><option value="h264_nvenc">NVIDIA NVENC · H.264</option><option value="h264_qsv">Intel Quick Sync · H.264</option></select></label>
-            <label className="text-xs text-slate-400">{preferences.encoder === "libx264" ? "画质（CRF，越低越清晰）" : "画质（越低越清晰）"}<input className="opp-input mt-2 w-full" max="51" min="0" type="number" value={preferences.quality} onChange={(event) => update("quality", Math.max(0, Math.min(51, Number(event.target.value) || 0)))} /></label>
+            <label className="text-xs text-slate-400">视频编码器<select className="opp-input mt-2 w-full" value={preferences.encoder} onChange={(event) => update("encoder", event.target.value as DanserRenderPreferences["encoder"])}><option value="libx264">CPU · H.264</option><option value="h264_nvenc">NVIDIA NVENC · H.264</option><option value="h264_qsv">Intel Quick Sync · H.264</option></select></label>
+            <label className="text-xs text-slate-400" title={preferences.encoder === "libx264" ? "CRF，越低越清晰" : "越低越清晰"}>{preferences.encoder === "libx264" ? "画质 CRF" : "画质"}<input className="opp-input mt-2 w-full" max="51" min="0" type="number" value={preferences.quality} onChange={(event) => update("quality", Math.max(0, Math.min(51, Number(event.target.value) || 0)))} /></label>
             {preferences.motion_blur ? <label className="text-xs text-slate-400">运动模糊采样<input className="opp-input mt-2 w-full" max="64" min="2" type="number" value={preferences.motion_blur_oversample} onChange={(event) => update("motion_blur_oversample", Math.max(2, Math.min(64, Number(event.target.value) || 2)))} /></label> : null}
           </div>
-          <label className="mt-4 flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-2 text-sm text-slate-300"><input checked={preferences.motion_blur} onChange={(event) => update("motion_blur", event.target.checked)} type="checkbox" />运动模糊（显著增加渲染时间）</label>
+          <label className="mt-4 flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-2 text-sm text-slate-300" title="显著增加渲染时间"><input checked={preferences.motion_blur} onChange={(event) => update("motion_blur", event.target.checked)} type="checkbox" />运动模糊</label>
           {preferences.encoder !== "libx264" ? <p className="mt-3 text-xs leading-5 text-amber-200/80">硬件编码需要对应显卡和 FFmpeg 编码器支持；不可用时任务会显示 Danser 的失败原因。</p> : null}
         </Card>
 
         <Card className="p-5"><SectionTitle title="常用参数" description="OPP 会自动附加 replay、record、out 与 preciseprogress 参数。" />
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-xs text-slate-400">配置档<select className="opp-input mt-2 w-full" value={preferences.settings_profile} onChange={(event) => update("settings_profile", event.target.value)}>{(status?.profiles.length ? status.profiles : ["default"]).map((profile) => <option key={profile}>{profile}</option>)}</select></label>
-            <label className="text-xs text-slate-400">皮肤覆盖<input className="opp-input mt-2 w-full" value={preferences.skin} onChange={(event) => update("skin", event.target.value)} placeholder="留空使用配置档" /></label>
+            <label className="text-xs text-slate-400">皮肤覆盖{client === "lazer"
+              ? <select className="opp-input mt-2 w-full" value={lazerSkins.includes(preferences.skin) || preferences.skin === "" ? preferences.skin : ""} onChange={(event) => update("skin", event.target.value)}><option value="">留空使用 Danser 默认皮肤</option>{lazerSkins.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+              : <input className="opp-input mt-2 w-full" value={preferences.skin} onChange={(event) => update("skin", event.target.value)} placeholder="留空使用配置档" />}</label>
             <label className="text-xs text-slate-400">音频偏移（ms）<input className="opp-input mt-2 w-full" type="number" value={preferences.offset} onChange={(event) => update("offset", Number(event.target.value))} /></label>
             <label className="text-xs text-slate-400">开始时间（秒）<input className="opp-input mt-2 w-full" min="0" step="0.1" type="number" value={preferences.start ?? ""} onChange={(event) => update("start", numberOrNull(event.target.value))} /></label>
             <label className="text-xs text-slate-400">结束时间（秒）<input className="opp-input mt-2 w-full" min="0" step="0.1" type="number" value={preferences.end ?? ""} onChange={(event) => update("end", numberOrNull(event.target.value))} /></label>

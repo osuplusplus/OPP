@@ -1,11 +1,12 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Film, FolderOpen, LoaderCircle, MonitorPlay, Pause, Play, Square, X } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { Badge, Button, Card, EmptyState, SectionTitle } from "../../shared/components/ui";
-import { desktopApi, type LiveExportParams, type LiveRenderOptions } from "../../shared/lib/tauri";
+import { desktopApi, type LiveExportParams, type LiveRenderOptions, type LiveSkinEntry } from "../../shared/lib/tauri";
 import type { GameMediaItem, ReplayMapInfo } from "../../shared/types/osu";
 
 function labelForReplay(item: GameMediaItem) {
@@ -20,18 +21,27 @@ function formatTime(ms: number) {
 }
 
 const defaultOptions: LiveRenderOptions = {
+  hud: true,
+  storyboard: false,
+  video: false,
   urBar: true,
   followPoints: true,
   keyOverlay: true,
-  bg: false,
+  ppDisplay: true,
+  bg: true,
   bgOpacity: 0.3,
   audio: true,
   audioOffset: 0,
   hitsounds: true,
+  cursorSize: 1,
+  skinPath: null,
+  skinColours: false,
+  avatarPath: null,
 };
 
 export function LivePreviewPanel() {
   const { client } = useMode();
+  const [searchParams] = useSearchParams();
   const [replays, setReplays] = useState<GameMediaItem[]>([]);
   const [replayPath, setReplayPath] = useState("");
   // 音频偏移的原始输入:text 框允许键入 "-" 等中间态,解析成功才提交数值。
@@ -49,11 +59,17 @@ export function LivePreviewPanel() {
   const [ffmpegVersion, setFfmpegVersion] = useState<string | null | undefined>(undefined);
   // [h264_nvenc, hevc_nvenc] 可用性(undefined = 未探测)。
   const [nvenc, setNvenc] = useState<[boolean, boolean] | undefined>(undefined);
-  const [exportForm, setExportForm] = useState({ resolution: "1280x720", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true });
+  const [exportForm, setExportForm] = useState({ resolution: "1920x1080", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true, results: true, audioOffset: 0 });
+  // 导出偏移的原始输入(与预览偏移同理:text 框允许键入 "-" 等中间态)。
+  const [exportOffsetText, setExportOffsetText] = useState(String(0));
   const [exporting, setExporting] = useState<{ phase: string; frame: number; total: number; message: string } | null>(null);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [options, setOptions] = useState<LiveRenderOptions>(defaultOptions);
+  // 客户端 Skins 目录下的可选皮肤(内置 Argon-Pro 为默认项,不在列表)。
+  const [skins, setSkins] = useState<LiveSkinEntry[]>([]);
+  // 皮肤热切换失败信息(加载错误时后端事件推送;当前皮肤保持不变)。
+  const [skinError, setSkinError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef(false);
   const startedOptionsRef = useRef<string>("");
@@ -74,30 +90,37 @@ export function LivePreviewPanel() {
     return () => unlisten();
   }, [scrubbing]);
 
-  // 导出进度事件。
+  // 导出进度事件。done 是终态:清空 exporting 才能让弹窗从进度界面
+  // 切到"导出完成"(渲染分支里 exporting 优先于 exportResult)。
   useEffect(() => {
     let unlisten: () => void = () => undefined;
     desktopApi.onLiveRenderExport((progress) => {
+      if (progress.phase === "done") {
+        setExporting(null);
+        setExportResult(progress.message);
+        return;
+      }
       setExporting(progress);
-      if (progress.phase === "done") setExportResult(progress.message);
     }).then((dispose) => { unlisten = dispose; });
     return () => unlisten();
   }, []);
 
-  // 回放列表 + inspect(复用 o!rdr 面板的数据链路)。
+  // 回放列表 + inspect(复用 o!rdr 面板的数据链路);深链指定的回放存在时优先选中。
   useEffect(() => {
     let mounted = true;
     desktopApi.listGameMedia(client)
       .then((media) => {
         if (!mounted) return;
         const items = media.filter((item) => item.kind === "replay");
+        const requested = searchParams.get("replay");
+        const initial = requested && items.some((item) => item.path === requested) ? requested : items[0]?.path ?? "";
         setReplays(items);
-        setReplayPath(items[0]?.path ?? "");
+        setReplayPath(initial);
       })
       .catch((value) => { if (mounted) setError(value); })
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
-  }, [client]);
+  }, [client, searchParams]);
 
   const replayInfo = inspect.path === replayPath ? inspect.info : null;
 
@@ -109,6 +132,37 @@ export function LivePreviewPanel() {
       .catch(() => { if (mounted) setInspect({ path: replayPath, info: null }); });
     return () => { mounted = false; };
   }, [client, replayPath]);
+
+  // 皮肤列表(客户端切换时重拉;失败静默为空,仅剩内置项)。
+  useEffect(() => {
+    let mounted = true;
+    desktopApi.liveRenderListSkins(client)
+      .then((list) => { if (mounted) setSkins(list); })
+      .catch(() => { if (mounted) setSkins([]); });
+    return () => { mounted = false; };
+  }, [client]);
+
+  // 皮肤热切换失败提示(仅展示,不打断预览)。
+  useEffect(() => {
+    let unlisten: () => void = () => undefined;
+    let unlistenErr: () => void = () => undefined;
+    desktopApi.onLiveRenderSkinError((message) => setSkinError(message))
+      .then((dispose) => { unlisten = dispose; })
+      .catch(() => undefined);
+    // 渲染线程异常(如图集超出 GPU 纹理限制):后端已清理会话,前端
+    // 复位预览状态并提示重开。
+    desktopApi.onLiveRenderError((message) => {
+      setActive(false);
+      setPlaying(false);
+      setSkinError(message);
+    })
+      .then((dispose) => { unlistenErr = dispose; })
+      .catch(() => undefined);
+    return () => {
+      unlisten();
+      unlistenErr();
+    };
+  }, []);
 
   // 原生模式:上报预览区域位置,原生子窗口跟随 DOM 元素(滚动/缩放)。
   // 原生窗口压在 WebView 之上,会盖住应用内弹窗(对话框/确认框):
@@ -180,11 +234,25 @@ export function LivePreviewPanel() {
     setError(null);
     try {
       const beatmapPath = await desktopApi.getLocalBeatmapPath(client, replayInfo.beatmap_resource_id);
+      // 结算屏头像:按账号头像 URL 落盘缓存后取本地路径;失败不阻塞预览。
+      let avatarPath: string | null = null;
+      try {
+        const profile = await desktopApi.getOwnProfile("osu", false);
+        const data = profile?.data;
+        if (data?.id && data?.avatar_url) {
+          avatarPath = await desktopApi
+            .liveRenderResolveAvatar(data.id, data.avatar_url)
+            .catch(() => null);
+        }
+      } catch {
+        avatarPath = null;
+      }
+      const openOptions: LiveRenderOptions = { ...options, avatarPath };
       const box = containerRef.current?.getBoundingClientRect();
       const d = window.devicePixelRatio || 1;
       const rect = box ? { x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d } : { x: 0, y: 0, width: 0, height: 0 };
-      const info = await desktopApi.liveRenderOpen(beatmapPath, replayPath, options, rect);
-      startedOptionsRef.current = JSON.stringify(options);
+      const info = await desktopApi.liveRenderOpen(beatmapPath, replayPath, openOptions, rect);
+      startedOptionsRef.current = JSON.stringify(openOptions);
       startedInputsRef.current = { beatmap: beatmapPath, replay: replayPath };
       activeRef.current = true;
       setActive(true);
@@ -257,7 +325,7 @@ export function LivePreviewPanel() {
       const [width, height] = exportForm.resolution.split("x").map(Number);
       setExporting({ phase: "render", frame: 0, total: 0, message: "准备中…" });
       await desktopApi.liveRenderExport(beatmapPath, replayPath, options, {
-        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio, hitsounds: exportForm.hitsounds,
+        outPath: out, width, height, fps: exportForm.fps, encoder: exportForm.encoder, quality: exportForm.quality, audio: exportForm.audio, hitsounds: exportForm.hitsounds, results: exportForm.results, audioOffset: exportForm.audioOffset,
       });
     } catch (value) {
       setError(value);
@@ -330,12 +398,12 @@ export function LivePreviewPanel() {
           </div> : null}
           {starting ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-white/10 p-4 text-sm text-slate-300"><LoaderCircle className="size-4 animate-spin" />正在加载谱面与回放…</div> : null}
           <div className="mt-5 space-y-4 border-t border-white/[0.06] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">渲染选项(即时生效,无需重载)</h3>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM(谱面自带音频)
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500" title="即时生效,无需重载">渲染选项</h3>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="谱面自带音频([General] AudioFilename)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.hitsounds} onChange={(event) => update("hitsounds", event.target.checked)} />播放音效(命中音/combobreak,ArgonPro)
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="命中音/combobreak,ArgonPro">
+              <input className="accent-cyan-400" type="checkbox" checked={options.hitsounds} onChange={(event) => update("hitsounds", event.target.checked)} />播放音效
             </label>
             {options.audio ? <label className="block text-xs text-slate-400">音频偏移 {audioOffsetText === "" ? 0 : audioOffsetText} ms
               <input
@@ -357,20 +425,60 @@ export function LivePreviewPanel() {
                 }}
               />
             </label> : null}
+            <div className="block text-xs text-slate-400" title="即时热切换,缺件回退 Argon">皮肤
+              <select
+                className="mt-2 min-w-0 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
+                value={options.skinPath ?? ""}
+                onChange={(event) => {
+                  setSkinError(null);
+                  update("skinPath", event.target.value === "" ? null : event.target.value);
+                }}
+              >
+                <option value="">内置 Argon-Pro</option>
+                {skins.map((skin) => <option key={skin.path} value={skin.path}>{skin.name}</option>)}
+              </select>
+              {skinError ? <p className="mt-1 text-[10px] leading-relaxed text-amber-300">{skinError}</p> : null}
+            </div>
+            {options.skinPath ? <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="默认使用谱面 [Colours] 的 combo 色(谱面未配色时才用皮肤色);开启后强制使用皮肤的 combo 色(stable 行为)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.skinColours} onChange={(event) => update("skinColours", event.target.checked)} />皮肤 combo 色
+            </label> : null}
+            <label className="block text-xs text-slate-400">光标大小 {Math.round(options.cursorSize * 100)}%
+              <input
+                className="mt-3 w-full accent-cyan-400"
+                type="range"
+                min={10}
+                max={200}
+                step={5}
+                value={Math.round(options.cursorSize * 100)}
+                onChange={(event) => update("cursorSize", Number(event.target.value) / 100)}
+              />
+            </label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.bg} onChange={(event) => update("bg", event.target.checked)} />谱面背景图
             </label>
-            {options.bg ? <label className="block text-xs text-slate-400">背景不透明度 {Math.round(options.bgOpacity * 100)}%
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="谱面故事板(.osu Events + 共享 .osb);开启后背景图让位。切换会重建会话(约 1 秒)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.storyboard} onChange={(event) => update("storyboard", event.target.checked)} />故事板
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="背景视频(故事板 Video 元素);ffmpeg 管道逐帧解码,工具路径取设置页手动路径 > PATH > danser 发行包自带。开启后背景图让位">
+              <input className="accent-cyan-400" type="checkbox" checked={options.video} onChange={(event) => update("video", event.target.checked)} />背景视频
+            </label>
+            <label className="block text-xs text-slate-400" title="同时作用于背景图/故事板/背景视频(osu! 背景暗化的反向);拖动即时生效">背景亮度 {Math.round(options.bgOpacity * 100)}%
               <input className="mt-3 w-full accent-cyan-400" type="range" min={0} max={100} value={Math.round(options.bgOpacity * 100)} onChange={(event) => update("bgOpacity", Number(event.target.value) / 100)} />
-            </label> : null}
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.urBar} onChange={(event) => update("urBar", event.target.checked)} />UR 显示(UR 条与数值)
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.keyOverlay} onChange={(event) => update("keyOverlay", event.target.checked)} />按键输入展示(Z/X/C 键与计数)
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="玩法 HUD 总开关:关闭后隐藏分数/准确率/连击/血条/UR 条/按键展示/PP 计数,物件与光标照常;预览与视频导出共用">
+              <input className="accent-cyan-400" type="checkbox" checked={options.hud} onChange={(event) => update("hud", event.target.checked)} />HUD
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
-              <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线(Follow points)
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="UR 条与数值">
+              <input className="accent-cyan-400" type="checkbox" checked={options.urBar} onChange={(event) => update("urBar", event.target.checked)} />UR 显示
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="Z/X/C 键与计数">
+              <input className="accent-cyan-400" type="checkbox" checked={options.keyOverlay} onChange={(event) => update("keyOverlay", event.target.checked)} />按键输入展示
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="游玩过程中的实时性能点数(逐物件渐增,Argon 样式挂在 ACC 行下方)">
+              <input className="accent-cyan-400" type="checkbox" checked={options.ppDisplay} onChange={(event) => update("ppDisplay", event.target.checked)} />PP 计数
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="Follow points">
+              <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线
             </label>
           </div>
           <Button className="mt-5 w-full" variant="primary" loading={starting} disabled={!replayPath || !replayInfo?.beatmap_resource_id || active} onClick={() => void start()}>
@@ -420,21 +528,44 @@ export function LivePreviewPanel() {
             </div>
             <label className="block text-xs text-slate-400">编码器
               <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.encoder} onChange={(event) => setExportForm((f) => ({ ...f, encoder: event.target.value as LiveExportParams["encoder"] }))}>
-                <option value="x264">H.264(x264,兼容性最好)</option>
-                <option value="x265">H.265(x265,体积更小)</option>
-                <option value="nvenc" disabled={nvenc !== undefined && !nvenc[0]}>NVENC(NVIDIA 硬件编码,最快){nvenc !== undefined && !nvenc[0] ? "(不可用)" : ""}</option>
-                <option value="hevc_nvenc" disabled={nvenc !== undefined && !nvenc[1]}>H.265 NVENC(NVIDIA 硬件编码,快且体积小){nvenc !== undefined && !nvenc[1] ? "(不可用)" : ""}</option>
+                <option value="x264">H.264</option>
+                <option value="x265">H.265</option>
+                <option value="nvenc" disabled={nvenc !== undefined && !nvenc[0]}>NVENC{nvenc !== undefined && !nvenc[0] ? "(不可用)" : ""}</option>
+                <option value="hevc_nvenc" disabled={nvenc !== undefined && !nvenc[1]}>H.265 NVENC{nvenc !== undefined && !nvenc[1] ? "(不可用)" : ""}</option>
               </select>
             </label>
-            <label className="block text-xs text-slate-400">质量(crf {exportForm.quality},越低画质越高)
+            <label className="block text-xs text-slate-400" title="crf 越低画质越高">质量 crf {exportForm.quality}
               <input className="mt-3 w-full accent-cyan-400" type="range" min={14} max={28} value={exportForm.quality} onChange={(event) => setExportForm((f) => ({ ...f, quality: Number(event.target.value) }))} />
             </label>
             <div className="space-y-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2">
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
-                <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM(谱面自带音频,AAC 192k)
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300" title="谱面自带音频,AAC 192k">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.audio} onChange={(event) => setExportForm((f) => ({ ...f, audio: event.target.checked }))} />混入 BGM
               </label>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
-                <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效(命中音/combobreak,ArgonPro)
+              {exportForm.audio ? <label className="block pl-6 text-xs text-slate-400" title="与预览偏移互相独立">导出音频偏移 {exportOffsetText === "" ? 0 : exportOffsetText} ms
+                <input
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-2 text-sm text-white"
+                  type="text"
+                  inputMode="numeric"
+                  value={exportOffsetText}
+                  onChange={(event) => {
+                    const raw = event.target.value.replace(/[^\d.-]/g, "");
+                    setExportOffsetText(raw);
+                    if (raw === "") {
+                      setExportForm((f) => ({ ...f, audioOffset: 0 }));
+                      return;
+                    }
+                    const parsed = Number(raw);
+                    if (raw !== "-" && Number.isFinite(parsed)) {
+                      setExportForm((f) => ({ ...f, audioOffset: parsed }));
+                    }
+                  }}
+                />
+              </label> : null}
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300" title="命中音/combobreak,ArgonPro">
+                <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效
+                <label className="flex items-center gap-2 text-sm" title="玩法后追加 4 秒,默认开">
+                  <input className="accent-cyan-400" type="checkbox" checked={exportForm.results} onChange={(event) => setExportForm((f) => ({ ...f, results: event.target.checked }))} />生成结算屏
+                </label>
               </label>
               <p className="pl-6 text-[10px] leading-relaxed text-slate-500">音量按 osu! 默认值(Music/Effect/Master 各 60%),两者同时混入时自动混合为一条音轨</p>
             </div>

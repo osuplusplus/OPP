@@ -3,17 +3,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use osu_beatmap_preview::{PreviewOptions, generate_preview};
+use osu_beatmap_preview::{parse_time_point, PreviewOptions, generate_preview};
 use serde::{Deserialize, Serialize};
 use tauri::{async_runtime, ipc::Response};
 
 use crate::{
+    domain::Ruleset,
     error::{CommandError, CommandResult},
-    local_analysis::{
+    features::local_analysis::{
         LocalClient, StrainAnalysis,
         parser::{calculate_strains, parse_beatmap},
     },
-    app::models::Ruleset,
 };
 
 const MIN_GIF_SECONDS: f64 = 1.0;
@@ -39,6 +39,8 @@ pub struct BeatmapPreviewRequest {
     pub bid: u32,
     pub start_seconds: Option<f64>,
     pub end_seconds: Option<f64>,
+    #[serde(default)]
+    pub mods: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,6 +159,7 @@ fn preview_options(
 ) -> CommandResult<PreviewOptions> {
     validate_bid(request.bid)?;
     let mut options = PreviewOptions::new(request.bid.to_string());
+    options.mods = request.mods.clone();
     if ruleset == Ruleset::Osu {
         let start = request.start_seconds.ok_or_else(|| {
             CommandError::new("PREVIEW_RANGE_REQUIRED", "std 预览需要选择开始时间")
@@ -178,8 +181,9 @@ fn preview_options(
             ));
         }
         options.format = Some("gif".into());
-        options.times = Some(format!("{start:.3}+{end:.3}"));
-        options.gif_clip_label = true;
+        options.time_points = vec![parse_time_point(&format!("{start:.3}"))
+            .map_err(|error| CommandError::new("INVALID_PREVIEW_RANGE", error.to_string()))?];
+        options.duration_time = Some(duration);
     } else {
         options.format = Some("png".into());
     }
@@ -313,7 +317,7 @@ pub fn save_beatmap_preview_output(source: String, destination: String) -> Comma
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_beatmap_preview_output(path: String) -> CommandResult<()> {
     let output = validated_output(&path)?;
-    crate::platform::reveal_path(Path::new(&output)).map_err(|error| {
+    crate::infrastructure::platform::reveal_path(Path::new(&output)).map_err(|error| {
         CommandError::new(
             "PREVIEW_OPEN_FAILED",
             format!("无法打开预览所在文件夹：{error}"),

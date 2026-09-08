@@ -5,7 +5,7 @@ use tauri::State;
 
 use crate::{
     error::{CommandError, CommandResult},
-    app::state::AppState,
+    state::AppState,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -148,5 +148,3 @@ fn mod_bits(mods: &[String], mode: &str) -> CommandResult<u32> {
     }
     Ok(bits)
 }
-
-

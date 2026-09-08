@@ -433,7 +433,7 @@ export function AppShell() {
       />
       <GlobalContextBar />
       <main className="ml-[var(--sidebar-width)] min-h-screen pt-[108px]" id="main-content" tabIndex={-1}>
-        <div className="relative min-h-[calc(100vh-108px)] overflow-x-clip">
+        <div className="relative min-h-[calc(100vh-108px)] overflow-x-auto">
         <div className="theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9" data-page-guide-content="true">
             <Outlet />
           </div>

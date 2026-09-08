@@ -112,7 +112,12 @@ function OrdrRenderPanel() {
 }
 
 export function ReplayRenderPage() {
+  const [searchParams] = useSearchParams();
   const [provider, setProvider] = useState<"live" | "danser" | "ordr">(() => {
+    // 深链参数（游戏总结弹窗的实时预览 / 加入队列跳转）一次性指定初始
+    // 面板，不写入 localStorage，避免覆盖用户的手动选择。
+    if (searchParams.get("danser") === "1") return "danser";
+    if (searchParams.get("live") === "1") return "live";
     const stored = window.localStorage.getItem("opp:replay-render-provider");
     return stored === "danser" || stored === "ordr" ? stored : "live";
   });

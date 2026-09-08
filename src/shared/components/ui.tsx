@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import * as Switch from "@radix-ui/react-switch";
 import { cva, type VariantProps } from "class-variance-authority";
 import { AlertCircle, CircleHelp, LoaderCircle } from "lucide-react";
 import { cn } from "../lib/cn";
@@ -234,5 +235,30 @@ export function InfoTip({ text }: { text: string }) {
     <Tooltip content={text}>
       <button aria-label={text} className="opp-action inline-grid size-4 shrink-0 cursor-help place-items-center rounded-full border border-current/35 text-slate-500 hover:text-slate-200" type="button"><CircleHelp className="size-3" /></button>
     </Tooltip>
+  );
+}
+
+export interface ToggleProps {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}
+
+export function Toggle({ label, description, checked, onChange }: ToggleProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
+      <div className="flex items-center gap-2">
+        <p className="font-semibold text-slate-100">{label}</p>
+        <InfoTip text={description} />
+      </div>
+      <Switch.Root
+        checked={checked}
+        className="relative h-6 w-11 shrink-0 rounded-full bg-slate-500 data-[state=checked]:bg-[var(--theme-primary)]"
+        onCheckedChange={onChange}
+      >
+        <Switch.Thumb className="block size-5 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-5" />
+      </Switch.Root>
+    </div>
   );
 }

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMode } from "../../app/ModeContext";
-import { PageHeader } from "../../shared/components/PageHeader";
+import { useNavigate } from "react-router-dom";
 import {
   Badge,
   Button,
@@ -32,6 +32,7 @@ import type {
   ThemeColor,
   DanserStatus,
   FfmpegStatusInfo,
+  LogFileInfo,
 } from "../../shared/types/osu";
 import { authQueryKey, useAuthStatus } from "../auth/api";
 import { localSourcesKey, useLocalSources } from "../local-analysis/api";
@@ -136,6 +137,7 @@ function Toggle({
 }
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const stored = useSettings();
   const auth = useAuthStatus();
   const sources = useLocalSources();
@@ -150,6 +152,9 @@ export function SettingsPage() {
   const [danserBusy, setDanserBusy] = useState(false);
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatusInfo | null>(null);
   const [ffmpegBusy, setFfmpegBusy] = useState(false);
+  const [logDirectory, setLogDirectory] = useState<string | null>(null);
+  const [logFiles, setLogFiles] = useState<LogFileInfo[]>([]);
+  const [logError, setLogError] = useState<string | null>(null);
   const settings: AppSettings = {
     ...base,
     ...stored.data,
@@ -169,6 +174,8 @@ export function SettingsPage() {
   const refreshDanser = async () => {
     try { setDanserStatus(await desktopApi.getDanserStatus()); } catch { setDanserStatus(null); }
   };
+  const refreshLogs = async () => { try { const [directory, files] = await Promise.all([desktopApi.getLogDirectory(), desktopApi.listLogFiles()]); setLogDirectory(directory); setLogFiles(files); setLogError(null); } catch (error) { setLogError(error instanceof Error ? error.message : "无法读取日志"); } };
+  useEffect(() => { queueMicrotask(() => { void refreshLogs(); }); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,23 +206,6 @@ export function SettingsPage() {
   const refreshFfmpeg = async () => {
     try { setFfmpegStatus(await desktopApi.liveRenderGetFfmpegStatus()); } catch { setFfmpegStatus(null); }
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const useIdle = typeof idleWindow.requestIdleCallback === "function";
-    const schedule = useIdle
-      ? idleWindow.requestIdleCallback!(() => { if (!cancelled) void refreshFfmpeg(); }, { timeout: 1500 })
-      : window.setTimeout(() => { if (!cancelled) void refreshFfmpeg(); }, 500);
-    return () => {
-      cancelled = true;
-      if (useIdle) idleWindow.cancelIdleCallback?.(schedule);
-      else window.clearTimeout(schedule);
-    };
-  }, [settings.ffmpeg_executable_path, settings.danser_executable_path]);
 
   const chooseFfmpeg = async () => {
     setFfmpegBusy(true);
@@ -329,14 +319,23 @@ export function SettingsPage() {
   const lightTheme = settings.theme_mode === "light";
 
   return (
-    <>
-      <PageHeader
-        eyebrow="Application"
-        title="设置"
-        description="在这里管理主题、游戏来源和常用偏好。"
-      />
+    <div className="fixed inset-0 z-[70] overflow-y-auto bg-black/65 px-4 py-8 backdrop-blur-sm">
+      <div className="mx-auto max-w-6xl rounded-3xl border border-white/10 bg-[var(--surface)] p-6 shadow-2xl">
+      <div className="mb-5 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[var(--theme-primary)]">Application</p><h1 className="mt-1 text-2xl font-bold text-white">设置</h1><p className="mt-1 text-sm text-slate-400">管理主题、游戏来源和常用偏好。</p></div><Button aria-label="关闭设置" onClick={() => navigate(-1)} size="icon" variant="ghost">×</Button></div>
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-5">
+          <Card className="p-6">
+            <SectionTitle title="日志与诊断" description="OPP 会保留最近 5 次运行日志，内容已自动隐藏凭据和敏感参数。" />
+            {logDirectory ? <p className="mt-4 break-all font-mono text-xs text-slate-400">{logDirectory}</p> : null}
+            {logError ? <p className="mt-3 text-sm text-rose-200">{logError}</p> : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={() => void desktopApi.openLogDirectory()} size="sm" variant="secondary"><FolderOpen className="size-4" />打开日志文件夹</Button>
+              {logFiles[0] ? <Button onClick={() => void desktopApi.openLogFile(logFiles[0].name)} size="sm" variant="secondary"><ExternalLink className="size-4" />打开当前日志</Button> : null}
+              <Button onClick={() => void refreshLogs()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新</Button>
+            </div>
+            <div className="mt-4 space-y-2">{logFiles.map((file) => <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] px-3 py-2 text-xs" key={file.name}><button className="truncate text-left text-slate-300 hover:text-white" onClick={() => void desktopApi.openLogFile(file.name)} type="button">{file.name}</button><span className="shrink-0 text-slate-500">{(file.size_bytes / 1024).toFixed(1)} KB</span></div>)}</div>
+          </Card>
+
           <Card className="p-6">
             <div className="flex justify-between">
               <SectionTitle title="账户" />
@@ -623,8 +622,9 @@ export function SettingsPage() {
               </div>
             </div>
           </Card>
-        </div>
       </div>
-    </>
+      </div>
+      </div>
+      </div>
   );
 }

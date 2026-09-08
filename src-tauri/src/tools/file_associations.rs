@@ -5,9 +5,8 @@ use tauri::State;
 
 use crate::{
     error::{CommandError, CommandResult},
-    game_session::executable,
-    local_analysis::LocalClient,
-    app::state::AppState,
+    features::{game_session::executable, local_analysis::LocalClient},
+    state::AppState,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +16,7 @@ pub struct DefaultFileClients {
 }
 
 fn explorer_select(path: &Path) -> CommandResult<()> {
-    crate::platform::reveal_path(path)
+    crate::infrastructure::platform::reveal_path(path)
         .map_err(|error| CommandError::new("EXPLORER_OPEN_FAILED", error.to_string()))
 }
 

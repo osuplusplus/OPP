@@ -9,6 +9,11 @@ export function ErrorPanel({
   error: unknown;
   onRetry?: () => void;
 }) {
+  const detail = error && typeof error === "object" ? error as { code?: string; request_id?: string; message?: string } : undefined;
+  const diagnostic = [
+    detail?.code,
+    detail?.request_id ? `请求 ${detail.request_id}` : undefined,
+  ].filter(Boolean).join(" · ");
   return (
     <EmptyState
       action={
@@ -19,7 +24,7 @@ export function ErrorPanel({
           </Button>
         ) : undefined
       }
-      description={errorMessage(error)}
+      description={diagnostic ? `${errorMessage(error)}（${diagnostic}）` : errorMessage(error)}
       icon={<AlertTriangle className="size-5 text-amber-200" />}
       title="数据暂时没有到达"
     />

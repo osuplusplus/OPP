@@ -512,6 +512,8 @@ export interface TosuStatus {
 }
 
 export interface TosuLogEntry { at: string; stream: string; level: "info" | "warning" | "error"; message: string; }
+export type LogLevel = "debug" | "info" | "warning" | "error" | "critical";
+export interface LogFileInfo { name: string; size_bytes: number; created_at: string; }
 
 export interface TosuLiveSnapshot {
   state: string | null; mode: string | null; artist: string | null; title: string | null; difficulty: string | null;
@@ -1012,6 +1014,7 @@ export interface BeatmapPreviewRequest {
   bid: number;
   start_seconds: number | null;
   end_seconds: number | null;
+  mods?: string[];
 }
 
 export interface BeatmapPreviewResult {
@@ -1056,6 +1059,7 @@ export interface OnlineBeatmapSearchQuery {
   sort: string;
   artist: string;
   title: string;
+  title_unicode: string;
   source: string;
   mapper: string;
   difficulty: string;
@@ -1194,6 +1198,12 @@ export interface CollectionFolder {
   read_only: boolean;
   pending_write: boolean;
   entries: CollectionEntry[];
+  external_id?: string | null;
+  external_fingerprint?: string | null;
+  last_read_at?: string | null;
+  backup_path?: string | null;
+  backup_fingerprint?: string | null;
+  backup_confirmed_at?: string | null;
 }
 
 export interface CollectionCandidate {
@@ -1229,7 +1239,11 @@ export interface CollectionSyncStatus {
   game_changed: boolean;
   missing_downloadable_count: number;
   missing_unresolved_count: number;
+  sources?: CollectionSourceSyncStatus[];
 }
+export interface CollectionSourceSyncStatus { client: OsuClient; available: boolean; external_changed: boolean; pending_write: boolean; backup_available: boolean; backup_confirmed: boolean; backup_count: number; latest_backup: string | null; }
+export interface CollectionManagerStatus { configured: boolean; available: boolean; protocol_version: string | null; version: string | null; operations: string[]; message: string; }
+export interface CollectionBackupStatus { client: OsuClient; target: string | null; fingerprint: string | null; backups: string[]; latest: string | null; }
 
 export interface CollectionSharePreview {
   name: string;
@@ -1495,6 +1509,46 @@ export interface TrainerResult {
   directory: string;
   beatmap_path: string;
   included_objects: number;
+}
+
+export interface ViewTrainerRequest {
+  client: OsuClient;
+  resourceId: string;
+  rate: number;
+  bpmLocked: boolean;
+  targetBpm: number | null;
+  ar: number;
+  od: number;
+  cs: number;
+  hp: number;
+  scaleAr: boolean;
+  scaleOd: boolean;
+  lockAr: boolean;
+  lockOd: boolean;
+  lockCs: boolean;
+  lockHp: boolean;
+  noSpinners: boolean;
+  changePitch: boolean;
+  previewOnly: boolean;
+  minBpm: number | null;
+  maxBpm: number | null;
+  startTimeMs: number | null;
+  endTimeMs: number | null;
+}
+
+export interface ViewTrainerTimeline {
+  durationMs: number;
+  bpmSegments: Array<[number, number]>;
+  ar: number;
+  od: number;
+  cs: number;
+  hp: number;
+  objectCount: number;
+  mode: number;
+  primaryBpm: number | null;
+  strainSeries: Array<{ key: string; values: number[] }>;
+  strainSectionStartTimeMs: number;
+  strainSectionLengthMs: number;
 }
 
 export interface LocalBeatmapSetSummary {

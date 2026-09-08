@@ -1,4 +1,4 @@
-import { Check, Download, Headphones, Heart, Info, ListPlus, Pause } from "lucide-react";
+import { Check, Download, Headphones, Heart, Info, ListPlus, Pause, ImageIcon } from "lucide-react";
 import { Badge, Button, Card } from "../../shared/components/ui";
 import { CompactDifficultySummary } from "../../shared/components/CompactDifficultySummary";
 import { DifficultyIcon } from "../../shared/components/DifficultyIcon";
@@ -33,7 +33,16 @@ function statusLabel(status: string) {
   return labels[status] ?? status;
 }
 
-export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onAddToCollection = () => undefined, onDownload, onOpen, onPreview, onSelect }: { beatmapset: OnlineBeatmapset; downloading: boolean; playing: boolean; selected: boolean; onAddToCollection?: () => void; onDownload: () => void; onOpen: () => void; onPreview: () => void; onSelect: () => void }) {
+/** 优先显示原名（title_unicode/artist_unicode），如果不存在则使用英文名 */
+function getDisplayTitle(beatmapset: OnlineBeatmapset): string {
+  return (beatmapset.title_unicode && beatmapset.title_unicode.trim()) || beatmapset.title;
+}
+
+function getDisplayArtist(beatmapset: OnlineBeatmapset): string {
+  return (beatmapset.artist_unicode && beatmapset.artist_unicode.trim()) || beatmapset.artist;
+}
+
+export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onAddToCollection = () => undefined, onDownload, onOpen, onPreview, onVisualPreview, onSelect }: { beatmapset: OnlineBeatmapset; downloading: boolean; playing: boolean; selected: boolean; onAddToCollection?: () => void; onDownload: () => void; onOpen: () => void; onPreview: () => void; onVisualPreview?: () => void; onSelect: () => void }) {
   const preview = normalizePreviewUrl(beatmapset.preview_url);
   // 卡片内外复用同一份升序结果，避免接口顺序导致难度展示跳跃。
   const beatmaps = [...(beatmapset.beatmaps ?? [])].sort((left, right) =>
@@ -72,14 +81,15 @@ export function BeatmapsetCard({ beatmapset, downloading, playing, selected, onA
         </button>
         <div className="min-w-0 flex-1">
           <button className="block max-w-full text-left outline-none" onClick={(event) => { event.stopPropagation(); onOpen(); }} type="button">
-            <h3 className="opp-beatmap-card__title truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-white">{beatmapset.title}</h3>
-            <p className="mt-0.5 truncate text-[13px] font-medium text-slate-300">{beatmapset.artist}</p>
+            <h3 className="truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-white">{getDisplayTitle(beatmapset)}</h3>
+            <p className="mt-0.5 truncate text-[13px] font-medium text-slate-300">{getDisplayArtist(beatmapset)}</p>
           </button>
           <p className="mt-1.5 truncate text-xs text-slate-400">谱师 · <strong className="font-semibold text-slate-200">{beatmapset.creator}</strong></p>
         </div>
         <div className="opp-beatmap-card__actions relative z-30 flex shrink-0 gap-0.5">
           <Button aria-label="加入收藏夹" onClick={(event) => { event.stopPropagation(); onAddToCollection(); }} size="icon" title="加入收藏夹" variant="ghost"><Heart className="size-4" /></Button>
-          <Button aria-label={playing ? "暂停试听" : "试听"} className="opp-beatmap-card__wide-action" disabled={!preview} onClick={(event) => { event.stopPropagation(); onPreview(); }} size="icon" variant={playing ? "primary" : "ghost"}>{playing ? <Pause className="size-4" /> : <Headphones className="size-4" />}</Button>
+          <Button aria-label={playing ? "暂停试听" : "试听"} className="hidden min-[1440px]:inline-flex" disabled={!preview} onClick={(event) => { event.stopPropagation(); onPreview(); }} size="icon" variant={playing ? "primary" : "ghost"}>{playing ? <Pause className="size-4" /> : <Headphones className="size-4" />}</Button>
+          {onVisualPreview ? <Button aria-label="预览" onClick={(event) => { event.stopPropagation(); onVisualPreview(); }} size="icon" title="预览" variant="ghost"><ImageIcon className="size-4" /></Button> : null}
           <Button aria-label="下载谱面" disabled={disabled} loading={downloading} onClick={(event) => { event.stopPropagation(); onDownload(); }} size="icon" title="下载谱面" variant="ghost">{downloading ? null : <Download className="size-4" />}</Button>
           <Button aria-label="预览详情" className="opp-beatmap-card__wide-action" onClick={(event) => { event.stopPropagation(); onOpen(); }} size="icon" variant="ghost"><Info className="size-4" /></Button>
         </div>

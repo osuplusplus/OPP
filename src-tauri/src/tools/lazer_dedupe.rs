@@ -25,9 +25,9 @@ use walkdir::WalkDir;
 
 use crate::{
     error::{CommandError, CommandResult},
-    local_analysis::{LocalAnalysisService, LocalClient},
-    platform,
-    app::state::AppState,
+    features::local_analysis::{LocalAnalysisService, LocalClient},
+    infrastructure::platform,
+    state::AppState,
 };
 
 /// 取消标志：同一时间只应有一个去重任务，模块级原子量足够。
