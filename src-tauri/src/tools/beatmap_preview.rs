@@ -328,6 +328,7 @@ pub fn open_beatmap_preview_output(path: String) -> CommandResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use osu_beatmap_preview::TimePoint;
 
     const OSU: &str = "osu file format v14\n\n[General]\nMode:0\n\n[Metadata]\nTitle:Test\nArtist:Artist\nCreator:Mapper\nVersion:Hard\nBeatmapID:123\nBeatmapSetID:12\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:8\nApproachRate:9\nSliderMultiplier:1.4\nSliderTickRate:1\n\n[TimingPoints]\n0,500,4,2,1,100,1,0\n\n[HitObjects]\n256,192,0,1,0,0:0:0:0:\n256,192,12000,1,0,0:0:0:0:\n";
 
@@ -346,14 +347,17 @@ mod tests {
                 bid: 123,
                 start_seconds: Some(2.0),
                 end_seconds: Some(12.0),
+                mods: Vec::new(),
             },
             Ruleset::Osu,
             20.0,
         )
         .expect("options");
         assert_eq!(options.format.as_deref(), Some("gif"));
-        assert_eq!(options.times.as_deref(), Some("2.000+12.000"));
-        assert!(options.gif_clip_label);
+        // GIF 剪辑语义 = 起点时间点 + 时长(旧字段 times/gif_clip_label 已被
+        // 上游 PreviewOptions 的 time_points/duration_time 取代)。
+        assert_eq!(options.time_points, vec![TimePoint::Seconds(2.0)]);
+        assert_eq!(options.duration_time, Some(10.0));
     }
 
     #[test]
@@ -363,13 +367,14 @@ mod tests {
                 bid: 123,
                 start_seconds: None,
                 end_seconds: None,
+                mods: Vec::new(),
             },
             Ruleset::Mania,
             200.0,
         )
         .expect("options");
         assert_eq!(options.format.as_deref(), Some("png"));
-        assert!(options.times.is_none());
+        assert!(options.time_points.is_empty());
     }
 
     #[test]
@@ -379,6 +384,7 @@ mod tests {
                 bid: 123,
                 start_seconds: Some(0.0),
                 end_seconds: Some(31.0),
+                mods: Vec::new(),
             },
             Ruleset::Osu,
             60.0,

@@ -1750,8 +1750,11 @@ fn open_session(
     ffmpeg: Option<std::path::PathBuf>,
 ) -> Result<Session, String> {
     let ffprobe = sibling_ffprobe(ffmpeg.as_deref());
+    // with_pp 跟随 pp_display(HUD 总开关关闭时 PP 计数器同样不画,
+    // 顺带跳过整个 rosu-pp 逐物件 pass,加载更快)。
     let mut game = if replay_path.trim().is_empty() {
-        game::load_autoplay(beatmap_path).map_err(|e| format!("加载谱面预览失败: {e}"))?
+        game::load_autoplay(beatmap_path, false, options.hud && options.pp_display)
+            .map_err(|e| format!("加载谱面预览失败: {e}"))?
     } else {
         game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?
     };

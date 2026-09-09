@@ -50,8 +50,15 @@ describe("BeatmapsetCard", () => {
     await user.click(screen.getByRole("button", { name: "加入下载队列" }));
     expect(onSelect).toHaveBeenCalledOnce();
     expect(onOpen).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "试听" })).toHaveClass("opp-beatmap-card__wide-action");
-    expect(screen.getByRole("button", { name: "预览详情" })).toHaveClass("opp-beatmap-card__wide-action");
+    // 试听按钮改用 Tailwind 响应类表达"窄屏隐藏"(等价于旧的
+    // opp-beatmap-card__wide-action 宽屏语义),预览详情仍是 BEM 类。
+    expect(screen.getByRole("button", { name: "试听" })).toHaveClass(
+      "hidden",
+      "min-[1440px]:inline-flex",
+    );
+    expect(screen.getByRole("button", { name: "预览详情" })).toHaveClass(
+      "opp-beatmap-card__wide-action",
+    );
   });
 
   it("shows the compact osu metadata and opens from the keyboard", async () => {
