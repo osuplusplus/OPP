@@ -126,7 +126,7 @@ export function GlobalContextBar() {
   const [gameStatus, setGameStatus] = useState<GameStatusSnapshot | null>(null);
   const current =
     routeContexts.find(([path]) => location.pathname === path) ??
-    routeContexts[0];
+    (location.pathname.startsWith("/tools/") ? ["/tools", "工具集合"] as const : routeContexts[0]);
   const runningClients = useMemo(
     () => gameStatus?.clients.filter((item) => item.running) ?? [],
     [gameStatus],

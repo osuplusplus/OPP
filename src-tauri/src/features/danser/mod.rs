@@ -1,3 +1,5 @@
+//! danser 渲染器发现、配置与本地渲染队列。
+
 mod discovery;
 mod models;
 #[cfg(test)]

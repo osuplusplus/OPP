@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use osu_beatmap_preview::{parse_time_point, PreviewOptions, generate_preview};
+use osu_beatmap_preview::{PreviewOptions, generate_preview, parse_time_point};
 use serde::{Deserialize, Serialize};
 use tauri::{async_runtime, ipc::Response};
 
@@ -181,8 +181,10 @@ fn preview_options(
             ));
         }
         options.format = Some("gif".into());
-        options.time_points = vec![parse_time_point(&format!("{start:.3}"))
-            .map_err(|error| CommandError::new("INVALID_PREVIEW_RANGE", error.to_string()))?];
+        options.time_points = vec![
+            parse_time_point(&format!("{start:.3}"))
+                .map_err(|error| CommandError::new("INVALID_PREVIEW_RANGE", error.to_string()))?,
+        ];
         options.duration_time = Some(duration);
     } else {
         options.format = Some("png".into());

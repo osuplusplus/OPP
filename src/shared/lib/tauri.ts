@@ -103,6 +103,7 @@ import type {
   LazerDedupeProgress,
   LazerDedupeResult,
   ObsStatus,
+  OtdStatus,
   PlatformCapabilities,
   NewReplaysDetected,
 } from "../types/osu";
@@ -216,6 +217,7 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_obs_scenes") return ["直播场景", "练习场景"] as T;
   if (command === "refresh_selected_obs_scene") return { refreshed_sources: [], skipped: true, message: "预览模式未连接 OBS" } as T;
   if (command === "get_default_file_clients") return { beatmap: "stable", skin: "stable" } as T;
+  if (command === "get_otd_status") return { installed: false, executable_path: null, daemon_running: false, owned_by_opp: false, version: null, tablet_name: null, config_path: null, config_summary: null, last_error: null } as T;
   if (command === "check_for_updates") return {
     current_version: __APP_VERSION__,
     latest_version: __APP_VERSION__,
@@ -290,7 +292,8 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     ...(browserPreviewValue<AppSettings>("get_settings") ?? {}),
     ignored_update_version: args?.version,
   } as T;
-  if (["clear_profile_cache", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
+  if (["clear_profile_cache", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
+  if (command === "backup_otd_config") return `${args?.destinationDir ?? "C:\\Export"}/OpenTabletDriver-backup.json` as T;
   return undefined;
 }
 
@@ -465,6 +468,18 @@ export const desktopApi = {
   setDefaultFileClient: (kind: "beatmap" | "skin", client: OsuClient) =>
     call<void>("set_default_file_client", { kind, client }),
   setDisplayGamma: (gamma: number) => call<void>("set_display_gamma", { gamma }),
+  getOtdStatus: () => call<OtdStatus>("get_otd_status"),
+  chooseOtdExecutable: async (current?: string | null) => {
+    if (!isTauri()) return null;
+    const selected = await openDialog({ defaultPath: current ?? undefined, multiple: false, directory: false, title: "选择 OpenTabletDriver 可执行文件", filters: [{ name: "OpenTabletDriver", extensions: ["exe", "AppImage", "bin"] }] });
+    return typeof selected === "string" ? selected : null;
+  },
+  setOtdExecutable: (path: string) => call<OtdStatus>("set_otd_executable", { path }),
+  startOtd: () => call<void>("start_otd"),
+  stopOtd: () => call<void>("stop_otd"),
+  readOtdConfigSummary: () => call<OtdStatus>("read_otd_config_summary"),
+  backupOtdConfig: (destinationDir: string) => call<string>("backup_otd_config", { destinationDir }),
+  openOtd: () => call<void>("open_otd"),
   openNeteaseMusicSearch: (artist: string, title: string) =>
     call<void>("open_netease_music_search", { artist, title }),
   generateTrainerBeatmap: (request: TrainerRequest) =>

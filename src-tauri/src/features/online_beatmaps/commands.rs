@@ -11,7 +11,7 @@ use std::{
 use crate::{
     error::{CommandError, CommandResult},
     features::account::ensure_access_token,
-    infrastructure::logging::{global, finish_span},
+    infrastructure::logging::{finish_span, global},
     state::AppState,
 };
 
@@ -48,7 +48,7 @@ pub async fn search_online_beatmapsets(
                 "title_unicode": query.title_unicode,
                 "artist": query.artist,
                 "status": query.status,
-            }))
+            })),
         );
     }
 
@@ -171,7 +171,7 @@ pub async fn download_online_beatmapsets(
                 "provider": request.provider,
                 "include_video": request.include_video,
                 "overwrite": request.overwrite,
-            }))
+            })),
         );
     }
 

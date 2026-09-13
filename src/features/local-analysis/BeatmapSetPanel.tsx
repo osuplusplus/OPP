@@ -37,8 +37,13 @@ import {
   Skeleton,
 } from "../../shared/components/ui";
 import { SearchAutocomplete } from "../../shared/components/SearchAutocomplete";
+<<<<<<< Updated upstream
 import { CompactDifficultySummary } from "../../shared/components/CompactDifficultySummary";
 import { errorMessage, fullNumber, rulesetLabels } from "../../shared/lib/format";
+=======
+import { BeatmapDifficultyStrip, BeatmapInfoBar } from "../../shared/components/BeatmapSetVisuals";
+import { errorMessage, fixedNumber, fullNumber, rulesetLabels } from "../../shared/lib/format";
+>>>>>>> Stashed changes
 import { desktopApi } from "../../shared/lib/tauri";
 import { DifficultyIcon, ModeIcon } from "../online-beatmaps/BeatmapVisuals";
 import { similarityRouteForLocalResource } from "../similar-beatmaps/navigation";
@@ -178,7 +183,7 @@ function LocalDifficultyDialog({
             {set.difficulties.map((difficulty) => <article className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-cyan-300/25 hover:bg-cyan-300/[0.04]" key={difficulty.resource.resource_id}>
               <div className="flex flex-wrap items-start gap-4">
                 <button className="min-w-0 flex-1 text-left" onClick={() => onOpen(difficulty.resource.resource_id)} type="button"><div className="flex items-center gap-2"><ModeIcon mode={difficulty.ruleset} /><DifficultyIcon mode={difficulty.ruleset} stars={difficulty.stars} /><h3 className="truncate text-base font-semibold text-white">[{difficulty.difficulty_name}]</h3></div><p className="mt-2 text-xs text-slate-500">{rulesetLabels[difficulty.ruleset]} · {difficulty.creator}</p></button>
-                <div className="grid flex-1 grid-cols-3 gap-x-5 gap-y-3 sm:grid-cols-6"><Metric icon={Gauge} label="AR / OD" value={`${difficulty.ar.toFixed(1)} / ${difficulty.od.toFixed(1)}`} /><Metric icon={CircleDot} label="CS" value={difficulty.cs.toFixed(1)} /><Metric icon={Zap} label="BPM" value={difficulty.bpm.toFixed(0)} /><Metric icon={Trophy} label="Max PP" value={difficulty.max_pp === null ? "—" : difficulty.max_pp.toFixed(1)} /><Metric icon={Timer} label="NPS" value={difficulty.average_nps.toFixed(1)} /><Metric icon={Hash} label="Objects" value={fullNumber(difficulty.object_count)} /></div>
+                <div className="grid flex-1 grid-cols-3 gap-x-5 gap-y-3 sm:grid-cols-6"><Metric icon={Gauge} label="AR / OD" value={`${fixedNumber(difficulty.ar, 1)} / ${fixedNumber(difficulty.od, 1)}`} /><Metric icon={CircleDot} label="CS" value={fixedNumber(difficulty.cs, 1)} /><Metric icon={Zap} label="BPM" value={fixedNumber(difficulty.bpm)} /><Metric icon={Trophy} label="Max PP" value={fixedNumber(difficulty.max_pp, 1)} /><Metric icon={Timer} label="NPS" value={fixedNumber(difficulty.average_nps, 1)} /><Metric icon={Hash} label="Objects" value={fullNumber(difficulty.object_count)} /></div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 border-t border-white/[0.06] pt-3 sm:grid-cols-3 xl:grid-cols-5">
                 <Button className={buttonClass} onClick={() => onOpen(difficulty.resource.resource_id)} size="sm" variant="secondary">查看详情</Button>
@@ -225,6 +230,7 @@ function BeatmapSetCard({
     }
   };
   const starRange =
+<<<<<<< Updated upstream
     set.min_stars === null || set.max_stars === null
       ? "待计算"
       : set.min_stars === set.max_stars
@@ -239,6 +245,19 @@ function BeatmapSetCard({
   const title = set.title_unicode || set.title;
   const artist = set.artist_unicode || set.artist;
   const statusMessage = neteaseError ? errorMessage(neteaseError) : exportNotice;
+=======
+    !Number.isFinite(set.min_stars)
+      ? "待计算"
+      : set.min_stars === set.max_stars
+        ? `${fixedNumber(set.min_stars, 2)}★`
+        : `${fixedNumber(set.min_stars, 2)}–${fixedNumber(set.max_stars, 2)}★`;
+  const peakNps = Math.max(
+    ...set.difficulties
+      .map((item) => item.peak_nps)
+      .filter((value) => Number.isFinite(value)),
+    0,
+  );
+>>>>>>> Stashed changes
 
   return (
     <>
@@ -252,7 +271,34 @@ function BeatmapSetCard({
         unstyled
       >
         <SetBackground client={client} resourceId={set.background_resource_id} />
+<<<<<<< Updated upstream
         <div className="opp-beatmap-card__cover-overlay absolute inset-0 z-[2] bg-[linear-gradient(90deg,rgba(17,20,25,.96),rgba(22,26,32,.82)_62%,rgba(22,26,32,.67)),linear-gradient(0deg,rgba(10,12,16,.72),transparent_70%)]" />
+=======
+        <div className="theme-beatmap-overlay-primary absolute inset-0 bg-gradient-to-r from-[#0b101b]/95 via-[#0b101b]/76 to-[#0b101b]/35" />
+        <div className="theme-beatmap-overlay-secondary absolute inset-0 bg-gradient-to-t from-[#0f1522] via-transparent to-black/20" />
+        <div className="relative flex min-h-40 items-end gap-6 p-5">
+          <div className="min-w-0 flex-1">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Badge tone={set.beatmap_set_id ? "success" : "neutral"}>
+                {set.beatmap_set_id ? `SET ${set.beatmap_set_id}` : "LOCAL SET"}
+              </Badge>
+              {set.grouping_inferred ? <Badge tone="warning">推断分组</Badge> : null}
+              <Badge tone="cyan">{set.difficulties.length} 个匹配难度</Badge>
+            </div>
+            <h3 className="truncate text-xl font-semibold tracking-tight text-white">
+              {set.title_unicode || set.title}
+            </h3>
+            <p className="mt-1.5 truncate text-sm text-slate-300">
+              {set.artist_unicode || set.artist}
+            </p>
+            <p className="mt-2 truncate text-xs text-slate-500">
+              mapped by <span className="text-slate-300">{set.creators.join(" · ")}</span>
+            </p>
+          </div>
+          <BeatmapInfoBar metrics={[{ label: "Star range", value: starRange }, { label: "BPM", value: fixedNumber(set.bpm) }, { label: "Length", value: formatDuration(set.length_ms) }, { label: "Objects", value: fullNumber(set.object_count) }, { label: "Peak NPS", value: fixedNumber(peakNps, 1) }, { label: "Difficulties", value: String(set.difficulties.length) }]} />
+        </div>
+      </div>
+>>>>>>> Stashed changes
 
         <div className="opp-beatmap-card__body relative z-10 flex h-full flex-col p-4">
           <div className="opp-beatmap-card__header flex items-start gap-3">

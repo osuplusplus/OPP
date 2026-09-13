@@ -1,3 +1,5 @@
+//! 面向用户的业务功能模块集合。
+
 pub(crate) mod account;
 pub(crate) mod beatmaphub;
 pub(crate) mod collections;
@@ -12,6 +14,7 @@ pub(crate) mod osekai;
 pub(crate) mod replay_render;
 pub(crate) mod similarity;
 pub(crate) mod skin_workshop;
+pub(crate) mod tablet_driver;
 pub(crate) mod tosu;
 pub(crate) mod trainer;
 pub(crate) mod update;

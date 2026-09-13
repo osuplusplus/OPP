@@ -22,7 +22,7 @@ import {
   EmptyState,
   Skeleton,
 } from "../../shared/components/ui";
-import { dateTime, fullNumber } from "../../shared/lib/format";
+import { dateTime, fixedNumber, fullNumber } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CommandError,
@@ -53,7 +53,7 @@ const phaseLabels: Record<LocalScanProgress["phase"], string> = {
 };
 
 function formatBytes(value?: number | null) {
-  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   if (value < 1024) return `${value} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let size = value / 1024;
@@ -97,6 +97,7 @@ function SourceBar({
     section === "maps" ? summary?.beatmap_set_count : summary?.skin_count;
   const secondaryCount =
     section === "maps" ? summary?.beatmap_count : summary?.source_file_count;
+  const progressPercent = fixedNumber(progress?.percent, 1);
 
   return (
     <Card className="mb-4 overflow-hidden">
@@ -185,12 +186,14 @@ function SourceBar({
                 ? ` · ${fullNumber(progress.processed)} / ${fullNumber(progress.total)}`
                 : ""}
             </span>
-            <span className="font-mono text-cyan-200">{progress.percent.toFixed(1)}%</span>
+            <span className="font-mono text-cyan-200">
+              {progressPercent === "—" ? progressPercent : `${progressPercent}%`}
+            </span>
           </div>
           <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]">
             <div
                 className="h-full rounded-full bg-[var(--theme-primary)] transition-[width] duration-150"
-              style={{ width: `${progress.percent}%` }}
+              style={{ width: `${Number.isFinite(progress.percent) ? progress.percent : 0}%` }}
             />
           </div>
         </div>

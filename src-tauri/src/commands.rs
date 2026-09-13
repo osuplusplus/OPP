@@ -1,3 +1,5 @@
+//! Tauri 命令清单，仅汇总并注册各模块的命令处理器。
+
 pub(crate) use crate::{
     features::{
         account::{
@@ -67,6 +69,10 @@ pub(crate) use crate::{
             execute_skin_workshop_action, execute_skin_workshop_preset, get_skin_workshop_asset,
             get_skin_workshop_config, get_skin_workshop_part_preview, get_skin_workshop_tree,
             open_skin_workshop_package,
+        },
+        tablet_driver::commands::{
+            backup_otd_config, get_otd_status, open_otd, read_otd_config_summary,
+            set_otd_executable, start_otd, stop_otd,
         },
         tosu::{
             get_tosu_logs, get_tosu_status, set_tosu_executable, set_tosu_lyrics_executable,
@@ -263,6 +269,13 @@ macro_rules! handler {
             set_tosu_lyrics_executable,
             start_tosu,
             stop_tosu,
+            get_otd_status,
+            set_otd_executable,
+            start_otd,
+            stop_otd,
+            read_otd_config_summary,
+            backup_otd_config,
+            open_otd,
             get_obs_status,
             get_obs_scenes,
             save_obs_connection,

@@ -1,3 +1,5 @@
+//! 相似谱面索引、特征查询与推荐。
+
 mod commands;
 pub mod dataset;
 mod models;

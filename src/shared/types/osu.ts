@@ -116,6 +116,8 @@ export interface AppSettings {
   preview_volume?: number;
   cache_limit_mb?: number;
   similarity_preferences: SimilarityPreferences;
+  otd_executable_path?: string | null;
+  launch_otd_with_game?: boolean;
 }
 
 export interface SimilarityManualWeights extends DifficultyFeatureVector {
@@ -526,6 +528,24 @@ export interface TosuLiveSnapshot {
 export interface DefaultFileClients {
   beatmap: OsuClient;
   skin: OsuClient;
+}
+
+export interface OtdConfigSummary {
+  output_mode: string | null;
+  area: string | null;
+  filter_count: number;
+}
+
+export interface OtdStatus {
+  installed: boolean;
+  executable_path: string | null;
+  daemon_running: boolean;
+  owned_by_opp: boolean;
+  version: string | null;
+  tablet_name: string | null;
+  config_path: string | null;
+  config_summary: OtdConfigSummary | null;
+  last_error: string | null;
 }
 
 export interface UserSnapshot {

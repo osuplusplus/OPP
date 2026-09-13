@@ -1,3 +1,5 @@
+//! Stable 与 lazer 收藏的管理、分享、备份和下载。
+
 mod adapter;
 mod archive;
 mod downloads;

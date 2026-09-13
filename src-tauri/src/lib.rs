@@ -1,3 +1,5 @@
+//! OPP 后端应用入口：组装 Tauri、共享状态、后台监视器与命令注册。
+
 mod commands;
 mod domain;
 mod error;

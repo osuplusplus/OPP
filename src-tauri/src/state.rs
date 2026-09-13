@@ -1,3 +1,5 @@
+//! 应用级共享状态及其初始化逻辑。
+
 use std::{
     path::Path,
     sync::{Arc, Mutex, atomic::AtomicBool},
@@ -18,6 +20,7 @@ use crate::{
         online_beatmaps::providers::ProviderRegistry,
         similarity::SimilarityRuntime,
         skin_workshop::SkinWorkshopService,
+        tablet_driver::OtdRuntime,
         tosu::TosuRuntime,
     },
     infrastructure::{osu_api::OsuApi, storage::StateStore},
@@ -48,6 +51,7 @@ pub struct AppState {
     pub game_monitor: Arc<GameMonitorRuntime>,
     pub danser: Arc<DanserRuntime>,
     pub tosu: Arc<TosuRuntime>,
+    pub otd: Arc<OtdRuntime>,
     pub obs: Arc<ObsRuntime>,
 }
 
@@ -81,6 +85,7 @@ impl AppState {
             game_monitor: Arc::new(GameMonitorRuntime::default()),
             danser: Arc::new(DanserRuntime::default()),
             tosu: Arc::new(TosuRuntime::default()),
+            otd: Arc::new(OtdRuntime::default()),
             obs: Arc::new(ObsRuntime::default()),
         })
     }
