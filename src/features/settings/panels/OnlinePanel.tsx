@@ -2,6 +2,7 @@ import { FolderOpen, Volume2 } from "lucide-react";
 import { Card, SectionTitle, Button, Toggle } from "../../../shared/components/ui";
 import type { AppSettings, BeatmapDownloadProvider } from "../../../shared/types/osu";
 import { desktopApi } from "../../../shared/lib/tauri";
+import { OnlineSourceCredit } from "./OnlineSourceCredit";
 
 interface OnlinePanelProps {
   settings: AppSettings;
@@ -57,6 +58,8 @@ export function OnlinePanel({ settings, save, busy }: OnlinePanelProps) {
             下载失败时仍会自动尝试其他可用镜像；下载队列中可以临时切换，不会改动此默认值。
           </span>
         </label>
+
+        <OnlineSourceCredit />
 
         <div className="mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
           <p className="text-xs text-slate-500">当前默认位置</p>

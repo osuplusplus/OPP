@@ -13,8 +13,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMode } from "../../app/ModeContext";
-import { useNavigate } from "react-router-dom";
+import { GeneralPanel } from "./panels/GeneralPanel";
 import {
   Badge,
   Button,
@@ -28,7 +27,6 @@ import type {
   AppSettings,
   BeatmapDownloadProvider,
   OsuClient,
-  Ruleset,
   ThemeColor,
   DanserStatus,
   FfmpegStatusInfo,
@@ -44,6 +42,8 @@ import {
   COMMUNITY_GROUP_NUMBER,
 } from "../../shared/constants/community";
 import { requestManualUpdateCheck } from "../updates/events";
+import { SettingsLayout, type SettingsCategory } from "./SettingsLayout";
+import { OnlineSourceCredit } from "./panels/OnlineSourceCredit";
 
 const colors: Array<[ThemeColor, string, string]> = [
   ["cyan", "青色", "#67e8f9"],
@@ -54,17 +54,23 @@ const colors: Array<[ThemeColor, string, string]> = [
   ["green", "绿色", "#4ade80"],
 ];
 
-const modes: Array<[Ruleset, string]> = [
-  ["osu", "osu!"],
-  ["taiko", "Taiko"],
-  ["fruits", "Catch"],
-  ["mania", "Mania"],
-];
-
 const clients: Array<[OsuClient, string]> = [
   ["stable", "osu! Stable"],
   ["lazer", "osu!lazer"],
 ];
+
+const categoryMeta: Record<SettingsCategory, { title: string; description: string }> = {
+  general: { title: "常规", description: "设置游戏模式和客户端，修改后立即生效并自动保存。" },
+  logs: { title: "日志与诊断", description: "查看运行日志并排查 OPP 问题。" },
+  account: { title: "账户", description: "管理 osu! 账户连接和认证状态。" },
+  appearance: { title: "外观", description: "自定义界面主题和色彩。" },
+  online: { title: "在线谱面", description: "设置谱面下载、保存位置和音频试听。" },
+  directories: { title: "游戏目录", description: "管理 Stable 和 lazer 的本地资源目录。" },
+  replay: { title: "回放渲染", description: "配置 Danser、FFmpeg 和回放导出。" },
+  tools: { title: "工具与缓存", description: "管理相似谱面偏好和本地缓存。" },
+  similarity: { title: "相似谱面", description: "管理相似谱面的排序和结果偏好。" },
+  about: { title: "关于", description: "查看版本、更新和社区信息。" },
+};
 
 const base: AppSettings = {
   onboarding_version: 0,
@@ -137,11 +143,9 @@ function Toggle({
 }
 
 export function SettingsPage() {
-  const navigate = useNavigate();
   const stored = useSettings();
   const auth = useAuthStatus();
   const sources = useLocalSources();
-  const { ruleset, setRuleset } = useMode();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [accountBusy, setAccountBusy] = useState<"logout" | "reauth" | null>(null);
@@ -155,6 +159,7 @@ export function SettingsPage() {
   const [logDirectory, setLogDirectory] = useState<string | null>(null);
   const [logFiles, setLogFiles] = useState<LogFileInfo[]>([]);
   const [logError, setLogError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("general");
   const settings: AppSettings = {
     ...base,
     ...stored.data,
@@ -317,14 +322,19 @@ export function SettingsPage() {
   );
 
   const lightTheme = settings.theme_mode === "light";
+  const panelClass = (...categories: SettingsCategory[]) => categories.includes(activeCategory) ? "p-6" : "hidden";
+  const activeMeta = categoryMeta[activeCategory];
 
   return (
-    <div className="fixed inset-0 z-[70] overflow-y-auto bg-black/65 px-4 py-8 backdrop-blur-sm">
-      <div className="mx-auto max-w-6xl rounded-3xl border border-white/10 bg-[var(--surface)] p-6 shadow-2xl">
-      <div className="mb-5 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[var(--theme-primary)]">Application</p><h1 className="mt-1 text-2xl font-bold text-white">设置</h1><p className="mt-1 text-sm text-slate-400">管理主题、游戏来源和常用偏好。</p></div><Button aria-label="关闭设置" onClick={() => navigate(-1)} size="icon" variant="ghost">×</Button></div>
-      <div className="grid gap-5 xl:grid-cols-2">
-        <div className="space-y-5">
-          <Card className="p-6">
+    <SettingsLayout activeCategory={activeCategory} onCategoryChange={setActiveCategory}>
+      <div className="space-y-5">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[var(--theme-primary)]">Application</p>
+          <h2 className="mt-1 text-2xl font-bold text-white">{activeMeta.title}</h2>
+          <p className="mt-1 text-sm text-slate-400">{activeMeta.description}</p>
+        </div>
+          {activeCategory === "general" ? <GeneralPanel onConfigure={() => setActiveCategory("directories")} /> : null}
+          <Card className={panelClass("logs")}>
             <SectionTitle title="日志与诊断" description="OPP 会保留最近 5 次运行日志，内容已自动隐藏凭据和敏感参数。" />
             {logDirectory ? <p className="mt-4 break-all font-mono text-xs text-slate-400">{logDirectory}</p> : null}
             {logError ? <p className="mt-3 text-sm text-rose-200">{logError}</p> : null}
@@ -336,7 +346,7 @@ export function SettingsPage() {
             <div className="mt-4 space-y-2">{logFiles.map((file) => <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] px-3 py-2 text-xs" key={file.name}><button className="truncate text-left text-slate-300 hover:text-white" onClick={() => void desktopApi.openLogFile(file.name)} type="button">{file.name}</button><span className="shrink-0 text-slate-500">{(file.size_bytes / 1024).toFixed(1)} KB</span></div>)}</div>
           </Card>
 
-          <Card className="p-6">
+          <Card className={panelClass("account")}>
             <div className="flex justify-between">
               <SectionTitle title="账户" />
               <Badge tone={auth.data?.connected ? "success" : "warning"}>
@@ -358,7 +368,7 @@ export function SettingsPage() {
             {accountError ? <p className="mt-3 text-xs text-rose-200">{accountError}</p> : null}
           </Card>
 
-          <Card className="p-6">
+          <Card className={panelClass("appearance")}>
             <SectionTitle title="主题" />
             <div className="mt-5 flex items-center justify-between rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
               <div className="flex items-center gap-2">
@@ -376,27 +386,7 @@ export function SettingsPage() {
             <div className="mt-6">{palette()}</div>
           </Card>
 
-          <Card className="p-6">
-            <SectionTitle title="默认游戏模式" description="选择应用打开时优先使用的 osu! 游戏模式。" />
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              {modes.map(([value, label]) => {
-                const selected = ruleset === value;
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={`rounded-xl border px-3 py-3 text-sm font-semibold transition ${selected ? "border-[var(--theme-primary)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary-light)]" : "border-white/10 text-slate-200 hover:bg-white/[0.06]"}`}
-                    key={value}
-                    onClick={() => setRuleset(value)}
-                    type="button"
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-
-          <Card className="p-6">
+          <Card className={panelClass("online")}>
             <SectionTitle title="试听" description="适用于在线谱面和相似谱面结果的音频试听。" />
             <label className="mt-5 flex items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
               <Volume2 className="size-5 text-[var(--theme-primary)]" />
@@ -413,10 +403,8 @@ export function SettingsPage() {
               />
             </label>
           </Card>
-        </div>
 
-        <div className="space-y-5">
-          <Card className="p-6">
+          <Card className={panelClass("directories")}>
             <SectionTitle title="游戏目录" description="为 Stable 和 lazer 分别选择 osu! 安装或数据目录，保存后会重新建立本地资源索引。" />
             <div className="mt-5 space-y-3">
               {clients.map(([client, label]) => {
@@ -449,7 +437,7 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <Card className="p-6">
+          <Card className={panelClass("replay")}>
             <div className="flex items-start justify-between gap-4">
               <SectionTitle title="回放渲染" description="配置本地 Danser、统一视频导出位置和游戏结束后的新回放处理方式。" />
               <Badge tone={danserStatus?.available && danserStatus.ffmpeg_available ? "success" : "warning"}>
@@ -474,8 +462,8 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <Card className="p-6">
-            <SectionTitle title="工具与缓存" />
+          <Card className={panelClass("tools", "similarity")}>
+            <SectionTitle title={activeCategory === "similarity" ? "相似谱面偏好" : "工具与缓存"} />
             <div className="mt-5 space-y-3">
               <Toggle
                 checked={settings.similarity_preferences.advanced_enabled}
@@ -534,7 +522,7 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <Card className="p-6">
+          <Card className={panelClass("online")}>
             <SectionTitle
               title="谱面下载"
               description="设置在线谱面和相似谱面快捷下载使用的默认镜像与保存位置。"
@@ -559,6 +547,7 @@ export function SettingsPage() {
                 下载失败时仍会自动尝试其他可用镜像；下载队列中可以临时切换，不会改动此默认值。
               </span>
             </label>
+            <OnlineSourceCredit />
             <div className="mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
               <p className="text-xs text-slate-500">当前默认位置</p>
               <p className="mt-1 break-all text-sm text-slate-200">
@@ -594,7 +583,7 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <Card className="p-6">
+          <Card className={panelClass("about")}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <SectionTitle title="关于" />
@@ -623,8 +612,6 @@ export function SettingsPage() {
             </div>
           </Card>
       </div>
-      </div>
-      </div>
-      </div>
+    </SettingsLayout>
   );
 }

@@ -25,6 +25,11 @@ describe("similarity navigation", () => {
       .toEqual({ kind: "beatmap_id", beatmapId: "456", ruleset: "mania" });
   });
 
+  it("preserves a skill focus for training handoff", () => {
+    expect(parseSimilarityLaunch(new URLSearchParams("source=beatmap_id&value=123&focus_skill=reading")))
+      .toEqual({ kind: "beatmap_id", beatmapId: "123", ruleset: "osu", focusSkill: "reading" });
+  });
+
   it("creates and parses a local resource launch", () => {
     const route = similarityRouteForLocalResource("stable", "stable:beatmap:abc 123");
     expect(route).toBe("/online/similar?source=local_resource&client=stable&resource=stable%3Abeatmap%3Aabc+123&ruleset=osu");

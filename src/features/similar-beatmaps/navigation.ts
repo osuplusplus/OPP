@@ -1,8 +1,8 @@
-import type { AnySimilarityResult, OsuClient, Ruleset } from "../../shared/types/osu";
+import type { AnySimilarityResult, OsuClient, Ruleset, SkillDimension } from "../../shared/types/osu";
 
 export type SimilarityLaunch =
-  | { kind: "beatmap_id"; beatmapId: string; ruleset: Ruleset }
-  | { kind: "local_resource"; client: OsuClient; resourceId: string; ruleset: Ruleset };
+  | { kind: "beatmap_id"; beatmapId: string; ruleset: Ruleset; focusSkill?: SkillDimension }
+  | { kind: "local_resource"; client: OsuClient; resourceId: string; ruleset: Ruleset; focusSkill?: SkillDimension };
 
 export function similarityRouteForBeatmap(beatmapId: number, ruleset: Ruleset = "osu") {
   const params = new URLSearchParams({
@@ -50,7 +50,9 @@ export function parseSimilarityLaunch(searchParams: URLSearchParams): Similarity
   const source = searchParams.get("source");
   if (source === "beatmap_id") {
     const beatmapId = searchParams.get("value")?.trim();
-    return beatmapId && /^\d+$/.test(beatmapId) ? { kind: "beatmap_id", beatmapId, ruleset } : null;
+    const focus = searchParams.get("focus_skill");
+    const focusSkill = ["stamina", "tenacity", "agility", "accuracy", "precision", "reaction", "memory", "reading"].includes(focus ?? "") ? focus as SkillDimension : undefined;
+    return beatmapId && /^\d+$/.test(beatmapId) ? { kind: "beatmap_id", beatmapId, ruleset, focusSkill } : null;
   }
   if (source === "local_resource") {
     const client = searchParams.get("client");

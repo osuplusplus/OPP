@@ -13,6 +13,7 @@ const CareerPage = lazy(() => import("../features/profile/CareerPage").then((mod
 const ScoresPage = lazy(() => import("../features/scores/ScoresPage").then((module) => ({ default: module.ScoresPage })));
 const OnlineBeatmapsPage = lazy(() => import("../features/online-beatmaps/OnlineBeatmapsPage").then((module) => ({ default: module.OnlineBeatmapsPage })));
 const SimilarBeatmapsPage = lazy(() => import("../features/similar-beatmaps/SimilarBeatmapsPage").then((module) => ({ default: module.SimilarBeatmapsPage })));
+const SkillAnalysisPage = lazy(() => import("../features/skill-analysis/SkillAnalysisPage").then((module) => ({ default: module.SkillAnalysisPage })));
 const LocalAnalysisPage = lazy(() => import("../features/local-analysis/LocalAnalysisPage").then((module) => ({ default: module.LocalAnalysisPage })));
 const SkinWorkshopPage = lazy(() => import("../features/skin-workshop/SkinWorkshopPage").then((module) => ({ default: module.SkinWorkshopPage })));
 const LocalMediaPage = lazy(() => import("../features/local-media/LocalMediaPage").then((module) => ({ default: module.LocalMediaPage })));
@@ -68,6 +69,7 @@ export function AppRoutes() {
           <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/beatmaphub" element={<BeatmapHubPage />} />
           <Route path="/online/similar" element={<SimilarBeatmapsPage />} />
+          <Route path="/skill-analysis" element={<SkillAnalysisPage />} />
           <Route path="/trainer" element={<LegacyTrainerRedirect />} />
           <Route path="/view-trainer" element={<ViewTrainerPage />} />
           <Route path="/local" element={<Navigate replace to="/local/maps" />} />

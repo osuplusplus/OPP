@@ -1,10 +1,12 @@
 use std::{path::Path, sync::Arc};
 
+use super::models::{BackgroundSize, LocalBeatmapAudioPayload};
 use super::models::{
     BeatmapQuery, LocalBeatmapDetail, LocalBeatmapSetSummary, LocalBeatmapSummary, LocalClient,
     LocalIndexLoadStatus, LocalLibrarySummary, LocalScanProgress, LocalSkinAssetPayload,
     LocalSkinDetail, LocalSkinPreview, LocalSkinSummary, LocalSourceStatus, Page, SkinQuery,
 };
+use crate::domain::Ruleset;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::{
@@ -119,17 +121,63 @@ pub fn get_local_beatmap_path(
 pub async fn get_local_beatmap_background(
     client: LocalClient,
     resource_id: String,
+    size: Option<BackgroundSize>,
     state: State<'_, AppState>,
 ) -> CommandResult<Option<String>> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || service.beatmap_background(client, &resource_id))
+    tokio::task::spawn_blocking(move || {
+        let span = crate::infrastructure::logging::global()
+            .map(|log| log.operation("local_analysis", "get_local_beatmap_background"));
+        let result = match size.unwrap_or_default() {
+            BackgroundSize::Thumbnail => service.beatmap_background(client, &resource_id),
+            BackgroundSize::Stage => {
+                service.beatmap_background_sized(client, &resource_id, BackgroundSize::Stage)
+            }
+        };
+        crate::infrastructure::logging::finish_span(span, result)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "LOCAL_BACKGROUND_TASK_ERROR",
+            format!("谱面背景处理任务异常结束：{error}"),
+        )
+    })?
+}
+
+#[tauri::command(async)]
+pub fn get_local_beatmap_set(
+    client: LocalClient,
+    set_key: String,
+    ruleset: Ruleset,
+    state: State<'_, AppState>,
+) -> CommandResult<LocalBeatmapSetSummary> {
+    state
+        .local_analysis
+        .complete_beatmap_set(client, &set_key, ruleset)
+}
+
+#[tauri::command(async)]
+pub fn pick_random_local_beatmap_set(
+    query: BeatmapQuery,
+    exclude_set_key: Option<String>,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<LocalBeatmapSetSummary>> {
+    state
+        .local_analysis
+        .random_beatmap_set(query, exclude_set_key.as_deref())
+}
+
+#[tauri::command]
+pub async fn get_local_beatmap_audio(
+    client: LocalClient,
+    resource_id: String,
+    state: State<'_, AppState>,
+) -> CommandResult<LocalBeatmapAudioPayload> {
+    let service = Arc::clone(&state.local_analysis);
+    tokio::task::spawn_blocking(move || service.beatmap_audio(client, &resource_id))
         .await
-        .map_err(|error| {
-            CommandError::new(
-                "LOCAL_BACKGROUND_TASK_ERROR",
-                format!("谱面背景处理任务异常结束：{error}"),
-            )
-        })?
+        .map_err(|e| CommandError::new("LOCAL_AUDIO_TASK_ERROR", e.to_string()))?
 }
 
 #[tauri::command]

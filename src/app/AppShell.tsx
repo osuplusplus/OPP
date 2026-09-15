@@ -7,7 +7,6 @@ import { authQueryKey } from "../features/auth/api";
 import { useOwnProfile } from "../features/profile/api";
 import { useMode } from "./ModeContext";
 import { Sidebar } from "./Sidebar";
-import { GlobalContextBar } from "./GlobalContextBar";
 import { desktopApi } from "../shared/lib/tauri";
 import type { GameSessionSummary } from "../shared/types/osu";
 import { dateTime, fullNumber, percent } from "../shared/lib/format";
@@ -182,9 +181,9 @@ function CollectionTaskToast() {
     }
   };
 
-  if (collapsed) return <button className="fixed right-6 top-[124px] z-[210] flex items-center gap-2 rounded-xl border border-cyan-300/20 bg-[#0b101b]/95 px-4 py-3 text-sm text-cyan-100 shadow-2xl backdrop-blur" onClick={() => setCollapsed(false)} type="button">{terminal ? status.phase === "completed" ? <CheckCircle2 className="size-4 text-emerald-300" /> : <AlertTriangle className="size-4 text-amber-300" /> : <Loader2 className="size-4 animate-spin" />}<span>{labels[status.phase]}</span><ChevronDown className="size-4 text-slate-500" /></button>;
+  if (collapsed) return <button className="fixed right-6 top-[calc(var(--titlebar-height)+16px)] z-[210] flex items-center gap-2 rounded-xl border border-cyan-300/20 bg-[#0b101b]/95 px-4 py-3 text-sm text-cyan-100 shadow-2xl backdrop-blur" onClick={() => setCollapsed(false)} type="button">{terminal ? status.phase === "completed" ? <CheckCircle2 className="size-4 text-emerald-300" /> : <AlertTriangle className="size-4 text-amber-300" /> : <Loader2 className="size-4 animate-spin" />}<span>{labels[status.phase]}</span><ChevronDown className="size-4 text-slate-500" /></button>;
 
-  return <section aria-live="polite" className="fixed right-6 top-[124px] z-[210] w-[390px] overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#0b101b]/95 shadow-2xl backdrop-blur"><div className="flex items-start gap-3 border-b border-white/[0.08] p-4"><span className="mt-0.5">{terminal ? status.phase === "completed" ? <CheckCircle2 className="size-5 text-emerald-300" /> : <AlertTriangle className="size-5 text-amber-300" /> : <Loader2 className="size-5 animate-spin text-cyan-300" />}</span><div className="min-w-0 flex-1"><h2 className="text-sm font-semibold text-white">{labels[status.phase]}</h2><p className="mt-1 text-xs text-slate-500">后台执行中，可以自由切换到其他页面</p></div><button aria-label="最小化同步进度" className="text-slate-500 hover:text-white" onClick={() => setCollapsed(true)} type="button"><ChevronUp className="size-4" /></button>{terminal ? <button aria-label="关闭同步进度" className="text-slate-500 hover:text-white" onClick={() => setStatus(null)} type="button"><X className="size-4" /></button> : null}</div><div className="space-y-3 p-4"><p className="text-sm leading-5 text-slate-300">{status.message}</p>{status.total ? <><div className="h-2 overflow-hidden rounded-full bg-white/[0.08]"><div className={`h-full rounded-full transition-[width] ${status.phase === "failed" ? "bg-rose-400" : "bg-[var(--theme-primary)]"}`} style={{ width: `${percent}%` }} /></div><div className="flex justify-between font-mono text-xs text-slate-500"><span>{status.processed}/{status.total}</span><span>{percent.toFixed(0)}%</span></div></> : null}{status.errors.length ? <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-300/15 bg-rose-300/[0.05] p-3"><p className="mb-2 text-xs font-semibold text-rose-200">错误信息</p>{status.errors.map((error, index) => <p className="mt-1 text-xs leading-5 text-rose-100/80" key={`${error}-${index}`}>{error}</p>)}</div> : null}{!terminal ? <Button disabled={cancelling} onClick={() => void cancelTask()} size="sm" variant="ghost"><X className="size-3.5" />{cancelling ? "正在取消…" : "取消任务"}</Button> : null}</div></section>;
+  return <section aria-live="polite" className="fixed right-6 top-[calc(var(--titlebar-height)+16px)] z-[210] w-[390px] overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#0b101b]/95 shadow-2xl backdrop-blur"><div className="flex items-start gap-3 border-b border-white/[0.08] p-4"><span className="mt-0.5">{terminal ? status.phase === "completed" ? <CheckCircle2 className="size-5 text-emerald-300" /> : <AlertTriangle className="size-5 text-amber-300" /> : <Loader2 className="size-5 animate-spin text-cyan-300" />}</span><div className="min-w-0 flex-1"><h2 className="text-sm font-semibold text-white">{labels[status.phase]}</h2><p className="mt-1 text-xs text-slate-500">后台执行中，可以自由切换到其他页面</p></div><button aria-label="最小化同步进度" className="text-slate-500 hover:text-white" onClick={() => setCollapsed(true)} type="button"><ChevronUp className="size-4" /></button>{terminal ? <button aria-label="关闭同步进度" className="text-slate-500 hover:text-white" onClick={() => setStatus(null)} type="button"><X className="size-4" /></button> : null}</div><div className="space-y-3 p-4"><p className="text-sm leading-5 text-slate-300">{status.message}</p>{status.total ? <><div className="h-2 overflow-hidden rounded-full bg-white/[0.08]"><div className={`h-full rounded-full transition-[width] ${status.phase === "failed" ? "bg-rose-400" : "bg-[var(--theme-primary)]"}`} style={{ width: `${percent}%` }} /></div><div className="flex justify-between font-mono text-xs text-slate-500"><span>{status.processed}/{status.total}</span><span>{percent.toFixed(0)}%</span></div></> : null}{status.errors.length ? <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-300/15 bg-rose-300/[0.05] p-3"><p className="mb-2 text-xs font-semibold text-rose-200">错误信息</p>{status.errors.map((error, index) => <p className="mt-1 text-xs leading-5 text-rose-100/80" key={`${error}-${index}`}>{error}</p>)}</div> : null}{!terminal ? <Button disabled={cancelling} onClick={() => void cancelTask()} size="sm" variant="ghost"><X className="size-3.5" />{cancelling ? "正在取消…" : "取消任务"}</Button> : null}</div></section>;
 }
 
 function DownloadCompletedPlaylist() {
@@ -431,10 +430,9 @@ export function AppShell() {
         loading={profileQuery.isLoading}
         profile={profileQuery.data?.data}
       />
-      <GlobalContextBar />
-      <main className="ml-[var(--sidebar-width)] min-h-screen pt-[108px]" id="main-content" tabIndex={-1}>
-        <div className="relative min-h-[calc(100vh-108px)] overflow-x-auto">
-        <div className="theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9" data-page-guide-content="true">
+      <main className="ml-[var(--sidebar-width)] min-h-screen pt-[var(--titlebar-height)]" id="main-content" tabIndex={-1}>
+        <div className="relative min-h-[calc(100vh-var(--titlebar-height))] overflow-x-auto">
+        <div className={["/local/maps", "/online/beatmaps"].includes(location.pathname) ? "theme-content-frame local-stage-frame relative" : "theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9"} data-page-guide-content="true">
             <Outlet />
           </div>
         </div>
@@ -468,7 +466,7 @@ export function AppShell() {
           steps={pageGuide.steps}
         />
       ) : null}
-      <DownloadToast />
+      {location.pathname !== "/online/beatmaps" ? <DownloadToast /> : null}
       <CollectionTaskToast />
       <DownloadCompletedPlaylist />
       <CollectionAddDialog defaultCreator={profileQuery.data?.data.username ?? ""} />

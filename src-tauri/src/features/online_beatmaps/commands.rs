@@ -134,6 +134,15 @@ pub async fn get_online_beatmapset(
 }
 
 #[tauri::command]
+/// 读取当前谱面集的原始背景。结果会持久缓存，只为舞台上已稳定选中的谱面请求远端。
+pub async fn get_online_beatmap_background(
+    beatmapset_id: u64,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<String>> {
+    state.online_artwork.load_or_fetch(beatmapset_id).await
+}
+
+#[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_online_beatmap(

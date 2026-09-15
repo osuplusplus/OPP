@@ -31,6 +31,11 @@ export const onboardingSteps: OnboardingStep[] = [
     target: '[data-onboarding="similar-beatmaps"]',
   },
   {
+    title: "技能分析",
+    description: "分析最佳成绩中的八项能力，识别优势与短板，并把成绩直接带入相似谱面和练习生成器。",
+    target: '[data-onboarding="skill-analysis"]',
+  },
+  {
     title: "谱面练习生成器",
     description: "调整速度、AR、OD、CS、HP、BPM 或时间范围，生成独立的训练副本；原谱面不会被修改。",
     target: '[data-onboarding="trainer"]',
@@ -51,23 +56,18 @@ export const onboardingSteps: OnboardingStep[] = [
     target: '[data-onboarding="replay-render"]',
   },
   {
-    title: "tosu 直播集成",
-    description: "管理 tosu、连接 OBS WebSocket、刷新浏览器源，并配置可用于直播画面的实时歌词。",
-    target: '[data-onboarding="tosu"]',
-  },
-  {
     title: "工具集合",
-    description: "这里包含手速测试、.osz/.osk 默认打开端、显示器伽马调整和 Malody 谱面转换等实用工具。",
+    description: "这里包含手速测试、.osz/.osk 默认打开端、显示器伽马调整、Malody 谱面转换，以及 tosu 直播和 OBS 集成。",
     target: '[data-onboarding="tools"]',
   },
   {
     title: "模式与客户端",
-    description: "切换 osu!、Taiko、Catch 或 Mania 会同步影响资料和搜索结果；旁边可以选择当前使用的 Stable 或 Lazer 客户端。",
-    target: '[data-onboarding="mode-and-client"]',
+    description: "打开“设置 → 常规”切换 osu!、Taiko、Catch 或 Mania，以及 Stable／Lazer 客户端。选择会立即应用并自动保存。",
+    target: '[data-onboarding="settings"]',
   },
   {
     title: "启动 osu!",
-    description: "从这里选择 Stable 或 Lazer 并启动游戏。OPP 可以检测游戏会话，并在结束后汇总本次数据变化。",
+    description: "这里集中显示游戏运行状态。点击主按钮启动设置中选择的客户端，右侧箭头可启动另一客户端；游戏结束后可查看本次数据变化。",
     target: '[data-onboarding="start-game"]',
   },
   {

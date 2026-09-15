@@ -147,6 +147,7 @@ function StandardSimilarBeatmapsPage() {
   const [recommendationHistory, setRecommendationHistory] = useState<RecommendationHistoryEntry[]>(
     () => getTodayRecommendationHistory("osu"),
   );
+  const [focusSkill, setFocusSkill] = useState<string | null>(null);
   const [selectedResultId, setSelectedResultId] = useState<number | null>(
     () => standardSimilaritySession?.selectedResultId ?? null,
   );
@@ -307,6 +308,7 @@ function StandardSimilarBeatmapsPage() {
         weighting: launchWeighting,
       };
       setRequest(nextRequest);
+      setFocusSkill(launch.focusSkill ?? null);
       setResponse(null);
       setRecommendationResponse(null);
       setSelectedResultId(null);
@@ -698,6 +700,7 @@ function StandardSimilarBeatmapsPage() {
             </div>
           </Card>
 
+          {focusSkill ? <Card className="mb-5 border-pink-300/20 bg-pink-300/[.05] p-4"><p className="text-xs text-pink-100">技能分析训练目标：{({ stamina: "耐力", tenacity: "连打", agility: "机动", accuracy: "准确", precision: "精度", reaction: "反应", memory: "记忆", reading: "读图" } as Record<string, string>)[focusSkill] ?? focusSkill}</p><p className="mt-1 text-[11px] text-slate-400">当前相似谱面结果会作为该能力的练习候选。</p></Card> : null}
           <Card className="mb-5 p-5">
           <div className="mb-5 border-b border-white/[0.07] pb-5">
             <div className="mb-3">

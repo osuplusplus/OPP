@@ -16,12 +16,17 @@ const mocks = vi.hoisted(() => ({
   getLocalSources: vi.fn(),
   getLocalSummary: vi.fn(),
   queryLocalBeatmapSets: vi.fn(),
+  pickRandomLocalBeatmapSet: vi.fn(),
+  getLocalBeatmapSet: vi.fn(),
+  getLocalIndexStatus: vi.fn(),
   queryLocalSkins: vi.fn(),
   getLocalSkinDetail: vi.fn(),
   getLocalSkinPreview: vi.fn(),
   getLocalSkinAsset: vi.fn(),
   onLocalScanProgress: vi.fn(async () => () => undefined),
 }));
+
+vi.mock("../settings/api", () => ({ useSettings: () => ({ data: { preview_volume: 65 } }) }));
 
 vi.mock("../../shared/lib/tauri", () => ({
   desktopApi: {
@@ -108,6 +113,9 @@ describe("LocalAnalysisPage", () => {
     localStorage.clear();
     vi.clearAllMocks();
     mocks.getLocalSources.mockResolvedValue([source("stable"), source("lazer")]);
+    mocks.getLocalIndexStatus.mockResolvedValue({ phase: "ready", clients: {} });
+    mocks.pickRandomLocalBeatmapSet.mockImplementation(async (query) => (await mocks.queryLocalBeatmapSets(query)).items[0] ?? null);
+    mocks.getLocalBeatmapSet.mockImplementation(async () => (await mocks.queryLocalBeatmapSets({})).items[0]);
     mocks.queryLocalBeatmapSets.mockResolvedValue({
       items: [],
       total: 0,
@@ -140,7 +148,7 @@ describe("LocalAnalysisPage", () => {
         client: "stable",
         rulesets: ["osu"],
         offset: 0,
-        limit: 40,
+        limit: 20,
       }),
     );
   });

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
+  X,
   ChevronDown,
   ChevronUp,
   Database,
@@ -22,11 +24,12 @@ import {
   EmptyState,
   Skeleton,
 } from "../../shared/components/ui";
-import { dateTime, fixedNumber, fullNumber } from "../../shared/lib/format";
+import { dateTime, errorMessage, fixedNumber, fullNumber } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CommandError,
   LocalLibrarySummary,
+  LocalIndexClientStatus,
   LocalScanProgress,
   LocalSourceStatus,
 } from "../../shared/types/osu";
@@ -76,6 +79,7 @@ function SourceBar({
   section,
   source,
   summary,
+  indexStatus,
 }: {
   action: string | null;
   onCancel: () => void;
@@ -87,6 +91,7 @@ function SourceBar({
   section: LocalSection;
   source: LocalSourceStatus | undefined;
   summary: LocalLibrarySummary | null | undefined;
+  indexStatus: LocalIndexClientStatus | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (!source) return <Skeleton className="mb-4 h-20" />;
@@ -98,6 +103,15 @@ function SourceBar({
   const secondaryCount =
     section === "maps" ? summary?.beatmap_count : summary?.source_file_count;
   const progressPercent = fixedNumber(progress?.percent, 1);
+  const indexLabel = indexStatus?.phase === "scanning"
+    ? "后台更新中"
+    : indexStatus?.phase === "pending"
+      ? "检测到变更"
+      : indexStatus?.phase === "error"
+        ? "监听异常"
+        : indexStatus?.phase === "watching"
+          ? "自动监听"
+          : null;
 
   return (
     <Card className="mb-4 overflow-hidden">
@@ -123,6 +137,7 @@ function SourceBar({
                 {summary.calculation.engine} {summary.calculation.engine_version}
               </Badge>
             ) : null}
+            {indexLabel ? <Badge tone={indexStatus?.phase === "error" ? "warning" : indexStatus?.phase === "pending" ? "cyan" : "success"}>{indexLabel}{indexStatus?.phase === "pending" && indexStatus.pending_changes > 1 ? ` · ${indexStatus.pending_changes}` : ""}</Badge> : null}
           </div>
           <p className="mt-1 truncate font-mono text-[10px] text-slate-600">
             {source.data_root ?? "尚未解析数据目录"}
@@ -150,7 +165,7 @@ function SourceBar({
           </div>
         ) : null}
 
-        {scanning ? (
+        {scanning || indexStatus?.phase === "scanning" ? (
           <Button onClick={onCancel} size="sm" variant="danger">
             <Ban className="size-3.5" />
             取消
@@ -177,7 +192,7 @@ function SourceBar({
         </Button>
       </div>
 
-      {scanning && progress ? (
+      {(scanning || indexStatus?.phase === "scanning") && progress ? (
         <div className="border-t border-white/[0.055] bg-black/10 px-4 py-3">
           <div className="mb-2 flex items-center justify-between text-[10px]">
             <span className="text-slate-400">
@@ -262,6 +277,11 @@ function SourceBar({
           {action ?? source.validation_errors[0]}
         </div>
       ) : null}
+      {indexStatus && (indexStatus.added || indexStatus.modified || indexStatus.removed) ? (
+        <p className="border-t border-white/[0.055] px-4 py-2 text-[10px] text-slate-500">
+          上次增量更新：新增 {indexStatus.added} · 修改 {indexStatus.modified} · 删除 {indexStatus.removed} · 复用 {indexStatus.reused}
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -274,28 +294,35 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
   const summaryQuery = useLocalSummary(client);
   const source = sourcesQuery.data?.find((item) => item.client === client);
   const summary = summaryQuery.data;
+  const clientIndexStatus = indexStatusQuery.data?.clients?.[client];
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<LocalScanProgress | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedBeatmap, setSelectedBeatmap] = useState<string | null>(null);
 
   useEffect(() => {
-    if (indexStatusQuery.data?.phase === "ready") {
+    if (indexStatusQuery.data?.phase === "ready" || clientIndexStatus?.last_scan_at) {
       void queryClient.invalidateQueries({ queryKey: localSummaryKey(client) });
       void queryClient.invalidateQueries({ queryKey: localSourcesKey });
+      if (section === "maps") {
+        void queryClient.invalidateQueries({ queryKey: ["local-beatmap-sets"], refetchType: "active" });
+        void queryClient.invalidateQueries({ queryKey: ["local-beatmap-background"], refetchType: "active" });
+      }
     }
-  }, [client, indexStatusQuery.data?.phase, queryClient]);
+  }, [client, clientIndexStatus?.last_scan_at, indexStatusQuery.data?.phase, queryClient, section]);
 
   useEffect(() => {
     let unlisten: () => void = () => undefined;
+    let active = true;
     desktopApi
       .onLocalScanProgress((event) => {
         if (event.client === client) setProgress(event);
       })
       .then((dispose) => {
-        unlisten = dispose;
-      });
-    return () => unlisten();
+        if (active) unlisten = dispose;
+        else dispose();
+      }).catch((error) => { if (active) setActionError(errorMessage(error)); });
+    return () => { active = false; unlisten(); };
   }, [client]);
 
   const invalidateLocal = async () => {
@@ -365,29 +392,7 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
     }
   };
 
-  return (
-    <>
-      <PageHeader
-        description={
-          section === "maps"
-            ? "按谱面集浏览本机难度与结构"
-            : "浏览 Skin 配置、图像与音效资源"
-        }
-        eyebrow="Local library"
-        title={section === "maps" ? "本地谱面" : "本地皮肤"}
-      />
-
-      {indexStatusQuery.data?.phase === "loading" ? (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.05] px-4 py-3 text-sm text-cyan-100">
-          <RefreshCw className="size-4 animate-spin" />正在后台加载本地索引，窗口可继续使用…
-        </div>
-      ) : indexStatusQuery.data?.phase === "error" ? (
-        <div className="mb-4 rounded-xl border border-amber-300/10 bg-amber-300/[0.05] px-4 py-3 text-sm text-amber-100">
-          本地索引加载失败：{indexStatusQuery.data.error ?? "未知错误"}。可重新扫描以重建索引。
-        </div>
-      ) : null}
-
-      {sourcesQuery.error ? (
+  const sourceControl = (sourcesQuery.error ? (
         <ErrorPanel error={sourcesQuery.error} onRetry={() => sourcesQuery.refetch()} />
       ) : (
         <SourceBar
@@ -401,8 +406,43 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
           section={section}
           source={source}
           summary={summary}
+          indexStatus={clientIndexStatus}
         />
-      )}
+      ));
+  const libraryMessage = actionError
+    ?? (sourcesQuery.error ? errorMessage(sourcesQuery.error) : null)
+    ?? (indexStatusQuery.data?.phase === "error" ? `本地索引加载失败：${indexStatusQuery.data.error ?? "请重新扫描"}` : null)
+    ?? (indexStatusQuery.data?.phase === "loading" ? "正在后台加载本地索引…" : null)
+    ?? (clientIndexStatus?.phase === "error" ? "索引监听异常，请打开谱库管理检查" : null)
+    ?? (scanning || clientIndexStatus?.phase === "scanning" ? progress ? `${phaseLabels[progress.phase]} · ${fixedNumber(progress.percent, 1)}%` : "正在更新谱库…" : null);
+  const libraryControl = <Dialog.Root>
+    <Dialog.Trigger asChild><button type="button" className="local-stage-button local-library-trigger"><Database className="size-4" /><span>谱库管理<small>{client === "stable" ? "Stable" : "Lazer"} · {fullNumber(summary?.beatmap_set_count ?? 0)} sets</small></span></button></Dialog.Trigger>
+    <Dialog.Portal><Dialog.Overlay className="local-library-overlay" /><Dialog.Content className="local-library-dialog">
+      <Dialog.Title>谱库管理</Dialog.Title><Dialog.Description>管理本地目录、扫描进度与索引状态。</Dialog.Description>
+      <Dialog.Close aria-label="关闭谱库管理" className="local-library-dialog-close"><X className="size-4" /></Dialog.Close>
+      {sourceControl}
+    </Dialog.Content></Dialog.Portal>
+  </Dialog.Root>;
+
+  return (
+    <>
+      {section !== "maps" ? <PageHeader
+        description="浏览 Skin 配置、图像与音效资源"
+        eyebrow="Local library"
+        title="本地皮肤"
+      /> : null}
+
+      {indexStatusQuery.data?.phase === "loading" && (section !== "maps" || !summary) ? (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.05] px-4 py-3 text-sm text-cyan-100">
+          <RefreshCw className="size-4 animate-spin" />正在后台加载本地索引，窗口可继续使用…
+        </div>
+      ) : indexStatusQuery.data?.phase === "error" && (section !== "maps" || !summary) ? (
+        <div className="mb-4 rounded-xl border border-amber-300/10 bg-amber-300/[0.05] px-4 py-3 text-sm text-amber-100">
+          本地索引加载失败：{indexStatusQuery.data.error ?? "未知错误"}。可重新扫描以重建索引。
+        </div>
+      ) : null}
+
+      {section !== "maps" || !summary ? <div className={section === "maps" ? "local-library-empty" : undefined}>{sourceControl}</div> : null}
 
       {summaryQuery.isLoading ? (
         <Skeleton className="h-96" />
@@ -429,12 +469,19 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
       ) : section === "maps" ? (
         <BeatmapSetPanel
           client={client}
+          libraryControl={libraryControl}
+          libraryRevision={summary.scanned_at}
           onOpen={setSelectedBeatmap}
           ruleset={ruleset}
         />
       ) : (
         <SkinPanel client={client} />
       )}
+
+      {section === "maps" && summary && libraryMessage ? <div className="local-library-progress" role="status">
+        <span>{libraryMessage}</span>
+        {scanning || clientIndexStatus?.phase === "scanning" ? <button type="button" onClick={() => void cancel()}>取消扫描</button> : null}
+      </div> : null}
 
       {section === "maps" ? (
         <BeatmapDetailDrawer

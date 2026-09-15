@@ -17,7 +17,7 @@ use crate::{
         game_session::{GameMonitorRuntime, GameSessionRuntime},
         local_analysis::LocalAnalysisService,
         obs::ObsRuntime,
-        online_beatmaps::providers::ProviderRegistry,
+        online_beatmaps::{OnlineArtworkCache, providers::ProviderRegistry},
         similarity::SimilarityRuntime,
         skin_workshop::SkinWorkshopService,
         tablet_driver::OtdRuntime,
@@ -35,6 +35,7 @@ pub struct OAuthRuntime {
 pub struct AppState {
     pub api: OsuApi,
     pub providers: ProviderRegistry,
+    pub online_artwork: OnlineArtworkCache,
     pub avatar_cache: AvatarCache,
     pub credentials: CredentialStore,
     pub local_analysis: Arc<LocalAnalysisService>,
@@ -69,6 +70,7 @@ impl AppState {
         Ok(Self {
             api: OsuApi::new()?,
             providers: ProviderRegistry::new()?,
+            online_artwork: OnlineArtworkCache::new(app_data_dir)?,
             avatar_cache: AvatarCache::new(app_data_dir)?,
             credentials: CredentialStore,
             local_analysis,

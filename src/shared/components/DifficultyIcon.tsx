@@ -1,5 +1,6 @@
 import type { Ruleset } from "../types/osu";
 import { cn } from "../lib/cn";
+import type { CSSProperties } from "react";
 
 const iconModes: Record<Ruleset, "std" | "taiko" | "ctb" | "mania"> = {
   osu: "std",
@@ -23,11 +24,13 @@ export function DifficultyIcon({
   mode = "osu",
   showValue = true,
   className,
+  style,
 }: {
   stars: number | null | undefined;
   mode?: Ruleset;
   showValue?: boolean;
   className?: string;
+  style?: CSSProperties & Record<`--${string}`, string | number>;
 }) {
   const validStars = typeof stars === "number" && Number.isFinite(stars);
 
@@ -38,6 +41,7 @@ export function DifficultyIcon({
         className,
       )}
       title={validStars ? `${stars.toFixed(2)} stars` : "Star rating unavailable"}
+      style={style}
     >
       {validStars ? (
         <img

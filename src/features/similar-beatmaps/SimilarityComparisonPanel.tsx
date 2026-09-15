@@ -104,7 +104,7 @@ function StandardComparison({
   onOpen: () => void;
 }) {
   return (
-    <aside className="sticky top-[120px] self-start">
+    <aside className="sticky top-[calc(var(--titlebar-height)+12px)] self-start">
       <Card className="similarity-comparison-panel min-h-[520px] resize-y overflow-hidden p-5">
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">特征对比</span>
         <h2 className="mt-2 text-base font-semibold text-white">{selected.version}</h2>
@@ -144,7 +144,7 @@ function ManiaComparison({
   const targetSkillProfile = maniaSkillProfile(target.difficulty);
   const selectedSkillProfile = maniaSkillProfile(selected.difficulty);
   return (
-    <aside className="sticky top-[120px] self-start">
+    <aside className="sticky top-[calc(var(--titlebar-height)+12px)] self-start">
       <Card className="similarity-comparison-panel max-h-[calc(100vh-140px)] overflow-y-auto p-5">
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">Mania 特征对比</span>
         <h2 className="mt-2 text-base font-semibold text-white">{selected.key_count}K · {selected.game_mod} · {selected.version}</h2>

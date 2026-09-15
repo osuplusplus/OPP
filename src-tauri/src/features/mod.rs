@@ -13,6 +13,7 @@ pub(crate) mod online_beatmaps;
 pub(crate) mod osekai;
 pub(crate) mod replay_render;
 pub(crate) mod similarity;
+pub(crate) mod skill_analysis;
 pub(crate) mod skin_workshop;
 pub(crate) mod tablet_driver;
 pub(crate) mod tosu;

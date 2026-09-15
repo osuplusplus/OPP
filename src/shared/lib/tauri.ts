@@ -106,6 +106,8 @@ import type {
   OtdStatus,
   PlatformCapabilities,
   NewReplaysDetected,
+  SkillAnalysisRequest,
+  SkillAnalysisResult,
 } from "../types/osu";
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -208,6 +210,18 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_osekai_medal_detail") return { content: [{ Medal_ID: Number(args?.medalId ?? 1), Name: "Preview Medal", Description: "完成一次练习", Instructions: "在 osu! 中完成目标。", Solution: "完成目标即可解锁。", Link: "all-secret-jackpot.png" }] } as T;
   if (command === "get_osekai_medal_beatmaps") return { content: [] } as T;
   if (command === "get_scores") return { data: [], fetched_at: new Date().toISOString(), stale: false } as T;
+  if (command === "get_online_beatmap_background") return null as T;
+  if (command === "analyze_player_skills") return {
+    player: { id: 10001, username: "Preview User", country_code: "CN", avatar_url: "https://a.ppy.sh/10001", avatar_data_url: null },
+    ruleset: "osu",
+    algorithm: { id: "opp-osuskills-standard", version: "1", source: "Public osuSkills model, clean Rust implementation" },
+    skills: { stamina: 286, tenacity: 241, agility: 318, accuracy: 274, precision: 302, reaction: 219, memory: 96, reading: 337 },
+    contributions: [1, 2, 3].map((id, index) => ({
+      beatmap_id: 1000 + id, title: ["Signal Garden", "Night Circuit", "Blue Window"][index], artist: "Preview Artist", version: "Insane", creator: "Preview Mapper", mods: index === 1 ? ["HD", "DT"] : [], pp: 320 - index * 24, accuracy: 98.4 - index * 0.4, combo: 850 - index * 60, max_combo: 902, misses: index, source: index === 2 ? "online" : "local", resource_id: index === 2 ? null : `stable:beatmap:preview-${id}`, skills: { stamina: 260 + index * 8, tenacity: 220 + index * 12, agility: 310 - index * 14, accuracy: 280, precision: 300 - index * 9, reaction: 215 + index * 8, memory: index * 12, reading: 330 - index * 10 }, weighted_skills: { stamina: 250 + index * 5, tenacity: 210 + index * 10, agility: 295 - index * 12, accuracy: 280, precision: 288 - index * 8, reaction: 205 + index * 8, memory: index * 10, reading: 315 - index * 9 }, error: null,
+    })),
+    coverage: { requested_scores: 200, analyzed_scores: 184, local_scores: 156, online_scores: 28, skipped_scores: 16, skipped_reasons: ["部分谱面暂时不可用"] },
+    fetched_at: new Date().toISOString(), stale: false,
+  } as T;
   if (command === "get_game_status") return { clients: [{ client: "stable", running: false, executable: null, detected_at: new Date().toISOString() }, { client: "lazer", running: false, executable: null, detected_at: new Date().toISOString() }] } as T;
   if (command === "get_game_session_status") return null as T;
   if (command === "get_local_sources") return [] as T;
@@ -374,6 +388,8 @@ export const desktopApi = {
       limit,
       forceRefresh,
     }),
+  analyzePlayerSkills: (request: SkillAnalysisRequest) =>
+    call<SkillAnalysisResult>("analyze_player_skills", { request }),
   searchOnlineBeatmapsets: (query: OnlineBeatmapSearchQuery) =>
     call<OnlineBeatmapSearchResponse>("search_online_beatmapsets", { query }),
   collectOnlineBeatmapsets: (
@@ -383,6 +399,8 @@ export const desktopApi = {
     call<CollectedBeatmapsets>("collect_online_beatmapsets", { query, limit }),
   getOnlineBeatmapset: (beatmapsetId: number) =>
     call<OnlineBeatmapset>("get_online_beatmapset", { beatmapsetId }),
+  getOnlineBeatmapBackground: (beatmapsetId: number) =>
+    call<string | null>("get_online_beatmap_background", { beatmapsetId }),
   getOnlineBeatmap: (beatmapId: number) =>
     call<Record<string, unknown>>("get_online_beatmap", { beatmapId }),
   getOnlineBeatmapProviderStatus: () =>
@@ -526,6 +544,12 @@ export const desktopApi = {
     call<Page<LocalBeatmapSummary>>("query_local_beatmaps", { query }),
   queryLocalBeatmapSets: (query: BeatmapQuery) =>
     call<Page<LocalBeatmapSetSummary>>("query_local_beatmap_sets", { query }),
+  getLocalBeatmapSet: (client: OsuClient, setKey: string, ruleset: Ruleset) =>
+    call<LocalBeatmapSetSummary>("get_local_beatmap_set", { client, setKey, ruleset }),
+  pickRandomLocalBeatmapSet: (query: BeatmapQuery, excludeSetKey: string | null = null) =>
+    call<LocalBeatmapSetSummary | null>("pick_random_local_beatmap_set", { query, excludeSetKey }),
+  getLocalBeatmapAudio: (client: OsuClient, resourceId: string) =>
+    call<import("../types/osu").LocalBeatmapAudioPayload>("get_local_beatmap_audio", { client, resourceId }),
   getLocalBeatmapDetail: (client: OsuClient, resourceId: string) =>
     call<LocalBeatmapDetail>("get_local_beatmap_detail", {
       client,
@@ -533,10 +557,11 @@ export const desktopApi = {
     }),
   getLocalBeatmapPath: (client: OsuClient, resourceId: string) =>
     call<string>("get_local_beatmap_path", { client, resourceId }),
-  getLocalBeatmapBackground: (client: OsuClient, resourceId: string) =>
+  getLocalBeatmapBackground: (client: OsuClient, resourceId: string, size: "thumbnail" | "stage" = "thumbnail") =>
     call<string | null>("get_local_beatmap_background", {
       client,
       resourceId,
+      size,
     }),
   queryLocalSkins: (query: SkinQuery) =>
     call<Page<LocalSkinSummary>>("query_local_skins", { query }),

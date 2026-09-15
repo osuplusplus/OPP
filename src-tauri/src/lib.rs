@@ -48,6 +48,7 @@ pub fn run() {
             let state = app.state::<AppState>();
             let local_analysis = state.local_analysis.clone();
             tauri::async_runtime::spawn_blocking(move || local_analysis.load_cached_indexes());
+            state.local_analysis.start_watchers(app.handle().clone());
             let beatmaphub = state.beatmaphub.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = beatmaphub.recommendations(20, true).await;

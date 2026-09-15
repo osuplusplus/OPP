@@ -1,99 +1,130 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { LocalBeatmapSetSummary, LocalBeatmapSummary } from "../../shared/types/osu";
-import { useLocalBeatmapBackground, useLocalBeatmapSets } from "./api";
+import { desktopApi } from "../../shared/lib/tauri";
 import { BeatmapSetPanel } from "./BeatmapSetPanel";
+import { stageSet } from "./stageFixtures.test-data";
+import type { LocalBeatmapSetSummary } from "../../shared/types/osu";
 
-vi.mock("./api", () => ({
-  useLocalBeatmapBackground: vi.fn(),
-  useLocalBeatmapSets: vi.fn(),
-}));
+vi.mock("../../shared/lib/tauri", () => ({ desktopApi: {
+  queryLocalBeatmapSets: vi.fn(), pickRandomLocalBeatmapSet: vi.fn(), getLocalBeatmapSet: vi.fn(), getLocalBeatmapBackground: vi.fn(),
+  getLocalBeatmapAudio: vi.fn(), openLocalResourceInExplorer: vi.fn(), openExternal: vi.fn(), openNeteaseMusicSearch: vi.fn(),
+} }));
+vi.mock("../settings/api", () => ({ useSettings: () => ({ data: { preview_volume: 65 } }) }));
 
-function difficulty(id: string, stars: number, name: string): LocalBeatmapSummary {
-  return {
-    resource: { resource_id: id, client: "stable", content_hash: `hash-${id}`, logical_path: `Songs/${id}` },
-    set_key: "set-1",
-    set_grouping_inferred: false,
-    beatmap_id: Number(id),
-    beatmap_set_id: 456,
-    title: "Local Song",
-    title_unicode: "",
-    artist: "Local Artist",
-    artist_unicode: "",
-    creator: "Local Mapper",
-    difficulty_name: name,
-    ruleset: "osu",
-    format_version: 14,
-    stars,
-    max_pp: 300,
-    max_combo: 500,
-    bpm: 180,
-    length_ms: 120_000,
-    object_count: 500,
-    cs: 4,
-    ar: 9,
-    od: 8,
-    hp: 6,
-    average_nps: 4.2,
-    peak_nps: 7.1,
-    modified_at: null,
-    analysis_status: "ready",
-  };
+const other: LocalBeatmapSetSummary = { ...stageSet, set_key: "set-2", title: "Another Song", difficulties: stageSet.difficulties.map((d) => ({ ...d, set_key: "set-2", resource: { ...d.resource, resource_id: `other-${d.resource.resource_id}` } })) };
+function mount() {
+  const onOpen = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const result = render(<QueryClientProvider client={client}><BeatmapSetPanel client="stable" ruleset="osu" onOpen={onOpen} /></QueryClientProvider>);
+  return { ...result, onOpen };
 }
 
-const set: LocalBeatmapSetSummary = {
-  set_key: "set-1",
-  completeness: "complete",
-  grouping_inferred: false,
-  beatmap_set_id: 456,
-  title: "Local Song",
-  title_unicode: "",
-  artist: "Local Artist",
-  artist_unicode: "",
-  creators: ["Local Mapper"],
-  min_stars: 2.1,
-  max_stars: 5.4,
-  bpm: 180,
-  length_ms: 120_000,
-  object_count: 500,
-  modified_at: null,
-  background_resource_id: "501",
-  difficulties: [difficulty("502", 5.4, "Insane"), difficulty("501", 2.1, "Easy")],
-};
-
-describe("BeatmapSetPanel", () => {
+describe("single-set local workspace", () => {
   beforeEach(() => {
-    vi.mocked(useLocalBeatmapBackground).mockReturnValue({ data: "data:image/png;base64,cover" } as never);
-    vi.mocked(useLocalBeatmapSets).mockReturnValue({
-      data: { items: [set], total: 1, offset: 0, limit: 40 },
-      error: null,
-      isLoading: false,
-      refetch: vi.fn(),
-    } as never);
+    vi.clearAllMocks();
+    vi.mocked(desktopApi.getLocalBeatmapBackground).mockResolvedValue(null);
+    vi.mocked(desktopApi.pickRandomLocalBeatmapSet).mockResolvedValue(stageSet);
+    vi.mocked(desktopApi.getLocalBeatmapSet).mockImplementation(async (_client, key) => key === other.set_key ? other : stageSet);
+    vi.mocked(desktopApi.queryLocalBeatmapSets).mockResolvedValue({ items: [stageSet, other], total: 2, offset: 0, limit: 20 });
   });
 
-  it("uses the online beatmap grid and media-card language for local sets", async () => {
+  it("starts with a random set, keeps all difficulties visible, and exposes actions", async () => {
     const user = userEvent.setup();
-    const onOpen = vi.fn();
-    const { container } = render(<BeatmapSetPanel client="stable" onOpen={onOpen} ruleset="osu" />);
+    const { onOpen } = mount();
+    expect(await screen.findByRole("heading", { name: "Local Song" })).toBeVisible();
+    expect(desktopApi.pickRandomLocalBeatmapSet).toHaveBeenCalledWith(expect.objectContaining({ client: "stable", rulesets: ["osu"] }), null);
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    await user.click(screen.getByRole("tab", { name: /Insane/ }));
+    await user.click(screen.getByRole("button", { name: "完整详情" }));
+    expect(onOpen).toHaveBeenCalledWith("502");
+    expect(screen.getByRole("button", { name: "加入收藏夹" })).toBeVisible();
+    expect(desktopApi.getLocalBeatmapAudio).not.toHaveBeenCalled();
+  });
 
-    expect(container.querySelector(".opp-local-results")).toHaveClass("opp-online-results");
-    expect(container.querySelector(".opp-local-results-grid")).toHaveClass("opp-online-results-grid");
-    const card = screen.getByRole("button", { name: "查看本地谱面集 Local Song" });
-    expect(card).toHaveClass("opp-media-card", "opp-beatmap-card", "aspect-[136/55]", "rounded-xl");
-    expect(card.querySelector(".opp-beatmap-card__cover-overlay")).toBeInTheDocument();
-    expect(card.querySelector(".opp-beatmap-card__details")).toBeInTheDocument();
-
-    const compact = card.querySelector(".opp-difficulty-summary");
-    const compactRatings = Array.from(compact?.querySelectorAll('[title$=" stars"]') ?? [], (node) => node.textContent?.trim());
-    expect(compactRatings).toEqual(["2.10", "5.40"]);
-    expect(compact).not.toHaveTextContent("Easy");
-    expect(card.querySelector(".opp-beatmap-card__detail-difficulties")).toHaveTextContent("Easy");
-
-    await user.click(card);
-    expect(screen.getByRole("dialog")).toBeVisible();
+  it("only changes the stage on confirmation and transfers focus to the matching difficulty", async () => {
+    const user = userEvent.setup(); mount();
+    await screen.findByRole("heading", { name: "Local Song" });
+    const input = screen.getByRole("combobox");
+    await user.click(input);
+    await screen.findByRole("option", { name: /Another Song/ });
+    await user.keyboard("{ArrowDown}");
     expect(screen.getByRole("heading", { name: "Local Song" })).toBeVisible();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("heading", { name: "Another Song" });
+    expect(screen.queryByRole("heading", { name: "Local Song" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Easy/ })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: /Insane/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("expands a filtered match to the full set and selects its matching difficulty", async () => {
+    const user = userEvent.setup(); mount();
+    await screen.findByRole("heading", { name: "Local Song" });
+    vi.mocked(desktopApi.queryLocalBeatmapSets).mockResolvedValue({ items: [{ ...stageSet, difficulties: [stageSet.difficulties[0]] }], total: 1, offset: 0, limit: 20 });
+    await user.type(screen.getByRole("combobox"), "Insane");
+    await waitFor(() => expect(screen.getByRole("option")).not.toBeDisabled());
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.getByRole("tab", { name: /Insane/ })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(screen.getByRole("combobox")).toHaveValue("Insane");
+  });
+
+  it("does not commit stale search results or an IME confirmation", async () => {
+    const user = userEvent.setup(); mount();
+    await screen.findByRole("heading", { name: "Local Song" });
+    await user.click(screen.getByRole("combobox"));
+    await screen.findByRole("option", { name: /Another Song/ });
+    let resolve!: (value: { items: LocalBeatmapSetSummary[]; total: number; offset: number; limit: number }) => void;
+    vi.mocked(desktopApi.queryLocalBeatmapSets).mockReturnValue(new Promise((r) => { resolve = r; }));
+    await user.type(screen.getByRole("combobox"), "new");
+    await user.keyboard("{Enter}");
+    expect(desktopApi.getLocalBeatmapSet).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ items: [other], total: 1, offset: 0, limit: 20 }));
+    await waitFor(() => expect(screen.getByRole("option")).not.toBeDisabled());
+    screen.getByRole("combobox").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
+    expect(desktopApi.getLocalBeatmapSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores an older full-set response after a newer selection", async () => {
+    const user = userEvent.setup(); mount();
+    await screen.findByRole("heading", { name: "Local Song" });
+    let resolve!: (set: LocalBeatmapSetSummary) => void;
+    vi.mocked(desktopApi.getLocalBeatmapSet).mockImplementation(async (_client, key) => key === other.set_key ? new Promise((r) => { resolve = r; }) : stageSet);
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: /Another Song/ }));
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: /Local Song/ }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "本地谱面工作区" })).toHaveAttribute("aria-busy", "false"));
+    await act(async () => resolve(other));
+    expect(screen.getByRole("heading", { name: "Local Song" })).toBeVisible();
+  });
+
+  it("preserves the selected set when random has no alternative and honors query filters", async () => {
+    const user = userEvent.setup(); mount();
+    await screen.findByRole("heading", { name: "Local Song" });
+    await user.type(screen.getByRole("combobox"), "Local");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "随机一首" }));
+    await screen.findByText("当前条件下只有这一个谱面集。");
+    expect(desktopApi.pickRandomLocalBeatmapSet).toHaveBeenLastCalledWith(expect.objectContaining({ search: "Local" }), "set-1");
+    expect(screen.getByRole("heading", { name: "Local Song" })).toBeVisible();
+  });
+
+  it("refreshes the current set after indexing without drawing another random set", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = (revision: string) => <QueryClientProvider client={client}><BeatmapSetPanel client="stable" ruleset="osu" onOpen={() => {}} libraryRevision={revision} /></QueryClientProvider>;
+    const { rerender } = render(view("first"));
+    await screen.findByRole("heading", { name: "Local Song" });
+    vi.mocked(desktopApi.getLocalBeatmapSet).mockResolvedValue({ ...stageSet, title: "Updated Song" });
+    rerender(view("second"));
+    await screen.findByRole("heading", { name: "Updated Song" });
+    expect(desktopApi.pickRandomLocalBeatmapSet).toHaveBeenCalledTimes(1);
+    vi.mocked(desktopApi.getLocalBeatmapSet).mockRejectedValue({ code: "LOCAL_RESOURCE_NOT_FOUND", message: "谱面已移除，请重新选谱" });
+    rerender(view("third"));
+    await screen.findByText("谱面已移除，请重新选谱");
+    expect(screen.queryByRole("button", { name: "试听本地音频" })).not.toBeInTheDocument();
   });
 });

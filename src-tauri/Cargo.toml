@@ -51,6 +51,7 @@ rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", branch = "pp-rework
 rosu-pp-official = { package = "rosu-pp", version = "4.0.1" }
 sha2 = "0.10"
 walkdir = "2"
+notify = "8"
 zip = "4"
 rosu-render = "0.5.1"
 md-5 = "0.10"

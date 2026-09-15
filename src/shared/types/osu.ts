@@ -1,5 +1,6 @@
 export type Ruleset = "osu" | "taiko" | "fruits" | "mania";
 export type ScoreCategory = "best" | "pinned" | "recent";
+export type SkillDimension = "stamina" | "tenacity" | "agility" | "accuracy" | "precision" | "reaction" | "memory" | "reading";
 export type OsuClient = "stable" | "lazer";
 export type Completeness = "complete" | "partial";
 export type CapabilityLevel = "full" | "partial" | "unavailable";
@@ -923,6 +924,77 @@ export interface LocalSourceStatus {
 export interface LocalIndexLoadStatus {
   phase: "loading" | "ready" | "error";
   error: string | null;
+  clients?: Partial<Record<OsuClient, LocalIndexClientStatus>>;
+}
+
+export interface SkillVector {
+  stamina: number;
+  tenacity: number;
+  agility: number;
+  accuracy: number;
+  precision: number;
+  reaction: number;
+  memory: number;
+  reading: number;
+}
+
+export interface SkillContribution {
+  beatmap_id: number;
+  title: string;
+  artist: string;
+  version: string;
+  creator: string;
+  mods: string[];
+  pp: number | null;
+  accuracy: number;
+  combo: number | null;
+  max_combo: number | null;
+  misses: number;
+  weight: number;
+  source: "local" | "online";
+  resource_id: string | null;
+  skills: SkillVector;
+  weighted_skills: SkillVector;
+  error: string | null;
+}
+
+export interface SkillCoverage {
+  requested_scores: number;
+  analyzed_scores: number;
+  local_scores: number;
+  online_scores: number;
+  skipped_scores: number;
+  skipped_reasons: string[];
+}
+
+export interface SkillAnalysisRequest {
+  ruleset: "osu";
+  client: OsuClient;
+  score_limit: number;
+  include_online: boolean;
+  force_refresh: boolean;
+}
+
+export interface SkillAnalysisResult {
+  player: Pick<OwnProfile, "id" | "username" | "country_code" | "avatar_url" | "avatar_data_url">;
+  ruleset: "osu";
+  algorithm: { id: string; version: string; source: string };
+  skills: SkillVector;
+  contributions: SkillContribution[];
+  coverage: SkillCoverage;
+  fetched_at: string;
+  stale: boolean;
+}
+
+export interface LocalIndexClientStatus {
+  phase: "idle" | "watching" | "pending" | "scanning" | "error" | string;
+  pending_changes: number;
+  last_change_at: string | null;
+  last_scan_at: string | null;
+  added: number;
+  modified: number;
+  removed: number;
+  reused: number;
 }
 
 export interface LocalResourceRef {
@@ -1589,6 +1661,12 @@ export interface LocalBeatmapSetSummary {
   modified_at: string | null;
   background_resource_id: string | null;
   difficulties: LocalBeatmapSummary[];
+}
+
+export interface LocalBeatmapAudioPayload {
+  mime_type: string;
+  bytes_base64: string;
+  preview_time_ms: number;
 }
 
 export interface SkinConfigEntry {

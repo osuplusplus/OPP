@@ -1,10 +1,19 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   BeatmapQuery,
   OsuClient,
+  Ruleset,
   SkinQuery,
 } from "../../shared/types/osu";
+
+export function fetchCompleteLocalSet(queryClient: QueryClient, client: OsuClient, setKey: string, ruleset: Ruleset) {
+  return queryClient.fetchQuery({ queryKey: ["local-complete-set", client, setKey, ruleset], queryFn: () => desktopApi.getLocalBeatmapSet(client, setKey, ruleset), staleTime: 0 });
+}
+
+export function pickLocalSet(query: BeatmapQuery, excludeSetKey: string | null = null) {
+  return desktopApi.pickRandomLocalBeatmapSet(query, excludeSetKey);
+}
 
 export const localSourcesKey = ["local-sources"] as const;
 export const localIndexStatusKey = ["local-index-status"] as const;
@@ -30,7 +39,14 @@ export function useLocalIndexStatus() {
   return useQuery({
     queryKey: localIndexStatusKey,
     queryFn: desktopApi.getLocalIndexStatus,
-    refetchInterval: (query) => query.state.data?.phase === "loading" ? 250 : false,
+    refetchInterval: (query) => {
+      const status = query.state.data;
+      if (!status || status.phase === "loading") return 1000;
+      const watching = Object.values(status.clients ?? {}).some((client) =>
+        client?.phase === "pending" || client?.phase === "scanning",
+      );
+      return watching ? 500 : 5000;
+    },
     retry: false,
   });
 }
@@ -66,10 +82,11 @@ export function useLocalBeatmapSets(query: BeatmapQuery, enabled: boolean) {
 export function useLocalBeatmapBackground(
   client: OsuClient,
   resourceId: string | null,
+  size: "thumbnail" | "stage" = "thumbnail",
 ) {
   return useQuery({
-    queryKey: ["local-beatmap-background", client, resourceId],
-    queryFn: () => desktopApi.getLocalBeatmapBackground(client, resourceId!),
+    queryKey: ["local-beatmap-background", client, resourceId, size],
+    queryFn: () => desktopApi.getLocalBeatmapBackground(client, resourceId!, size),
     enabled: Boolean(resourceId),
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
