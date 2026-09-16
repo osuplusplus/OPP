@@ -11,14 +11,18 @@ import { StageControls } from "./StageControls";
 import { createStageQuery, initialDifficulty } from "./stageModel";
 import { fetchCompleteLocalSet, pickLocalSet } from "./api";
 import "./localStage.css";
+import { MusicPlayer } from "../music-player/MusicPlayer";
+import type { MusicLocation } from "../../shared/types/music";
+import { readStageSession, writeStageSession } from "./stageSession";
 
 type Selection = { set: LocalBeatmapSetSummary; matched: Set<string>; difficultyId: string; focus: number };
 
-export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libraryRevision }: {
-  client: OsuClient; ruleset: Ruleset; onOpen: (resourceId: string) => void; libraryControl?: ReactNode; libraryRevision?: string;
+export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libraryRevision, followTarget }: {
+  client: OsuClient; ruleset: Ruleset; onOpen: (resourceId: string) => void; libraryControl?: ReactNode; libraryRevision?: string; followTarget?: MusicLocation | null;
 }) {
   const queryClient = useQueryClient();
-  const [query, setQuery] = useState(() => createStageQuery(client, ruleset));
+  const [saved] = useState(() => readStageSession(client,ruleset));
+  const [query, setQuery] = useState(() => saved?.query ?? createStageQuery(client, ruleset));
   const [selection, setSelection] = useState<Selection | null>(null);
   const [busy, setBusy] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
@@ -38,14 +42,41 @@ export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libra
 
   useEffect(() => {
     const token = ++request.current;
-    void pickLocalSet(createStageQuery(client, ruleset)).then(async (candidate) => {
+    const initial = saved?.setKey
+      ? fetchCompleteLocalSet(queryClient,client,saved.setKey,ruleset).catch(() => pickLocalSet(createStageQuery(client,ruleset)))
+      : pickLocalSet(createStageQuery(client,ruleset));
+    void initial.then(async (candidate) => {
       if (request.current !== token) return;
-      if (candidate) await commit(candidate, token, false);
+      if (candidate) {
+        await commit(candidate, token, false);
+        if (request.current === token && saved?.difficultyId) setSelection((current) => current?.set.difficulties.some((d) => d.resource.resource_id === saved.difficultyId) ? { ...current, difficultyId: saved.difficultyId! } : current);
+      }
       else setNotice("当前模式下没有本地谱面。请扫描谱库或切换游戏模式。");
     }).catch((error) => { if (request.current === token) setNotice(errorMessage(error)); })
       .finally(() => { if (request.current === token) setBusy(false); });
     return () => { request.current += 1; };
-  }, [client, ruleset, commit]);
+  }, [client, ruleset, commit, queryClient, saved]);
+
+  useEffect(() => {
+    if (!followTarget || followTarget.client !== client || followTarget.ruleset !== ruleset) return;
+    const token = ++request.current;
+    let active = true;
+    void fetchCompleteLocalSet(queryClient, client, followTarget.set_key, ruleset).then((set) => {
+      if (!active || request.current !== token) return;
+      const difficulty = set.difficulties.find((item) => item.resource.resource_id === followTarget.resource_id);
+      if (!difficulty) return;
+      setSelection({ set, matched: new Set([followTarget.resource_id]), difficultyId: difficulty.resource.resource_id, focus: 0 });
+      setNotice(null);
+      setBusy(false);
+    }).catch((error) => {
+      if (active && request.current === token) { setNotice(errorMessage(error)); setBusy(false); }
+    });
+    return () => { active = false; };
+  }, [client, followTarget, queryClient, ruleset]);
+
+  useEffect(() => {
+    writeStageSession(client,ruleset,{ query, setKey: selection?.set.set_key ?? saved?.setKey, difficultyId: selection?.difficultyId ?? saved?.difficultyId });
+  }, [client,ruleset,query,selection,saved]);
 
   const selectedKey = selection?.set.set_key;
   useEffect(() => {
@@ -96,6 +127,7 @@ export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libra
       <LocalSetSearch query={query} onQuery={setQuery} onChoose={(candidate) => void choose(candidate)} />
       <button type="button" className="local-stage-button local-stage-random" disabled={busy} onClick={() => void random()} title="从当前搜索与筛选结果随机选择"><Shuffle />随机一首</button>
       {libraryControl}
+      <MusicPlayer client={client} resourceId={difficulty?.resource.resource_id} query={query} />
     </header>
     <div className="local-stage-space" />
     <div className="local-stage-content">

@@ -362,6 +362,18 @@ pub fn start_game_monitor(
 ) {
     tauri::async_runtime::spawn(async move {
         loop {
+            if app
+                .state::<AppState>()
+                .music_only
+                .load(std::sync::atomic::Ordering::Relaxed)
+                && monitor
+                    .current
+                    .lock()
+                    .is_ok_and(|status| status.clients.iter().all(|client| !client.running))
+            {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
             let service = local_analysis.clone();
             let next = tokio::task::spawn_blocking(move || scan_game_status(&service))
                 .await

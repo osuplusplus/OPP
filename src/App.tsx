@@ -7,6 +7,7 @@ import { TitleBar } from "./shared/components/TitleBar";
 import { useSettings } from "./features/settings/api";
 import { Button, Card } from "./shared/components/ui";
 import { desktopApi, isTauri } from "./shared/lib/tauri";
+import { musicApi } from "./features/music-player/api";
 
 function ThemeController() {
   const settings = useSettings();
@@ -93,6 +94,9 @@ function ShutdownChoice() {
 }
 
 export default function App() {
+  useEffect(() => {
+    void musicApi.ready().catch((error) => { void desktopApi.writeClientLog("error", "music.window", String(error)); });
+  }, []);
   return (
     <Tooltip.Provider delayDuration={350}>
       <ThemeController />

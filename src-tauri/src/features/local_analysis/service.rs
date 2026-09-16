@@ -1,5 +1,7 @@
 #[path = "service_data.rs"]
 mod service_data;
+#[path = "service_music.rs"]
+mod service_music;
 #[path = "service_query.rs"]
 mod service_query;
 #[path = "service_stage.rs"]
@@ -138,6 +140,7 @@ pub struct LocalAnalysisService {
     thumbnail_cache_limit_bytes: AtomicUsize,
     load_status: RwLock<LocalIndexLoadStatus>,
     watcher_stops: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
+    music_only: AtomicBool,
 }
 
 impl LocalAnalysisService {
@@ -173,6 +176,7 @@ impl LocalAnalysisService {
                     .collect(),
             }),
             watcher_stops: Mutex::new(BTreeMap::new()),
+            music_only: AtomicBool::new(false),
         })
     }
 
@@ -241,6 +245,12 @@ impl LocalAnalysisService {
         let mut watcher: Option<RecommendedWatcher> = None;
         let (events_tx, events_rx) = mpsc::channel::<()>();
         while !stop.load(AtomicOrdering::Relaxed) {
+            if self.music_only.load(AtomicOrdering::Relaxed) {
+                watcher = None;
+                watched_roots.clear();
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
             let roots = self.watch_roots(client);
             if roots != watched_roots {
                 watcher = None;

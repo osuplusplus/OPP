@@ -54,6 +54,9 @@ pub struct AppState {
     pub tosu: Arc<TosuRuntime>,
     pub otd: Arc<OtdRuntime>,
     pub obs: Arc<ObsRuntime>,
+    pub music: crate::features::music_player::MusicRuntime,
+    pub music_only: AtomicBool,
+    pub music_frontend_task: AtomicBool,
 }
 
 impl AppState {
@@ -89,6 +92,9 @@ impl AppState {
             tosu: Arc::new(TosuRuntime::default()),
             otd: Arc::new(OtdRuntime::default()),
             obs: Arc::new(ObsRuntime::default()),
+            music: crate::features::music_player::MusicRuntime::new(app_data_dir)?,
+            music_only: AtomicBool::new(false),
+            music_frontend_task: AtomicBool::new(false),
         })
     }
 }

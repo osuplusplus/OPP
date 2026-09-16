@@ -1,0 +1,4 @@
+:root { font-family: "Segoe UI Variable Text", "Noto Sans SC", "Source Han Sans SC", "思源黑体", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif; font-synthesis: none; -webkit-font-smoothing: antialiased; color-scheme: dark; background: transparent; }
+:root[data-theme-mode="light"] { color-scheme: light; background: transparent; }
+html, body, #root { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+button, input, select { font: inherit; }

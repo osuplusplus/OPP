@@ -29,11 +29,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            features::music_player::windows::show_active(app);
         }))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -46,8 +42,41 @@ pub fn run() {
             app.manage(AppState::new(&app_data_dir)?);
             app.manage(logger);
             let state = app.state::<AppState>();
+            #[cfg(windows)]
+            let media_hwnd = {
+                let host = tauri::WindowBuilder::new(app, "music-media-host")
+                    .title("OPP music media host")
+                    .visible(false)
+                    .skip_taskbar(true)
+                    .build()
+                    .and_then(|host| host.hwnd().map(|hwnd| hwnd.0 as usize));
+                match host {
+                    Ok(hwnd) => Some(hwnd),
+                    Err(error) => {
+                        crate::log_warn!(
+                            "music_player",
+                            "无法创建系统媒体宿主，保留窗口播放控制：{}",
+                            error
+                        );
+                        None
+                    }
+                }
+            };
+            #[cfg(not(windows))]
+            let media_hwnd = None;
+            state.music.start(app.handle().clone(), media_hwnd);
             let local_analysis = state.local_analysis.clone();
-            tauri::async_runtime::spawn_blocking(move || local_analysis.load_cached_indexes());
+            let music_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let loading = local_analysis.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || loading.load_cached_indexes())
+                    .await;
+                music_app
+                    .state::<AppState>()
+                    .music
+                    .initialize_queue(local_analysis)
+                    .await;
+            });
             state.local_analysis.start_watchers(app.handle().clone());
             let beatmaphub = state.beatmaphub.clone();
             tauri::async_runtime::spawn(async move {
@@ -73,11 +102,7 @@ pub fn run() {
                 .menu(&tray_menu)
                 .on_menu_event(|tray, event| match event.id().as_ref() {
                     "show-window" => {
-                        if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        features::music_player::windows::show_active(tray.app_handle());
                     }
                     "exit" => tray.app_handle().exit(0),
                     _ => {}
@@ -88,11 +113,8 @@ pub fn run() {
                         button_state: MouseButtonState::Up,
                         ..
                     } = event
-                        && let Some(window) = tray.app_handle().get_webview_window("main")
                     {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                        features::music_player::windows::show_active(tray.app_handle());
                     }
                 })
                 .build(app)?;
@@ -104,6 +126,7 @@ pub fn run() {
         .expect("failed to build OPP")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                app.state::<AppState>().music.shutdown();
                 features::tosu::cleanup_on_exit(&app.state::<AppState>().tosu);
             }
         });

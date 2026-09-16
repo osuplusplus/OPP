@@ -5,6 +5,7 @@ use crate::error::{CommandError, CommandResult};
 use osu_replay_render::skin::Skin as _;
 use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene, skin};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -185,8 +186,19 @@ static CHANNEL: LazyLock<Mutex<Sender<Cmd>>> = LazyLock::new(|| {
     Mutex::new(tx)
 });
 
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+static PENDING: AtomicUsize = AtomicUsize::new(0);
+
+/// Keep the owning window alive while a native preview or export uses its resources.
+pub(crate) fn is_busy() -> bool {
+    ACTIVE.load(Ordering::Acquire) || PENDING.load(Ordering::Acquire) > 0
+}
+
 fn send(cmd: Cmd) {
-    let _ = CHANNEL.lock().unwrap().send(cmd);
+    PENDING.fetch_add(1, Ordering::AcqRel);
+    if CHANNEL.lock().unwrap().send(cmd).is_err() {
+        PENDING.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 // ---- Windows:原生子窗口(高帧率直渲) ----------------------------------------
@@ -1009,6 +1021,7 @@ fn panic_msg(panic: &(dyn std::any::Any + Send)) -> String {
 /// 错误与失活状态。worker 线程本身存活(信道是静态单例,线程一死
 /// 后续所有命令都会无声堆积、前端永远"无响应")。
 fn cleanup_session(session: &mut Option<Session>) {
+    ACTIVE.store(false, Ordering::Release);
     if let Some(mut s) = session.take() {
         let app = s.app.clone();
         eprintln!("live_render: 清理异常会话(停播 + 销毁渲染后端)");
@@ -1042,7 +1055,7 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                     Ok(cmd) => {
                         if let Err(panic) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                handle_cmd(cmd, &mut session)
+                                tracked_command(cmd, &mut session)
                             }))
                         {
                             eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
@@ -1066,7 +1079,7 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                 Ok(cmd) => {
                     if let Err(panic) =
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            handle_cmd(cmd, &mut session)
+                            tracked_command(cmd, &mut session)
                         }))
                     {
                         eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
@@ -1176,6 +1189,19 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
 
         std::thread::sleep(Duration::from_millis(1));
     }
+}
+
+fn tracked_command(cmd: Cmd, session: &mut Option<Session>) {
+    struct PendingCommand;
+    impl Drop for PendingCommand {
+        fn drop(&mut self) {
+            PENDING.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+    let _pending = PendingCommand;
+    ACTIVE.store(true, Ordering::Release);
+    handle_cmd(cmd, session);
+    ACTIVE.store(session.is_some(), Ordering::Release);
 }
 
 fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {

@@ -53,6 +53,10 @@ pub(crate) use crate::{
             query_local_beatmaps, query_local_skins, replace_local_skin_asset, reset_local_source,
             scan_local_source, set_local_source,
         },
+        music_player::{
+            music_artwork, music_control, music_frontend_task, music_location, music_mini_layout,
+            music_queue_page, music_set_queue, music_state, music_window_mode, music_window_ready,
+        },
         netease_music::open_netease_music_search,
         obs::{get_obs_scenes, get_obs_status, refresh_selected_obs_scene, save_obs_connection},
         online_beatmaps::{
@@ -108,6 +112,16 @@ pub(crate) fn exit_app(app: tauri::AppHandle) {
 macro_rules! handler {
     () => {
         tauri::generate_handler![
+            music_state,
+            music_location,
+            music_queue_page,
+            music_control,
+            music_set_queue,
+            music_artwork,
+            music_window_mode,
+            music_window_ready,
+            music_mini_layout,
+            music_frontend_task,
             get_auth_status,
             get_beatmaphub_auth_status,
             create_beatmaphub_profile,

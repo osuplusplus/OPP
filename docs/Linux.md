@@ -11,7 +11,7 @@ Linux 桌面需要：
 - `osu-wine`（Stable）或 `osu-lazer`（lazer）启动命令；
 - 使用 tosu 时，PATH 中还需要 `tosu` 和 `pkexec`（PolicyKit）；
 - 使用 Danser 本地渲染时，PATH 中需要 `danser` 和 `ffmpeg`；Trainer 变速或截取同样依赖 `ffmpeg`；
-- 应用内音频播放（皮肤音效预览、谱面试听等）由 WebKitGTK 的 GStreamer 后端解码输出，需要安装完整音频插件
+- 本地谱库音乐和谱面试听使用 Rust 音频引擎，通过 ALSA 输出并通过 D-Bus MPRIS 接入系统媒体控制；皮肤音效等网页音频仍需要 WebKitGTK 的 GStreamer 音频插件。
 
 在 Debian/Ubuntu 上构建时，可先安装 Tauri 2 和凭据后端所需依赖：
 
@@ -28,6 +28,7 @@ sudo apt install \
   libayatana-appindicator3-dev \
   librsvg2-dev \
   libdbus-1-dev \
+  libasound2-dev \
   gstreamer1.0-plugins-good \
   pkg-config
 ```

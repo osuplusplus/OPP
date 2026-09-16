@@ -138,7 +138,7 @@ impl LocalAnalysisService {
         finish_span(span, result)
     }
 
-    fn stage_asset_path(
+    pub(super) fn stage_asset_path(
         &self,
         client: LocalClient,
         entry: &IndexedEntry,

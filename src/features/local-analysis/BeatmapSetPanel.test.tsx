@@ -6,6 +6,7 @@ import { desktopApi } from "../../shared/lib/tauri";
 import { BeatmapSetPanel } from "./BeatmapSetPanel";
 import { stageSet } from "./stageFixtures.test-data";
 import type { LocalBeatmapSetSummary } from "../../shared/types/osu";
+import type { MusicLocation } from "../../shared/types/music";
 
 vi.mock("../../shared/lib/tauri", () => ({ desktopApi: {
   queryLocalBeatmapSets: vi.fn(), pickRandomLocalBeatmapSet: vi.fn(), getLocalBeatmapSet: vi.fn(), getLocalBeatmapBackground: vi.fn(),
@@ -14,15 +15,16 @@ vi.mock("../../shared/lib/tauri", () => ({ desktopApi: {
 vi.mock("../settings/api", () => ({ useSettings: () => ({ data: { preview_volume: 65 } }) }));
 
 const other: LocalBeatmapSetSummary = { ...stageSet, set_key: "set-2", title: "Another Song", difficulties: stageSet.difficulties.map((d) => ({ ...d, set_key: "set-2", resource: { ...d.resource, resource_id: `other-${d.resource.resource_id}` } })) };
-function mount() {
+function mount(followTarget?: MusicLocation | null) {
   const onOpen = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const result = render(<QueryClientProvider client={client}><BeatmapSetPanel client="stable" ruleset="osu" onOpen={onOpen} /></QueryClientProvider>);
+  const result = render(<QueryClientProvider client={client}><BeatmapSetPanel client="stable" ruleset="osu" onOpen={onOpen} followTarget={followTarget} /></QueryClientProvider>);
   return { ...result, onOpen };
 }
 
 describe("single-set local workspace", () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.clearAllMocks();
     vi.mocked(desktopApi.getLocalBeatmapBackground).mockResolvedValue(null);
     vi.mocked(desktopApi.pickRandomLocalBeatmapSet).mockResolvedValue(stageSet);
@@ -41,6 +43,25 @@ describe("single-set local workspace", () => {
     expect(onOpen).toHaveBeenCalledWith("502");
     expect(screen.getByRole("button", { name: "加入收藏夹" })).toBeVisible();
     expect(desktopApi.getLocalBeatmapAudio).not.toHaveBeenCalled();
+  });
+
+  it("follows the playing set and difficulty without moving keyboard focus", async () => {
+    const first: MusicLocation = { client: "stable", ruleset: "osu", set_key: "set-2", resource_id: "other-502" };
+    const second: MusicLocation = { client: "stable", ruleset: "osu", set_key: "set-1", resource_id: "501" };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = (target: MusicLocation) => <QueryClientProvider client={queryClient}><BeatmapSetPanel client="stable" ruleset="osu" onOpen={() => {}} followTarget={target} /></QueryClientProvider>;
+    const { rerender } = render(view(first));
+    await screen.findByRole("heading", { name: "Another Song" });
+    expect(screen.getByRole("tab", { name: /Insane/ })).toHaveAttribute("aria-selected", "true");
+    rerender(view(second));
+    await screen.findByRole("heading", { name: "Local Song" });
+    expect(screen.getByRole("tab", { name: /Easy/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /Easy/ })).not.toHaveFocus();
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByRole("option", { name: /Another Song/ }));
+    await screen.findByRole("heading", { name: "Another Song" });
+    rerender(view(second));
+    expect(screen.getByRole("heading", { name: "Another Song" })).toBeVisible();
   });
 
   it("only changes the stage on confirmation and transfers focus to the matching difficulty", async () => {
@@ -126,5 +147,19 @@ describe("single-set local workspace", () => {
     rerender(view("third"));
     await screen.findByText("谱面已移除，请重新选谱");
     expect(screen.queryByRole("button", { name: "试听本地音频" })).not.toBeInTheDocument();
+  });
+
+  it("restores selection and filters after the full window is recreated", async () => {
+    const user = userEvent.setup();
+    const first = mount();
+    await screen.findByRole("heading", { name: "Local Song" });
+    await user.click(screen.getByRole("tab", { name: /Insane/ }));
+    await user.type(screen.getByRole("combobox"), "saved search");
+    first.unmount(); vi.mocked(desktopApi.pickRandomLocalBeatmapSet).mockClear();
+    mount();
+    await screen.findByRole("heading", { name: "Local Song" });
+    expect(screen.getByRole("combobox")).toHaveValue("saved search");
+    expect(screen.getByRole("tab", { name: /Insane/ })).toHaveAttribute("aria-selected", "true");
+    expect(desktopApi.pickRandomLocalBeatmapSet).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,6 @@
+@import "../../shared/components/stagePalette.css";
 .local-stage-frame { max-width: none; padding: 0; }
 .local-stage {
-  --stage-hue: 210;
-  --stage-accent: var(--stage-accent-dark, var(--theme-primary-light, #a7dce4));
-  --stage-ink: #f5f3ee;
-  --stage-muted: #c3c7ce;
-  --stage-line: rgba(235, 239, 246, .2);
-  --stage-panel: hsla(var(--stage-hue), 16%, 9%, .65);
-  --stage-menu: hsl(var(--stage-hue), 12%, 11%);
   position: relative; isolation: isolate; display: flex; flex-direction: column;
   height: calc(100dvh - var(--titlebar-height)); min-height: 560px; color: var(--stage-ink);
   background: hsl(var(--stage-hue), 15%, 10%);
@@ -121,9 +115,6 @@
   .local-search-menu, .local-search-results, .local-search-menu:hover, .local-search-results:hover { scrollbar-width: auto; scrollbar-color: auto; }
 }
 :root[data-theme-mode="light"] .local-stage {
-  --stage-accent: var(--stage-accent-light, var(--theme-primary-light));
-  --stage-ink: #202624; --stage-muted: #4d5655; --stage-line: rgba(32, 42, 40, .25);
-  --stage-panel: hsla(var(--stage-hue), 15%, 94%, .68); --stage-menu: hsl(var(--stage-hue), 13%, 96%);
   background: #e8e6e0;
 }
 :root[data-theme-mode="light"] .local-stage-art-shade { background: linear-gradient(180deg, rgba(242,240,233,.7), rgba(242,240,233,.03) 24%, rgba(242,240,233,.1) 40%, rgba(242,240,233,.65) 76%, rgba(242,240,233,.82)), linear-gradient(90deg, rgba(242,240,233,.25), transparent 78%); }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -15,6 +15,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
+import { musicApi, useMusicState } from "../music-player/api";
+import type { MusicLocation } from "../../shared/types/music";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
 import {
@@ -286,7 +288,7 @@ function SourceBar({
   );
 }
 
-function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
+function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSection; followTarget: MusicLocation | null }) {
   const { client, ruleset } = useMode();
   const queryClient = useQueryClient();
   const sourcesQuery = useLocalSources();
@@ -469,6 +471,7 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
       ) : section === "maps" ? (
         <BeatmapSetPanel
           client={client}
+          followTarget={followTarget?.client === client && followTarget.ruleset === ruleset ? followTarget : null}
           libraryControl={libraryControl}
           libraryRevision={summary.scanned_at}
           onOpen={setSelectedBeatmap}
@@ -499,10 +502,37 @@ export function LocalAnalysisPage({
 }: {
   section?: LocalSection;
 }) {
-  const { client, ruleset } = useMode();
+  const { client, ruleset, setClient, setRuleset } = useMode();
+  const music = useMusicState();
+  const [followTarget, setFollowTarget] = useState<MusicLocation | null>(null);
+  const mode = useRef({ client, ruleset });
+  useEffect(() => { mode.current = { client, ruleset }; }, [client, ruleset]);
+  useEffect(() => {
+    const resourceId = music.resource_id;
+    if (section !== "maps" || !resourceId || !musicApi.available()) return;
+    let active = true;
+    let retry: number | undefined;
+    let attempts = 0;
+    const initialMode = mode.current;
+    const locate = () => {
+      void musicApi.location(resourceId).then((location) => {
+        if (!active || mode.current.client !== initialMode.client || mode.current.ruleset !== initialMode.ruleset) return;
+        if (!location) {
+          if (++attempts < 5) retry = window.setTimeout(locate, 600);
+          return;
+        }
+        setFollowTarget(location);
+        if (mode.current.client !== location.client) setClient(location.client);
+        if (mode.current.ruleset !== location.ruleset) setRuleset(location.ruleset);
+      }).catch(() => { if (active && ++attempts < 5) retry = window.setTimeout(locate, 600); });
+    };
+    locate();
+    return () => { active = false; window.clearTimeout(retry); };
+  }, [music.resource_id, section, setClient, setRuleset]);
   return (
     <LocalAnalysisClientPage
       key={`${client}:${ruleset}:${section}`}
+      followTarget={followTarget?.resource_id === music.resource_id ? followTarget : null}
       section={section}
     />
   );
