@@ -766,7 +766,7 @@ export const desktopApi = {
     beatmapPath: string,
     replayPath: string,
     options: LiveRenderOptions,
-    rect: { x: number; y: number; width: number; height: number },
+    rect: { x: number; y: number; width: number; height: number; viewport_width?: number; viewport_height?: number },
   ) =>
     call<{ durationMs: number }>("live_render_open", {
       beatmapPath,
@@ -775,7 +775,7 @@ export const desktopApi = {
       rect,
     }),
   /** 以谱面 Autoplay 打开实时预览时传入空 replayPath。 */
-  liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
+  liveRenderMove: (rect: { x: number; y: number; width: number; height: number; viewport_width?: number; viewport_height?: number; suppressed?: boolean }) =>
     call<void>("live_render_move", { rect }),
   liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),
   liveRenderSetOptions: (options: LiveRenderOptions) =>

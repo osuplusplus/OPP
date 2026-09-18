@@ -19,6 +19,36 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
+#[cfg(target_os = "linux")]
+fn fit_linux_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let Some(monitor) = window.current_monitor()?.or(window.primary_monitor()?) else {
+        return Ok(());
+    };
+    let scale = monitor.scale_factor();
+    let work_area = monitor.work_area();
+    let logical = work_area.size.to_logical::<f64>(scale);
+
+    // X11 窗口管理器常会把大于工作区的无边框窗口直接最大化。
+    // 默认 1440×900 在 1366×768 或小数缩放后的 1080p 工作区中会
+    // 触发该行为，因此按工作区保留 10% 边距，同时保留原默认上限。
+    let width = 1440.0_f64.min((logical.width * 0.9).floor()).max(1.0);
+    let height = 900.0_f64.min((logical.height * 0.9).floor()).max(1.0);
+    window.set_min_size(Some(tauri::LogicalSize::new(
+        1120.0_f64.min(width),
+        720.0_f64.min(height),
+    )))?;
+    window.set_fullscreen(false)?;
+    window.unmaximize()?;
+    window.set_size(tauri::LogicalSize::new(width, height))?;
+
+    let physical_width = (width * scale).round() as i32;
+    let physical_height = (height * scale).round() as i32;
+    let x = work_area.position.x + (work_area.size.width as i32 - physical_width) / 2;
+    let y = work_area.position.y + (work_area.size.height as i32 - physical_height) / 2;
+    window.set_position(tauri::PhysicalPosition::new(x, y))?;
+    Ok(())
+}
+
 pub fn run_portable_update_helper_if_requested() -> bool {
     portable_update::run_helper_if_requested()
 }
@@ -93,6 +123,10 @@ pub fn run() {
             start_obs_monitor(app.handle().clone());
             let icon = tauri::image::Image::from_bytes(include_bytes!("../../public/01.png"))?;
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "linux")]
+                if let Err(error) = fit_linux_main_window(&window) {
+                    crate::log_warn!("app.lifecycle", "无法按 Linux 工作区调整主窗口：{}", error);
+                }
                 window.set_icon(icon.clone())?;
             }
             let show_window =

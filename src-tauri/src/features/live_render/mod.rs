@@ -52,6 +52,12 @@ pub struct PreviewRect {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    /// 前端 viewport 的物理尺寸（CSS px × devicePixelRatio）。Linux
+    /// 用父 X11 窗口实际尺寸与它求比例，修正 XWayland 小数缩放差异。
+    #[serde(default)]
+    pub viewport_width: f64,
+    #[serde(default)]
+    pub viewport_height: f64,
     /// 前端检测到应用内弹窗(对话框/确认框)打开时置 true:原生预览窗口
     /// 压在 WebView 之上,会盖住弹窗,需临时隐藏,弹窗关闭后恢复。
     #[serde(default)]
@@ -1269,6 +1275,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 let show = rect.width > 0.0 && rect.height > 0.0 && !rect.suppressed;
                 let (x, y) = (rect.x.round() as i32, rect.y.round() as i32);
                 let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
+                #[cfg_attr(windows, allow(unused_mut))]
+                let mut render_size = (w, h);
                 #[cfg(windows)]
                 {
                     let Backend::Native {
@@ -1289,14 +1297,23 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 #[cfg(target_os = "linux")]
                 {
                     let Backend::Native { x11, visible, .. } = &mut s.backend;
-                    // X11 子窗口:父窗口局部坐标,立即生效。
-                    x11.place(x, y, w, h, show);
+                    // X11 子窗口:父窗口局部坐标。父窗口实际尺寸用于修正
+                    // XWayland 小数缩放下 WebKit dpr 与 X11 坐标空间差异。
+                    render_size = x11.place(
+                        x,
+                        y,
+                        w,
+                        h,
+                        rect.viewport_width.round() as i32,
+                        rect.viewport_height.round() as i32,
+                        show,
+                    );
                     *visible = show;
                 }
                 {
                     let Backend::Native { renderer, .. } = &mut s.backend;
                     if show {
-                        renderer.resize(w.max(1) as u32, h.max(1) as u32);
+                        renderer.resize(render_size.0.max(1) as u32, render_size.1.max(1) as u32);
                     } else {
                         renderer.resize(0, 0);
                     }
@@ -1959,8 +1976,16 @@ fn open_session(
         let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
         let visible = rect.width > 0.0 && rect.height > 0.0;
 
-        let window = x11::Window::new_child(main_xid, x, y, w, h)
-            .map_err(|e| format!("无法创建 X11 预览子窗口: {e}"))?;
+        let window = x11::Window::new_child(
+            main_xid,
+            x,
+            y,
+            w,
+            h,
+            rect.viewport_width.round() as i32,
+            rect.viewport_height.round() as i32,
+        )
+        .map_err(|e| format!("无法创建 X11 预览子窗口: {e}"))?;
         let (raw_display, raw_window) = window.raw_handles();
         let mut renderer = match surface::SurfaceRenderer::new(
             RENDER_W,
@@ -1976,7 +2001,8 @@ fn open_session(
             }
         };
         if visible {
-            renderer.resize(w.max(1) as u32, h.max(1) as u32);
+            let (actual_w, actual_h) = window.size();
+            renderer.resize(actual_w, actual_h);
         } else {
             renderer.resize(0, 0);
         }
