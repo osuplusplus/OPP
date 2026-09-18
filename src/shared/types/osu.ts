@@ -1531,6 +1531,7 @@ export interface BeatmapDownloadItem {
   beatmapset_id: number;
   artist: string;
   title: string;
+  expected_beatmap_ids?: number[];
 }
 
 export interface BeatmapDownloadRequest {

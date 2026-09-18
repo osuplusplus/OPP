@@ -2145,7 +2145,17 @@ pub struct LiveSkinEntry {
 /// 实际选用时才物化成目录（见 resolve_lazer_skin）。安装目录与数据
 /// 目录下的 Skins/ 子目录会合并列出。
 #[tauri::command]
-pub fn live_render_list_skins(
+pub async fn live_render_list_skins(
+    client: crate::features::local_analysis::LocalClient,
+    app: AppHandle,
+) -> CommandResult<Vec<LiveSkinEntry>> {
+    crate::infrastructure::tasks::blocking_io("live_render_list_skins", move || {
+        live_render_list_skins_blocking(client, app.state())
+    })
+    .await?
+}
+
+fn live_render_list_skins_blocking(
     client: crate::features::local_analysis::LocalClient,
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<Vec<LiveSkinEntry>> {
@@ -2456,7 +2466,14 @@ pub struct FfmpegStatus {
 }
 
 #[tauri::command]
-pub fn live_render_get_ffmpeg_status(
+pub async fn live_render_get_ffmpeg_status(app: AppHandle) -> CommandResult<FfmpegStatus> {
+    crate::infrastructure::tasks::blocking_io("live_render_get_ffmpeg_status", move || {
+        live_render_get_ffmpeg_status_blocking(app.state())
+    })
+    .await
+}
+
+fn live_render_get_ffmpeg_status_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> FfmpegStatus {
     let settings = state.store.snapshot().ok().map(|s| {
@@ -2511,7 +2528,14 @@ pub fn live_render_get_ffmpeg_status(
 /// 检测 NVENC 硬件编码可用性(h264_nvenc / hevc_nvenc 各一次微型
 /// 测试编码);返回 [h264 可用, hevc 可用]。无 FFmpeg = 均不可用。
 #[tauri::command]
-pub fn live_render_check_nvenc(
+pub async fn live_render_check_nvenc(app: AppHandle) -> CommandResult<[bool; 2]> {
+    crate::infrastructure::tasks::blocking_io("live_render_check_nvenc", move || {
+        live_render_check_nvenc_blocking(app.state())
+    })
+    .await?
+}
+
+fn live_render_check_nvenc_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<[bool; 2]> {
     let Some(path) = ffmpeg_path(&state) else {
@@ -2545,7 +2569,14 @@ pub fn live_render_check_nvenc(
 /// 检测用户 FFmpeg(PATH 自动检测优先,danser 发行包兜底);
 /// 返回版本首行(None = 未找到)。
 #[tauri::command]
-pub fn live_render_check_ffmpeg(
+pub async fn live_render_check_ffmpeg(app: AppHandle) -> CommandResult<Option<String>> {
+    crate::infrastructure::tasks::blocking_io("live_render_check_ffmpeg", move || {
+        live_render_check_ffmpeg_blocking(app.state())
+    })
+    .await?
+}
+
+fn live_render_check_ffmpeg_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<Option<String>> {
     let Some(path) = ffmpeg_path(&state) else {

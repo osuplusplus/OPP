@@ -15,8 +15,14 @@ use crate::{
 };
 
 #[tauri::command(async)]
-pub fn get_local_sources(state: State<'_, AppState>) -> CommandResult<Vec<LocalSourceStatus>> {
-    state.local_analysis.source_statuses()
+pub async fn get_local_sources(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<LocalSourceStatus>> {
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("get_local_sources", move || {
+        service.source_statuses()
+    })
+    .await?
 }
 
 #[tauri::command(async)]
@@ -25,22 +31,28 @@ pub fn get_local_index_status(state: State<'_, AppState>) -> CommandResult<Local
 }
 
 #[tauri::command(async)]
-pub fn set_local_source(
+pub async fn set_local_source(
     client: LocalClient,
     path: String,
     state: State<'_, AppState>,
 ) -> CommandResult<LocalSourceStatus> {
-    state
-        .local_analysis
-        .set_source(client, Path::new(path.trim()))
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("set_local_source", move || {
+        service.set_source(client, Path::new(path.trim()))
+    })
+    .await?
 }
 
 #[tauri::command(async)]
-pub fn reset_local_source(
+pub async fn reset_local_source(
     client: LocalClient,
     state: State<'_, AppState>,
 ) -> CommandResult<LocalSourceStatus> {
-    state.local_analysis.reset_source(client)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("reset_local_source", move || {
+        service.reset_source(client)
+    })
+    .await?
 }
 
 #[tauri::command(async)]
@@ -82,37 +94,53 @@ pub fn cancel_local_scan(client: LocalClient, state: State<'_, AppState>) -> Com
 }
 
 #[tauri::command(async)]
-pub fn query_local_beatmaps(
+pub async fn query_local_beatmaps(
     query: BeatmapQuery,
     state: State<'_, AppState>,
 ) -> CommandResult<Page<LocalBeatmapSummary>> {
-    state.local_analysis.query_beatmaps(query)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("query_local_beatmaps", move || {
+        service.query_beatmaps(query)
+    })
+    .await?
 }
 
 #[tauri::command(async)]
-pub fn query_local_beatmap_sets(
+pub async fn query_local_beatmap_sets(
     query: BeatmapQuery,
     state: State<'_, AppState>,
 ) -> CommandResult<Page<LocalBeatmapSetSummary>> {
-    state.local_analysis.query_beatmap_sets(query)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("query_local_beatmap_sets", move || {
+        service.query_beatmap_sets(query)
+    })
+    .await?
 }
 
 #[tauri::command(async)]
-pub fn get_local_beatmap_detail(
+pub async fn get_local_beatmap_detail(
     client: LocalClient,
     resource_id: String,
     state: State<'_, AppState>,
 ) -> CommandResult<LocalBeatmapDetail> {
-    state.local_analysis.beatmap_detail(client, &resource_id)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("get_local_beatmap_detail", move || {
+        service.beatmap_detail(client, &resource_id)
+    })
+    .await?
 }
 
 #[tauri::command(async)]
-pub fn get_local_beatmap_path(
+pub async fn get_local_beatmap_path(
     client: LocalClient,
     resource_id: String,
     state: State<'_, AppState>,
 ) -> CommandResult<String> {
-    state.local_analysis.beatmap_file_path(client, &resource_id)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("get_local_beatmap_path", move || {
+        service.beatmap_file_path(client, &resource_id)
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -125,7 +153,7 @@ pub async fn get_local_beatmap_background(
     state: State<'_, AppState>,
 ) -> CommandResult<Option<String>> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || {
+    crate::infrastructure::tasks::interactive("local_analysis", move || {
         let span = crate::infrastructure::logging::global()
             .map(|log| log.operation("local_analysis", "get_local_beatmap_background"));
         let result = match size.unwrap_or_default() {
@@ -146,26 +174,30 @@ pub async fn get_local_beatmap_background(
 }
 
 #[tauri::command(async)]
-pub fn get_local_beatmap_set(
+pub async fn get_local_beatmap_set(
     client: LocalClient,
     set_key: String,
     ruleset: Ruleset,
     state: State<'_, AppState>,
 ) -> CommandResult<LocalBeatmapSetSummary> {
-    state
-        .local_analysis
-        .complete_beatmap_set(client, &set_key, ruleset)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("get_local_beatmap_set", move || {
+        service.complete_beatmap_set(client, &set_key, ruleset)
+    })
+    .await?
 }
 
 #[tauri::command(async)]
-pub fn pick_random_local_beatmap_set(
+pub async fn pick_random_local_beatmap_set(
     query: BeatmapQuery,
     exclude_set_key: Option<String>,
     state: State<'_, AppState>,
 ) -> CommandResult<Option<LocalBeatmapSetSummary>> {
-    state
-        .local_analysis
-        .random_beatmap_set(query, exclude_set_key.as_deref())
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("pick_random_local_beatmap_set", move || {
+        service.random_beatmap_set(query, exclude_set_key.as_deref())
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -175,9 +207,11 @@ pub async fn get_local_beatmap_audio(
     state: State<'_, AppState>,
 ) -> CommandResult<LocalBeatmapAudioPayload> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || service.beatmap_audio(client, &resource_id))
-        .await
-        .map_err(|e| CommandError::new("LOCAL_AUDIO_TASK_ERROR", e.to_string()))?
+    crate::infrastructure::tasks::interactive("beatmap_audio", move || {
+        service.beatmap_audio(client, &resource_id)
+    })
+    .await
+    .map_err(|e| CommandError::new("LOCAL_AUDIO_TASK_ERROR", e.to_string()))?
 }
 
 #[tauri::command]
@@ -190,7 +224,7 @@ pub async fn export_local_beatmap_set(
     state: State<'_, AppState>,
 ) -> CommandResult<String> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("local_analysis", move || {
         service.export_beatmap_set_osz(client, &set_key, Path::new(&out_dir))
     })
     .await
@@ -212,7 +246,7 @@ pub async fn export_local_skin(
     state: State<'_, AppState>,
 ) -> CommandResult<String> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("local_analysis", move || {
         service.export_skin_osk(client, &skin_resource_id, Path::new(&out_dir))
     })
     .await
@@ -225,20 +259,28 @@ pub async fn export_local_skin(
 }
 
 #[tauri::command(async)]
-pub fn query_local_skins(
+pub async fn query_local_skins(
     query: SkinQuery,
     state: State<'_, AppState>,
 ) -> CommandResult<Page<LocalSkinSummary>> {
-    state.local_analysis.query_skins(query)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("query_local_skins", move || {
+        service.query_skins(query)
+    })
+    .await?
 }
 
 #[tauri::command(async)]
-pub fn get_local_skin_detail(
+pub async fn get_local_skin_detail(
     client: LocalClient,
     resource_id: String,
     state: State<'_, AppState>,
 ) -> CommandResult<LocalSkinDetail> {
-    state.local_analysis.skin_detail(client, &resource_id)
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::interactive("get_local_skin_detail", move || {
+        service.skin_detail(client, &resource_id)
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -250,14 +292,16 @@ pub async fn get_local_skin_preview(
     state: State<'_, AppState>,
 ) -> CommandResult<LocalSkinPreview> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || service.skin_preview(client, &resource_id))
-        .await
-        .map_err(|error| {
-            CommandError::new(
-                "LOCAL_SKIN_PREVIEW_TASK_ERROR",
-                format!("Skin 预览索引任务异常结束：{error}"),
-            )
-        })?
+    crate::infrastructure::tasks::interactive("skin_preview", move || {
+        service.skin_preview(client, &resource_id)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "LOCAL_SKIN_PREVIEW_TASK_ERROR",
+            format!("Skin 预览索引任务异常结束：{error}"),
+        )
+    })?
 }
 
 #[tauri::command]
@@ -270,7 +314,7 @@ pub async fn get_local_skin_asset(
     state: State<'_, AppState>,
 ) -> CommandResult<LocalSkinAssetPayload> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || {
+    crate::infrastructure::tasks::interactive("local_analysis", move || {
         service.skin_asset(client, &skin_resource_id, &asset_resource_id)
     })
     .await
@@ -295,7 +339,7 @@ pub async fn replace_local_skin_asset(
     state: State<'_, AppState>,
 ) -> CommandResult<()> {
     let service = Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("local_analysis", move || {
         service.replace_skin_asset(
             client,
             &skin_resource_id,

@@ -136,7 +136,7 @@ pub struct LocalAnalysisService {
     indexes: RwLock<BTreeMap<LocalClient, Arc<LocalIndex>>>,
     skin_assets: RwLock<BTreeMap<String, SkinAssetLocation>>,
     scans: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
-    pool: rayon::ThreadPool,
+    pool: &'static crate::infrastructure::tasks::WorkerPool,
     thumbnail_cache_limit_bytes: AtomicUsize,
     load_status: RwLock<LocalIndexLoadStatus>,
     watcher_stops: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
@@ -149,16 +149,7 @@ impl LocalAnalysisService {
         fs::create_dir_all(&cache_dir)?;
         fs::create_dir_all(cache_dir.join("thumbnails"))?;
         let sources = SourceResolver::load(&cache_dir)?;
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(4)
-            .thread_name(|index| format!("opp-local-analysis-{index}"))
-            .build()
-            .map_err(|error| {
-                CommandError::new(
-                    "LOCAL_ANALYSIS_INIT_ERROR",
-                    format!("无法初始化本地分析线程池：{error}"),
-                )
-            })?;
+        let pool = crate::infrastructure::tasks::background_pool()?;
         Ok(Self {
             cache_dir,
             sources,
@@ -195,6 +186,7 @@ impl LocalAnalysisService {
             for (client, index) in loaded {
                 indexes.entry(client).or_insert(index);
             }
+            drop(indexes);
             self.trim_thumbnail_cache()?;
             Ok(())
         })();
@@ -243,7 +235,7 @@ impl LocalAnalysisService {
     fn watch_source(self: Arc<Self>, client: LocalClient, app: AppHandle, stop: Arc<AtomicBool>) {
         let mut watched_roots = Vec::<PathBuf>::new();
         let mut watcher: Option<RecommendedWatcher> = None;
-        let (events_tx, events_rx) = mpsc::channel::<()>();
+        let (events_tx, events_rx) = mpsc::sync_channel::<()>(1);
         while !stop.load(AtomicOrdering::Relaxed) {
             if self.music_only.load(AtomicOrdering::Relaxed) {
                 watcher = None;
@@ -263,7 +255,7 @@ impl LocalAnalysisService {
                             if result.as_ref().is_ok_and(|event| {
                                 watch_event_relevant(client, &callback_roots, event)
                             }) {
-                                let _ = tx.send(());
+                                let _ = tx.try_send(());
                             }
                         },
                         Config::default(),
@@ -301,7 +293,15 @@ impl LocalAnalysisService {
             match events_rx.recv_timeout(Duration::from_secs(2)) {
                 Ok(()) => {
                     // 文件写入通常会产生多个事件，合并一秒内的事件以避免重复扫描。
-                    while events_rx.recv_timeout(Duration::from_millis(250)).is_ok() {}
+                    let debounce = Instant::now();
+                    while debounce.elapsed() < Duration::from_secs(1)
+                        && !stop.load(AtomicOrdering::Relaxed)
+                        && events_rx.recv_timeout(Duration::from_millis(250)).is_ok()
+                    {
+                    }
+                    if stop.load(AtomicOrdering::Relaxed) {
+                        break;
+                    }
                     let now = Utc::now().to_rfc3339();
                     self.update_client_status(client, |status| {
                         status.phase = "pending".into();
@@ -530,7 +530,9 @@ impl LocalAnalysisService {
             status.pending_changes = 0;
         });
 
-        let result = self.run_scan(client, force, emit_event, &cancel);
+        let result = self
+            .pool
+            .install(|| self.run_scan(client, force, emit_event, &cancel));
         if let Ok(mut scans) = self.scans.lock() {
             scans.remove(&client);
         }
@@ -565,6 +567,7 @@ impl LocalAnalysisService {
         emit_event: Arc<dyn Fn(LocalScanProgress) + Send + Sync>,
         cancel: &AtomicBool,
     ) -> CommandResult<LocalLibrarySummary> {
+        check_cancelled(cancel)?;
         let source = self.sources.resolve(client)?;
         if !source.status.valid {
             return Err(CommandError::new(

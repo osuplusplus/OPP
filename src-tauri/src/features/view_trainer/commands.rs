@@ -10,7 +10,7 @@ pub async fn view_trainer_get_timeline(
     state: State<'_, AppState>,
 ) -> CommandResult<Timeline> {
     let analysis = Arc::clone(&state.local_analysis);
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("view_trainer", move || {
         service::timeline_for_analysis(&analysis, client, &resource_id)
     })
     .await
@@ -27,7 +27,7 @@ pub async fn view_trainer_import(
     state: State<'_, AppState>,
 ) -> CommandResult<String> {
     let analysis = std::sync::Arc::clone(&state.local_analysis);
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("view_trainer", move || {
         let source_path =
             std::path::PathBuf::from(analysis.beatmap_file_path(client, &resource_id)?);
         // Lazer 谱面来自内容寻址物化缓存，不能把导入结果写回缓存目录。
@@ -72,7 +72,7 @@ pub async fn view_trainer_generate(
     state: State<'_, AppState>,
 ) -> CommandResult<crate::features::trainer::TrainerResult> {
     let analysis = Arc::clone(&state.local_analysis);
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("view_trainer", move || {
         let request = service::resolve_request_with_analysis(&analysis, request)?;
         let source_path = std::path::PathBuf::from(
             analysis.beatmap_file_path(request.client, &request.resource_id)?,

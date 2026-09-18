@@ -1,6 +1,7 @@
+import { PaginatedList } from "../../shared/components/PaginatedList";
 import * as Dialog from "@radix-ui/react-dialog";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBeforeUnload, useNavigate } from "react-router-dom";
 import {
@@ -70,8 +71,8 @@ function ImportPreviewDialog({
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-4">
                 <p className="mb-3 text-xs text-slate-500">将导入以下难度（在线分享码为保持短小，只保存精确谱面 ID）：</p>
-                <div className="space-y-1.5">
-                  {preview.entries.map((entry, index) => (
+                <PaginatedList items={preview.entries} pageSize={50} label="导入预览">{(entries) => <div className="space-y-1.5">
+                  {entries.map((entry, index) => (
                     <div className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/10 px-3 py-2.5" key={entry.id}>
                       <span className={`size-2 rounded-full ${entry.resolved ? "bg-emerald-300" : entry.beatmapset_id ? "bg-cyan-300" : "bg-amber-300"}`} />
                       <div className="min-w-0 flex-1">
@@ -80,7 +81,7 @@ function ImportPreviewDialog({
                       </div>
                     </div>
                   ))}
-                </div>
+                </div>}</PaginatedList>
               </div>
               <div className="flex justify-end gap-2 border-t border-white/[0.08] p-5">
                 <Button disabled={busy} onClick={onCancel} variant="ghost">取消</Button>
@@ -124,7 +125,7 @@ export function FolderCard({ folder, onChanged, onDownload }: { folder: Collecti
     } catch (caught) { setError((caught as CommandError).message ?? String(caught)); }
     finally { setBusy(false); }
   };
-  const missingSets = new Set(folder.entries.filter((entry) => !entry.resolved && (entry.beatmapset_id || entry.checksum)).map((entry) => entry.beatmapset_id ?? entry.checksum)).size;
+  const missingSets = useMemo(() => new Set(folder.entries.filter((entry) => !entry.resolved && (entry.beatmapset_id || entry.checksum)).map((entry) => entry.beatmapset_id ?? entry.checksum)).size, [folder.entries]);
 
   return (
     <Card className="collection-folder opp-collection-folder overflow-hidden">
@@ -159,9 +160,9 @@ export function FolderCard({ folder, onChanged, onDownload }: { folder: Collecti
         <div id={contentId}>
           <div className="max-h-[min(34rem,60vh)] overflow-y-auto p-3.5">
             {folder.entries.length ? (
-              <div className="opp-map-grid">
+              <PaginatedList items={folder.entries} pageSize={12} label={folder.name}>{(entries) => <div className="opp-map-grid">
                 {/* 列数依据收藏夹内容区宽度变化，避免窗口断点与卡片实际空间脱节。 */}
-                {folder.entries.map((entry) => (
+                {entries.map((entry) => (
                   <MapCard
                     busy={busy}
                     entry={entry}
@@ -170,7 +171,7 @@ export function FolderCard({ folder, onChanged, onDownload }: { folder: Collecti
                     readOnly={folder.read_only}
                   />
                 ))}
-              </div>
+              </div>}</PaginatedList>
             ) : <p className="px-5 py-8 text-center text-sm text-slate-600">还没有谱面</p>}
           </div>
         </div>
@@ -218,6 +219,7 @@ export function CollectionsPage() {
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
+    let active = true;
     void desktopApi.onBeatmapDownloadProgress((progress: BeatmapDownloadProgress) => {
       if (!collectionDownloadActive.current) return;
       if (progress.phase === "finished") {
@@ -230,8 +232,8 @@ export function CollectionsPage() {
       }
       const current = Math.min(progress.total, progress.processed + (progress.phase === "downloading" ? 1 : 0));
       setNotice(`正在下载缺失曲包 ${current}/${progress.total}${progress.current_title ? `：${progress.current_title}` : ""}`);
-    }).then((unlisten) => { dispose = unlisten; });
-    return () => dispose?.();
+    }).then((unlisten) => { if (active) dispose = unlisten; else unlisten(); });
+    return () => { active = false; dispose?.(); };
   }, []);
 
   const changed = useCallback(async (folderId?: string, entryId?: string) => {
@@ -365,20 +367,12 @@ export function CollectionsPage() {
       if (!status.in_sync) {
         setNotice(status.game_changed ? "游戏收藏夹已变更，点击“读取本地”将重新读取 Stable 数据。" : "软件收藏夹有待写回的更改。");
       }
-      if (status.missing_downloadable_count > 0 && window.confirm(`收藏夹发现 ${status.missing_downloadable_count} 个缺失谱面集，是否由 OPP 批量下载到 osu!stable？`)) {
-        void downloadMissingBeatmapsToGame().then(async (result) => {
-          if (!cancelled) await finalizeCollections(result);
-        }).catch((caught: unknown) => {
-          if (!cancelled) {
-            const message = (caught as CommandError).message ?? String(caught);
-            setNotice(message);
-            updateCollectionTask({ phase: "failed", message: "收藏夹自动补齐失败", errors: [message] });
-          }
-        });
+      if (status.missing_downloadable_count > 0) {
+        setNotice(`收藏夹发现 ${status.missing_downloadable_count} 个缺失谱面集，可点击“补齐并写回游戏”处理。`);
       }
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [collections.data, downloadMissingBeatmapsToGame, finalizeCollections]);
+  }, [collections.data]);
   const create = async () => { if (!name.trim()) return; setBusy(true); try { await desktopApi.createCollection(name.trim(), ""); setName(""); changed(); } finally { setBusy(false); } };
   const importShare = async () => { setBusy(true); try { setPreview(await desktopApi.previewCollectionShare(shareCode)); } catch (caught) { setNotice((caught as CommandError).message ?? String(caught)); } finally { setBusy(false); } };
   const importArchive = async () => {
@@ -412,5 +406,5 @@ export function CollectionsPage() {
   const discardAndLeave = completeLeave;
   const stay = () => { setLeavePrompt(false); setPendingNavigation(null); };
 
-  return <><PageHeader title="谱面收藏夹" description="统一管理游戏收藏夹与 OPP 分享图包；Stable 支持自动补齐并安全写回，lazer 当前只读。" actions={<div className="flex gap-2"><Button disabled={busy} onClick={() => void importArchive()} size="sm" variant="secondary"><FileInput className="size-3.5" />导入压缩包</Button><Button disabled={busy} onClick={() => void refresh("stable")} size="sm" variant="secondary"><RefreshCw className="size-3.5" />读取本地</Button><Button loading={busy} onClick={() => void writeWithAutoDownload()} size="sm"><Save className="size-3.5" />补齐并写回游戏</Button></div>} /><div className="grid grid-cols-[minmax(0,1fr)_clamp(14rem,20vw,17rem)] gap-5"><section className="space-y-4">{collections.isLoading ? <p className="text-sm text-slate-500">正在读取收藏夹…</p> : collections.data?.folders.length ? collections.data.folders.map((folder) => <FolderCard folder={folder} key={folder.id} onChanged={changed} onDownload={downloadOneFolder} />) : <EmptyState icon={<Heart className="size-6" />} title="还没有收藏夹" description="从在线、本地或相似谱面页将难度加入收藏夹，或导入 .osz/.zip。" />}</section><aside className="space-y-4"><Card className="p-5"><h2 className="text-sm font-semibold text-white">新建收藏夹</h2><input className="opp-input mt-3" onChange={(event) => setName(event.target.value)} placeholder="收藏夹名称" value={name} /><Button className="mt-3 w-full" disabled={busy || !name.trim()} onClick={() => void create()}><FolderPlus className="size-4" />创建</Button></Card><Card className="p-5"><h2 className="flex items-center gap-2 text-sm font-semibold text-white"><FileInput className="size-4 text-cyan-200" />导入分享码</h2><textarea className="mt-3 h-28 w-full rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs text-slate-300" onChange={(event) => { setShareCode(event.target.value); setPreview(null); }} placeholder="粘贴 OPPC2.… 分享码" value={shareCode} /><Button className="mt-3 w-full" disabled={busy || !shareCode.trim()} onClick={() => void importShare()} variant="secondary">解析分享码</Button></Card><Card className="p-5"><h2 className="text-sm font-semibold text-white">从谱面包导入</h2><p className="mt-2 text-xs leading-5 text-slate-500">选择 `.osz` 或包含 `.osu` 文件的 `.zip`，自动创建同名收藏夹。</p><Button className="mt-3 w-full" disabled={busy} onClick={() => void importArchive()} variant="secondary"><FileInput className="size-4" />选择压缩包</Button></Card><Card className="p-5"><h2 className="text-sm font-semibold text-white">游戏来源</h2>{collections.data?.sources.map((source) => <div className="mt-3 border-t border-white/[0.06] pt-3" key={source.client}><p className="text-sm text-slate-200">osu! {source.client}{source.read_only ? " · 只读" : ""}</p><p className="mt-1 text-xs leading-5 text-slate-500">{source.message}</p></div>)}</Card>{notice ? <p aria-live="polite" className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.06] p-4 text-sm text-cyan-100">{notice}</p> : null}</aside></div><ImportPreviewDialog busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmImport()} preview={preview} />{leavePrompt ? <div className="fixed inset-0 z-[280] grid place-items-center bg-black/70 p-5 backdrop-blur-sm"><Card className="w-full max-w-md p-6 shadow-2xl"><h2 className="text-lg font-semibold text-white">收藏夹尚未写回游戏</h2><p className="mt-2 text-sm leading-6 text-slate-400">你对收藏夹做了修改。离开前是否保存到 osu!stable？</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button disabled={busy} onClick={stay} variant="ghost">留在此页</Button><Button disabled={busy} onClick={discardAndLeave} variant="secondary">不保存并离开</Button><Button loading={busy} onClick={() => void saveAndLeave()}><Save className="size-4" />保存并离开</Button></div></Card></div> : null}</>;
+  return <><PageHeader title="谱面收藏夹" description="统一管理游戏收藏夹与 OPP 分享图包；Stable 支持自动补齐并安全写回，lazer 当前只读。" actions={<div className="flex gap-2"><Button disabled={busy} onClick={() => void importArchive()} size="sm" variant="secondary"><FileInput className="size-3.5" />导入压缩包</Button><Button disabled={busy} onClick={() => void refresh("stable")} size="sm" variant="secondary"><RefreshCw className="size-3.5" />读取本地</Button><Button loading={busy} onClick={() => void writeWithAutoDownload()} size="sm"><Save className="size-3.5" />补齐并写回游戏</Button></div>} /><div className="grid grid-cols-[minmax(0,1fr)_clamp(14rem,20vw,17rem)] gap-5"><section className="space-y-4">{collections.isLoading ? <p className="text-sm text-slate-500">正在读取收藏夹…</p> : collections.data?.folders.length ? <PaginatedList items={collections.data.folders} pageSize={6} label="收藏夹">{(folders) => folders.map((folder) => <FolderCard folder={folder} key={folder.id} onChanged={changed} onDownload={downloadOneFolder} />)}</PaginatedList> : <EmptyState icon={<Heart className="size-6" />} title="还没有收藏夹" description="从在线、本地或相似谱面页将难度加入收藏夹，或导入 .osz/.zip。" />}</section><aside className="space-y-4"><Card className="p-5"><h2 className="text-sm font-semibold text-white">新建收藏夹</h2><input className="opp-input mt-3" onChange={(event) => setName(event.target.value)} placeholder="收藏夹名称" value={name} /><Button className="mt-3 w-full" disabled={busy || !name.trim()} onClick={() => void create()}><FolderPlus className="size-4" />创建</Button></Card><Card className="p-5"><h2 className="flex items-center gap-2 text-sm font-semibold text-white"><FileInput className="size-4 text-cyan-200" />导入分享码</h2><textarea className="mt-3 h-28 w-full rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs text-slate-300" onChange={(event) => { setShareCode(event.target.value); setPreview(null); }} placeholder="粘贴 OPPC2.… 分享码" value={shareCode} /><Button className="mt-3 w-full" disabled={busy || !shareCode.trim()} onClick={() => void importShare()} variant="secondary">解析分享码</Button></Card><Card className="p-5"><h2 className="text-sm font-semibold text-white">从谱面包导入</h2><p className="mt-2 text-xs leading-5 text-slate-500">选择 `.osz` 或包含 `.osu` 文件的 `.zip`，自动创建同名收藏夹。</p><Button className="mt-3 w-full" disabled={busy} onClick={() => void importArchive()} variant="secondary"><FileInput className="size-4" />选择压缩包</Button></Card><Card className="p-5"><h2 className="text-sm font-semibold text-white">游戏来源</h2>{collections.data?.sources.map((source) => <div className="mt-3 border-t border-white/[0.06] pt-3" key={source.client}><p className="text-sm text-slate-200">osu! {source.client}{source.read_only ? " · 只读" : ""}</p><p className="mt-1 text-xs leading-5 text-slate-500">{source.message}</p></div>)}</Card>{notice ? <p aria-live="polite" className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.06] p-4 text-sm text-cyan-100">{notice}</p> : null}</aside></div><ImportPreviewDialog busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmImport()} preview={preview} />{leavePrompt ? <div className="fixed inset-0 z-[280] grid place-items-center bg-black/70 p-5 backdrop-blur-sm"><Card className="w-full max-w-md p-6 shadow-2xl"><h2 className="text-lg font-semibold text-white">收藏夹尚未写回游戏</h2><p className="mt-2 text-sm leading-6 text-slate-400">你对收藏夹做了修改。离开前是否保存到 osu!stable？</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button disabled={busy} onClick={stay} variant="ghost">留在此页</Button><Button disabled={busy} onClick={discardAndLeave} variant="secondary">不保存并离开</Button><Button loading={busy} onClick={() => void saveAndLeave()}><Save className="size-4" />保存并离开</Button></div></Card></div> : null}</>;
 }

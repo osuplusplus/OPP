@@ -3,7 +3,6 @@ use std::{collections::HashSet, fs};
 use chrono::{Duration, Utc};
 use serde_json::Value;
 use tauri::State;
-use tokio::task::spawn_blocking;
 
 use crate::{
     domain::{CacheRecord, OwnProfile, Ruleset, Score, ScoreCategory},
@@ -262,7 +261,7 @@ async fn analyze_scores(
             }
         };
 
-        let calculated = spawn_blocking({
+        let calculated = crate::infrastructure::tasks::background("skill_analysis", {
             let bytes = bytes.clone();
             let mods = mods.clone();
             move || algorithm::calculate(&bytes, &mods)

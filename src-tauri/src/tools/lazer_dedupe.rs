@@ -32,6 +32,14 @@ use crate::{
 
 /// 取消标志：同一时间只应有一个去重任务，模块级原子量足够。
 static CANCELLED: AtomicBool = AtomicBool::new(false);
+static RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct RunningGuard;
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        RUNNING.store(false, Ordering::Release);
+    }
+}
 
 /// 单个失败条目的展示上限，避免异常文件系统（如整盘不支持硬链接）撑爆事件。
 const MAX_FAILURES: usize = 50;
@@ -86,15 +94,21 @@ pub async fn dedupe_lazer_files(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> CommandResult<LazerDedupeResult> {
+    RUNNING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map_err(|_| CommandError::new("LAZER_DEDUPE_IN_PROGRESS", "已有查重任务正在进行"))?;
+    let guard = RunningGuard;
+    CANCELLED.store(false, Ordering::Relaxed);
     let service = Arc::clone(&state.local_analysis);
     let emit = Arc::new(move |progress: LazerDedupeProgress| {
         let _ = app.emit("lazer-dedupe-progress", progress);
     });
-    tokio::task::spawn_blocking(move || run(service, dry_run, emit))
-        .await
-        .map_err(|join| {
-            CommandError::new("LAZER_DEDUPE_TASK_ERROR", format!("任务异常结束：{join}"))
-        })?
+    crate::infrastructure::tasks::background("tools", move || {
+        let _guard = guard;
+        run(service, dry_run, emit)
+    })
+    .await
+    .map_err(|join| CommandError::new("LAZER_DEDUPE_TASK_ERROR", format!("任务异常结束：{join}")))?
 }
 
 #[tauri::command]
@@ -109,13 +123,15 @@ fn run(
     dry_run: bool,
     emit: Arc<dyn Fn(LazerDedupeProgress) + Send + Sync>,
 ) -> CommandResult<LazerDedupeResult> {
-    CANCELLED.store(false, Ordering::Relaxed);
     let reporter = ProgressReporter::new(emit);
     let mut result = LazerDedupeResult {
         dry_run,
         ..LazerDedupeResult::default()
     };
 
+    if CANCELLED.load(Ordering::Relaxed) {
+        return Ok(cancelled(result));
+    }
     if platform::game_process_running("lazer") {
         return Err(CommandError::new(
             "LAZER_RUNNING",

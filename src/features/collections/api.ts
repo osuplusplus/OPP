@@ -26,8 +26,8 @@ export function removeFromCollectionsSnapshot(
   };
 }
 
-export function useCollections() {
-  return useQuery({ queryKey: collectionsQueryKey, queryFn: () => desktopApi.listCollections(), staleTime: 15_000 });
+export function useCollections(enabled = true) {
+  return useQuery({ enabled, queryKey: collectionsQueryKey, queryFn: () => desktopApi.listCollections(), staleTime: 15_000 });
 }
 
 export function useRefreshCollections() {

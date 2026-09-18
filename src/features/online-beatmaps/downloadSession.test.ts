@@ -16,6 +16,15 @@ function setup() {
   return { session: createDownloadSession(api), api, dispose, finish: (result: Partial<BeatmapDownloadResult>) => finish({ destination: "C:/Maps", total: 3, completed: 0, skipped: 0, failed: 0, cancelled: false, failures: [], ...result }), emit: (progress: Partial<BeatmapDownloadProgress>) => emit({ phase: "downloading", total: 3, processed: 0, completed: 0, skipped: 0, failed: 0, current_beatmapset_id: null, current_title: null, message: null, ...progress }) };
 }
 describe("online download session", () => {
+  it("passes the current difficulty IDs to archive validation", async () => {
+    const { session, api, finish } = setup();
+    const item = { ...set(2419109), beatmaps: [{ id: 5589234 }, { id: 5589235 }] } as OnlineBeatmapset;
+    const run = session.start([item], options);
+    await vi.waitFor(() => expect(api.downloadOnlineBeatmapsets).toHaveBeenCalledOnce());
+    expect(api.downloadOnlineBeatmapsets).toHaveBeenCalledWith(expect.objectContaining({ items: [{ beatmapset_id: 2419109, artist: "Artist", title: "Song 2419109", expected_beatmap_ids: [5589234, 5589235] }] }));
+    finish({ total: 1, completed: 1 });
+    await run;
+  });
   it("merges different searches, deduplicates and excludes prohibited sets", () => {
     const { session } = setup();
     session.add([set(1), set(2)]);

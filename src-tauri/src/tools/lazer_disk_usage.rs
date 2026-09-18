@@ -29,7 +29,7 @@ pub async fn get_lazer_disk_usage() -> CommandResult<LazerDiskUsage> {
         .ok_or_else(|| CommandError::new("LAZER_NOT_FOUND", "未找到 osu!lazer 数据目录"))?;
     let path = root.display().to_string();
     let (total_size, unique_size, file_count) =
-        tokio::task::spawn_blocking(move || compute_size(&root))
+        crate::infrastructure::tasks::background("tools", move || compute_size(&root))
             .await
             .map_err(|join| CommandError::new("LAZER_SCAN_FAILED", join.to_string()))?;
     Ok(LazerDiskUsage {

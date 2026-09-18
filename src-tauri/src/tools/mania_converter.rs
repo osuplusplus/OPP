@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use tauri::async_runtime;
-
 use crate::error::{CommandError, CommandResult};
 
 use super::models::{ManiaConversionItem, ManiaConversionResult};
@@ -58,9 +56,11 @@ pub async fn convert_mania_beatmaps(paths: Vec<String>) -> CommandResult<ManiaCo
             "请先选择至少一个 .mcz 文件",
         ));
     }
-    let items = async_runtime::spawn_blocking(move || paths.into_iter().map(convert_one).collect())
-        .await
-        .map_err(|error| CommandError::new("CONVERSION_TASK_FAILED", error.to_string()))?;
+    let items = crate::infrastructure::tasks::background("tools", move || {
+        paths.into_iter().map(convert_one).collect()
+    })
+    .await
+    .map_err(|error| CommandError::new("CONVERSION_TASK_FAILED", error.to_string()))?;
     Ok(ManiaConversionResult { items })
 }
 

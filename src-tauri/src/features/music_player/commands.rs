@@ -103,21 +103,22 @@ pub async fn music_set_queue(
     let result = async {
         let append = request.append;
         let preview = request.preview;
-        let (tracks, missing) = tauri::async_runtime::spawn_blocking(move || {
-            let collection = request
-                .collection_id
-                .as_ref()
-                .map(|id| collections.folder(id))
-                .transpose()?;
-            let candidates = local.music_candidates(request.query.as_ref())?;
-            Ok::<_, crate::error::CommandError>(super::catalog::build_queue(
-                candidates,
-                &request,
-                collection.as_ref().map(|c| c.entries.as_slice()),
-            ))
-        })
-        .await
-        .map_err(|e| failure(e.to_string()))??;
+        let (tracks, missing) =
+            crate::infrastructure::tasks::interactive("music_player", move || {
+                let collection = request
+                    .collection_id
+                    .as_ref()
+                    .map(|id| collections.folder(id))
+                    .transpose()?;
+                let candidates = local.music_candidates(request.query.as_ref())?;
+                Ok::<_, crate::error::CommandError>(super::catalog::build_queue(
+                    candidates,
+                    &request,
+                    collection.as_ref().map(|c| c.entries.as_slice()),
+                ))
+            })
+            .await
+            .map_err(|e| failure(e.to_string()))??;
         state
             .music
             .dispatch(Action::Queue(tracks, append, preview, missing, intent))
@@ -127,49 +128,55 @@ pub async fn music_set_queue(
     finish_span(span, result)
 }
 #[tauri::command(async)]
-pub fn music_artwork(id: String, state: State<'_, AppState>) -> CommandResult<Option<String>> {
-    let span = global().map(|l| l.operation("music_player", "music_artwork"));
-    let result = (|| {
-        let assets = state
-            .music
-            .queue
-            .read()
-            .map_err(|_| failure("播放队列不可用"))?
-            .iter()
-            .find(|t| t.info.id == id)
-            .map(|t| t.assets.clone())
-            .unwrap_or_default();
-        for asset in assets {
-            let Some(path) = &asset.artwork else { continue };
-            let Ok(path) = asset.checked_path(path) else {
-                continue;
-            };
-            let reader = image::ImageReader::open(&path);
-            if let Some(s) = &span {
-                s.fs_op("read", &path, &reader);
+pub async fn music_artwork(
+    id: String,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<String>> {
+    let queue = state.music.queue.clone();
+    crate::infrastructure::tasks::interactive("music_artwork", move || {
+        let span = global().map(|l| l.operation("music_player", "music_artwork"));
+        let result = (|| {
+            let assets = queue
+                .read()
+                .map_err(|_| failure("播放队列不可用"))?
+                .iter()
+                .find(|t| t.info.id == id)
+                .map(|t| t.assets.clone())
+                .unwrap_or_default();
+            for asset in assets {
+                let Some(path) = &asset.artwork else { continue };
+                let Ok(path) = asset.checked_path(path) else {
+                    continue;
+                };
+                let reader = image::ImageReader::open(&path);
+                if let Some(s) = &span {
+                    s.fs_op("read", &path, &reader);
+                }
+                let Ok(reader) = reader else { continue };
+                let Ok(mut reader) = reader.with_guessed_format() else {
+                    continue;
+                };
+                let mut limits = image::Limits::default();
+                limits.max_alloc = Some(64 * 1024 * 1024);
+                reader.limits(limits);
+                let Ok(image) = reader.decode() else { continue };
+                let mut bytes = Cursor::new(Vec::new());
+                image
+                    .thumbnail(160, 160)
+                    .write_to(&mut bytes, image::ImageFormat::Png)
+                    .map_err(|e| failure(e.to_string()))?;
+                return Ok(Some(format!(
+                    "data:image/png;base64,{}",
+                    STANDARD.encode(bytes.into_inner())
+                )));
             }
-            let Ok(reader) = reader else { continue };
-            let Ok(mut reader) = reader.with_guessed_format() else {
-                continue;
-            };
-            let mut limits = image::Limits::default();
-            limits.max_alloc = Some(64 * 1024 * 1024);
-            reader.limits(limits);
-            let Ok(image) = reader.decode() else { continue };
-            let mut bytes = Cursor::new(Vec::new());
-            image
-                .thumbnail(160, 160)
-                .write_to(&mut bytes, image::ImageFormat::Png)
-                .map_err(|e| failure(e.to_string()))?;
-            return Ok(Some(format!(
-                "data:image/png;base64,{}",
-                STANDARD.encode(bytes.into_inner())
-            )));
-        }
-        Ok(None)
-    })();
-    finish_span(span, result)
+            Ok(None)
+        })();
+        finish_span(span, result)
+    })
+    .await?
 }
+
 #[tauri::command]
 pub async fn music_window_mode(
     mini: bool,
@@ -180,9 +187,11 @@ pub async fn music_window_mode(
     let span = global().map(|l| l.operation("music_player", "music_window_mode"));
     if !mini {
         let local = state.local_analysis.clone();
-        tauri::async_runtime::spawn_blocking(move || local.load_cached_indexes())
-            .await
-            .map_err(|e| failure(e.to_string()))?;
+        crate::infrastructure::tasks::background("load_cached_indexes", move || {
+            local.load_cached_indexes()
+        })
+        .await
+        .map_err(|e| failure(e.to_string()))?;
     }
     finish_span(span, super::windows::switch(&app, mini, route))
 }

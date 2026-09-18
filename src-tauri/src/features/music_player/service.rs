@@ -50,17 +50,18 @@ impl MusicRuntime {
             return;
         }
         let intent = self.intent.load(Ordering::Relaxed);
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            let candidates = local.music_candidates(None)?;
-            let (mut tracks, _) =
-                super::catalog::build_queue(candidates, &QueueRequest::default(), None);
-            use rand_core::{OsRng, RngCore};
-            for index in (1..tracks.len()).rev() {
-                tracks.swap(index, (OsRng.next_u64() % (index as u64 + 1)) as usize);
-            }
-            Ok::<_, CommandError>(tracks)
-        })
-        .await;
+        let result =
+            crate::infrastructure::tasks::background("initialize_music_queue", move || {
+                let candidates = local.music_candidates(None)?;
+                let (mut tracks, _) =
+                    super::catalog::build_queue(candidates, &QueueRequest::default(), None);
+                use rand_core::{OsRng, RngCore};
+                for index in (1..tracks.len()).rev() {
+                    tracks.swap(index, (OsRng.next_u64() % (index as u64 + 1)) as usize);
+                }
+                Ok::<_, CommandError>(tracks)
+            })
+            .await;
         match result {
             Ok(Ok(tracks)) if !tracks.is_empty() => {
                 if let Err(error) = self.dispatch(Action::InitializeQueue(tracks, intent)).await {

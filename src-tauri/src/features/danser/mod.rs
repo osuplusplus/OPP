@@ -87,32 +87,42 @@ fn resolve_danser(state: &AppState) -> CommandResult<PathBuf> {
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn get_danser_status(state: State<'_, AppState>) -> CommandResult<DanserStatus> {
+pub async fn get_danser_status(state: State<'_, AppState>) -> CommandResult<DanserStatus> {
     let saved = state.store.snapshot()?.settings.danser_executable_path;
-    let executable = find_danser(saved.as_deref());
-    let profiles = executable
-        .as_deref()
-        .map(list_profiles_for)
-        .unwrap_or_default();
-    let ffmpeg = executable.as_deref().is_some_and(ffmpeg_available);
-    Ok(DanserStatus {
-        available: executable.is_some(),
-        executable_path: executable.as_ref().map(|path| path.display().to_string()),
-        ffmpeg_available: ffmpeg,
-        profiles,
-        message: match (&executable, ffmpeg) {
-            (None, _) => "未检测到 Danser".into(),
-            (Some(_), false) => "已检测到 Danser，但未找到 FFmpeg".into(),
-            (Some(_), true) => "Danser 与 FFmpeg 已就绪".into(),
-        },
+    crate::infrastructure::tasks::blocking_io("get_danser_status", move || {
+        let executable = find_danser(saved.as_deref());
+        let profiles = executable
+            .as_deref()
+            .map(list_profiles_for)
+            .unwrap_or_default();
+        let ffmpeg = executable.as_deref().is_some_and(ffmpeg_available);
+        Ok(DanserStatus {
+            available: executable.is_some(),
+            executable_path: executable.as_ref().map(|path| path.display().to_string()),
+            ffmpeg_available: ffmpeg,
+            profiles,
+            message: match (&executable, ffmpeg) {
+                (None, _) => "未检测到 Danser".into(),
+                (Some(_), false) => "已检测到 Danser，但未找到 FFmpeg".into(),
+                (Some(_), true) => "Danser 与 FFmpeg 已就绪".into(),
+            },
+        })
     })
+    .await?
 }
 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：列出可用资源。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn list_danser_profiles(state: State<'_, AppState>) -> CommandResult<Vec<String>> {
-    Ok(list_profiles_for(&resolve_danser(&state)?))
+pub async fn list_danser_profiles(state: State<'_, AppState>) -> CommandResult<Vec<String>> {
+    let saved = state.store.snapshot()?.settings.danser_executable_path;
+    crate::infrastructure::tasks::blocking_io("list_danser_profiles", move || {
+        Ok(list_profiles_for(
+            &resolve_danser_path(saved.as_deref())
+                .ok_or_else(|| command_error("DANSER_NOT_FOUND", "未找到 danser"))?,
+        ))
+    })
+    .await?
 }
 
 fn validate_preferences(input: &DanserRenderPreferences) -> CommandResult<()> {

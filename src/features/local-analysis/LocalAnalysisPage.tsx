@@ -1,3 +1,4 @@
+import { invalidateLocalClient } from "./indexCache";
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,7 +16,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
-import { musicApi, useMusicState } from "../music-player/api";
+import { musicApi, useMusicResourceId } from "../music-player/api";
 import type { MusicLocation } from "../../shared/types/music";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
@@ -36,8 +37,6 @@ import type {
   LocalSourceStatus,
 } from "../../shared/types/osu";
 import {
-  localSourcesKey,
-  localSummaryKey,
   useLocalSources,
   useLocalIndexStatus,
   useLocalSummary,
@@ -302,16 +301,7 @@ function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSect
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedBeatmap, setSelectedBeatmap] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (indexStatusQuery.data?.phase === "ready" || clientIndexStatus?.last_scan_at) {
-      void queryClient.invalidateQueries({ queryKey: localSummaryKey(client) });
-      void queryClient.invalidateQueries({ queryKey: localSourcesKey });
-      if (section === "maps") {
-        void queryClient.invalidateQueries({ queryKey: ["local-beatmap-sets"], refetchType: "active" });
-        void queryClient.invalidateQueries({ queryKey: ["local-beatmap-background"], refetchType: "active" });
-      }
-    }
-  }, [client, clientIndexStatus?.last_scan_at, indexStatusQuery.data?.phase, queryClient, section]);
+
 
   useEffect(() => {
     let unlisten: () => void = () => undefined;
@@ -327,17 +317,7 @@ function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSect
     return () => { active = false; unlisten(); };
   }, [client]);
 
-  const invalidateLocal = async () => {
-    // Lazer libraries can contain tens of thousands of entries. Refetching every
-    // active query at once briefly materializes several large result trees and can
-    // exhaust the WebView2 renderer on Windows. Refresh the small status queries
-    // first, then mark list/detail data stale without forcing an eager refetch.
-    await queryClient.invalidateQueries({ queryKey: localSourcesKey });
-    await queryClient.invalidateQueries({ queryKey: localSummaryKey(client) });
-    for (const queryKey of [["local-beatmaps"], ["local-beatmap-sets"], ["local-skins"], ["local-beatmap-background"], ["local-skin-preview"], ["local-skin-asset"]]) {
-      await queryClient.invalidateQueries({ queryKey, refetchType: "inactive" });
-    }
-  };
+  const invalidateLocal = () => invalidateLocalClient(queryClient, client);
 
   const chooseDirectory = async () => {
     setActionError(null);
@@ -503,12 +483,12 @@ export function LocalAnalysisPage({
   section?: LocalSection;
 }) {
   const { client, ruleset, setClient, setRuleset } = useMode();
-  const music = useMusicState();
+  const musicResourceId = useMusicResourceId();
   const [followTarget, setFollowTarget] = useState<MusicLocation | null>(null);
   const mode = useRef({ client, ruleset });
   useEffect(() => { mode.current = { client, ruleset }; }, [client, ruleset]);
   useEffect(() => {
-    const resourceId = music.resource_id;
+    const resourceId = musicResourceId;
     if (section !== "maps" || !resourceId || !musicApi.available()) return;
     let active = true;
     let retry: number | undefined;
@@ -528,11 +508,11 @@ export function LocalAnalysisPage({
     };
     locate();
     return () => { active = false; window.clearTimeout(retry); };
-  }, [music.resource_id, section, setClient, setRuleset]);
+  }, [musicResourceId, section, setClient, setRuleset]);
   return (
     <LocalAnalysisClientPage
       key={`${client}:${ruleset}:${section}`}
-      followTarget={followTarget?.resource_id === music.resource_id ? followTarget : null}
+      followTarget={followTarget?.resource_id === musicResourceId ? followTarget : null}
       section={section}
     />
   );

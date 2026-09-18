@@ -1,4 +1,5 @@
-import { useDeferredValue, useEffect, useId, useRef, useState } from "react";
+import { useDebouncedValue } from "../../shared/lib/useDebouncedValue";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, X } from "lucide-react";
 import type { BeatmapQuery, BeatmapSort, LocalBeatmapSetSummary } from "../../shared/types/osu";
 import { fixedNumber } from "../../shared/lib/format";
@@ -20,7 +21,7 @@ export function LocalSetSearch({ query, onQuery, onChoose }: { query: BeatmapQue
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const listId = useId();
-  const deferred = useDeferredValue(query);
+  const deferred = useDebouncedValue(query);
   const result = useLocalBeatmapSets(deferred, open);
   const items = result.data?.items ?? [];
   const stale = query !== deferred || result.isPlaceholderData || result.isFetching;

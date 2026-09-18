@@ -1,4 +1,6 @@
-import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { observeLocalIndex } from "./indexCache";
+import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   BeatmapQuery,
@@ -8,7 +10,7 @@ import type {
 } from "../../shared/types/osu";
 
 export function fetchCompleteLocalSet(queryClient: QueryClient, client: OsuClient, setKey: string, ruleset: Ruleset) {
-  return queryClient.fetchQuery({ queryKey: ["local-complete-set", client, setKey, ruleset], queryFn: () => desktopApi.getLocalBeatmapSet(client, setKey, ruleset), staleTime: 0 });
+  return queryClient.fetchQuery({ queryKey: ["local-complete-set", client, setKey, ruleset], queryFn: () => desktopApi.getLocalBeatmapSet(client, setKey, ruleset), staleTime: Infinity });
 }
 
 export function pickLocalSet(query: BeatmapQuery, excludeSetKey: string | null = null) {
@@ -36,7 +38,8 @@ export function useLocalSources() {
 }
 
 export function useLocalIndexStatus() {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const result = useQuery({
     queryKey: localIndexStatusKey,
     queryFn: desktopApi.getLocalIndexStatus,
     refetchInterval: (query) => {
@@ -49,12 +52,15 @@ export function useLocalIndexStatus() {
     },
     retry: false,
   });
+  useEffect(() => { if (result.data) observeLocalIndex(queryClient, result.data); }, [queryClient, result.data]);
+  return result;
 }
 
 export function useLocalSummary(client: OsuClient) {
   return useQuery({
     queryKey: localSummaryKey(client),
     queryFn: () => desktopApi.getLocalSummary(client),
+    staleTime: 30_000,
     retry: false,
   });
 }

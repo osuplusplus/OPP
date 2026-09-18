@@ -26,6 +26,8 @@ function subscribe(listener: () => void) {
   return () => { subscribers.delete(listener); if (!subscribers.size) { stop?.(); stop = undefined; } };
 }
 export function useMusicState() { return useSyncExternalStore(subscribe, () => state, () => emptyMusicState); }
+// Library navigation only needs track identity, not every playback-position update.
+export function useMusicResourceId() { return useSyncExternalStore(subscribe, () => state.resource_id, () => emptyMusicState.resource_id); }
 export const musicApi = musicDesktop;
 
 export function musicError(error: unknown) { return error instanceof Error ? error.message : (error as { message?: string })?.message ?? "播放器操作失败"; }

@@ -178,6 +178,15 @@ impl ProviderRegistry {
         .await
     }
 
+    pub async fn official_osu(&self, id: u64) -> CommandResult<ProviderBytes> {
+        self.bytes_get(
+            &format!("{OSU_METADATA_URL}/{id}"),
+            "OSU_DOWNLOAD_FAILED",
+            "osu!",
+        )
+        .await
+    }
+
     pub async fn nerinyan_osu(&self, id: u64) -> CommandResult<ProviderBytes> {
         let metadata = self.nerinyan_beatmap(id).await?;
         let set_id = metadata

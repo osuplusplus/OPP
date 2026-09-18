@@ -15,7 +15,7 @@ use crate::{
     state::AppState,
 };
 
-use super::download::{download_file_name, download_with_adapters};
+use super::download::{download_file_name, download_with_adapters, validate_osz};
 use super::models::{
     BeatmapDownloadFailure, BeatmapDownloadProgress, BeatmapDownloadRequest, BeatmapDownloadResult,
     CollectedBeatmapsets, DownloadProgressCounts, OnlineBeatmapSearchQuery,
@@ -255,9 +255,18 @@ pub async fn download_online_beatmapsets(
             break;
         }
         let processed = index;
-        if !request.overwrite
-            && let Some(existing) = find_existing_beatmapset(&destination, item.beatmapset_id)
-        {
+        let existing = (!request.overwrite)
+            .then(|| find_existing_beatmapset(&destination, item.beatmapset_id))
+            .flatten();
+        let stale_existing = existing
+            .as_ref()
+            .filter(|path| {
+                std::fs::File::open(path)
+                    .ok()
+                    .is_none_or(|file| validate_osz(file, item).is_err())
+            })
+            .cloned();
+        if let Some(existing) = existing.filter(|_| stale_existing.is_none()) {
             skipped += 1;
             // Callers that post-process archives (for example collection
             // completion) also need paths for files that were already present.
@@ -303,7 +312,7 @@ pub async fn download_online_beatmapsets(
         let mut smoothed_speed: Option<f64> = None;
         match download_with_adapters(
             &state,
-            item.beatmapset_id,
+            item,
             &request.provider,
             request.include_video,
             cancel.as_ref(),
@@ -384,7 +393,25 @@ pub async fn download_online_beatmapsets(
                     if request.overwrite && target.exists() {
                         tokio::fs::remove_file(&target).await?;
                     }
-                    tokio::fs::rename(&temporary, &target).await
+                    let backup = stale_existing.as_ref().map(|_| {
+                        destination.join(format!(
+                            ".opp-{}-{}.osz.stale",
+                            item.beatmapset_id,
+                            Uuid::new_v4().simple()
+                        ))
+                    });
+                    if let (Some(old), Some(backup)) = (&stale_existing, &backup) {
+                        tokio::fs::rename(old, backup).await?;
+                    }
+                    match tokio::fs::rename(&temporary, &target).await {
+                        Ok(()) => Ok(()),
+                        Err(error) => {
+                            if let (Some(old), Some(backup)) = (&stale_existing, &backup) {
+                                let _ = tokio::fs::rename(backup, old).await;
+                            }
+                            Err(error)
+                        }
+                    }
                 }
                 .await;
 

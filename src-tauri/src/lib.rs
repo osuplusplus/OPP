@@ -69,7 +69,10 @@ pub fn run() {
             let music_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let loading = local_analysis.clone();
-                let _ = tauri::async_runtime::spawn_blocking(move || loading.load_cached_indexes())
+                let _ =
+                    crate::infrastructure::tasks::background("load_cached_indexes", move || {
+                        loading.load_cached_indexes()
+                    })
                     .await;
                 music_app
                     .state::<AppState>()
