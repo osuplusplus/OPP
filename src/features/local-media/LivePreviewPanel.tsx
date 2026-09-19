@@ -186,7 +186,15 @@ export function LivePreviewPanel() {
       // 同样满足 dpr == scale_factor,行为不变)。
       const d = window.devicePixelRatio || 1;
       void desktopApi
-        .liveRenderMove({ x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d, suppressed })
+        .liveRenderMove({
+          x: box.x * d,
+          y: box.y * d,
+          width: box.width * d,
+          height: box.height * d,
+          viewport_width: window.innerWidth * d,
+          viewport_height: window.innerHeight * d,
+          suppressed,
+        })
         .catch(() => undefined);
     };
     const schedule = () => {
@@ -250,7 +258,13 @@ export function LivePreviewPanel() {
       const openOptions: LiveRenderOptions = { ...options, avatarPath };
       const box = containerRef.current?.getBoundingClientRect();
       const d = window.devicePixelRatio || 1;
-      const rect = box ? { x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d } : { x: 0, y: 0, width: 0, height: 0 };
+      const viewport = {
+        viewport_width: window.innerWidth * d,
+        viewport_height: window.innerHeight * d,
+      };
+      const rect = box
+        ? { x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d, ...viewport }
+        : { x: 0, y: 0, width: 0, height: 0, ...viewport };
       const info = await desktopApi.liveRenderOpen(beatmapPath, replayPath, openOptions, rect);
       startedOptionsRef.current = JSON.stringify(openOptions);
       startedInputsRef.current = { beatmap: beatmapPath, replay: replayPath };

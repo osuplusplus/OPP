@@ -33,15 +33,14 @@ const copies: Record<string, PageGuideCopy> = {
   "/online/beatmaps": {
     id: "online-beatmaps",
     title: "在线谱面",
-    version: 3,
-    summary: "按照“搜索与筛选—查看结果—试听或打开详情—加入队列—选择镜像下载”的顺序使用在线谱面。引导只会说明操作，不会替你搜索或下载。",
+    version: 4,
+    summary: "搜索与筛选后，在右侧挑选谱面，左侧查看、试听或下载；下载清单可跨搜索累积。",
     modules: [
-      { title: "先输入想找的内容", purpose: "搜索框支持曲名、艺术家、Mapper、标签或 ID。输入内容后点击右上角“应用筛选”，才会按当前条件重新查询。", example: "输入 Camellia，再点击“应用筛选”；如果只想浏览近期 Ranked，可以保留搜索框为空。", target: '[data-page-guide-online-search="true"]' },
-      { title: "设置常用筛选", purpose: "模式、状态、流派、语言、游玩状态和排序都在这里直接选择；当前游戏模式会作为默认值，但可以临时改成其他模式或全部。", example: "选择 osu!、Ranked、未玩过，并按热度排序，快速寻找适合开荒的热门谱面。", target: '[data-page-guide-online-core-filters="true"]' },
-      { title: "需要时再精确筛选", purpose: "“更多筛选”包含艺术家、标题、Mapper、标签、日期，以及星数、BPM、长度、AR、CS、OD、HP 等范围。设置完成后仍需点击“应用筛选”。", example: "寻找 5.0–5.8 星、180–210 BPM、长度不超过 180 秒的谱面。", target: '[data-page-guide-online-advanced="true"]', expandSelector: '[data-page-guide-online-advanced="true"]' },
-      { title: "浏览结果并确认谱面", purpose: "每张结果卡展示状态、Mapper、星数范围和难度。可以试听、打开完整详情、加入收藏夹，或用单张下载按钮立即下载。", example: "先试听一张谱面，再打开详情核对具体难度；确认合适后加入收藏夹或直接下载。", target: '[data-page-guide-online-results="true"]' },
-      { title: "批量加入下载队列", purpose: "点击卡片封面左上角可加入或移出队列；也可以把当前已加载结果全部加入。右侧面板还支持按当前筛选批量收集更多结果。", example: "挑选三张谱面加入队列，或选择收集前 100 条匹配结果，再检查队列内容。", target: '[data-page-guide-online-results="true"]' },
-      { title: "选择小夜并开始下载", purpose: "确认保存目录和下载源后开始下载。默认优先使用小夜（Sayobot）；当前源失败时，OPP 会自动尝试其他可用镜像。", example: "选择小夜、确认保存目录，点击“开始下载”；需要时可开启下载完成后自动交给 osu! 导入。", target: '[data-page-guide-online-download="true"]' },
+      { title: "搜索想找的内容", purpose: "输入曲名、艺术家、谱师或标签，按回车或点击搜索。输入建议仅供补全，不会自动打开谱面。", example: "输入 Camellia 后按回车；留空则浏览近期 Ranked。", target: '[data-page-guide-online-search="true"]' },
+      { title: "按需展开筛选", purpose: "点击筛选按钮打开面板，调整模式、状态、星级及更多条件后应用。关闭时舍弃草稿；已生效的条件显示为可移除标签。", example: "选电子流派和 4–6 星后应用，再点击条件标签移除某项筛选。", target: '[data-page-guide-online-filter-trigger="true"]' },
+      { title: "连续挑选谱面", purpose: "右侧结果独立滚动并继续加载。结果常驻显示难度图标，悬停可查看详细难度；点击更新舞台，随机一首会从当前已加载的筛选结果中选择。", example: "悬停检查各难度，或随机选择一首，再在舞台试听和打开完整详情。", target: '[data-page-guide-online-results="true"]' },
+      { title: "跨搜索累积清单", purpose: "多选谱面后加入下载清单，也可通过批量加入收集当前筛选与排序的前 50／100／250／500 首。重复谱面会去重。", example: "选几首加入清单，再换一个关键词继续挑选。", target: '[data-page-guide-online-results="true"]' },
+      { title: "打开清单开始下载", purpose: "顶栏下载清单显示数量与任务进度。点击检查条目后开始下载，关闭抽屉或切换页面不会中断下载。目录与下载源可在更多选项中调整。", example: "下载期间继续加入下一批；失败和取消后的未完成项仍保留在清单。", target: '[data-page-guide-online-download="true"]' },
     ],
   },
   "/collections": {
@@ -91,11 +90,13 @@ const copies: Record<string, PageGuideCopy> = {
   "/local/maps": {
     id: "local-maps",
     title: "本地谱面",
-    summary: "这个页面扫描、筛选并查看 Stable/Lazer 本地谱面，是相似查询和 Trainer 的主要入口。",
+    version: 3,
+    summary: "搜索选中一个谱面集，在背景主舞台上切换难度、试听音乐并使用常用功能。每次进入会随机展示一首。",
     modules: [
-      { title: "数据源设置", purpose: "折叠区显示当前客户端目录、可用性和扫描状态，可重新选择目录或刷新索引。", example: "目录移动后展开这里，重新选择 osu! 根目录并执行扫描。", target: '[aria-label="数据源设置"]', expandTarget: true },
-      { title: "谱面筛选", purpose: "按标题、艺术家、Mapper、标签、在线 ID 和难度参数筛选本地索引。", example: "输入艺术家名，再把星数限制为 5–6 星，快速找到练习候选。", target: '[data-page-guide-content="true"]' },
-      { title: "谱面集与难度详情", purpose: "展开谱面集后查看每个难度的结构与参数，并可查找相似谱面、导入 Trainer 或加入收藏夹。", example: "展开一个谱面集，选择 Insane 难度并点击“导入 Trainer”。", target: '[data-page-guide-content="true"]' },
+      { title: "用搜索找到下一首", purpose: "Ctrl+K 聚焦搜索，输入曲名、谱师、标签或 ID，上下键挑选候选，Enter 确认后展开谱面。筛选可限定星数、BPM、长度等范围。", example: "搜索一位谱师，再按 ↓ 和 Enter 选中谱面集。", target: '.local-set-search' },
+      { title: "切换难度与操作", purpose: "底部显示当前游戏模式的全部难度，难度仅显示名称和星级。选择难度后，封面上的参数与底部功能入口随之更新。", example: "选择 Insane，点击“查找相似”或“导入 Trainer”。", target: '.local-stage-console' },
+      { title: "本地试听与完整详情", purpose: "点击底部播放图标播放本地音乐，悬停或聚焦播放按钮可调整进度；完整详情保留 strain 曲线与结构数据。", example: "先试听曲目，再打开完整详情查看难度分布。", target: '.local-stage-actions' },
+      { title: "管理谱库", purpose: "在谱库管理中更换目录、增量刷新或强制重建索引。扫描进度与异常会直接提示。", example: "安装新谱面后等待自动索引，或在谱库管理中点击增量刷新。", target: '.local-library-trigger' },
     ],
   },
   "/local/skins": {
@@ -159,7 +160,7 @@ const copies: Record<string, PageGuideCopy> = {
     modules: [
       { title: "账户", purpose: "查看当前连接账户，重新完成 OAuth 认证，或退出并清理登录状态。", example: "授权失效时点击“重新认证”，在浏览器完成授权后返回 OPP。", targetText: "账户" },
       { title: "主题", purpose: "切换浅色/深色外观和主题色，修改会立即应用到整个软件。", example: "开启浅色主题并选择绿色，确认侧栏和按钮颜色同步变化。", targetText: "主题" },
-      { title: "默认游戏模式", purpose: "设置应用启动和在线数据默认使用的 osu!、Taiko、Catch 或 Mania。", example: "主要玩 Mania 时选择 Mania，之后数据中心会优先加载该模式。", targetText: "默认游戏模式" },
+      { title: "模式与客户端", purpose: "在常规设置中切换游戏模式和 Stable／Lazer 客户端，立即应用并自动保存。", example: "选择 Mania 与 Lazer，左下角启动区会同步显示当前选择。", targetText: "常规" },
       { title: "试听", purpose: "控制在线谱面和相似谱面的音频预览音量。", example: "先调到 40%，返回在线谱面试听，再按需要微调。", targetText: "试听" },
       { title: "游戏目录", purpose: "分别管理 Stable 和 Lazer 目录，是本地谱面、Skin、媒体与工具功能的数据基础。", example: "点击自动检测；若失败，手动选择包含 Songs 或对应数据文件的目录。", targetText: "游戏目录" },
       { title: "工具与缓存", purpose: "开启相似谱面高级设置、清理资料缓存并限制本地缩略图占用。", example: "开启高级设置，把缩略图缓存上限设为 512 MB。", targetText: "工具与缓存" },

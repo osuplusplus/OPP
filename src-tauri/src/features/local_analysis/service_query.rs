@@ -213,8 +213,8 @@ pub(super) fn beatmap_matches(
     query: &BeatmapQuery,
     search: &str,
 ) -> bool {
-    (search.is_empty()
-        || [
+    let text_matches = search.trim().is_empty() || {
+        let fields = [
             &summary.title,
             &summary.title_unicode,
             &summary.artist,
@@ -224,14 +224,17 @@ pub(super) fn beatmap_matches(
             &detail.source,
             &detail.tags,
         ]
-        .iter()
-        .any(|value| value.to_lowercase().contains(search))
-        || summary
-            .beatmap_id
-            .is_some_and(|id| id.to_string() == search)
-        || summary
-            .beatmap_set_id
-            .is_some_and(|id| id.to_string() == search))
+        .map(|value| value.to_lowercase());
+        let beatmap_id = summary.beatmap_id.map(|id| id.to_string());
+        let set_id = summary.beatmap_set_id.map(|id| id.to_string());
+        // Each keyword can match a different metadata field; no field prefix is required.
+        search.split_whitespace().all(|term| {
+            fields.iter().any(|value| value.contains(term))
+                || beatmap_id.as_deref() == Some(term)
+                || set_id.as_deref() == Some(term)
+        })
+    };
+    text_matches
         && (query.rulesets.is_empty() || query.rulesets.contains(&summary.ruleset))
         && query
             .min_stars

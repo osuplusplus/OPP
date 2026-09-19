@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import {
+  SlidersHorizontal,
   Bug,
   User,
   Palette,
@@ -14,6 +15,7 @@ import { Button } from "../../shared/components/ui";
 import { cn } from "../../shared/lib/cn";
 
 const categories = [
+  { id: "general", label: "常规", icon: SlidersHorizontal },
   { id: "logs", label: "日志与诊断", icon: Bug },
   { id: "account", label: "账户", icon: User },
   { id: "appearance", label: "外观", icon: Palette },

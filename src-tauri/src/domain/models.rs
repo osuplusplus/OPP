@@ -186,6 +186,10 @@ pub struct AppSettings {
     pub danser_render_preferences: DanserRenderPreferences,
     #[serde(default)]
     pub tosu_executable_path: Option<String>,
+    #[serde(default)]
+    pub otd_executable_path: Option<String>,
+    #[serde(default)]
+    pub launch_otd_with_game: bool,
     #[serde(default = "default_tosu_api_base_url")]
     pub tosu_api_base_url: String,
     #[serde(default)]
@@ -419,6 +423,8 @@ impl Default for AppSettings {
             auto_export_new_replays_with_danser: false,
             danser_render_preferences: DanserRenderPreferences::default(),
             tosu_executable_path: None,
+            otd_executable_path: None,
+            launch_otd_with_game: false,
             tosu_api_base_url: default_tosu_api_base_url(),
             launch_tosu_with_game: false,
             tosu_lyrics_executable_path: None,

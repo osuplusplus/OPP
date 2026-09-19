@@ -29,7 +29,7 @@ export function DataCenterPage() {
         {profile?.is_supporter ? <Badge tone="pink">Supporter</Badge> : null}
       </div>
     </Card>
-    <nav aria-label="数据中心页面" className="sticky top-[96px] z-20 flex overflow-x-auto border-b border-white/[0.1] bg-[var(--surface)]/95 backdrop-blur-md">
+    <nav aria-label="数据中心页面" className="sticky top-[var(--titlebar-height)] z-20 flex overflow-x-auto border-b border-white/[0.1] bg-[var(--surface)]/95 backdrop-blur-md">
       {sections.map(([id, label, Icon]) => <NavLink className="inline-flex shrink-0 items-center gap-2 border-b-2 border-transparent px-4 py-3 text-xs font-semibold text-slate-500 transition hover:text-white [&.active]:border-[var(--theme-primary)] [&.active]:text-[var(--theme-primary)]" end to={`/data/${id}`} key={id}><Icon className="size-3.5" />{label}</NavLink>)}
     </nav>
     <main><Outlet /></main>

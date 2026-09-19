@@ -18,9 +18,11 @@ pub async fn open_skin_workshop_package(
     state: State<'_, AppState>,
 ) -> CommandResult<crate::features::local_analysis::LocalSkinSummary> {
     let service = Arc::clone(&state.skin_workshop);
-    tauri::async_runtime::spawn_blocking(move || service.open_package(std::path::Path::new(&path)))
-        .await
-        .map_err(task_error)?
+    crate::infrastructure::tasks::background("skin_workshop", move || {
+        service.open_package(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(task_error)?
 }
 
 #[tauri::command]
@@ -33,7 +35,7 @@ pub async fn execute_skin_workshop_action(
     state: State<'_, AppState>,
 ) -> CommandResult<SkinWorkshopMutationResult> {
     let service = Arc::clone(&state.skin_workshop);
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("skin_workshop", move || {
         service.execute_action(&target_skin_resource_id, mode, action)
     })
     .await
@@ -50,7 +52,7 @@ pub async fn execute_skin_workshop_preset(
     state: State<'_, AppState>,
 ) -> CommandResult<SkinWorkshopMutationResult> {
     let service = Arc::clone(&state.skin_workshop);
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("skin_workshop", move || {
         service.execute_preset(&target_skin_resource_id, mode, preset)
     })
     .await
@@ -66,9 +68,11 @@ pub async fn get_skin_workshop_tree(
     state: State<'_, AppState>,
 ) -> CommandResult<SkinTree> {
     let service = Arc::clone(&state.skin_workshop);
-    tauri::async_runtime::spawn_blocking(move || service.tree(client, &skin_resource_id))
-        .await
-        .map_err(task_error)?
+    crate::infrastructure::tasks::interactive("skin_workshop", move || {
+        service.tree(client, &skin_resource_id)
+    })
+    .await
+    .map_err(task_error)?
 }
 
 #[tauri::command]
@@ -81,7 +85,7 @@ pub async fn get_skin_workshop_part_preview(
     state: State<'_, AppState>,
 ) -> CommandResult<SkinPartPreview> {
     let service = Arc::clone(&state.skin_workshop);
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::interactive("skin_workshop", move || {
         service.part_preview(client, &skin_resource_id, &part_key)
     })
     .await
@@ -98,7 +102,7 @@ pub async fn get_skin_workshop_asset(
     state: State<'_, AppState>,
 ) -> CommandResult<SkinAssetPayload> {
     let service = Arc::clone(&state.skin_workshop);
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::interactive("skin_workshop", move || {
         service.asset(client, &skin_resource_id, &asset_id)
     })
     .await
@@ -114,9 +118,11 @@ pub async fn get_skin_workshop_config(
     state: State<'_, AppState>,
 ) -> CommandResult<SkinConfigDocument> {
     let service = Arc::clone(&state.skin_workshop);
-    tauri::async_runtime::spawn_blocking(move || service.config(client, &skin_resource_id))
-        .await
-        .map_err(task_error)?
+    crate::infrastructure::tasks::interactive("skin_workshop", move || {
+        service.config(client, &skin_resource_id)
+    })
+    .await
+    .map_err(task_error)?
 }
 
 fn task_error(error: impl ToString) -> CommandError {

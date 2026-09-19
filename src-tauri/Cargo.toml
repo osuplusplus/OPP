@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 realm-db-reader = { git = "https://github.com/Ohdmire/realm-db-reader" }
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
@@ -51,6 +51,7 @@ rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", branch = "pp-rework
 rosu-pp-official = { package = "rosu-pp", version = "4.0.1" }
 sha2 = "0.10"
 walkdir = "2"
+notify = "8"
 zip = "4"
 rosu-render = "0.5.1"
 md-5 = "0.10"
@@ -61,6 +62,8 @@ osu-beatmap-preview = { git = "https://github.com/2710165659/osu-beatmap-preview
 osu_replay_render = { git = "https://github.com/Ohdmire/osu-replay-render" }
 
 kira = "0.10"
+rodio = { version = "0.21", default-features = false, features = ["playback", "symphonia-mp3", "symphonia-ogg", "symphonia-vorbis", "symphonia-wav", "symphonia-pcm", "symphonia-flac"] }
+souvlaki = "0.8.3"
 wsola = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]

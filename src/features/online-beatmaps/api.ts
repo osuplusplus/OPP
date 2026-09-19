@@ -1,6 +1,17 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
-import type { OnlineBeatmapSearchQuery } from "../../shared/types/osu";
+import type { OnlineBeatmapSearchQuery, Ruleset } from "../../shared/types/osu";
+import { trendingQuery } from "./stageModel";
+
+export function useTrendingBeatmapsets(ruleset: Ruleset) {
+  return useQuery({
+    queryKey: ["online-trending", ruleset],
+    queryFn: async () => (await desktopApi.searchOnlineBeatmapsets(trendingQuery(ruleset))).beatmapsets.slice(0, 5),
+    staleTime: 15 * 60_000,
+    gcTime: 30 * 60_000,
+    retry: false,
+  });
+}
 
 export const onlineBeatmapsKey = (query: OnlineBeatmapSearchQuery) =>
   ["online-beatmaps", query] as const;
@@ -17,6 +28,9 @@ export function useOnlineBeatmapsets(
         cursor_string: pageParam,
       }),
     enabled,
+    staleTime: 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.cursor_string || undefined,
     retry: false,

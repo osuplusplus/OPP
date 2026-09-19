@@ -7,7 +7,7 @@ use std::{
 use chrono::Utc;
 use md5::Md5;
 use sha2::{Digest, Sha256};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 use super::adapter;
@@ -221,67 +221,73 @@ fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
 }
 
 #[tauri::command(async)]
-pub fn list_collections(state: State<'_, AppState>) -> CommandResult<CollectionSnapshot> {
-    state.collections.snapshot(source_statuses(&state))
+pub async fn list_collections(app: AppHandle) -> CommandResult<CollectionSnapshot> {
+    crate::infrastructure::tasks::blocking_io("list_collections", move || {
+        let state = app.state::<AppState>();
+        state.collections.snapshot(source_statuses(&state))
+    })
+    .await?
 }
 
 #[tauri::command(async)]
-pub fn get_collection_sync_status(
-    state: State<'_, AppState>,
-) -> CommandResult<CollectionSyncStatus> {
-    let path = match stable_path(&state) {
-        Ok(path) => path,
-        Err(_) => {
-            return Ok(CollectionSyncStatus {
-                available: false,
-                in_sync: false,
-                pending_changes: false,
-                game_changed: false,
-                missing_downloadable_count: 0,
-                missing_unresolved_count: 0,
-                sources: vec![],
-            });
-        }
-    };
-    let current_fingerprint = if path.is_file() {
-        file_fingerprint(&path)?
-    } else {
-        String::new()
-    };
-    let file = state
-        .collections
-        .value
-        .lock()
-        .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?;
-    let pending_changes = file
-        .folders
-        .iter()
-        .any(|folder| folder.source != CollectionSource::Lazer && folder.pending_write);
-    let game_changed = file.stable_fingerprint.as_deref().unwrap_or("") != current_fingerprint;
-    let mut downloadable_sets = HashSet::new();
-    let mut missing_unresolved_count = 0;
-    for entry in file
-        .folders
-        .iter()
-        .filter(|folder| folder.source != CollectionSource::Lazer)
-        .flat_map(|folder| &folder.entries)
-        .filter(|entry| !entry.resolved)
-    {
-        if let Some(beatmapset_id) = entry.beatmapset_id {
-            downloadable_sets.insert(beatmapset_id);
+pub async fn get_collection_sync_status(app: AppHandle) -> CommandResult<CollectionSyncStatus> {
+    crate::infrastructure::tasks::blocking_io("get_collection_sync_status", move || {
+        let state = app.state::<AppState>();
+        let path = match stable_path(&state) {
+            Ok(path) => path,
+            Err(_) => {
+                return Ok(CollectionSyncStatus {
+                    available: false,
+                    in_sync: false,
+                    pending_changes: false,
+                    game_changed: false,
+                    missing_downloadable_count: 0,
+                    missing_unresolved_count: 0,
+                    sources: vec![],
+                });
+            }
+        };
+        let current_fingerprint = if path.is_file() {
+            file_fingerprint(&path)?
         } else {
-            missing_unresolved_count += 1;
+            String::new()
+        };
+        let file = state
+            .collections
+            .value
+            .lock()
+            .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?;
+        let pending_changes = file
+            .folders
+            .iter()
+            .any(|folder| folder.source != CollectionSource::Lazer && folder.pending_write);
+        let game_changed = file.stable_fingerprint.as_deref().unwrap_or("") != current_fingerprint;
+        let mut downloadable_sets = HashSet::new();
+        let mut missing_unresolved_count = 0;
+        for entry in file
+            .folders
+            .iter()
+            .filter(|folder| folder.source != CollectionSource::Lazer)
+            .flat_map(|folder| &folder.entries)
+            .filter(|entry| !entry.resolved)
+        {
+            if let Some(beatmapset_id) = entry.beatmapset_id {
+                downloadable_sets.insert(beatmapset_id);
+            } else {
+                missing_unresolved_count += 1;
+            }
         }
-    }
-    Ok(CollectionSyncStatus {
-        available: true,
-        in_sync: !pending_changes && !game_changed,
-        pending_changes,
-        game_changed,
-        missing_downloadable_count: downloadable_sets.len(),
-        missing_unresolved_count,
-        sources: vec![],
+        Ok(CollectionSyncStatus {
+            available: true,
+            in_sync: !pending_changes && !game_changed,
+            pending_changes,
+            game_changed,
+            missing_downloadable_count: downloadable_sets.len(),
+            missing_unresolved_count,
+            sources: vec![],
+        })
     })
+    .await?
 }
 
 pub(super) fn stable_collection_entry(

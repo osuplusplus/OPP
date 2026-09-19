@@ -90,7 +90,7 @@ async fn query_standard(
     let (indexed_id, bytes, source_label) =
         resolve_standard_source(request.source(), state, &dataset).await?;
 
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let target = if let Some(beatmap_id) = indexed_id {
             dataset.target_for_id(beatmap_id)
         } else {
@@ -120,7 +120,7 @@ async fn query_mania(
     let (indexed_id, bytes, source_beatmap_id, source_label) =
         resolve_mania_source(request.source(), state, &dataset, target_mod).await?;
 
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let target = if let Some(beatmap_id) = indexed_id {
             dataset.target_for_id_with_mod(beatmap_id, target_mod)
         } else {
@@ -263,7 +263,7 @@ async fn recommend_standard(
         .iter()
         .copied()
         .collect::<HashSet<_>>();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let mut batches = Vec::with_capacity(targets.len());
         for target in targets {
             let response = dataset
@@ -327,7 +327,7 @@ async fn recommend_mania(
         .iter()
         .copied()
         .collect::<HashSet<_>>();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let mut batches = Vec::with_capacity(targets.len());
         for target in targets {
             let results = dataset
@@ -393,7 +393,7 @@ async fn resolve_mania_source(
 }
 
 async fn read_local_source(path: String) -> CommandResult<Vec<u8>> {
-    tauri::async_runtime::spawn_blocking(move || read_local_osu(&path))
+    crate::infrastructure::tasks::background("similarity", move || read_local_osu(&path))
         .await
         .map_err(|_| CommandError::new("BEATMAP_READ_FAILED", "谱面文件读取任务意外停止"))?
 }
@@ -402,7 +402,7 @@ async fn load_standard_dataset(
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
     directory: String,
 ) -> CommandResult<Arc<Dataset>> {
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         runtime
             .standard_dataset(&directory)
             .map_err(map_runtime_error)
@@ -415,7 +415,7 @@ async fn load_mania_dataset(
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
     directory: String,
 ) -> CommandResult<Arc<ManiaDataset>> {
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         runtime.mania_dataset(&directory).map_err(map_runtime_error)
     })
     .await
@@ -475,9 +475,11 @@ async fn inspect(
     ruleset: Ruleset,
     directory: Option<String>,
 ) -> CommandResult<SimilarityIndexStatus> {
-    tauri::async_runtime::spawn_blocking(move || runtime.inspect(ruleset, directory.as_deref()))
-        .await
-        .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "本地索引校验任务意外停止"))
+    crate::infrastructure::tasks::background("similarity", move || {
+        runtime.inspect(ruleset, directory.as_deref())
+    })
+    .await
+    .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "本地索引校验任务意外停止"))
 }
 
 fn required_directory(state: &AppState, ruleset: Ruleset) -> CommandResult<String> {

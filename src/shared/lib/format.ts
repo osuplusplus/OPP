@@ -19,13 +19,22 @@ export function compactNumber(value?: number | null): string {
 }
 
 export function fullNumber(value?: number | null): string {
-  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("zh-CN").format(value);
 }
 
+export function fixedNumber(
+  value?: number | null,
+  digits = 0,
+): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toFixed(digits)
+    : "—";
+}
+
 export function percent(value?: number | null, digits = 2): string {
-  if (value === null || value === undefined) return "—";
-  return `${value.toFixed(digits)}%`;
+  const formatted = fixedNumber(value, digits);
+  return formatted === "—" ? formatted : `${formatted}%`;
 }
 
 export function duration(seconds?: number | null): string {

@@ -6,7 +6,7 @@ import { createDefaultSearchQuery } from "./filters";
 import { OnlineBeatmapFilters } from "./OnlineBeatmapFilters";
 
 describe("OnlineBeatmapFilters", () => {
-  it("uses down/up disclosure affordance and applies discrete filters immediately", async () => {
+  it("uses down/up disclosure affordance and keeps discrete filters pending", async () => {
     const user = userEvent.setup();
     const query = createDefaultSearchQuery("osu");
     const onChange = vi.fn();
@@ -63,7 +63,7 @@ describe("OnlineBeatmapFilters", () => {
 
     await user.click(screen.getByRole("button", { name: "社区喜爱 (Loved)" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ status: "loved" }));
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ status: "loved" }));
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("keeps numeric ranges pending until the form is submitted", async () => {

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SettingsLayout, type SettingsCategory } from "./SettingsLayout";
+import { GeneralPanel } from "./panels/GeneralPanel";
 import { LogsPanel } from "./panels/LogsPanel";
 import { AccountPanel } from "./panels/AccountPanel";
 import { AppearancePanel } from "./panels/AppearancePanel";
@@ -26,7 +27,7 @@ function ComingSoonPanel({ title }: { title: string }) {
 }
 
 export function SettingsPageNew() {
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("logs");
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("general");
   const [busy, setBusy] = useState(false);
   const { data: settings, refetch: refetchSettings } = useSettings();
 
@@ -51,6 +52,8 @@ export function SettingsPageNew() {
     }
 
     switch (activeCategory) {
+      case "general":
+        return <GeneralPanel onConfigure={() => setActiveCategory("directories")} />;
       case "logs":
         return <LogsPanel />;
       case "account":

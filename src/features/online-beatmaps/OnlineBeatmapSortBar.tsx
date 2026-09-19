@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, ListFilter } from "lucide-react";
+import { useQuietScrollbar } from "./useQuietScrollbar";
 import { cn } from "../../shared/lib/cn";
 
 const sortFields = [
@@ -22,14 +23,17 @@ function sortValue(field: SortField, direction: SortDirection) {
 export function OnlineBeatmapSortBar({
   sort,
   onChange,
+  compact = false,
 }: {
+  compact?: boolean;
   sort: string;
   onChange: (sort: string) => void;
 }) {
+  const onScroll = useQuietScrollbar();
   return (
-    <div aria-label="谱面排序方式" className="opp-online-panel mb-4 flex min-h-12 items-center gap-2.5 rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] p-[7px_10px] shadow-[0_14px_34px_rgba(0,0,0,0.08)]" role="toolbar">
-      <span className="inline-flex shrink-0 items-center gap-1.5 border-r border-[var(--line-subtle)] p-[4px_12px_4px_3px] text-[11px] font-[650] tracking-[.04em] text-[var(--text-muted)]"><ListFilter className="size-3.5" />排序方式</span>
-      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]">
+    <div aria-label="谱面排序方式" className={compact ? "online-sort-inline" : "opp-online-panel mb-4 flex min-h-12 items-center gap-2.5 rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] p-[7px_10px] shadow-[0_14px_34px_rgba(0,0,0,0.08)]"} role="toolbar">
+      {!compact ? <span className="inline-flex shrink-0 items-center gap-1.5 border-r border-[var(--line-subtle)] p-[4px_12px_4px_3px] text-[11px] font-[650] tracking-[.04em] text-[var(--text-muted)]"><ListFilter className="size-3.5" />排序方式</span> : null}
+      <div onScroll={onScroll} className="online-quiet-scroll flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]">
         {sortFields.map((field) => {
           const ascending = sort === `${field.key}_asc`;
           const descending = sort === `${field.key}_desc`;

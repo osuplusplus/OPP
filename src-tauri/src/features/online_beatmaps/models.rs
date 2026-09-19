@@ -66,6 +66,8 @@ pub struct BeatmapDownloadItem {
     pub beatmapset_id: u64,
     pub artist: String,
     pub title: String,
+    #[serde(default)]
+    pub expected_beatmap_ids: Vec<u64>,
 }
 
 #[derive(Debug, Deserialize)]

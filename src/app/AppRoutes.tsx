@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { AppLoading } from "./AppLoading";
 
@@ -13,13 +13,19 @@ const CareerPage = lazy(() => import("../features/profile/CareerPage").then((mod
 const ScoresPage = lazy(() => import("../features/scores/ScoresPage").then((module) => ({ default: module.ScoresPage })));
 const OnlineBeatmapsPage = lazy(() => import("../features/online-beatmaps/OnlineBeatmapsPage").then((module) => ({ default: module.OnlineBeatmapsPage })));
 const SimilarBeatmapsPage = lazy(() => import("../features/similar-beatmaps/SimilarBeatmapsPage").then((module) => ({ default: module.SimilarBeatmapsPage })));
+const SkillAnalysisPage = lazy(() => import("../features/skill-analysis/SkillAnalysisPage").then((module) => ({ default: module.SkillAnalysisPage })));
 const LocalAnalysisPage = lazy(() => import("../features/local-analysis/LocalAnalysisPage").then((module) => ({ default: module.LocalAnalysisPage })));
 const SkinWorkshopPage = lazy(() => import("../features/skin-workshop/SkinWorkshopPage").then((module) => ({ default: module.SkinWorkshopPage })));
 const LocalMediaPage = lazy(() => import("../features/local-media/LocalMediaPage").then((module) => ({ default: module.LocalMediaPage })));
 const ReplayRenderPage = lazy(() => import("../features/local-media/ReplayRenderPage").then((module) => ({ default: module.ReplayRenderPage })));
 const SettingsPage = lazy(() => import("../features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })));
-const ToolsPage = lazy(() => import("../features/tools/ToolsPage").then((module) => ({ default: module.ToolsPage })));
-const TosuPage = lazy(() => import("../features/tools/TosuPage").then((module) => ({ default: module.TosuPage })));
+const ToolsLayout = lazy(() => import("../features/tools/ToolsLayout").then((module) => ({ default: module.ToolsLayout })));
+const ToolCategoryPages = {
+  game: lazy(() => import("../features/tools/ToolCategoryPages").then((module) => ({ default: module.GameToolsPage }))),
+  beatmaps: lazy(() => import("../features/tools/ToolCategoryPages").then((module) => ({ default: module.BeatmapToolsPage }))),
+  system: lazy(() => import("../features/tools/ToolCategoryPages").then((module) => ({ default: module.SystemToolsPage }))),
+  live: lazy(() => import("../features/tools/ToolCategoryPages").then((module) => ({ default: module.LiveToolsPage }))),
+};
 const ViewTrainerPage = lazy(() => import("../features/view-trainer/ViewTrainerPage").then((module) => ({ default: module.ViewTrainerPage })));
 const CollectionsPage = lazy(() => import("../features/collections/CollectionsPage").then((module) => ({ default: module.CollectionsPage })));
 const BeatmapHubPage = lazy(() => import("../features/beatmaphub/BeatmapHubPage").then((module) => ({ default: module.BeatmapHubPage })));
@@ -27,6 +33,17 @@ const BeatmapHubPage = lazy(() => import("../features/beatmaphub/BeatmapHubPage"
 function LegacyTrainerRedirect() {
   const location = useLocation();
   return <Navigate replace to={`/view-trainer${location.search}`} />;
+}
+
+function ToolsIndexRedirect() {
+  const [params] = useSearchParams();
+  const query = params.get("preview_bid");
+  return <Navigate replace to={query ? `/tools/beatmaps?preview_bid=${encodeURIComponent(query)}` : "/tools/game"} />;
+}
+
+function TosuRedirect() {
+  const location = useLocation();
+  return <Navigate replace to={`/tools/live${location.search}`} />;
 }
 
 export function AppRoutes() {
@@ -52,6 +69,7 @@ export function AppRoutes() {
           <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/beatmaphub" element={<BeatmapHubPage />} />
           <Route path="/online/similar" element={<SimilarBeatmapsPage />} />
+          <Route path="/skill-analysis" element={<SkillAnalysisPage />} />
           <Route path="/trainer" element={<LegacyTrainerRedirect />} />
           <Route path="/view-trainer" element={<ViewTrainerPage />} />
           <Route path="/local" element={<Navigate replace to="/local/maps" />} />
@@ -63,9 +81,15 @@ export function AppRoutes() {
           <Route path="/local/media/render" element={<ReplayRenderPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/game" element={<Navigate replace to="/online/beatmaps" />} />
-          <Route path="/tools" element={<ToolsPage />} />
+          <Route path="/tools" element={<ToolsLayout />}>
+            <Route index element={<ToolsIndexRedirect />} />
+            <Route path="game" element={<ToolCategoryPages.game />} />
+            <Route path="beatmaps" element={<ToolCategoryPages.beatmaps />} />
+            <Route path="system" element={<ToolCategoryPages.system />} />
+            <Route path="live" element={<ToolCategoryPages.live />} />
+          </Route>
           <Route path="/tools/replay-render" element={<Navigate replace to="/local/media/render" />} />
-          <Route path="/tosu" element={<TosuPage />} />
+          <Route path="/tosu" element={<TosuRedirect />} />
           <Route path="*" element={<Navigate replace to="/online/beatmaps" />} />
         </Route>
       </Routes>

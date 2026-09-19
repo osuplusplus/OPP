@@ -1,3 +1,5 @@
+import { musicDesktop } from "../../shared/lib/musicTauri";
+
 export type CollectionTaskPhase =
   | "checking"
   | "downloading"
@@ -37,6 +39,7 @@ export function throwIfCollectionTaskCancelled() {
 }
 
 export function publishCollectionTask(status: CollectionTaskStatus) {
+  void musicDesktop.frontendTask(!["completed", "failed", "cancelled"].includes(status.phase)).catch(() => {});
   latest = status;
   window.dispatchEvent(new CustomEvent<CollectionTaskStatus>(eventName, { detail: status }));
 }

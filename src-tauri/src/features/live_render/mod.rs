@@ -5,6 +5,7 @@ use crate::error::{CommandError, CommandResult};
 use osu_replay_render::skin::Skin as _;
 use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene, skin};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -51,6 +52,12 @@ pub struct PreviewRect {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    /// 前端 viewport 的物理尺寸（CSS px × devicePixelRatio）。Linux
+    /// 用父 X11 窗口实际尺寸与它求比例，修正 XWayland 小数缩放差异。
+    #[serde(default)]
+    pub viewport_width: f64,
+    #[serde(default)]
+    pub viewport_height: f64,
     /// 前端检测到应用内弹窗(对话框/确认框)打开时置 true:原生预览窗口
     /// 压在 WebView 之上,会盖住弹窗,需临时隐藏,弹窗关闭后恢复。
     #[serde(default)]
@@ -185,8 +192,19 @@ static CHANNEL: LazyLock<Mutex<Sender<Cmd>>> = LazyLock::new(|| {
     Mutex::new(tx)
 });
 
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+static PENDING: AtomicUsize = AtomicUsize::new(0);
+
+/// Keep the owning window alive while a native preview or export uses its resources.
+pub(crate) fn is_busy() -> bool {
+    ACTIVE.load(Ordering::Acquire) || PENDING.load(Ordering::Acquire) > 0
+}
+
 fn send(cmd: Cmd) {
-    let _ = CHANNEL.lock().unwrap().send(cmd);
+    PENDING.fetch_add(1, Ordering::AcqRel);
+    if CHANNEL.lock().unwrap().send(cmd).is_err() {
+        PENDING.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 // ---- Windows:原生子窗口(高帧率直渲) ----------------------------------------
@@ -1009,6 +1027,7 @@ fn panic_msg(panic: &(dyn std::any::Any + Send)) -> String {
 /// 错误与失活状态。worker 线程本身存活(信道是静态单例,线程一死
 /// 后续所有命令都会无声堆积、前端永远"无响应")。
 fn cleanup_session(session: &mut Option<Session>) {
+    ACTIVE.store(false, Ordering::Release);
     if let Some(mut s) = session.take() {
         let app = s.app.clone();
         eprintln!("live_render: 清理异常会话(停播 + 销毁渲染后端)");
@@ -1042,7 +1061,7 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                     Ok(cmd) => {
                         if let Err(panic) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                handle_cmd(cmd, &mut session)
+                                tracked_command(cmd, &mut session)
                             }))
                         {
                             eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
@@ -1066,7 +1085,7 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                 Ok(cmd) => {
                     if let Err(panic) =
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            handle_cmd(cmd, &mut session)
+                            tracked_command(cmd, &mut session)
                         }))
                     {
                         eprintln!("live_render: 命令处理 panic: {}", panic_msg(panic.as_ref()));
@@ -1178,6 +1197,19 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
     }
 }
 
+fn tracked_command(cmd: Cmd, session: &mut Option<Session>) {
+    struct PendingCommand;
+    impl Drop for PendingCommand {
+        fn drop(&mut self) {
+            PENDING.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+    let _pending = PendingCommand;
+    ACTIVE.store(true, Ordering::Release);
+    handle_cmd(cmd, session);
+    ACTIVE.store(session.is_some(), Ordering::Release);
+}
+
 fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
     match cmd {
         Cmd::Open {
@@ -1243,6 +1275,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 let show = rect.width > 0.0 && rect.height > 0.0 && !rect.suppressed;
                 let (x, y) = (rect.x.round() as i32, rect.y.round() as i32);
                 let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
+                #[cfg_attr(windows, allow(unused_mut))]
+                let mut render_size = (w, h);
                 #[cfg(windows)]
                 {
                     let Backend::Native {
@@ -1263,14 +1297,23 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 #[cfg(target_os = "linux")]
                 {
                     let Backend::Native { x11, visible, .. } = &mut s.backend;
-                    // X11 子窗口:父窗口局部坐标,立即生效。
-                    x11.place(x, y, w, h, show);
+                    // X11 子窗口:父窗口局部坐标。父窗口实际尺寸用于修正
+                    // XWayland 小数缩放下 WebKit dpr 与 X11 坐标空间差异。
+                    render_size = x11.place(
+                        x,
+                        y,
+                        w,
+                        h,
+                        rect.viewport_width.round() as i32,
+                        rect.viewport_height.round() as i32,
+                        show,
+                    );
                     *visible = show;
                 }
                 {
                     let Backend::Native { renderer, .. } = &mut s.backend;
                     if show {
-                        renderer.resize(w.max(1) as u32, h.max(1) as u32);
+                        renderer.resize(render_size.0.max(1) as u32, render_size.1.max(1) as u32);
                     } else {
                         renderer.resize(0, 0);
                     }
@@ -1750,8 +1793,11 @@ fn open_session(
     ffmpeg: Option<std::path::PathBuf>,
 ) -> Result<Session, String> {
     let ffprobe = sibling_ffprobe(ffmpeg.as_deref());
+    // with_pp 跟随 pp_display(HUD 总开关关闭时 PP 计数器同样不画,
+    // 顺带跳过整个 rosu-pp 逐物件 pass,加载更快)。
     let mut game = if replay_path.trim().is_empty() {
-        game::load_autoplay(beatmap_path).map_err(|e| format!("加载谱面预览失败: {e}"))?
+        game::load_autoplay(beatmap_path, false, options.hud && options.pp_display)
+            .map_err(|e| format!("加载谱面预览失败: {e}"))?
     } else {
         game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?
     };
@@ -1930,8 +1976,16 @@ fn open_session(
         let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
         let visible = rect.width > 0.0 && rect.height > 0.0;
 
-        let window = x11::Window::new_child(main_xid, x, y, w, h)
-            .map_err(|e| format!("无法创建 X11 预览子窗口: {e}"))?;
+        let window = x11::Window::new_child(
+            main_xid,
+            x,
+            y,
+            w,
+            h,
+            rect.viewport_width.round() as i32,
+            rect.viewport_height.round() as i32,
+        )
+        .map_err(|e| format!("无法创建 X11 预览子窗口: {e}"))?;
         let (raw_display, raw_window) = window.raw_handles();
         let mut renderer = match surface::SurfaceRenderer::new(
             RENDER_W,
@@ -1947,7 +2001,8 @@ fn open_session(
             }
         };
         if visible {
-            renderer.resize(w.max(1) as u32, h.max(1) as u32);
+            let (actual_w, actual_h) = window.size();
+            renderer.resize(actual_w, actual_h);
         } else {
             renderer.resize(0, 0);
         }
@@ -2116,7 +2171,17 @@ pub struct LiveSkinEntry {
 /// 实际选用时才物化成目录（见 resolve_lazer_skin）。安装目录与数据
 /// 目录下的 Skins/ 子目录会合并列出。
 #[tauri::command]
-pub fn live_render_list_skins(
+pub async fn live_render_list_skins(
+    client: crate::features::local_analysis::LocalClient,
+    app: AppHandle,
+) -> CommandResult<Vec<LiveSkinEntry>> {
+    crate::infrastructure::tasks::blocking_io("live_render_list_skins", move || {
+        live_render_list_skins_blocking(client, app.state())
+    })
+    .await?
+}
+
+fn live_render_list_skins_blocking(
     client: crate::features::local_analysis::LocalClient,
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<Vec<LiveSkinEntry>> {
@@ -2427,7 +2492,14 @@ pub struct FfmpegStatus {
 }
 
 #[tauri::command]
-pub fn live_render_get_ffmpeg_status(
+pub async fn live_render_get_ffmpeg_status(app: AppHandle) -> CommandResult<FfmpegStatus> {
+    crate::infrastructure::tasks::blocking_io("live_render_get_ffmpeg_status", move || {
+        live_render_get_ffmpeg_status_blocking(app.state())
+    })
+    .await
+}
+
+fn live_render_get_ffmpeg_status_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> FfmpegStatus {
     let settings = state.store.snapshot().ok().map(|s| {
@@ -2482,7 +2554,14 @@ pub fn live_render_get_ffmpeg_status(
 /// 检测 NVENC 硬件编码可用性(h264_nvenc / hevc_nvenc 各一次微型
 /// 测试编码);返回 [h264 可用, hevc 可用]。无 FFmpeg = 均不可用。
 #[tauri::command]
-pub fn live_render_check_nvenc(
+pub async fn live_render_check_nvenc(app: AppHandle) -> CommandResult<[bool; 2]> {
+    crate::infrastructure::tasks::blocking_io("live_render_check_nvenc", move || {
+        live_render_check_nvenc_blocking(app.state())
+    })
+    .await?
+}
+
+fn live_render_check_nvenc_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<[bool; 2]> {
     let Some(path) = ffmpeg_path(&state) else {
@@ -2516,7 +2595,14 @@ pub fn live_render_check_nvenc(
 /// 检测用户 FFmpeg(PATH 自动检测优先,danser 发行包兜底);
 /// 返回版本首行(None = 未找到)。
 #[tauri::command]
-pub fn live_render_check_ffmpeg(
+pub async fn live_render_check_ffmpeg(app: AppHandle) -> CommandResult<Option<String>> {
+    crate::infrastructure::tasks::blocking_io("live_render_check_ffmpeg", move || {
+        live_render_check_ffmpeg_blocking(app.state())
+    })
+    .await?
+}
+
+fn live_render_check_ffmpeg_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<Option<String>> {
     let Some(path) = ffmpeg_path(&state) else {

@@ -125,6 +125,14 @@ export function ViewTrainerPage() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedPath, setGeneratedPath] = useState<string | null>(null);
+  // 生成预览那一刻的参数快照:生成谱面的物件时间 = (原谱时间 - start) /
+  // rate(trainer 的 skip intro:窗口起点平移到 0 再按倍率压缩)。预览存续
+  // 期间拖动窗口/倍率不能改变已生成谱面的时间轴,映射必须用这份快照。
+  const [generatedParams, setGeneratedParams] = useState<{
+    start: number;
+    rate: number;
+    end: number;
+  } | null>(null);
   const [stagedDirectory, setStagedDirectory] = useState<string | null>(null);
   const [importedPath, setImportedPath] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -157,6 +165,7 @@ export function ViewTrainerPage() {
       setDraft(DEFAULT_DRAFT);
       setError(null);
       setGeneratedPath(null);
+      setGeneratedParams(null);
       setStagedDirectory(null);
       setImportedPath(null);
       setImporting(false);
@@ -308,6 +317,19 @@ export function ViewTrainerPage() {
   const effectiveCs = draft.lock_cs ? draft.cs : (timeline?.cs ?? draft.cs);
   const effectiveHp = draft.lock_hp ? draft.hp : (timeline?.hp ?? draft.hp);
   const mapDuration = timeline?.durationMs ?? duration;
+  // 预览播的是 trainer 生成的谱面:skip intro 已把窗口起点平移到 0 并按
+  // rate 压缩(t_gen = (t_map - start) / rate)。播放器的时刻/进度/seek
+  // 统一经这两个函数与原谱时间轴互转,和下方 strain 图保持同一坐标;
+  // 未生成预览时退化为恒等映射。
+  const genStart = generatedParams?.start ?? 0;
+  const genRate = generatedParams?.rate ?? 1;
+  const previewToMap = (value: number) => value * genRate + genStart;
+  const mapToPreview = (value: number) => (value - genStart) / genRate;
+  // 预览对应的原谱区间终点(end 为谱尾时后端收 null,生成时按全谱裁)。
+  const previewRangeEnd = generatedParams?.end ?? mapDuration;
+  // strain 图播放头(原谱时间轴;无预览时 null)。
+  const playheadMap =
+    active && generatedParams ? previewToMap(time) : null;
   const windowLength = clamp(
     draft.window_ms ?? 30_000,
     5_000,
@@ -333,6 +355,24 @@ export function ViewTrainerPage() {
     );
   }, [timeline]);
   const strainPeak = strainValues.length ? Math.max(...strainValues) : 0;
+  // strain 曲线坐标系:rosu-pp 第 i 条 strain 属于第 i+1 个顶层物件,时间
+  // = sectionStart + i × sectionLength(后端 parser 的换算)。曲线点、窗口
+  // 框、播放头、拖拽取值统一映射 [0, curveDuration] → [0, 画布宽];旧实现
+  // 曲线按点数铺满全宽、窗口框按谱面时长归一化,两套坐标在长前奏谱面上
+  // 会错开整整一段前奏。
+  const strainSectionStart = timeline?.strainSectionStartTimeMs ?? 0;
+  const strainSectionLength = Math.max(
+    1,
+    timeline?.strainSectionLengthMs ?? 400,
+  );
+  const strainTimeAt = (index: number) =>
+    strainSectionStart + index * strainSectionLength;
+  const curveDuration = Math.max(
+    mapDuration,
+    strainValues.length
+      ? strainTimeAt(strainValues.length - 1) + strainSectionLength
+      : mapDuration,
+  );
   const request = useMemo<ViewTrainerRequest>(
     () => ({
       client,
@@ -440,6 +480,7 @@ export function ViewTrainerPage() {
     setPlaying(false);
     setTime(0);
     setGeneratedPath(null);
+    setGeneratedParams(null);
     setStagedDirectory(null);
     setImportedPath(null);
     setImporting(false);
@@ -454,6 +495,11 @@ export function ViewTrainerPage() {
       if (version !== requestVersion.current) return;
       setGeneratedPath(generated.beatmap_path);
       setStagedDirectory(generated.directory);
+      setGeneratedParams({
+        start: request.startTimeMs ?? 0,
+        rate: request.rate,
+        end: request.endTimeMs ?? mapDuration,
+      });
       await openPreview(generated.beatmap_path, version);
     } catch (caught) {
       if (version === requestVersion.current) setError(String(caught));
@@ -461,7 +507,7 @@ export function ViewTrainerPage() {
       generatingRef.current = false;
       if (version === requestVersion.current) setGenerating(false);
     }
-  }, [openPreview, request]);
+  }, [mapDuration, openPreview, request]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -487,7 +533,16 @@ export function ViewTrainerPage() {
         event.preventDefault();
         const delta = event.key === "ArrowLeft" ? -1 : 1;
         const amount = event.shiftKey ? 30_000 : 5_000;
-        const next = clamp(time + delta * amount, 0, duration);
+        // 步进按原谱时间轴感知(与 strain 图同坐标),再换算成预览时间轴
+        // 去 seek;预览区间之外没有内容。映射公式内联(基于参数快照),
+        // 避免把派生函数拖进依赖数组。
+        const startMs = generatedParams?.start ?? 0;
+        const rate = generatedParams?.rate ?? 1;
+        const hi = generatedParams
+          ? Math.min(mapDuration, generatedParams.end)
+          : duration;
+        const mapNext = clamp(time * rate + startMs + delta * amount, startMs, hi);
+        const next = (mapNext - startMs) / rate;
         setTime(next);
         void desktopApi.liveRenderSeek(next);
         return;
@@ -499,7 +554,13 @@ export function ViewTrainerPage() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [duration, generatePreview, time]);
+  }, [
+    duration,
+    generatedParams,
+    generatePreview,
+    mapDuration,
+    time,
+  ]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !timeline || !strainValues.length) return;
@@ -513,9 +574,14 @@ export function ViewTrainerPage() {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
     const peak = Math.max(strainPeak, 0.0001);
+    // 曲线第 index 点的真实时间(与窗口框/播放头同一横轴),见组件体
+    // strainTimeAt 的说明;此处内联公式避免把派生函数拖进依赖数组。
+    const xAt = (index: number) =>
+      ((strainSectionStart + index * strainSectionLength) / curveDuration) *
+      width;
     ctx.beginPath();
     strainValues.forEach((value, index) => {
-      const x = (index / Math.max(1, strainValues.length - 1)) * width;
+      const x = xAt(index);
       const y = height - 6 - (value / peak) * (height - 14);
       if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -527,7 +593,7 @@ export function ViewTrainerPage() {
     ctx.fill();
     ctx.beginPath();
     strainValues.forEach((value, index) => {
-      const x = (index / Math.max(1, strainValues.length - 1)) * width;
+      const x = xAt(index);
       const y = height - 6 - (value / peak) * (height - 14);
       if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -535,9 +601,6 @@ export function ViewTrainerPage() {
     ctx.strokeStyle = "rgba(165,243,252,.95)";
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    const sectionStart = timeline.strainSectionStartTimeMs;
-    const sectionLength = Math.max(1, timeline.strainSectionLengthMs);
-    const curveDuration = Math.max(mapDuration, sectionStart + sectionLength);
     const x0 = clamp((start / curveDuration) * width, 0, width);
     const x1 = clamp((end / curveDuration) * width, 0, width);
     ctx.fillStyle = "rgba(244,114,182,.18)";
@@ -548,7 +611,29 @@ export function ViewTrainerPage() {
     ctx.fillStyle = "rgba(251,113,133,.98)";
     ctx.fillRect(Math.max(0, x0 - 3), 0, 6, height);
     ctx.fillRect(Math.max(0, x1 - 3), 0, 6, height);
-  }, [end, mapDuration, start, strainPeak, strainValues, timeline]);
+    // 播放头:预览时刻映射回原谱时间轴,与曲线/窗口同一坐标(未预览或
+    // 映射超出曲线范围时不画)。
+    if (playheadMap !== null && playheadMap >= 0 && playheadMap <= curveDuration) {
+      const px = clamp((playheadMap / curveDuration) * width, 0, width);
+      ctx.strokeStyle = "rgba(103,232,249,.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, height);
+      ctx.stroke();
+    }
+  }, [
+    curveDuration,
+    end,
+    mapDuration,
+    playheadMap,
+    start,
+    strainPeak,
+    strainSectionLength,
+    strainSectionStart,
+    strainValues,
+    timeline,
+  ]);
   const handleStrainPointer = (
     event: React.PointerEvent<HTMLCanvasElement>,
   ) => {
@@ -556,15 +641,17 @@ export function ViewTrainerPage() {
       return;
     const box = event.currentTarget.getBoundingClientRect();
     const maxStart = Math.max(0, mapDuration - windowLength);
+    // 画布全宽 = curveDuration(曲线/窗口框/播放头共用横轴),取值先换算
+    // 成谱面时间再夹进窗口约束。
     const ratio = clamp(
       (event.clientX - box.left) / Math.max(1, box.width),
       0,
       1,
     );
-    const value = ratio * mapDuration;
+    const value = ratio * curveDuration;
     if (event.type === "pointerdown") {
-      const left = (start / Math.max(1, mapDuration)) * box.width;
-      const right = (end / Math.max(1, mapDuration)) * box.width;
+      const left = (start / Math.max(1, curveDuration)) * box.width;
+      const right = (end / Math.max(1, curveDuration)) * box.width;
       const distanceToLeft = Math.abs(event.clientX - box.left - left);
       const distanceToRight = Math.abs(event.clientX - box.left - right);
       dragHandle.current =
@@ -709,7 +796,15 @@ export function ViewTrainerPage() {
                       停止
                     </Button>
                     <span className="font-mono text-xs text-slate-400">
-                      {formatTime(time)} / {formatTime(duration)}
+                      {formatTime(
+                        clamp(previewToMap(time), 0, mapDuration),
+                      )}{" "}
+                      /{" "}
+                      {formatTime(
+                        generatedParams
+                          ? Math.min(mapDuration, previewRangeEnd)
+                          : duration,
+                      )}
                     </span>
                   </>
                 ) : (
@@ -728,15 +823,27 @@ export function ViewTrainerPage() {
                 aria-label="预览进度"
                 className="mt-3 w-full accent-cyan-400"
                 type="range"
-                min={0}
-                max={Math.max(duration, 1)}
+                min={generatedParams ? genStart : 0}
+                max={
+                  generatedParams
+                    ? Math.min(mapDuration, previewRangeEnd)
+                    : Math.max(duration, 1)
+                }
                 step={10}
-                value={Math.min(time, duration)}
+                value={clamp(
+                  previewToMap(time),
+                  generatedParams ? genStart : 0,
+                  generatedParams
+                    ? Math.min(mapDuration, previewRangeEnd)
+                    : Math.max(duration, 1),
+                )}
                 disabled={!active}
                 onChange={(event) => {
-                  const value = Number(event.target.value);
-                  setTime(value);
-                  void desktopApi.liveRenderSeek(value);
+                  // 拖动按原谱时间轴(与 strain 图同坐标),换算成预览
+                  // 时间轴去 seek。
+                  const next = mapToPreview(Number(event.target.value));
+                  setTime(next);
+                  void desktopApi.liveRenderSeek(next);
                 }}
               />
             </Card>

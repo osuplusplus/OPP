@@ -27,9 +27,9 @@ pub(crate) async fn ensure_access_token(state: &AppState) -> CommandResult<Strin
         .refresh_token
         .as_deref()
         .ok_or_else(CommandError::auth_required)?;
-    let snapshot = state.store.snapshot()?;
-    let client_id = snapshot
-        .client_id
+    let client_id = state
+        .store
+        .read(|persisted| persisted.client_id.clone())?
         .ok_or_else(CommandError::credentials_required)?;
     let client_secret = state
         .credentials

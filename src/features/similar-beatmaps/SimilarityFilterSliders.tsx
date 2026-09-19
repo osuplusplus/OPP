@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, SlidersHorizontal, X } from "lucide-react";
 
 import { Button, Card } from "../../shared/components/ui";
@@ -53,17 +52,22 @@ function RangeFilter({ control, filters, onChange }: { control: FilterControl; f
 
 export function SimilarityFilterSliders({ request, onChange }: { request: OsuSimilarityQueryRequest; onChange: (request: OsuSimilarityQueryRequest) => void }) {
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<SimilarityFilters>(() => ({ ...request.filters }));
   const [triggerAnimating, setTriggerAnimating] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerAnimationTimer = useRef<number | undefined>(undefined);
   const activeCount = Object.entries(request.filters).filter(([key, value]) => value !== defaultSimilarityFilters[key as keyof SimilarityFilters]).length;
+  const draftCount = Object.entries(draft).filter(([key, value]) => value !== defaultSimilarityFilters[key as keyof SimilarityFilters]).length;
+
+  const discard = useCallback(() => { setDraft({ ...request.filters }); setOpen(false); }, [request.filters]);
 
   const toggle = () => {
     window.clearTimeout(triggerAnimationTimer.current);
     setTriggerAnimating(false);
     requestAnimationFrame(() => setTriggerAnimating(true));
     triggerAnimationTimer.current = window.setTimeout(() => setTriggerAnimating(false), 240);
-    setOpen((value) => !value);
+    if (open) discard();
+    else { setDraft({ ...request.filters }); setOpen(true); }
   };
 
   useEffect(() => () => window.clearTimeout(triggerAnimationTimer.current), []);
@@ -71,10 +75,10 @@ export function SimilarityFilterSliders({ request, onChange }: { request: OsuSim
   useEffect(() => {
     if (!open) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) setOpen(false);
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) discard();
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") discard();
     };
     document.addEventListener("mousedown", closeOnOutsideClick);
     window.addEventListener("keydown", closeOnEscape);
@@ -82,22 +86,23 @@ export function SimilarityFilterSliders({ request, onChange }: { request: OsuSim
       document.removeEventListener("mousedown", closeOnOutsideClick);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [open]);
+  }, [discard, open]);
 
-  return createPortal(
-    <div ref={popoverRef}>
-      <Card className={`opp-candidate-filter-panel !fixed bottom-20 left-[276px] z-[170] w-[360px] max-w-[calc(100vw-304px)] origin-bottom-left overflow-hidden p-0 shadow-xl transition-[opacity,transform] duration-200 ease-out ${open ? "opp-candidate-filter-panel--open translate-y-0 scale-100 opacity-100" : "pointer-events-none translate-y-3 scale-[0.98] opacity-0"}`}>
-        <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-5 py-3">
-          <div><p className="text-sm font-semibold text-slate-200">候选谱面筛选</p><p className="mt-0.5 text-xs text-slate-500">{activeCount ? `已启用 ${activeCount} 项条件` : "未启用条件"}</p></div>
-          <div className="flex items-center gap-1">{activeCount ? <Button aria-label="清除筛选" onClick={() => onChange({ ...request, filters: { ...defaultSimilarityFilters } })} size="icon" variant="ghost"><RotateCcw className="size-3.5" /></Button> : null}<Button aria-label="关闭筛选" onClick={() => setOpen(false)} size="icon" variant="ghost"><X className="size-4" /></Button></div>
-        </div>
-        <div className="opp-filter-body max-h-[calc(100vh-10rem)] overflow-y-auto px-5 pb-4">{controls.map((control) => <RangeFilter control={control} filters={request.filters} key={control.label} onChange={(filters) => onChange({ ...request, filters })} />)}</div>
-      </Card>
-      <button aria-expanded={open} aria-label={open ? "收起候选谱面筛选" : "打开候选谱面筛选"} className={`opp-candidate-filter-trigger fixed bottom-7 left-[276px] z-[171] grid size-11 place-items-center rounded-lg border border-white/10 bg-[var(--surface-panel)] text-[var(--theme-primary)] shadow-xl transition-colors hover:border-[var(--theme-primary-soft)] hover:bg-[var(--theme-primary-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)] ${triggerAnimating ? "opp-candidate-filter-trigger--animate" : ""}`} onClick={toggle} type="button">
-        <SlidersHorizontal className={`size-5 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
-        {activeCount ? <span className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-[var(--theme-primary)] text-[9px] font-bold text-[var(--on-primary)]">{activeCount > 9 ? "9+" : activeCount}</span> : null}
+  return (
+    <div className="similarity-inline-filter" ref={popoverRef}>
+      <button aria-expanded={open} aria-label={open ? "收起候选谱面筛选" : "打开候选谱面筛选"} className={`similarity-inline-filter-trigger ${activeCount ? "is-active" : ""} ${triggerAnimating ? "opp-candidate-filter-trigger--animate" : ""}`} onClick={toggle} type="button">
+        <SlidersHorizontal />
+        <span>筛选</span>
+        {activeCount ? <small>{activeCount > 9 ? "9+" : activeCount}</small> : null}
       </button>
-    </div>,
-    document.body,
+      <Card className={`opp-candidate-filter-panel similarity-inline-filter-panel origin-top-right overflow-hidden p-0 shadow-xl transition-[opacity,transform] duration-200 ease-out ${open ? "opp-candidate-filter-panel--open translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-2 scale-[0.98] opacity-0"}`}>
+        <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-5 py-3">
+          <div><p className="text-sm font-semibold text-slate-200">候选谱面筛选</p><p className="mt-0.5 text-xs text-slate-500">{draftCount ? `待应用 ${draftCount} 项条件` : "未设置条件"}</p></div>
+          <div className="flex items-center gap-1">{draftCount ? <Button aria-label="重置筛选草稿" onClick={() => setDraft({ ...defaultSimilarityFilters })} size="icon" variant="ghost"><RotateCcw className="size-3.5" /></Button> : null}<Button aria-label="关闭筛选" onClick={discard} size="icon" variant="ghost"><X className="size-4" /></Button></div>
+        </div>
+        <div className="opp-filter-body max-h-[calc(100vh-15rem)] overflow-y-auto px-5 pb-2">{controls.map((control) => <RangeFilter control={control} filters={draft} key={control.label} onChange={setDraft} />)}</div>
+        <footer className="similarity-filter-footer"><button type="button" onClick={discard}>取消</button><button className="is-primary" type="button" onClick={() => { onChange({ ...request, filters: { ...draft } }); setOpen(false); }}>应用筛选</button></footer>
+      </Card>
+    </div>
   );
 }

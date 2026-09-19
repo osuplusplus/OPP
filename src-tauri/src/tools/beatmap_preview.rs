@@ -3,9 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use osu_beatmap_preview::{parse_time_point, PreviewOptions, generate_preview};
+use osu_beatmap_preview::{PreviewOptions, generate_preview, parse_time_point};
 use serde::{Deserialize, Serialize};
-use tauri::{async_runtime, ipc::Response};
+use tauri::ipc::Response;
 
 use crate::{
     domain::Ruleset,
@@ -181,8 +181,10 @@ fn preview_options(
             ));
         }
         options.format = Some("gif".into());
-        options.time_points = vec![parse_time_point(&format!("{start:.3}"))
-            .map_err(|error| CommandError::new("INVALID_PREVIEW_RANGE", error.to_string()))?];
+        options.time_points = vec![
+            parse_time_point(&format!("{start:.3}"))
+                .map_err(|error| CommandError::new("INVALID_PREVIEW_RANGE", error.to_string()))?,
+        ];
         options.duration_time = Some(duration);
     } else {
         options.format = Some("png".into());
@@ -253,7 +255,7 @@ fn result_from_value(value: serde_json::Value) -> CommandResult<BeatmapPreviewRe
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn inspect_beatmap_preview(bid: u32) -> CommandResult<BeatmapPreviewInspection> {
     let bytes = ensure_beatmap_cached(bid).await?;
-    async_runtime::spawn_blocking(move || inspect_bytes(bid, &bytes))
+    crate::infrastructure::tasks::background("tools", move || inspect_bytes(bid, &bytes))
         .await
         .map_err(|error| CommandError::new("PREVIEW_INSPECTION_TASK_FAILED", error.to_string()))?
 }
@@ -265,9 +267,10 @@ pub async fn generate_beatmap_preview(
     request: BeatmapPreviewRequest,
 ) -> CommandResult<BeatmapPreviewResult> {
     let bytes = ensure_beatmap_cached(request.bid).await?;
-    let inspection = inspect_bytes(request.bid, &bytes)?;
-    let options = preview_options(&request, inspection.ruleset, inspection.length_ms / 1_000.0)?;
-    async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("tools", move || {
+        let inspection = inspect_bytes(request.bid, &bytes)?;
+        let options =
+            preview_options(&request, inspection.ruleset, inspection.length_ms / 1_000.0)?;
         generate_preview(options)
             .map_err(|error| CommandError::new("PREVIEW_GENERATION_FAILED", error.to_string()))
             .and_then(result_from_value)
@@ -279,55 +282,68 @@ pub async fn generate_beatmap_preview(
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取已生成或本地保存的内容。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn read_beatmap_preview_output(path: String) -> CommandResult<Response> {
-    let output = validated_output(&path)?;
-    Ok(Response::new(fs::read(output)?))
+pub async fn read_beatmap_preview_output(path: String) -> CommandResult<Response> {
+    crate::infrastructure::tasks::blocking_io("read_beatmap_preview_output", move || {
+        let output = validated_output(&path)?;
+        Ok(Response::new(fs::read(output)?))
+    })
+    .await?
 }
 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：校验并持久化用户配置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn save_beatmap_preview_output(source: String, destination: String) -> CommandResult<String> {
-    let source = validated_output(&source)?;
-    let destination = PathBuf::from(destination);
-    let source_extension = source
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    let destination_extension = destination
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    if !source_extension.eq_ignore_ascii_case(destination_extension) {
-        return Err(CommandError::new(
-            "PREVIEW_EXTENSION_MISMATCH",
-            format!("请保存为 .{source_extension} 文件"),
-        ));
-    }
-    if source != destination {
-        fs::copy(&source, &destination).map_err(|error| {
-            CommandError::new("PREVIEW_SAVE_FAILED", format!("保存预览失败：{error}"))
-        })?;
-    }
-    Ok(destination.to_string_lossy().into_owned())
+pub async fn save_beatmap_preview_output(
+    source: String,
+    destination: String,
+) -> CommandResult<String> {
+    crate::infrastructure::tasks::blocking_io("save_beatmap_preview_output", move || {
+        let source = validated_output(&source)?;
+        let destination = PathBuf::from(destination);
+        let source_extension = source
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        let destination_extension = destination
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if !source_extension.eq_ignore_ascii_case(destination_extension) {
+            return Err(CommandError::new(
+                "PREVIEW_EXTENSION_MISMATCH",
+                format!("请保存为 .{source_extension} 文件"),
+            ));
+        }
+        if source != destination {
+            fs::copy(&source, &destination).map_err(|error| {
+                CommandError::new("PREVIEW_SAVE_FAILED", format!("保存预览失败：{error}"))
+            })?;
+        }
+        Ok(destination.to_string_lossy().into_owned())
+    })
+    .await?
 }
 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn open_beatmap_preview_output(path: String) -> CommandResult<()> {
-    let output = validated_output(&path)?;
-    crate::infrastructure::platform::reveal_path(Path::new(&output)).map_err(|error| {
-        CommandError::new(
-            "PREVIEW_OPEN_FAILED",
-            format!("无法打开预览所在文件夹：{error}"),
-        )
+pub async fn open_beatmap_preview_output(path: String) -> CommandResult<()> {
+    crate::infrastructure::tasks::blocking_io("open_beatmap_preview_output", move || {
+        let output = validated_output(&path)?;
+        crate::infrastructure::platform::reveal_path(Path::new(&output)).map_err(|error| {
+            CommandError::new(
+                "PREVIEW_OPEN_FAILED",
+                format!("无法打开预览所在文件夹：{error}"),
+            )
+        })
     })
+    .await?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use osu_beatmap_preview::TimePoint;
 
     const OSU: &str = "osu file format v14\n\n[General]\nMode:0\n\n[Metadata]\nTitle:Test\nArtist:Artist\nCreator:Mapper\nVersion:Hard\nBeatmapID:123\nBeatmapSetID:12\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:8\nApproachRate:9\nSliderMultiplier:1.4\nSliderTickRate:1\n\n[TimingPoints]\n0,500,4,2,1,100,1,0\n\n[HitObjects]\n256,192,0,1,0,0:0:0:0:\n256,192,12000,1,0,0:0:0:0:\n";
 
@@ -346,14 +362,17 @@ mod tests {
                 bid: 123,
                 start_seconds: Some(2.0),
                 end_seconds: Some(12.0),
+                mods: Vec::new(),
             },
             Ruleset::Osu,
             20.0,
         )
         .expect("options");
         assert_eq!(options.format.as_deref(), Some("gif"));
-        assert_eq!(options.times.as_deref(), Some("2.000+12.000"));
-        assert!(options.gif_clip_label);
+        // GIF 剪辑语义 = 起点时间点 + 时长(旧字段 times/gif_clip_label 已被
+        // 上游 PreviewOptions 的 time_points/duration_time 取代)。
+        assert_eq!(options.time_points, vec![TimePoint::Seconds(2.0)]);
+        assert_eq!(options.duration_time, Some(10.0));
     }
 
     #[test]
@@ -363,13 +382,14 @@ mod tests {
                 bid: 123,
                 start_seconds: None,
                 end_seconds: None,
+                mods: Vec::new(),
             },
             Ruleset::Mania,
             200.0,
         )
         .expect("options");
         assert_eq!(options.format.as_deref(), Some("png"));
-        assert!(options.times.is_none());
+        assert!(options.time_points.is_empty());
     }
 
     #[test]
@@ -379,6 +399,7 @@ mod tests {
                 bid: 123,
                 start_seconds: Some(0.0),
                 end_seconds: Some(31.0),
+                mods: Vec::new(),
             },
             Ruleset::Osu,
             60.0,

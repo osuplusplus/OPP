@@ -21,7 +21,7 @@ import {
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { DifficultyIcon } from "../../shared/components/DifficultyIcon";
 import { Badge, Card, DataLine } from "../../shared/components/ui";
-import { dateTime, fullNumber } from "../../shared/lib/format";
+import { dateTime, fixedNumber, fullNumber } from "../../shared/lib/format";
 import type { OsuClient } from "../../shared/types/osu";
 import {
   useLocalBeatmapDetail,
@@ -74,10 +74,12 @@ function formatBytes(value?: number | null) {
 }
 
 function DrawerFrame({
+  beatmap = false,
   children,
   title,
   description,
 }: {
+  beatmap?: boolean;
   children: React.ReactNode;
   title: string;
   description: string;
@@ -85,7 +87,7 @@ function DrawerFrame({
   return (
     <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/65 backdrop-blur-sm" />
-      <Dialog.Content className="fixed left-1/2 top-1/2 z-[90] w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-6 outline-none">
+      <Dialog.Content className={`${beatmap ? "local-beatmap-detail max-h-[85dvh] rounded-xl" : ""} fixed left-1/2 top-1/2 z-[90] w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-6 outline-none`}>
         <Dialog.Title className="pr-14 text-2xl font-semibold text-white">
           {title}
         </Dialog.Title>
@@ -137,6 +139,7 @@ export function BeatmapDetailDrawer({
     <Dialog.Root onOpenChange={(open) => !open && onClose()} open={Boolean(resourceId)}>
       {resourceId ? (
         <DrawerFrame
+          beatmap
           description={
             detail
               ? `${detail.summary.artist} · mapped by ${detail.summary.creator}`
@@ -265,17 +268,17 @@ export function BeatmapDetailDrawer({
                     <Gauge className="size-4 text-cyan-200" />
                     难度与密度
                   </div>
-                  <DataLine label="CS / AR" value={`${detail.cs.toFixed(1)} / ${detail.ar.toFixed(1)}`} />
-                  <DataLine label="OD / HP" value={`${detail.od.toFixed(1)} / ${detail.hp.toFixed(1)}`} />
-                  <DataLine label="BPM" value={detail.summary.bpm.toFixed(2)} />
-                  <DataLine label="平均 NPS" value={detail.average_nps.toFixed(2)} />
-                  <DataLine label="1 秒峰值 NPS" value={detail.peak_nps.toFixed(2)} />
+                  <DataLine label="CS / AR" value={`${fixedNumber(detail.cs, 1)} / ${fixedNumber(detail.ar, 1)}`} />
+                  <DataLine label="OD / HP" value={`${fixedNumber(detail.od, 1)} / ${fixedNumber(detail.hp, 1)}`} />
+                  <DataLine label="BPM" value={fixedNumber(detail.summary.bpm, 2)} />
+                  <DataLine label="平均 NPS" value={fixedNumber(detail.average_nps, 2)} />
+                  <DataLine label="1 秒峰值 NPS" value={fixedNumber(detail.peak_nps, 2)} />
                   <DataLine
                     label="NoMod 满分 PP"
                     value={
-                      detail.summary.max_pp === null
+                      detail.summary.max_pp == null
                         ? "—"
-                        : `${detail.summary.max_pp.toFixed(2)} pp`
+                        : `${fixedNumber(detail.summary.max_pp, 2)} pp`
                     }
                   />
                   <DataLine label="最大连击" value={fullNumber(detail.summary.max_combo)} />

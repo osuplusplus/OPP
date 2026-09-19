@@ -4,7 +4,7 @@ import { beatmapPreviewRoute } from "./navigation";
 
 describe("beatmap preview navigation", () => {
   it("builds a prefilled tools route for published local maps", () => {
-    expect(beatmapPreviewRoute(738063)).toBe("/tools?preview_bid=738063");
+    expect(beatmapPreviewRoute(738063)).toBe("/tools/beatmaps?preview_bid=738063");
   });
 
   it("does not expose a route for local-only maps", () => {

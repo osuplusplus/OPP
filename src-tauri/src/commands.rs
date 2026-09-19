@@ -1,3 +1,5 @@
+//! Tauri 命令清单，仅汇总并注册各模块的命令处理器。
+
 pub(crate) use crate::{
     features::{
         account::{
@@ -44,18 +46,24 @@ pub(crate) use crate::{
         },
         local_analysis::{
             cancel_local_scan, export_local_beatmap_set, export_local_skin,
-            get_local_beatmap_background, get_local_beatmap_detail, get_local_beatmap_path,
-            get_local_index_status, get_local_skin_asset, get_local_skin_detail,
-            get_local_skin_preview, get_local_sources, get_local_summary, query_local_beatmap_sets,
+            get_local_beatmap_audio, get_local_beatmap_background, get_local_beatmap_detail,
+            get_local_beatmap_path, get_local_beatmap_set, get_local_index_status,
+            get_local_skin_asset, get_local_skin_detail, get_local_skin_preview, get_local_sources,
+            get_local_summary, pick_random_local_beatmap_set, query_local_beatmap_sets,
             query_local_beatmaps, query_local_skins, replace_local_skin_asset, reset_local_source,
             scan_local_source, set_local_source,
+        },
+        music_player::{
+            music_artwork, music_control, music_frontend_task, music_location, music_mini_layout,
+            music_queue_page, music_set_queue, music_state, music_window_mode, music_window_ready,
         },
         netease_music::open_netease_music_search,
         obs::{get_obs_scenes, get_obs_status, refresh_selected_obs_scene, save_obs_connection},
         online_beatmaps::{
             cancel_online_beatmap_download, collect_online_beatmapsets,
-            download_online_beatmapsets, get_online_beatmap, get_online_beatmap_provider_status,
-            get_online_beatmapset, open_downloaded_path, search_online_beatmapsets,
+            download_online_beatmapsets, get_online_beatmap, get_online_beatmap_background,
+            get_online_beatmap_provider_status, get_online_beatmapset, open_downloaded_path,
+            search_online_beatmapsets,
         },
         osekai::{get_osekai_medal_beatmaps, get_osekai_medal_detail, get_osekai_medals},
         replay_render::submit_replay_render,
@@ -63,10 +71,15 @@ pub(crate) use crate::{
             configure_similarity_index, get_similarity_index_status, query_similar_beatmaps,
             recommend_similar_beatmaps,
         },
+        skill_analysis::analyze_player_skills,
         skin_workshop::{
             execute_skin_workshop_action, execute_skin_workshop_preset, get_skin_workshop_asset,
             get_skin_workshop_config, get_skin_workshop_part_preview, get_skin_workshop_tree,
             open_skin_workshop_package,
+        },
+        tablet_driver::commands::{
+            backup_otd_config, get_otd_status, open_otd, read_otd_config_summary,
+            set_otd_executable, start_otd, stop_otd,
         },
         tosu::{
             get_tosu_logs, get_tosu_status, set_tosu_executable, set_tosu_lyrics_executable,
@@ -99,6 +112,16 @@ pub(crate) fn exit_app(app: tauri::AppHandle) {
 macro_rules! handler {
     () => {
         tauri::generate_handler![
+            music_state,
+            music_location,
+            music_queue_page,
+            music_control,
+            music_set_queue,
+            music_artwork,
+            music_window_mode,
+            music_window_ready,
+            music_mini_layout,
+            music_frontend_task,
             get_auth_status,
             get_beatmaphub_auth_status,
             create_beatmaphub_profile,
@@ -166,6 +189,7 @@ macro_rules! handler {
             search_online_beatmapsets,
             collect_online_beatmapsets,
             get_online_beatmapset,
+            get_online_beatmap_background,
             get_online_beatmap,
             get_online_beatmap_provider_status,
             calculate_beatmap_pp,
@@ -195,6 +219,7 @@ macro_rules! handler {
             configure_similarity_index,
             query_similar_beatmaps,
             recommend_similar_beatmaps,
+            analyze_player_skills,
             start_game_session,
             start_detected_game_session,
             get_game_status,
@@ -224,6 +249,9 @@ macro_rules! handler {
             cancel_local_scan,
             query_local_beatmaps,
             query_local_beatmap_sets,
+            get_local_beatmap_set,
+            pick_random_local_beatmap_set,
+            get_local_beatmap_audio,
             get_local_beatmap_detail,
             get_local_beatmap_path,
             get_local_beatmap_background,
@@ -263,6 +291,13 @@ macro_rules! handler {
             set_tosu_lyrics_executable,
             start_tosu,
             stop_tosu,
+            get_otd_status,
+            set_otd_executable,
+            start_otd,
+            stop_otd,
+            read_otd_config_summary,
+            backup_otd_config,
+            open_otd,
             get_obs_status,
             get_obs_scenes,
             save_obs_connection,

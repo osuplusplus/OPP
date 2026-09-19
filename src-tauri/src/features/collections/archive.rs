@@ -15,89 +15,93 @@ const MAX_OSU_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_TOTAL_OSU_BYTES: u64 = 64 * 1024 * 1024;
 
 #[tauri::command]
-pub fn import_collection_archive(
+pub async fn import_collection_archive(
     path: String,
     state: State<'_, AppState>,
 ) -> CommandResult<CollectionFolder> {
-    let path = Path::new(&path);
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    if !matches!(extension.to_ascii_lowercase().as_str(), "zip" | "osz") {
-        return Err(CommandError::new(
-            "INVALID_BEATMAP_ARCHIVE",
-            "请选择 .zip 或 .osz 压缩包",
-        ));
-    }
-    let file = fs::File::open(path).map_err(|error| {
-        CommandError::new(
-            "BEATMAP_ARCHIVE_OPEN_FAILED",
-            format!("无法打开压缩包：{error}"),
-        )
-    })?;
-    let mut archive = ZipArchive::new(file).map_err(|error| {
-        CommandError::new(
-            "INVALID_BEATMAP_ARCHIVE",
-            format!("压缩包格式无效：{error}"),
-        )
-    })?;
-    if archive.len() > MAX_ARCHIVE_ENTRIES {
-        return Err(CommandError::new(
-            "BEATMAP_ARCHIVE_TOO_LARGE",
-            "压缩包条目过多",
-        ));
-    }
-
-    let mut candidates = Vec::new();
-    let mut total_bytes = 0_u64;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| {
-            CommandError::new(
-                "INVALID_BEATMAP_ARCHIVE",
-                format!("读取压缩包失败：{error}"),
-            )
-        })?;
-        if !entry.name().to_ascii_lowercase().ends_with(".osu") || entry.is_dir() {
-            continue;
-        }
-        if entry.size() > MAX_OSU_BYTES
-            || total_bytes.saturating_add(entry.size()) > MAX_TOTAL_OSU_BYTES
-        {
+    let collections = state.collections.clone();
+    crate::infrastructure::tasks::background("import_collection_archive", move || {
+        let path = Path::new(&path);
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if !matches!(extension.to_ascii_lowercase().as_str(), "zip" | "osz") {
             return Err(CommandError::new(
-                "BEATMAP_ARCHIVE_TOO_LARGE",
-                "压缩包内谱面文件过大",
+                "INVALID_BEATMAP_ARCHIVE",
+                "请选择 .zip 或 .osz 压缩包",
             ));
         }
-        total_bytes += entry.size();
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut bytes).map_err(|error| {
+        let file = fs::File::open(path).map_err(|error| {
             CommandError::new(
-                "BEATMAP_ARCHIVE_READ_FAILED",
-                format!("读取谱面文件失败：{error}"),
+                "BEATMAP_ARCHIVE_OPEN_FAILED",
+                format!("无法打开压缩包：{error}"),
             )
         })?;
-        if let Some(candidate) = parse_osu_candidate(&bytes) {
-            candidates.push(candidate);
+        let mut archive = ZipArchive::new(file).map_err(|error| {
+            CommandError::new(
+                "INVALID_BEATMAP_ARCHIVE",
+                format!("压缩包格式无效：{error}"),
+            )
+        })?;
+        if archive.len() > MAX_ARCHIVE_ENTRIES {
+            return Err(CommandError::new(
+                "BEATMAP_ARCHIVE_TOO_LARGE",
+                "压缩包条目过多",
+            ));
         }
-    }
-    if candidates.is_empty() {
-        return Err(CommandError::new(
-            "EMPTY_BEATMAP_ARCHIVE",
-            "压缩包中没有可识别的 .osu 谱面",
-        ));
-    }
 
-    let name = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("导入曲包");
-    let folder = state.collections.create(name, "本地压缩包")?;
-    if let Err(error) = state.collections.add_entries(&folder.id, candidates) {
-        let _ = state.collections.delete(&folder.id);
-        return Err(error);
-    }
-    state.collections.folder(&folder.id)
+        let mut candidates = Vec::new();
+        let mut total_bytes = 0_u64;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).map_err(|error| {
+                CommandError::new(
+                    "INVALID_BEATMAP_ARCHIVE",
+                    format!("读取压缩包失败：{error}"),
+                )
+            })?;
+            if !entry.name().to_ascii_lowercase().ends_with(".osu") || entry.is_dir() {
+                continue;
+            }
+            if entry.size() > MAX_OSU_BYTES
+                || total_bytes.saturating_add(entry.size()) > MAX_TOTAL_OSU_BYTES
+            {
+                return Err(CommandError::new(
+                    "BEATMAP_ARCHIVE_TOO_LARGE",
+                    "压缩包内谱面文件过大",
+                ));
+            }
+            total_bytes += entry.size();
+            let mut bytes = Vec::with_capacity(entry.size() as usize);
+            entry.read_to_end(&mut bytes).map_err(|error| {
+                CommandError::new(
+                    "BEATMAP_ARCHIVE_READ_FAILED",
+                    format!("读取谱面文件失败：{error}"),
+                )
+            })?;
+            if let Some(candidate) = parse_osu_candidate(&bytes) {
+                candidates.push(candidate);
+            }
+        }
+        if candidates.is_empty() {
+            return Err(CommandError::new(
+                "EMPTY_BEATMAP_ARCHIVE",
+                "压缩包中没有可识别的 .osu 谱面",
+            ));
+        }
+
+        let name = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("导入曲包");
+        let folder = collections.create(name, "本地压缩包")?;
+        if let Err(error) = collections.add_entries(&folder.id, candidates) {
+            let _ = collections.delete(&folder.id);
+            return Err(error);
+        }
+        collections.folder(&folder.id)
+    })
+    .await?
 }
 
 fn parse_osu_candidate(bytes: &[u8]) -> Option<CollectionCandidate> {

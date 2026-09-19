@@ -1,8 +1,6 @@
 import * as Switch from "@radix-ui/react-switch";
-import { Gamepad2 } from "lucide-react";
 import { Card, SectionTitle, InfoTip } from "../../../shared/components/ui";
-import { useMode } from "../../../app/ModeContext";
-import type { AppSettings, ThemeColor, Ruleset } from "../../../shared/types/osu";
+import type { AppSettings, ThemeColor } from "../../../shared/types/osu";
 
 const colors: Array<[ThemeColor, string, string]> = [
   ["cyan", "青色", "#67e8f9"],
@@ -13,20 +11,12 @@ const colors: Array<[ThemeColor, string, string]> = [
   ["green", "绿色", "#4ade80"],
 ];
 
-const modes: Array<[Ruleset, string]> = [
-  ["osu", "osu!"],
-  ["taiko", "Taiko"],
-  ["fruits", "Catch"],
-  ["mania", "Mania"],
-];
-
 interface AppearancePanelProps {
   settings: AppSettings;
   save: (settings: AppSettings) => Promise<void>;
 }
 
 export function AppearancePanel({ settings, save }: AppearancePanelProps) {
-  const { ruleset, setRuleset } = useMode();
   const lightTheme = settings.theme_mode === "light";
 
   return (
@@ -34,7 +24,7 @@ export function AppearancePanel({ settings, save }: AppearancePanelProps) {
       <div>
         <h2 className="text-2xl font-bold text-white">外观</h2>
         <p className="mt-1 text-sm text-slate-400">
-          自定义应用主题色彩和默认游戏模式。
+          自定义应用主题和色彩。
         </p>
       </div>
 
@@ -86,33 +76,6 @@ export function AppearancePanel({ settings, save }: AppearancePanelProps) {
         </div>
       </Card>
 
-      <Card className="p-6">
-        <SectionTitle
-          title="默认游戏模式"
-          description="选择应用打开时优先使用的 osu! 游戏模式。"
-        />
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {modes.map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => setRuleset(value)}
-              className="group relative flex items-center gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] p-3 transition-all hover:border-white/20 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary-soft)]"
-              type="button"
-            >
-              <Gamepad2 className="size-5 text-slate-400 group-hover:text-slate-300" />
-              <span className="text-sm text-slate-200 group-hover:text-white">
-                {label}
-              </span>
-              {ruleset === value ? (
-                <span className="ml-auto size-5 rounded-full bg-[var(--theme-primary)] text-[10px] font-bold leading-5 text-white">
-                  ✓
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      </Card>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  --titlebar-height: 44px;
   --sidebar-width: clamp(236px, 18vw, 276px);
   /* 内容区按可用空间等比伸缩，避免固定像素上限在宽屏两侧形成失衡留白。 */
   --content-width: 94%;
@@ -128,11 +129,11 @@
   box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.04);
 }
 :root[data-theme-mode="light"] .opp-input::placeholder { color: #64748b; }
-:root[data-theme-mode="light"] aside a[class] {
+:root[data-theme-mode="light"] aside a[class]:not(.opp-nav-item) {
   background-color: transparent;
   box-shadow: none;
 }
-:root[data-theme-mode="light"] aside a[class][aria-current="page"] {
+:root[data-theme-mode="light"] aside a[class][aria-current="page"]:not(.opp-nav-item) {
   border-color: var(--theme-primary);
   background-color: transparent;
   box-shadow: inset 0 0 0 999px var(--theme-primary-muted);
@@ -548,41 +549,19 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 
 .opp-nav-item {
   position: relative;
-  border-left: 2px solid transparent;
-  border-radius: 0;
+  border-radius: var(--control-radius);
   background: transparent;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease;
 }
 
-.opp-nav-item::after {
-  position: absolute;
-  right: 0;
-  bottom: 3px;
-  left: 10px;
-  height: 1px;
-  content: "";
-  opacity: 0;
-  background: linear-gradient(90deg, var(--theme-primary), transparent);
-  transform: scaleX(0.3);
-  transform-origin: left;
-  transition: opacity var(--motion-fast) ease, transform var(--motion-fast) ease;
+.opp-nav-item[aria-current="page"],
+:root[data-theme-mode] .opp-nav-item[aria-current="page"] {
+  color: var(--text);
+  background: var(--surface-interactive-hover);
 }
 
-@media (hover: hover) {
-  .opp-nav-item:hover::after {
-    opacity: 0.75;
-    transform: scaleX(1);
-  }
-}
-
-.opp-nav-item[aria-current="page"] {
-  border-left-color: var(--theme-primary);
-  color: var(--theme-primary-light);
-  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 86%);
-}
-
-.opp-nav-item[aria-current="page"]::after {
-  opacity: 1;
-  transform: scaleX(1);
+.opp-nav-item[aria-current="page"] > span:has(> svg) {
+  color: inherit;
 }
 
 .theme-content-frame > * {
@@ -602,19 +581,13 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 
 :root[data-theme-mode="light"] .opp-section { border-color: var(--line-subtle); }
 :root[data-theme-mode="light"] .opp-floating { box-shadow: 0 20px 60px rgba(24, 32, 54, 0.14); }
-:root[data-theme-mode="light"] aside .opp-nav-item[aria-current="page"] {
-  background: linear-gradient(90deg, var(--theme-primary-muted), transparent 86%);
-  box-shadow: inset 2px 0 0 var(--theme-primary);
-}
 
 .opp-app-shell,
-.theme-titlebar,
-.theme-context-bar {
+.theme-titlebar {
   background-color: var(--surface);
 }
 
-.theme-titlebar,
-.theme-context-bar {
+.theme-titlebar {
   border-color: var(--line-subtle);
 }
 

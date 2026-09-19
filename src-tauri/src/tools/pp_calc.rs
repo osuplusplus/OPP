@@ -62,51 +62,54 @@ pub async fn calculate_beatmap_pp(
                 )
             })?,
     };
-    let bytes = download.bytes;
-    let started = Instant::now();
-    let map = rosu_pp::Beatmap::from_bytes(&bytes)
-        .map_err(|error| CommandError::new("BEATMAP_PARSE_FAILED", error.to_string()))?;
-    let mode = format!("{:?}", map.mode).to_lowercase();
-    let bits = mod_bits(&request.mods, &mode)?;
-    let difficulty = rosu_pp::Difficulty::new().mods(bits).calculate(&map);
-    let max_pp = difficulty.clone().performance().calculate().pp();
-    let mut performance = difficulty.performance().mods(bits);
-    if let Some(value) = request.accuracy {
-        performance = performance.accuracy(value.clamp(0.0, 100.0));
-    }
-    if let Some(value) = request.misses {
-        performance = performance.misses(value);
-    }
-    if let Some(value) = request.combo {
-        performance = performance.combo(value);
-    }
-    if let Some(value) = request.n300 {
-        performance = performance.n300(value);
-    }
-    if let Some(value) = request.n100 {
-        performance = performance.n100(value);
-    }
-    if let Some(value) = request.n50 {
-        performance = performance.n50(value);
-    }
-    let attributes = performance.calculate();
-    let _elapsed = started.elapsed();
-    Ok(BeatmapCalculationResult {
-        beatmap_id: request.beatmap_id,
-        mods: request.mods,
-        mode: mode.clone(),
-        stars: attributes.stars(),
-        pp: attributes.pp(),
-        max_pp,
-        max_combo: attributes.max_combo(),
-        calculation_engine: "rosu-pp 4.0.1 / ppy-osu rulesets".into(),
-        calculated_at: chrono::Utc::now().to_rfc3339(),
-        source: download.source,
-        star_algorithm: format!("rosu-pp 4.0.1 · {mode} star"),
-        star_algorithm_date: "2025-10-16".into(),
-        performance_algorithm: format!("rosu-pp 4.0.1 · {mode} performance"),
-        performance_algorithm_date: "2025-10-16".into(),
+    crate::infrastructure::tasks::interactive("calculate_beatmap_pp", move || {
+        let bytes = download.bytes;
+        let started = Instant::now();
+        let map = rosu_pp::Beatmap::from_bytes(&bytes)
+            .map_err(|error| CommandError::new("BEATMAP_PARSE_FAILED", error.to_string()))?;
+        let mode = format!("{:?}", map.mode).to_lowercase();
+        let bits = mod_bits(&request.mods, &mode)?;
+        let difficulty = rosu_pp::Difficulty::new().mods(bits).calculate(&map);
+        let max_pp = difficulty.clone().performance().calculate().pp();
+        let mut performance = difficulty.performance().mods(bits);
+        if let Some(value) = request.accuracy {
+            performance = performance.accuracy(value.clamp(0.0, 100.0));
+        }
+        if let Some(value) = request.misses {
+            performance = performance.misses(value);
+        }
+        if let Some(value) = request.combo {
+            performance = performance.combo(value);
+        }
+        if let Some(value) = request.n300 {
+            performance = performance.n300(value);
+        }
+        if let Some(value) = request.n100 {
+            performance = performance.n100(value);
+        }
+        if let Some(value) = request.n50 {
+            performance = performance.n50(value);
+        }
+        let attributes = performance.calculate();
+        let _elapsed = started.elapsed();
+        Ok(BeatmapCalculationResult {
+            beatmap_id: request.beatmap_id,
+            mods: request.mods,
+            mode: mode.clone(),
+            stars: attributes.stars(),
+            pp: attributes.pp(),
+            max_pp,
+            max_combo: attributes.max_combo(),
+            calculation_engine: "rosu-pp 4.0.1 / ppy-osu rulesets".into(),
+            calculated_at: chrono::Utc::now().to_rfc3339(),
+            source: download.source,
+            star_algorithm: format!("rosu-pp 4.0.1 · {mode} star"),
+            star_algorithm_date: "2025-10-16".into(),
+            performance_algorithm: format!("rosu-pp 4.0.1 · {mode} performance"),
+            performance_algorithm_date: "2025-10-16".into(),
+        })
     })
+    .await?
 }
 
 /// 将前端传入的 Mod 缩写合并为 rosu-pp 位掩码，并校验模式专属 Mod。
