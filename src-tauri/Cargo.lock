@@ -3639,7 +3639,7 @@ dependencies = [
 [[package]]
 name = "mania-pattern"
 version = "0.1.0"
-source = "git+https://github.com/inferior0909/osu-difficulty-lab?rev=f681bc460a9a473f10c17f6bb89754396ff5e6a4#f681bc460a9a473f10c17f6bb89754396ff5e6a4"
+source = "git+https://github.com/osuplusplus/osu-difficulty-lab?rev=92b791c95ea4a6c552e89d5b711551f0f2fb83a1#92b791c95ea4a6c552e89d5b711551f0f2fb83a1"
 dependencies = [
  "anyhow",
  "serde",

@@ -622,6 +622,106 @@ mod compatibility_tests {
             }
         }
     }
+
+    /// The distributed v4 package intentionally contains no source beatmaps. This verifies the
+    /// application command can still build recent/BP recommendations for every key count and Mod
+    /// pool, and that the serialized response carries the packaged MMA records.
+    #[tokio::test]
+    #[ignore = "requires MMA_PACKAGED_DATASET pointing to an osu-mania-dataset-v4 package"]
+    async fn v4_packaged_dataset_produces_pattern_recommendations() {
+        let root = std::env::var("MMA_PACKAGED_DATASET").expect("MMA_PACKAGED_DATASET");
+        assert!(!std::path::Path::new(&root).join("beatmaps").exists());
+        let metadata =
+            std::fs::canonicalize(std::path::Path::new(&root).join("mania-metadata.sqlite"))
+                .unwrap();
+        let mut uri = url::Url::from_file_path(&metadata).unwrap();
+        uri.set_query(Some("mode=ro&immutable=1"));
+        let connection = rusqlite::Connection::open_with_flags(
+            uri.as_str(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        let ids: Vec<u64> = connection
+            .prepare(
+                "SELECT min(beatmap_id) FROM mania_beatmaps \
+                 WHERE key_count IN (4,6,7) GROUP BY key_count, online_url = ''",
+            )
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            ids.len(),
+            6,
+            "expected online and local-only seeds for 4K/6K/7K"
+        );
+
+        let app_dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(app_dir.path()).unwrap();
+        let dataset = state.similarity.mania_dataset(&root).unwrap();
+        assert!(dataset.has_pattern_records());
+        assert_eq!(dataset.info().record_count, 12_450);
+
+        for kind in [
+            SimilarityRecommendationKind::Recent,
+            SimilarityRecommendationKind::Best,
+        ] {
+            for mods in [
+                vec![ManiaGameMod::Nm],
+                vec![ManiaGameMod::Dt],
+                vec![ManiaGameMod::Ht],
+                ManiaGameMod::ALL.to_vec(),
+            ] {
+                let seeds: Vec<_> = ids
+                    .iter()
+                    .flat_map(|id| {
+                        mods.iter().map(move |game_mod| ManiaSeed {
+                            beatmap_id: *id,
+                            game_mod: *game_mod,
+                        })
+                    })
+                    .collect();
+                let response = recommend_mania(
+                    SimilarityRecommendationRequest::Mania {
+                        kind,
+                        result_limit: 5,
+                        seed_limit: None,
+                        excluded_beatmap_ids: Vec::new(),
+                        candidate_mods: mods.clone(),
+                    },
+                    seeds,
+                    0,
+                    root.clone(),
+                    &state,
+                )
+                .await
+                .unwrap();
+                let SimilarityRecommendationResponse::Mania {
+                    seed_count,
+                    skipped_seed_count,
+                    groups,
+                    ..
+                } = response
+                else {
+                    panic!("Mania response")
+                };
+                assert_eq!(seed_count, ids.len() * mods.len());
+                assert_eq!(skipped_seed_count, 0);
+                assert_eq!(groups.len(), 3);
+                for group in groups {
+                    assert!(group.seed_count > 0);
+                    assert!(!group.results.is_empty());
+                    for item in group.results {
+                        assert!(item.recommended_by.pattern_view.is_some());
+                        assert!(item.result.beatmap.pattern_view.is_some());
+                        assert_eq!(item.result.beatmap.key_count, group.key_count);
+                        assert!(mods.contains(&item.result.beatmap.game_mod));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
