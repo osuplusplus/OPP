@@ -111,30 +111,23 @@ export function excludeTodayRecommendedResults<T extends AnySimilarityResult>(
   return results.filter((result) => !excludedIds.has(result.beatmap_id));
 }
 
-export function recordDisplayedRecommendationBatch(
-  results: AnySimilarityResult[],
+export function recordDisplayedRecommendation(
+  result: AnySimilarityResult,
   ruleset: SimilarityRuleset = "osu",
-  expectedBatchSize = 5,
 ) {
-  if (!results.length || results.length !== expectedBatchSize) return getTodayRecommendationHistory(ruleset);
-
+  if (result.ruleset !== ruleset) return getTodayRecommendationHistory(ruleset);
   const history = readStoredHistory();
-  const knownIds = new Set(
-    history.entries
-      .filter((entry) => entry.ruleset === ruleset)
-      .map((entry) => entry.result.beatmap_id),
+  const exists = history.entries.some(
+    (entry) => entry.ruleset === ruleset && entry.result.beatmap_id === result.beatmap_id,
   );
-  const displayedAt = new Date().toISOString();
-  for (const result of results) {
-    if (result.ruleset !== ruleset || knownIds.has(result.beatmap_id)) continue;
+  if (!exists) {
     history.entries.push({
-      displayed_at: displayedAt,
+      displayed_at: new Date().toISOString(),
       ruleset,
       key_count: result.ruleset === "mania" ? result.key_count : null,
       result,
     });
-    knownIds.add(result.beatmap_id);
+    writeStoredHistory(history);
   }
-  writeStoredHistory(history);
   return history.entries.filter((entry) => entry.ruleset === ruleset);
 }

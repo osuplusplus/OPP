@@ -433,7 +433,7 @@ export function AppShell() {
       />
       <main className="ml-[var(--sidebar-width)] min-h-screen pt-[var(--titlebar-height)]" id="main-content" tabIndex={-1}>
         <div className="relative min-h-[calc(100vh-var(--titlebar-height))] overflow-x-auto">
-        <div className={["/local/maps", "/online/beatmaps"].includes(location.pathname) ? "theme-content-frame local-stage-frame relative" : "theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9"} data-page-guide-content="true">
+        <div className={["/local/maps", "/online/beatmaps", "/online/similar"].includes(location.pathname) ? "theme-content-frame local-stage-frame relative" : "theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9"} data-page-guide-content="true">
             <RouteContent />
           </div>
         </div>
