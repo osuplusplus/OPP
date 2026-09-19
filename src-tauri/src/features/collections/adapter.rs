@@ -34,9 +34,6 @@ struct Request<'a, T> {
 struct Response<T> {
     ok: bool,
     protocol_version: Option<String>,
-    version: Option<String>,
-    #[serde(default)]
-    operations: Vec<String>,
     data: Option<T>,
     error: Option<String>,
 }

@@ -95,20 +95,19 @@ async fn analyze_player_skills_inner(
     );
     let snapshot = state.store.snapshot()?;
     let cached = snapshot.cache.get(&cache_key).cloned();
-    if !request.force_refresh {
-        if let Some(record) = cached.as_ref()
-            && Utc::now() - record.fetched_at < Duration::seconds(CACHE_SECONDS)
-        {
-            if let Some(span) = span {
-                span.info(
-                    "命中技能分析缓存",
-                    Some(serde_json::json!({ "cache_seconds": CACHE_SECONDS })),
-                );
-            }
-            let mut result: SkillAnalysisResult = serde_json::from_value(record.value.clone())?;
-            result.stale = false;
-            return Ok(result);
+    if !request.force_refresh
+        && let Some(record) = cached.as_ref()
+        && Utc::now() - record.fetched_at < Duration::seconds(CACHE_SECONDS)
+    {
+        if let Some(span) = span {
+            span.info(
+                "命中技能分析缓存",
+                Some(serde_json::json!({ "cache_seconds": CACHE_SECONDS })),
+            );
         }
+        let mut result: SkillAnalysisResult = serde_json::from_value(record.value.clone())?;
+        result.stale = false;
+        return Ok(result);
     }
 
     let profile = get_own_profile(Ruleset::Osu, request.force_refresh, state.clone())

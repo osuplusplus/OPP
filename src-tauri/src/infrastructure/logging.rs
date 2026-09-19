@@ -21,7 +21,6 @@ use crate::error::CommandResult;
 pub struct Logger {
     tx: Sender<String>,
     directory: PathBuf,
-    current: String,
 }
 
 static LOGGER: OnceLock<Logger> = OnceLock::new();
@@ -39,6 +38,21 @@ struct LogRecord {
     request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<serde_json::Value>,
+}
+
+#[derive(Default)]
+struct EventDetails {
+    duration_ms: Option<u128>,
+    fields: Option<serde_json::Value>,
+}
+
+impl EventDetails {
+    fn new(duration_ms: Option<u128>, fields: Option<serde_json::Value>) -> Self {
+        Self {
+            duration_ms,
+            fields,
+        }
+    }
 }
 
 pub fn init(app_data_dir: &Path) -> Logger {
@@ -70,11 +84,7 @@ pub fn init(app_data_dir: &Path) -> Logger {
                 }
             }
         });
-    let logger = Logger {
-        tx,
-        directory,
-        current,
-    };
+    let logger = Logger { tx, directory };
     let _ = LOGGER.set(logger.clone());
     install_panic_hook();
     logger
@@ -105,8 +115,7 @@ fn install_panic_hook() {
                     payload,
                     Some("panic"),
                     None,
-                    None,
-                    Some(serde_json::json!({ "location": location })),
+                    EventDetails::new(None, Some(serde_json::json!({ "location": location }))),
                 )
             }
             previous(info);
@@ -137,8 +146,7 @@ pub fn sanitize(input: &str) -> String {
             };
             let start = search_from + relative;
             let after_key = start + key.len();
-            let Some(separator_offset) = out[after_key..].find(|ch: char| ch == '=' || ch == ':')
-            else {
+            let Some(separator_offset) = out[after_key..].find(['=', ':']) else {
                 search_from = after_key;
                 continue;
             };
@@ -169,26 +177,25 @@ pub fn sanitize(input: &str) -> String {
 
 impl Logger {
     pub fn log(&self, level: &str, target: &str, message: impl AsRef<str>) {
-        self.event(level, target, message, None, None, None, None);
+        self.event(level, target, message, None, None, EventDetails::default());
     }
 
-    pub fn event(
+    fn event(
         &self,
         level: &str,
         target: &str,
         message: impl AsRef<str>,
         event: Option<&str>,
         request_id: Option<&str>,
-        duration_ms: Option<u128>,
-        fields: Option<serde_json::Value>,
+        details: EventDetails,
     ) {
-        let mut record_fields = fields.unwrap_or_else(|| serde_json::json!({}));
+        let mut record_fields = details.fields.unwrap_or_else(|| serde_json::json!({}));
 
         // 添加 duration_ms 到 fields 中（如果存在）
-        if let Some(duration) = duration_ms {
-            if let Some(obj) = record_fields.as_object_mut() {
-                obj.insert("duration_ms".to_string(), serde_json::json!(duration));
-            }
+        if let Some(duration) = details.duration_ms
+            && let Some(obj) = record_fields.as_object_mut()
+        {
+            obj.insert("duration_ms".to_string(), serde_json::json!(duration));
         }
 
         let record = LogRecord {
@@ -219,8 +226,7 @@ impl Logger {
             format!("开始操作: {}", operation),
             Some("operation_start"),
             Some(&request_id),
-            None,
-            None,
+            EventDetails::default(),
         );
 
         LogSpan {
@@ -240,16 +246,12 @@ impl Logger {
             &error.message,
             Some("error"),
             error.request_id.as_deref(),
-            None,
-            Some(serde_json::json!({ "code": error.code, "origin": error.origin, "technical": error.technical, "backtrace": error.backtrace })),
+            EventDetails::new(None, Some(serde_json::json!({ "code": error.code, "origin": error.diagnostics.origin, "technical": error.diagnostics.technical, "backtrace": error.diagnostics.backtrace }))),
         );
     }
 
     pub fn directory(&self) -> &Path {
         &self.directory
-    }
-    pub fn current_file(&self) -> PathBuf {
-        self.directory.join(&self.current)
     }
 }
 
@@ -298,10 +300,6 @@ pub struct LogSpan {
 }
 
 impl LogSpan {
-    pub fn request_id(&self) -> &str {
-        &self.request_id
-    }
-
     /// 记录操作成功完成，可选附加结构化字段
     pub fn finish_ok(&mut self, fields: Option<serde_json::Value>) {
         if self.finished {
@@ -315,8 +313,7 @@ impl LogSpan {
             format!("操作完成: {}", self.operation),
             Some("operation_complete"),
             Some(&self.request_id),
-            Some(duration_ms),
-            fields,
+            EventDetails::new(Some(duration_ms), fields),
         );
     }
 
@@ -333,13 +330,15 @@ impl LogSpan {
             format!("操作失败: {} - {}", self.operation, error.message),
             Some("operation_error"),
             error.request_id.as_deref().or(Some(&self.request_id)),
-            Some(duration_ms),
-            Some(serde_json::json!({
-                "operation": self.operation,
-                "code": error.code,
-                "origin": error.origin,
-                "technical": error.technical,
-            })),
+            EventDetails::new(
+                Some(duration_ms),
+                Some(serde_json::json!({
+                    "operation": self.operation,
+                    "code": error.code,
+                    "origin": error.diagnostics.origin,
+                    "technical": error.diagnostics.technical,
+                })),
+            ),
         );
     }
 
@@ -352,8 +351,7 @@ impl LogSpan {
             message,
             Some("step"),
             Some(&self.request_id),
-            Some(duration_ms),
-            fields,
+            EventDetails::new(Some(duration_ms), fields),
         );
     }
 
@@ -366,8 +364,7 @@ impl LogSpan {
             message,
             Some("warning"),
             Some(&self.request_id),
-            Some(duration_ms),
-            fields,
+            EventDetails::new(Some(duration_ms), fields),
         );
     }
 
@@ -385,8 +382,10 @@ impl LogSpan {
                     format!("IO 操作成功: {}", action),
                     Some("io_success"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({ "action": action })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({ "action": action })),
+                    ),
                 );
             }
             Err(e) => {
@@ -396,8 +395,10 @@ impl LogSpan {
                     format!("IO 操作失败: {} - {}", action, e),
                     Some("io_error"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({ "action": action, "error": e.to_string() })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({ "action": action, "error": e.to_string() })),
+                    ),
                 );
             }
         }
@@ -419,8 +420,10 @@ impl LogSpan {
                     format!("文件操作成功: {} - {}", operation, path_str),
                     Some("fs_success"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({ "operation": operation, "path": path_str })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({ "operation": operation, "path": path_str })),
+                    ),
                 );
             }
             Err(e) => {
@@ -430,12 +433,14 @@ impl LogSpan {
                     format!("文件操作失败: {} - {} - {}", operation, path_str, e),
                     Some("fs_error"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({
-                        "operation": operation,
-                        "path": path_str,
-                        "error": e.to_string()
-                    })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({
+                            "operation": operation,
+                            "path": path_str,
+                            "error": e.to_string()
+                        })),
+                    ),
                 );
             }
         }
@@ -456,12 +461,14 @@ impl LogSpan {
             format!("{} {} - {:?}", method, url, status),
             Some("http_request"),
             Some(&self.request_id),
-            Some(duration_ms),
-            Some(serde_json::json!({
-                "method": method,
-                "url": url,
-                "status": status,
-            })),
+            EventDetails::new(
+                Some(duration_ms),
+                Some(serde_json::json!({
+                    "method": method,
+                    "url": url,
+                    "status": status,
+                })),
+            ),
         );
     }
 }
@@ -477,8 +484,7 @@ impl Drop for LogSpan {
                 format!("操作未显式完成: {}", self.operation),
                 Some("operation_drop"),
                 Some(&self.request_id),
-                Some(duration_ms),
-                None,
+                EventDetails::new(Some(duration_ms), None),
             );
         }
     }
@@ -592,34 +598,6 @@ pub fn write_client_log(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn redacts_credentials() {
-        let value = sanitize("token=secret password=hunter2&ok=1");
-        assert!(!value.contains("secret"));
-        assert!(!value.contains("hunter2"));
-        assert!(value.contains("<redacted>"));
-    }
-
-    #[test]
-    fn redacts_nested_fields_but_keeps_diagnostic_codes() {
-        let value = sanitize_json(serde_json::json!({
-            "code": "NETWORK_ERROR",
-            "access_token": "secret",
-            "nested": { "password": "hunter2" },
-        }));
-        assert_eq!(value["code"], "NETWORK_ERROR");
-        assert_eq!(value["access_token"], "<redacted>");
-        assert_eq!(value["nested"]["password"], "<redacted>");
-    }
-}
-
-/// 日志宏和辅助函数
-///
-/// 这些宏简化了常见的日志场景，自动处理 span 的创建和完成。
-
 /// 记录简单的信息日志
 #[macro_export]
 macro_rules! log_info {
@@ -693,64 +671,12 @@ macro_rules! log_result {
     }};
 }
 
-/// 辅助函数：包装 Result 并记录 IO 操作
-pub fn log_io_result<T, E>(
-    span: &Option<LogSpan>,
-    action: &str,
-    result: Result<T, E>,
-) -> Result<T, E>
-where
-    E: std::fmt::Display,
-{
-    if let Some(s) = span {
-        s.io(action, &result);
-    }
-    result
-}
-
-/// 辅助函数：包装 Result 并记录文件系统操作
-pub fn log_fs_result<T, E>(
-    span: &Option<LogSpan>,
-    operation: &str,
-    path: &Path,
-    result: Result<T, E>,
-) -> Result<T, E>
-where
-    E: std::fmt::Display,
-{
-    if let Some(s) = span {
-        s.fs_op(operation, path, &result);
-    }
-    result
-}
-
 /// 用于简化 span 完成的辅助函数
 pub fn finish_span_ok<T>(mut span: Option<LogSpan>, result: T) -> T {
     if let Some(s) = span.as_mut() {
         s.finish_ok(None);
     }
     result
-}
-
-pub fn finish_span_ok_with_fields<T>(
-    mut span: Option<LogSpan>,
-    result: T,
-    fields: serde_json::Value,
-) -> T {
-    if let Some(s) = span.as_mut() {
-        s.finish_ok(Some(fields));
-    }
-    result
-}
-
-pub fn finish_span_err<T>(
-    mut span: Option<LogSpan>,
-    error: CommandError,
-) -> Result<T, CommandError> {
-    if let Some(s) = span.as_mut() {
-        s.finish_error(&error);
-    }
-    Err(error)
 }
 
 pub fn finish_span<T>(
@@ -770,5 +696,30 @@ pub fn finish_span<T>(
             }
             Err(error)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redacts_credentials() {
+        let value = sanitize("token=secret password=hunter2&ok=1");
+        assert!(!value.contains("secret"));
+        assert!(!value.contains("hunter2"));
+        assert!(value.contains("<redacted>"));
+    }
+
+    #[test]
+    fn redacts_nested_fields_but_keeps_diagnostic_codes() {
+        let value = sanitize_json(serde_json::json!({
+            "code": "NETWORK_ERROR",
+            "access_token": "secret",
+            "nested": { "password": "hunter2" },
+        }));
+        assert_eq!(value["code"], "NETWORK_ERROR");
+        assert_eq!(value["access_token"], "<redacted>");
+        assert_eq!(value["nested"]["password"], "<redacted>");
     }
 }

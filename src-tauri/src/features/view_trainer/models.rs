@@ -59,11 +59,3 @@ pub struct Timeline {
     pub strain_section_start_time_ms: f64,
     pub strain_section_length_ms: f64,
 }
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreviewInfo {
-    pub session_id: String,
-    pub duration_ms: f64,
-    pub included_objects: usize,
-}

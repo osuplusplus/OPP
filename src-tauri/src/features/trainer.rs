@@ -418,21 +418,6 @@ pub fn generate_trainer_beatmap(
     generate_trainer_beatmap_inner(request, &state, None)
 }
 
-/// Build a private working copy for View Trainer. The staging directory is
-/// outside the osu! Songs tree so merely previewing edits cannot make osu!
-/// index or import a new beatmap.
-pub fn stage_trainer_beatmap(
-    request: TrainerRequest,
-    state: &AppState,
-) -> CommandResult<TrainerResult> {
-    let source_path = PathBuf::from(
-        state
-            .local_analysis
-            .beatmap_file_path(request.client, &request.resource_id)?,
-    );
-    stage_trainer_beatmap_at_path(request, source_path)
-}
-
 /// Same staging operation with the resolved path supplied by the command
 /// layer. This keeps the expensive file work off the Tauri async executor.
 pub fn stage_trainer_beatmap_at_path(

@@ -16,13 +16,15 @@ pub struct CommandError {
     pub retry_after_seconds: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
-    /// 面向日志的错误链摘要；不直接展示给用户，避免泄露实现细节。
+    /// 仅用于日志的诊断信息，不传给前端。
     #[serde(skip)]
+    pub(crate) diagnostics: Box<ErrorDiagnostics>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ErrorDiagnostics {
     pub technical: Option<String>,
-    /// 仅在运行时启用回溯采集时写入日志。
-    #[serde(skip)]
     pub backtrace: Option<String>,
-    #[serde(skip)]
     pub origin: Option<String>,
 }
 
@@ -48,14 +50,16 @@ impl CommandError {
             message: message.into(),
             retry_after_seconds: None,
             request_id: Some(Uuid::new_v4().to_string()),
-            technical: None,
-            backtrace: captured_backtrace(),
-            origin: Some(format!(
-                "{}:{}:{}",
-                caller.file(),
-                caller.line(),
-                caller.column()
-            )),
+            diagnostics: Box::new(ErrorDiagnostics {
+                technical: None,
+                backtrace: captured_backtrace(),
+                origin: Some(format!(
+                    "{}:{}:{}",
+                    caller.file(),
+                    caller.line(),
+                    caller.column()
+                )),
+            }),
         }
     }
 
@@ -70,20 +74,10 @@ impl CommandError {
             source = item.source();
         }
         if !chain.is_empty() {
-            result.technical = Some(chain.join(" -> "));
+            result.diagnostics.technical = Some(chain.join(" -> "));
         }
         crate::infrastructure::logging::log_error("command", &result);
         result
-    }
-
-    pub fn with_context(mut self, context: impl Into<String>) -> Self {
-        let context = context.into();
-        self.technical = Some(match self.technical.take() {
-            Some(existing) => format!("{context}: {existing}"),
-            None => context,
-        });
-        crate::infrastructure::logging::log_error("command", &self);
-        self
     }
 
     pub fn retry_after(mut self, seconds: Option<u64>) -> Self {
@@ -130,5 +124,22 @@ impl From<std::io::Error> for CommandError {
 impl From<serde_json::Error> for CommandError {
     fn from(error: serde_json::Error) -> Self {
         Self::from_error("INVALID_DATA", error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommandError;
+
+    #[test]
+    fn serializes_only_frontend_error_fields() {
+        let error = CommandError::new("TEST_ERROR", "test message").retry_after(Some(5));
+        let value = serde_json::to_value(error).expect("command errors are serializable");
+
+        assert_eq!(value["code"], "TEST_ERROR");
+        assert_eq!(value["message"], "test message");
+        assert_eq!(value["retry_after_seconds"], 5);
+        assert!(value["request_id"].is_string());
+        assert!(value.get("diagnostics").is_none());
     }
 }

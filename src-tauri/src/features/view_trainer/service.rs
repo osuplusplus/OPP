@@ -2,7 +2,6 @@ use super::{Timeline, ViewTrainerRequest};
 use crate::{
     error::{CommandError, CommandResult},
     features::local_analysis::{LocalAnalysisService, LocalClient},
-    state::AppState,
 };
 use std::{
     collections::HashMap,
@@ -11,18 +10,10 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
-static TIMELINE_CACHE: LazyLock<Mutex<HashMap<String, (u64, u128, Timeline)>>> =
+type TimelineCache = HashMap<String, (u64, u128, Timeline)>;
+
+static TIMELINE_CACHE: LazyLock<Mutex<TimelineCache>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-
-pub fn path(state: &AppState, client: LocalClient, id: &str) -> CommandResult<std::path::PathBuf> {
-    Ok(std::path::PathBuf::from(
-        state.local_analysis.beatmap_file_path(client, id)?,
-    ))
-}
-
-pub fn timeline(state: &AppState, client: LocalClient, id: &str) -> CommandResult<Timeline> {
-    timeline_for_analysis(&state.local_analysis, client, id)
-}
 
 pub fn timeline_for_analysis(
     analysis: &LocalAnalysisService,
@@ -63,17 +54,16 @@ pub fn timeline_for_analysis(
             section = t;
             continue;
         }
-        if section == "[Difficulty]" {
-            if let Some((k, v)) = t.split_once(':') {
-                if let Ok(n) = v.trim().parse() {
-                    match k {
-                        "ApproachRate" => ar = n,
-                        "OverallDifficulty" => od = n,
-                        "CircleSize" => cs = n,
-                        "HPDrainRate" => hp = n,
-                        _ => {}
-                    }
-                }
+        if section == "[Difficulty]"
+            && let Some((k, v)) = t.split_once(':')
+            && let Ok(n) = v.trim().parse()
+        {
+            match k {
+                "ApproachRate" => ar = n,
+                "OverallDifficulty" => od = n,
+                "CircleSize" => cs = n,
+                "HPDrainRate" => hp = n,
+                _ => {}
             }
         }
         if section == "[General]"
@@ -82,20 +72,23 @@ pub fn timeline_for_analysis(
         {
             mode = v.trim().parse().unwrap_or(0);
         }
-        if section == "[HitObjects]" && !t.is_empty() && !t.starts_with("//") {
-            if let Some(v) = t.split(',').nth(2).and_then(|v| v.parse::<f64>().ok()) {
-                times.push(v);
-                duration = duration.max(v);
-            }
+        if section == "[HitObjects]"
+            && !t.is_empty()
+            && !t.starts_with("//")
+            && let Some(v) = t.split(',').nth(2).and_then(|v| v.parse::<f64>().ok())
+        {
+            times.push(v);
+            duration = duration.max(v);
         }
         if section == "[TimingPoints]" && !t.is_empty() && !t.starts_with("//") {
             let p = t.split(',').collect::<Vec<_>>();
             if p.len() >= 2 {
                 let uninherited = p.get(6).is_some_and(|value| value.trim() == "1");
-                if let (Ok(a), Ok(b)) = (p[0].parse(), p[1].parse::<f64>()) {
-                    if b > 0.0 && uninherited {
-                        bpms.push((a, 60000.0 / b));
-                    }
+                if let (Ok(a), Ok(b)) = (p[0].parse(), p[1].parse::<f64>())
+                    && b > 0.0
+                    && uninherited
+                {
+                    bpms.push((a, 60000.0 / b));
                 }
             }
         }
@@ -168,13 +161,6 @@ fn scale_od(od: f32, rate: f64) -> f32 {
     (value * 10.0).round() as f32 / 10.0
 }
 
-pub fn resolve_request(
-    state: &AppState,
-    request: ViewTrainerRequest,
-) -> CommandResult<ViewTrainerRequest> {
-    resolve_request_with_analysis(&state.local_analysis, request)
-}
-
 pub fn resolve_request_with_analysis(
     analysis: &LocalAnalysisService,
     mut request: ViewTrainerRequest,
@@ -238,29 +224,15 @@ pub fn validate(r: &ViewTrainerRequest) -> CommandResult<()> {
             "结束时间必须大于开始时间",
         ));
     }
-    if let (Some(a), Some(b)) = (r.min_bpm, r.max_bpm) {
-        if a > b {
-            return Err(CommandError::new(
-                "INVALID_BPM_RANGE",
-                "最低 BPM 不能高于最高 BPM",
-            ));
-        }
+    if let (Some(a), Some(b)) = (r.min_bpm, r.max_bpm)
+        && a > b
+    {
+        return Err(CommandError::new(
+            "INVALID_BPM_RANGE",
+            "最低 BPM 不能高于最高 BPM",
+        ));
     }
     Ok(())
-}
-
-pub fn import_staged(
-    state: &AppState,
-    client: LocalClient,
-    resource_id: &str,
-    staged_path: &str,
-) -> CommandResult<String> {
-    let source = PathBuf::from(
-        state
-            .local_analysis
-            .beatmap_file_path(client, resource_id)?,
-    );
-    import_staged_at_path(source, staged_path, None)
 }
 
 pub fn import_staged_at_path(
@@ -314,14 +286,10 @@ pub fn import_staged_at_path(
         let line = raw.trim();
         if let Some(value) = line.strip_prefix("AudioFilename:") {
             referenced.insert(value.trim().replace(['\\', '/'], ""));
-        } else if line.starts_with("0,0,") || line.starts_with("Video,") {
-            if let Some(value) = line.split('"').nth(1) {
-                referenced.insert(value.replace(['\\', '/'], ""));
-            }
-        } else if line.contains(",\"") {
-            if let Some(value) = line.split('"').nth(1) {
-                referenced.insert(value.replace(['\\', '/'], ""));
-            }
+        } else if (line.starts_with("0,0,") || line.starts_with("Video,") || line.contains(",\""))
+            && let Some(value) = line.split('"').nth(1)
+        {
+            referenced.insert(value.replace(['\\', '/'], ""));
         }
     }
     // Storyboard files can reference additional sprites/audio by filename.

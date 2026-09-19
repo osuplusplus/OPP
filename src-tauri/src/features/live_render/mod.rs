@@ -1452,8 +1452,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 let slots = sb_parsed
                     .as_ref()
                     .map(|p| osu_replay_render::StoryboardSlots {
-                        width: RENDER_W.min(1920).max(1) & !1,
-                        height: RENDER_H.min(1080).max(1) & !1,
+                        width: RENDER_W.clamp(1, 1920) & !1,
+                        height: RENDER_H.clamp(1, 1080) & !1,
                         foreground: p.has_foreground(),
                     });
                 let (atlas, fonts) = build_atlas(
@@ -1778,8 +1778,8 @@ fn active_sb_slots(
 ) -> Option<osu_replay_render::StoryboardSlots> {
     let layer = sb_layer.filter(|l| l.elements_enabled() || l.video_enabled())?;
     Some(osu_replay_render::StoryboardSlots {
-        width: RENDER_W.min(1920).max(1) & !1,
-        height: RENDER_H.min(1080).max(1) & !1,
+        width: RENDER_W.clamp(1, 1920) & !1,
+        height: RENDER_H.clamp(1, 1080) & !1,
         foreground: layer.has_foreground(),
     })
 }
@@ -1840,8 +1840,8 @@ fn open_session(
     let storyboard_slots = sb_parsed
         .as_ref()
         .map(|p| osu_replay_render::StoryboardSlots {
-            width: RENDER_W.min(1920).max(1) & !1,
-            height: RENDER_H.min(1080).max(1) & !1,
+            width: RENDER_W.clamp(1, 1920) & !1,
+            height: RENDER_H.clamp(1, 1080) & !1,
             foreground: p.has_foreground(),
         });
     let (atlas, fonts) = build_atlas(
@@ -2826,8 +2826,8 @@ fn run_export(
         None
     };
     let sb_slot = (
-        params.width.min(1920).max(1) & !1,
-        params.height.min(1080).max(1) & !1,
+        params.width.clamp(1, 1920) & !1,
+        params.height.clamp(1, 1080) & !1,
     );
     let storyboard_slots = sb_parsed
         .as_ref()

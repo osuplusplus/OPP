@@ -357,10 +357,10 @@ impl LocalAnalysisService {
                 if let Some(root) = source.beatmap_root.filter(|path| path.is_dir()) {
                     roots.push(root);
                 }
-                if let Some(root) = source.skin_root.filter(|path| path.is_dir()) {
-                    if !roots.iter().any(|existing| existing == &root) {
-                        roots.push(root);
-                    }
+                if let Some(root) = source.skin_root.filter(|path| path.is_dir())
+                    && !roots.iter().any(|existing| existing == &root)
+                {
+                    roots.push(root);
                 }
             }
             LocalClient::Lazer => {
