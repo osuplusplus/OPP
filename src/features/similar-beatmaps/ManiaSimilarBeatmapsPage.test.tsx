@@ -37,6 +37,28 @@ function renderPage() {
 afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); resetManiaSimilaritySessionForTests(); });
 
 describe("mania similarity workspace", () => {
+  it.each(["recent", "best"] as const)("keeps %s quick/full requests and cached results isolated by Mod pool", async (kind) => {
+    const user = userEvent.setup();
+    vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue(ready);
+    const recommend = vi.spyOn(desktopApi, "recommendSimilarBeatmaps").mockImplementation(async (request) => ({ ...recommendation, kind: request.kind }));
+    renderPage();
+    const buttonName = kind === "recent" ? /根据最近游玩推荐/ : /根据你的 BP 推荐/;
+    await screen.findByRole("button", { name: buttonName });
+    for (const [index, mod] of ["NM", "DT", "HT", "mixed"].entries()) {
+      if (mod === "mixed") await user.click(screen.getByLabelText("NM / DT / HT 多 Mod 混池"));
+      else await user.click(screen.getByRole("button", { name: mod }));
+      await user.click(screen.getByRole("button", { name: buttonName }));
+      await screen.findByText("4K One");
+      await waitFor(() => expect(recommend).toHaveBeenCalledTimes((index + 1) * 2));
+      const pool = mod === "mixed" ? ["NM", "DT", "HT"] : [mod];
+      expect(recommend.mock.calls[index * 2][0]).toEqual(expect.objectContaining({ kind, candidate_mods: pool, seed_limit: 5, result_limit: 5 }));
+      expect(recommend.mock.calls[index * 2 + 1][0]).toEqual(expect.objectContaining({ kind, candidate_mods: pool }));
+      expect(recommend.mock.calls[index * 2 + 1][0].seed_limit).toBeUndefined();
+      expect(recommend.mock.calls[index * 2 + 1][0].result_limit).toBeGreaterThan(5);
+      await user.click(screen.getByRole("button", { name: "返回搜索首页" }));
+    }
+  });
+
   it("queries with Mania mods and navigates one result at a time", async () => {
     const user = userEvent.setup();
     vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue(ready);
