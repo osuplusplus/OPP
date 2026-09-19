@@ -1,4 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDebouncedValue } from "../../shared/lib/useDebouncedValue";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   ChevronLeft,
@@ -502,7 +503,7 @@ function SkinWorkspace({
 
 export function SkinPanel({ client }: { client: OsuClient }) {
   const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search);
+  const deferredSearch = useDebouncedValue(search);
   const [sort, setSort] = useState<SkinSort>("name");
   const [direction, setDirection] = useState<"asc" | "desc">("asc");
   const [offset, setOffset] = useState(0);

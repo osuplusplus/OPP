@@ -380,6 +380,15 @@ pub fn start_obs_monitor(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut previous = false;
         loop {
+            if app
+                .state::<AppState>()
+                .music_only
+                .load(std::sync::atomic::Ordering::Relaxed)
+                && !previous
+            {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
             let running = tokio::task::spawn_blocking(process_running)
                 .await
                 .unwrap_or(false);

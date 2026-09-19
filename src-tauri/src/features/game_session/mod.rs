@@ -23,7 +23,8 @@ use crate::{
     domain::Ruleset,
     error::{CommandError, CommandResult},
     features::{
-        account::ensure_access_token, local_analysis::LocalClient, tosu::start_managed_tosu,
+        account::ensure_access_token, local_analysis::LocalClient,
+        tablet_driver::commands::start_managed_otd, tosu::start_managed_tosu,
     },
     state::AppState,
 };
@@ -361,6 +362,18 @@ pub fn start_game_monitor(
 ) {
     tauri::async_runtime::spawn(async move {
         loop {
+            if app
+                .state::<AppState>()
+                .music_only
+                .load(std::sync::atomic::Ordering::Relaxed)
+                && monitor
+                    .current
+                    .lock()
+                    .is_ok_and(|status| status.clients.iter().all(|client| !client.running))
+            {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
             let service = local_analysis.clone();
             let next = tokio::task::spawn_blocking(move || scan_game_status(&service))
                 .await
@@ -477,6 +490,9 @@ pub async fn start_game_session(
     }
     if launch_tosu.unwrap_or(false) {
         start_managed_tosu(&state, app)?;
+    }
+    if state.store.snapshot()?.settings.launch_otd_with_game {
+        start_managed_otd(&state)?;
     }
     let start = snapshot(&state, ruleset).await?;
     let mut launch = Command::new(&target.exe);

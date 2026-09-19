@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use mania_pattern::ManiaMmaRecord;
 use serde::{Deserialize, Serialize};
 
 pub const MANIA_DIFFICULTY_DIMENSIONS: usize = 8;
@@ -355,6 +356,9 @@ pub struct ManiaQueryTarget {
     pub metadata: ManiaBeatmapMetadata,
     pub record: ManiaFeatureRecord,
     pub game_mod: ManiaGameMod,
+    /// 键型分析结果；旧数据集或未生成键型记录时为 None。
+    #[serde(default)]
+    pub pattern: Option<ManiaMmaRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -364,6 +368,8 @@ pub struct ManiaQueryResult {
     pub final_distance: f32,
     pub components: ManiaDistanceComponents,
     pub game_mod: ManiaGameMod,
+    #[serde(default)]
+    pub pattern: Option<ManiaMmaRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

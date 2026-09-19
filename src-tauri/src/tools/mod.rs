@@ -1,3 +1,5 @@
+//! 无复杂持久状态的独立工具命令集合。
+
 mod beatmap_preview;
 mod file_associations;
 mod gamma;

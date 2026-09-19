@@ -10,6 +10,7 @@ anyhow = "1"
 bincode = "1.3"
 hex = "0.4"
 hnsw = { version = "0.11", features = ["serde1"] }
+mania-pattern = { git = "https://github.com/osuplusplus/osu-difficulty-lab", rev = "92b791c95ea4a6c552e89d5b711551f0f2fb83a1", package = "mania-pattern" }
 memmap2 = "0.9"
 rand_pcg = { version = "0.3", features = ["serde1"] }
 rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", branch = "pp-rework-202607" }

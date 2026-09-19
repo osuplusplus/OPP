@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { invalidateLocalClient } from "./indexCache";
+import { useEffect, useRef, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
+  X,
   ChevronDown,
   ChevronUp,
   Database,
@@ -13,6 +16,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
+import { musicApi, useMusicResourceId } from "../music-player/api";
+import type { MusicLocation } from "../../shared/types/music";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
 import {
@@ -22,17 +27,16 @@ import {
   EmptyState,
   Skeleton,
 } from "../../shared/components/ui";
-import { dateTime, fullNumber } from "../../shared/lib/format";
+import { dateTime, errorMessage, fixedNumber, fullNumber } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CommandError,
   LocalLibrarySummary,
+  LocalIndexClientStatus,
   LocalScanProgress,
   LocalSourceStatus,
 } from "../../shared/types/osu";
 import {
-  localSourcesKey,
-  localSummaryKey,
   useLocalSources,
   useLocalIndexStatus,
   useLocalSummary,
@@ -53,7 +57,7 @@ const phaseLabels: Record<LocalScanProgress["phase"], string> = {
 };
 
 function formatBytes(value?: number | null) {
-  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   if (value < 1024) return `${value} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let size = value / 1024;
@@ -76,6 +80,7 @@ function SourceBar({
   section,
   source,
   summary,
+  indexStatus,
 }: {
   action: string | null;
   onCancel: () => void;
@@ -87,6 +92,7 @@ function SourceBar({
   section: LocalSection;
   source: LocalSourceStatus | undefined;
   summary: LocalLibrarySummary | null | undefined;
+  indexStatus: LocalIndexClientStatus | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (!source) return <Skeleton className="mb-4 h-20" />;
@@ -97,6 +103,16 @@ function SourceBar({
     section === "maps" ? summary?.beatmap_set_count : summary?.skin_count;
   const secondaryCount =
     section === "maps" ? summary?.beatmap_count : summary?.source_file_count;
+  const progressPercent = fixedNumber(progress?.percent, 1);
+  const indexLabel = indexStatus?.phase === "scanning"
+    ? "后台更新中"
+    : indexStatus?.phase === "pending"
+      ? "检测到变更"
+      : indexStatus?.phase === "error"
+        ? "监听异常"
+        : indexStatus?.phase === "watching"
+          ? "自动监听"
+          : null;
 
   return (
     <Card className="mb-4 overflow-hidden">
@@ -122,6 +138,7 @@ function SourceBar({
                 {summary.calculation.engine} {summary.calculation.engine_version}
               </Badge>
             ) : null}
+            {indexLabel ? <Badge tone={indexStatus?.phase === "error" ? "warning" : indexStatus?.phase === "pending" ? "cyan" : "success"}>{indexLabel}{indexStatus?.phase === "pending" && indexStatus.pending_changes > 1 ? ` · ${indexStatus.pending_changes}` : ""}</Badge> : null}
           </div>
           <p className="mt-1 truncate font-mono text-[10px] text-slate-600">
             {source.data_root ?? "尚未解析数据目录"}
@@ -149,7 +166,7 @@ function SourceBar({
           </div>
         ) : null}
 
-        {scanning ? (
+        {scanning || indexStatus?.phase === "scanning" ? (
           <Button onClick={onCancel} size="sm" variant="danger">
             <Ban className="size-3.5" />
             取消
@@ -176,7 +193,7 @@ function SourceBar({
         </Button>
       </div>
 
-      {scanning && progress ? (
+      {(scanning || indexStatus?.phase === "scanning") && progress ? (
         <div className="border-t border-white/[0.055] bg-black/10 px-4 py-3">
           <div className="mb-2 flex items-center justify-between text-[10px]">
             <span className="text-slate-400">
@@ -185,12 +202,14 @@ function SourceBar({
                 ? ` · ${fullNumber(progress.processed)} / ${fullNumber(progress.total)}`
                 : ""}
             </span>
-            <span className="font-mono text-cyan-200">{progress.percent.toFixed(1)}%</span>
+            <span className="font-mono text-cyan-200">
+              {progressPercent === "—" ? progressPercent : `${progressPercent}%`}
+            </span>
           </div>
           <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]">
             <div
                 className="h-full rounded-full bg-[var(--theme-primary)] transition-[width] duration-150"
-              style={{ width: `${progress.percent}%` }}
+              style={{ width: `${Number.isFinite(progress.percent) ? progress.percent : 0}%` }}
             />
           </div>
         </div>
@@ -259,11 +278,16 @@ function SourceBar({
           {action ?? source.validation_errors[0]}
         </div>
       ) : null}
+      {indexStatus && (indexStatus.added || indexStatus.modified || indexStatus.removed) ? (
+        <p className="border-t border-white/[0.055] px-4 py-2 text-[10px] text-slate-500">
+          上次增量更新：新增 {indexStatus.added} · 修改 {indexStatus.modified} · 删除 {indexStatus.removed} · 复用 {indexStatus.reused}
+        </p>
+      ) : null}
     </Card>
   );
 }
 
-function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
+function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSection; followTarget: MusicLocation | null }) {
   const { client, ruleset } = useMode();
   const queryClient = useQueryClient();
   const sourcesQuery = useLocalSources();
@@ -271,41 +295,29 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
   const summaryQuery = useLocalSummary(client);
   const source = sourcesQuery.data?.find((item) => item.client === client);
   const summary = summaryQuery.data;
+  const clientIndexStatus = indexStatusQuery.data?.clients?.[client];
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<LocalScanProgress | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedBeatmap, setSelectedBeatmap] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (indexStatusQuery.data?.phase === "ready") {
-      void queryClient.invalidateQueries({ queryKey: localSummaryKey(client) });
-      void queryClient.invalidateQueries({ queryKey: localSourcesKey });
-    }
-  }, [client, indexStatusQuery.data?.phase, queryClient]);
+
 
   useEffect(() => {
     let unlisten: () => void = () => undefined;
+    let active = true;
     desktopApi
       .onLocalScanProgress((event) => {
         if (event.client === client) setProgress(event);
       })
       .then((dispose) => {
-        unlisten = dispose;
-      });
-    return () => unlisten();
+        if (active) unlisten = dispose;
+        else dispose();
+      }).catch((error) => { if (active) setActionError(errorMessage(error)); });
+    return () => { active = false; unlisten(); };
   }, [client]);
 
-  const invalidateLocal = async () => {
-    // Lazer libraries can contain tens of thousands of entries. Refetching every
-    // active query at once briefly materializes several large result trees and can
-    // exhaust the WebView2 renderer on Windows. Refresh the small status queries
-    // first, then mark list/detail data stale without forcing an eager refetch.
-    await queryClient.invalidateQueries({ queryKey: localSourcesKey });
-    await queryClient.invalidateQueries({ queryKey: localSummaryKey(client) });
-    for (const queryKey of [["local-beatmaps"], ["local-beatmap-sets"], ["local-skins"], ["local-beatmap-background"], ["local-skin-preview"], ["local-skin-asset"]]) {
-      await queryClient.invalidateQueries({ queryKey, refetchType: "inactive" });
-    }
-  };
+  const invalidateLocal = () => invalidateLocalClient(queryClient, client);
 
   const chooseDirectory = async () => {
     setActionError(null);
@@ -362,29 +374,7 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
     }
   };
 
-  return (
-    <>
-      <PageHeader
-        description={
-          section === "maps"
-            ? "按谱面集浏览本机难度与结构"
-            : "浏览 Skin 配置、图像与音效资源"
-        }
-        eyebrow="Local library"
-        title={section === "maps" ? "本地谱面" : "本地皮肤"}
-      />
-
-      {indexStatusQuery.data?.phase === "loading" ? (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.05] px-4 py-3 text-sm text-cyan-100">
-          <RefreshCw className="size-4 animate-spin" />正在后台加载本地索引，窗口可继续使用…
-        </div>
-      ) : indexStatusQuery.data?.phase === "error" ? (
-        <div className="mb-4 rounded-xl border border-amber-300/10 bg-amber-300/[0.05] px-4 py-3 text-sm text-amber-100">
-          本地索引加载失败：{indexStatusQuery.data.error ?? "未知错误"}。可重新扫描以重建索引。
-        </div>
-      ) : null}
-
-      {sourcesQuery.error ? (
+  const sourceControl = (sourcesQuery.error ? (
         <ErrorPanel error={sourcesQuery.error} onRetry={() => sourcesQuery.refetch()} />
       ) : (
         <SourceBar
@@ -398,8 +388,43 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
           section={section}
           source={source}
           summary={summary}
+          indexStatus={clientIndexStatus}
         />
-      )}
+      ));
+  const libraryMessage = actionError
+    ?? (sourcesQuery.error ? errorMessage(sourcesQuery.error) : null)
+    ?? (indexStatusQuery.data?.phase === "error" ? `本地索引加载失败：${indexStatusQuery.data.error ?? "请重新扫描"}` : null)
+    ?? (indexStatusQuery.data?.phase === "loading" ? "正在后台加载本地索引…" : null)
+    ?? (clientIndexStatus?.phase === "error" ? "索引监听异常，请打开谱库管理检查" : null)
+    ?? (scanning || clientIndexStatus?.phase === "scanning" ? progress ? `${phaseLabels[progress.phase]} · ${fixedNumber(progress.percent, 1)}%` : "正在更新谱库…" : null);
+  const libraryControl = <Dialog.Root>
+    <Dialog.Trigger asChild><button type="button" className="local-stage-button local-library-trigger"><Database className="size-4" /><span>谱库管理<small>{client === "stable" ? "Stable" : "Lazer"} · {fullNumber(summary?.beatmap_set_count ?? 0)} sets</small></span></button></Dialog.Trigger>
+    <Dialog.Portal><Dialog.Overlay className="local-library-overlay" /><Dialog.Content className="local-library-dialog">
+      <Dialog.Title>谱库管理</Dialog.Title><Dialog.Description>管理本地目录、扫描进度与索引状态。</Dialog.Description>
+      <Dialog.Close aria-label="关闭谱库管理" className="local-library-dialog-close"><X className="size-4" /></Dialog.Close>
+      {sourceControl}
+    </Dialog.Content></Dialog.Portal>
+  </Dialog.Root>;
+
+  return (
+    <>
+      {section !== "maps" ? <PageHeader
+        description="浏览 Skin 配置、图像与音效资源"
+        eyebrow="Local library"
+        title="本地皮肤"
+      /> : null}
+
+      {indexStatusQuery.data?.phase === "loading" && (section !== "maps" || !summary) ? (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.05] px-4 py-3 text-sm text-cyan-100">
+          <RefreshCw className="size-4 animate-spin" />正在后台加载本地索引，窗口可继续使用…
+        </div>
+      ) : indexStatusQuery.data?.phase === "error" && (section !== "maps" || !summary) ? (
+        <div className="mb-4 rounded-xl border border-amber-300/10 bg-amber-300/[0.05] px-4 py-3 text-sm text-amber-100">
+          本地索引加载失败：{indexStatusQuery.data.error ?? "未知错误"}。可重新扫描以重建索引。
+        </div>
+      ) : null}
+
+      {section !== "maps" || !summary ? <div className={section === "maps" ? "local-library-empty" : undefined}>{sourceControl}</div> : null}
 
       {summaryQuery.isLoading ? (
         <Skeleton className="h-96" />
@@ -426,12 +451,20 @@ function LocalAnalysisClientPage({ section }: { section: LocalSection }) {
       ) : section === "maps" ? (
         <BeatmapSetPanel
           client={client}
+          followTarget={followTarget?.client === client && followTarget.ruleset === ruleset ? followTarget : null}
+          libraryControl={libraryControl}
+          libraryRevision={summary.scanned_at}
           onOpen={setSelectedBeatmap}
           ruleset={ruleset}
         />
       ) : (
         <SkinPanel client={client} />
       )}
+
+      {section === "maps" && summary && libraryMessage ? <div className="local-library-progress" role="status">
+        <span>{libraryMessage}</span>
+        {scanning || clientIndexStatus?.phase === "scanning" ? <button type="button" onClick={() => void cancel()}>取消扫描</button> : null}
+      </div> : null}
 
       {section === "maps" ? (
         <BeatmapDetailDrawer
@@ -449,10 +482,37 @@ export function LocalAnalysisPage({
 }: {
   section?: LocalSection;
 }) {
-  const { client, ruleset } = useMode();
+  const { client, ruleset, setClient, setRuleset } = useMode();
+  const musicResourceId = useMusicResourceId();
+  const [followTarget, setFollowTarget] = useState<MusicLocation | null>(null);
+  const mode = useRef({ client, ruleset });
+  useEffect(() => { mode.current = { client, ruleset }; }, [client, ruleset]);
+  useEffect(() => {
+    const resourceId = musicResourceId;
+    if (section !== "maps" || !resourceId || !musicApi.available()) return;
+    let active = true;
+    let retry: number | undefined;
+    let attempts = 0;
+    const initialMode = mode.current;
+    const locate = () => {
+      void musicApi.location(resourceId).then((location) => {
+        if (!active || mode.current.client !== initialMode.client || mode.current.ruleset !== initialMode.ruleset) return;
+        if (!location) {
+          if (++attempts < 5) retry = window.setTimeout(locate, 600);
+          return;
+        }
+        setFollowTarget(location);
+        if (mode.current.client !== location.client) setClient(location.client);
+        if (mode.current.ruleset !== location.ruleset) setRuleset(location.ruleset);
+      }).catch(() => { if (active && ++attempts < 5) retry = window.setTimeout(locate, 600); });
+    };
+    locate();
+    return () => { active = false; window.clearTimeout(retry); };
+  }, [musicResourceId, section, setClient, setRuleset]);
   return (
     <LocalAnalysisClientPage
       key={`${client}:${ruleset}:${section}`}
+      followTarget={followTarget?.resource_id === musicResourceId ? followTarget : null}
       section={section}
     />
   );

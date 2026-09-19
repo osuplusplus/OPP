@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CollectionCandidate } from "../../shared/types/osu";
 import { CollectionAddDialog } from "./CollectionAddDialog";
 import { openCollectionDialog } from "./events";
+import { desktopApi } from "../../shared/lib/tauri";
 
 vi.mock("../../shared/lib/tauri", () => ({
   desktopApi: {
@@ -36,6 +37,15 @@ const candidates: CollectionCandidate[] = [
 ];
 
 describe("CollectionAddDialog", () => {
+  it("does not fetch the library while the global dialog is closed", async () => {
+    vi.mocked(desktopApi.listCollections).mockClear();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CollectionAddDialog /></QueryClientProvider>);
+    expect(desktopApi.listCollections).not.toHaveBeenCalled();
+    openCollectionDialog(candidates);
+    await waitFor(() => expect(desktopApi.listCollections).toHaveBeenCalledTimes(1));
+  });
+
   it("starts with every difficulty unselected", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

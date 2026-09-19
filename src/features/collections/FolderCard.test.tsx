@@ -29,6 +29,21 @@ const folder: CollectionFolder = {
 };
 
 describe("FolderCard", () => {
+  it("bounds mounted cards for a large collection and keeps every entry reachable", async () => {
+    const user = userEvent.setup();
+    const largeFolder = { ...folder, entries: Array.from({ length: 2000 }, (_, index) => ({
+      ...folder.entries[0], id: `entry-${index}`, title: `Song ${index}`,
+    })) };
+    const { container } = render(<FolderCard folder={largeFolder} onChanged={vi.fn()} onDownload={vi.fn()} />);
+    expect(container.querySelectorAll(".opp-map-card")).toHaveLength(12);
+    expect(screen.getByText("Song 0")).toBeInTheDocument();
+    expect(screen.queryByText("Song 12")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "练习收藏下一页" }));
+    expect(screen.queryByText("Song 0")).not.toBeInTheDocument();
+    expect(screen.getByText("Song 12")).toBeInTheDocument();
+    expect(container.querySelectorAll(".opp-map-card")).toHaveLength(12);
+  });
+
   it("collapses to a compact header and expands its map grid again", async () => {
     const user = userEvent.setup();
     render(

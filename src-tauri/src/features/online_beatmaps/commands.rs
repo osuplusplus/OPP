@@ -11,11 +11,11 @@ use std::{
 use crate::{
     error::{CommandError, CommandResult},
     features::account::ensure_access_token,
-    infrastructure::logging::{global, finish_span},
+    infrastructure::logging::{finish_span, global},
     state::AppState,
 };
 
-use super::download::{download_file_name, download_with_adapters};
+use super::download::{download_file_name, download_with_adapters, validate_osz};
 use super::models::{
     BeatmapDownloadFailure, BeatmapDownloadProgress, BeatmapDownloadRequest, BeatmapDownloadResult,
     CollectedBeatmapsets, DownloadProgressCounts, OnlineBeatmapSearchQuery,
@@ -48,7 +48,7 @@ pub async fn search_online_beatmapsets(
                 "title_unicode": query.title_unicode,
                 "artist": query.artist,
                 "status": query.status,
-            }))
+            })),
         );
     }
 
@@ -134,6 +134,15 @@ pub async fn get_online_beatmapset(
 }
 
 #[tauri::command]
+/// 读取当前谱面集的原始背景。结果会持久缓存，只为舞台上已稳定选中的谱面请求远端。
+pub async fn get_online_beatmap_background(
+    beatmapset_id: u64,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<String>> {
+    state.online_artwork.load_or_fetch(beatmapset_id).await
+}
+
+#[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_online_beatmap(
@@ -171,7 +180,7 @@ pub async fn download_online_beatmapsets(
                 "provider": request.provider,
                 "include_video": request.include_video,
                 "overwrite": request.overwrite,
-            }))
+            })),
         );
     }
 
@@ -246,9 +255,18 @@ pub async fn download_online_beatmapsets(
             break;
         }
         let processed = index;
-        if !request.overwrite
-            && let Some(existing) = find_existing_beatmapset(&destination, item.beatmapset_id)
-        {
+        let existing = (!request.overwrite)
+            .then(|| find_existing_beatmapset(&destination, item.beatmapset_id))
+            .flatten();
+        let stale_existing = existing
+            .as_ref()
+            .filter(|path| {
+                std::fs::File::open(path)
+                    .ok()
+                    .is_none_or(|file| validate_osz(file, item).is_err())
+            })
+            .cloned();
+        if let Some(existing) = existing.filter(|_| stale_existing.is_none()) {
             skipped += 1;
             // Callers that post-process archives (for example collection
             // completion) also need paths for files that were already present.
@@ -294,7 +312,7 @@ pub async fn download_online_beatmapsets(
         let mut smoothed_speed: Option<f64> = None;
         match download_with_adapters(
             &state,
-            item.beatmapset_id,
+            item,
             &request.provider,
             request.include_video,
             cancel.as_ref(),
@@ -375,7 +393,25 @@ pub async fn download_online_beatmapsets(
                     if request.overwrite && target.exists() {
                         tokio::fs::remove_file(&target).await?;
                     }
-                    tokio::fs::rename(&temporary, &target).await
+                    let backup = stale_existing.as_ref().map(|_| {
+                        destination.join(format!(
+                            ".opp-{}-{}.osz.stale",
+                            item.beatmapset_id,
+                            Uuid::new_v4().simple()
+                        ))
+                    });
+                    if let (Some(old), Some(backup)) = (&stale_existing, &backup) {
+                        tokio::fs::rename(old, backup).await?;
+                    }
+                    match tokio::fs::rename(&temporary, &target).await {
+                        Ok(()) => Ok(()),
+                        Err(error) => {
+                            if let (Some(old), Some(backup)) = (&stale_existing, &backup) {
+                                let _ = tokio::fs::rename(backup, old).await;
+                            }
+                            Err(error)
+                        }
+                    }
                 }
                 .await;
 

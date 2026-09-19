@@ -486,4 +486,51 @@ pub enum LocalIndexLoadPhase {
 pub struct LocalIndexLoadStatus {
     pub phase: LocalIndexLoadPhase,
     pub error: Option<String>,
+    /// 每个客户端的后台监听与增量索引状态。
+    #[serde(default)]
+    pub clients: BTreeMap<LocalClient, LocalIndexClientStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalBeatmapAudioPayload {
+    pub mime_type: String,
+    pub bytes_base64: String,
+    pub preview_time_ms: f64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundSize {
+    #[default]
+    Thumbnail,
+    Stage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LocalIndexClientStatus {
+    /// `idle`、`watching`、`pending`、`scanning` 或 `error`。
+    pub phase: String,
+    pub pending_changes: usize,
+    pub last_change_at: Option<String>,
+    pub last_scan_at: Option<String>,
+    pub added: usize,
+    pub modified: usize,
+    pub removed: usize,
+    pub reused: usize,
+}
+
+impl Default for LocalIndexClientStatus {
+    fn default() -> Self {
+        Self {
+            phase: "idle".into(),
+            pending_changes: 0,
+            last_change_at: None,
+            last_scan_at: None,
+            added: 0,
+            modified: 0,
+            removed: 0,
+            reused: 0,
+        }
+    }
 }

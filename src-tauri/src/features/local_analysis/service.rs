@@ -1,7 +1,11 @@
 #[path = "service_data.rs"]
 mod service_data;
+#[path = "service_music.rs"]
+mod service_music;
 #[path = "service_query.rs"]
 mod service_query;
+#[path = "service_stage.rs"]
+mod service_stage;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -11,7 +15,9 @@ use std::{
     sync::{
         Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
+        mpsc::{self, RecvTimeoutError},
     },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -19,7 +25,9 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::Utc;
 use image::{ImageFormat, ImageReader, Limits, codecs::jpeg::JpegEncoder, imageops::FilterType};
 use md5::{Digest, Md5};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
+use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -32,10 +40,10 @@ use super::{
     lazer_realm,
     models::{
         BeatmapQuery, Completeness, LocalBeatmapDetail, LocalBeatmapSetSummary,
-        LocalBeatmapSummary, LocalClient, LocalIndexLoadPhase, LocalIndexLoadStatus,
-        LocalLibrarySummary, LocalScanProgress, LocalSkinAssetPayload, LocalSkinAssetSummary,
-        LocalSkinDetail, LocalSkinPreview, LocalSkinSummary, LocalSourceStatus, Page,
-        ScanDiagnostic, SkinAssetKind, SkinQuery,
+        LocalBeatmapSummary, LocalClient, LocalIndexClientStatus, LocalIndexLoadPhase,
+        LocalIndexLoadStatus, LocalLibrarySummary, LocalScanProgress, LocalSkinAssetPayload,
+        LocalSkinAssetSummary, LocalSkinDetail, LocalSkinPreview, LocalSkinSummary,
+        LocalSourceStatus, Page, ScanDiagnostic, SkinAssetKind, SkinQuery,
     },
     parser::{
         DIFFICULTY_ALGORITHM, calculate_strains, calculation_version, looks_like_beatmap,
@@ -66,6 +74,14 @@ struct Discovery {
     source_file_count: usize,
     source_bytes: u64,
     diagnostics: Vec<ScanDiagnostic>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct ScanChanges {
+    added: usize,
+    modified: usize,
+    removed: usize,
+    reused: usize,
 }
 
 /// 扫描进度发送器：节流事件频率，并保证前端看到的百分比单调递增。
@@ -120,9 +136,11 @@ pub struct LocalAnalysisService {
     indexes: RwLock<BTreeMap<LocalClient, Arc<LocalIndex>>>,
     skin_assets: RwLock<BTreeMap<String, SkinAssetLocation>>,
     scans: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
-    pool: rayon::ThreadPool,
+    pool: &'static crate::infrastructure::tasks::WorkerPool,
     thumbnail_cache_limit_bytes: AtomicUsize,
     load_status: RwLock<LocalIndexLoadStatus>,
+    watcher_stops: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
+    music_only: AtomicBool,
 }
 
 impl LocalAnalysisService {
@@ -131,16 +149,7 @@ impl LocalAnalysisService {
         fs::create_dir_all(&cache_dir)?;
         fs::create_dir_all(cache_dir.join("thumbnails"))?;
         let sources = SourceResolver::load(&cache_dir)?;
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(4)
-            .thread_name(|index| format!("opp-local-analysis-{index}"))
-            .build()
-            .map_err(|error| {
-                CommandError::new(
-                    "LOCAL_ANALYSIS_INIT_ERROR",
-                    format!("无法初始化本地分析线程池：{error}"),
-                )
-            })?;
+        let pool = crate::infrastructure::tasks::background_pool()?;
         Ok(Self {
             cache_dir,
             sources,
@@ -152,7 +161,13 @@ impl LocalAnalysisService {
             load_status: RwLock::new(LocalIndexLoadStatus {
                 phase: LocalIndexLoadPhase::Loading,
                 error: None,
+                clients: [LocalClient::Stable, LocalClient::Lazer]
+                    .into_iter()
+                    .map(|client| (client, LocalIndexClientStatus::default()))
+                    .collect(),
             }),
+            watcher_stops: Mutex::new(BTreeMap::new()),
+            music_only: AtomicBool::new(false),
         })
     }
 
@@ -171,20 +186,204 @@ impl LocalAnalysisService {
             for (client, index) in loaded {
                 indexes.entry(client).or_insert(index);
             }
+            drop(indexes);
             self.trim_thumbnail_cache()?;
             Ok(())
         })();
         if let Ok(mut status) = self.load_status.write() {
+            let clients = status.clients.clone();
             *status = match result {
                 Ok(()) => LocalIndexLoadStatus {
                     phase: LocalIndexLoadPhase::Ready,
                     error: None,
+                    clients,
                 },
                 Err(error) => LocalIndexLoadStatus {
                     phase: LocalIndexLoadPhase::Error,
                     error: Some(error.message),
+                    clients,
                 },
             };
+        }
+    }
+
+    /// 在后台监听 Stable/Lazer 数据目录，文件变化经短暂去抖后自动触发增量扫描。
+    ///
+    /// 监听线程会自行跟随设置中的数据目录变化，因此用户切换安装位置后无需重启 OPP。
+    pub fn start_watchers(self: &Arc<Self>, app: AppHandle) {
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            let should_start = self
+                .watcher_stops
+                .lock()
+                .map(|stops| !stops.contains_key(&client))
+                .unwrap_or(false);
+            if !should_start {
+                continue;
+            }
+            let stop = Arc::new(AtomicBool::new(false));
+            if let Ok(mut stops) = self.watcher_stops.lock() {
+                stops.insert(client, Arc::clone(&stop));
+            }
+            let service = Arc::clone(self);
+            let app_handle = app.clone();
+            let _ = thread::Builder::new()
+                .name(format!("opp-local-watch-{client}"))
+                .spawn(move || service.watch_source(client, app_handle, stop));
+        }
+    }
+
+    fn watch_source(self: Arc<Self>, client: LocalClient, app: AppHandle, stop: Arc<AtomicBool>) {
+        let mut watched_roots = Vec::<PathBuf>::new();
+        let mut watcher: Option<RecommendedWatcher> = None;
+        let (events_tx, events_rx) = mpsc::sync_channel::<()>(1);
+        while !stop.load(AtomicOrdering::Relaxed) {
+            if self.music_only.load(AtomicOrdering::Relaxed) {
+                watcher = None;
+                watched_roots.clear();
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+            let roots = self.watch_roots(client);
+            if roots != watched_roots {
+                watcher = None;
+                watched_roots = roots.clone();
+                if !roots.is_empty() {
+                    let tx = events_tx.clone();
+                    let callback_roots = roots.clone();
+                    match RecommendedWatcher::new(
+                        move |result: notify::Result<notify::Event>| {
+                            if result.as_ref().is_ok_and(|event| {
+                                watch_event_relevant(client, &callback_roots, event)
+                            }) {
+                                let _ = tx.try_send(());
+                            }
+                        },
+                        Config::default(),
+                    ) {
+                        Ok(mut next) => {
+                            let mut failed = false;
+                            for root in &roots {
+                                if next.watch(root, RecursiveMode::Recursive).is_err() {
+                                    failed = true;
+                                    break;
+                                }
+                            }
+                            if failed {
+                                self.update_client_status(client, |status| {
+                                    status.phase = "error".into();
+                                });
+                            } else {
+                                watcher = Some(next);
+                                self.update_client_status(client, |status| {
+                                    if status.phase == "idle" || status.phase == "error" {
+                                        status.phase = "watching".into();
+                                    }
+                                });
+                            }
+                        }
+                        Err(_) => self.update_client_status(client, |status| {
+                            status.phase = "error".into();
+                        }),
+                    }
+                } else {
+                    self.update_client_status(client, |status| status.phase = "idle".into());
+                }
+            }
+
+            match events_rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(()) => {
+                    // 文件写入通常会产生多个事件，合并一秒内的事件以避免重复扫描。
+                    let debounce = Instant::now();
+                    while debounce.elapsed() < Duration::from_secs(1)
+                        && !stop.load(AtomicOrdering::Relaxed)
+                        && events_rx.recv_timeout(Duration::from_millis(250)).is_ok()
+                    {
+                    }
+                    if stop.load(AtomicOrdering::Relaxed) {
+                        break;
+                    }
+                    let now = Utc::now().to_rfc3339();
+                    self.update_client_status(client, |status| {
+                        status.phase = "pending".into();
+                        status.pending_changes = status.pending_changes.saturating_add(1);
+                        status.last_change_at = Some(now.clone());
+                    });
+                    let service_for_emit = Arc::clone(&self);
+                    let app_for_emit = app.clone();
+                    let emit = Arc::new(move |progress: LocalScanProgress| {
+                        let _ = app_for_emit.emit("local-scan-progress", progress);
+                    });
+                    let mut emit: Option<Arc<dyn Fn(LocalScanProgress) + Send + Sync>> = Some(emit);
+                    loop {
+                        let Some(handler) = emit.take() else { break };
+                        match self.scan(client, false, handler) {
+                            Ok(_) => break,
+                            Err(error) if error.code == "SCAN_IN_PROGRESS" => {
+                                // 手动扫描与文件事件同时发生时，等待当前扫描结束再补一次增量扫描。
+                                if stop.load(AtomicOrdering::Relaxed) {
+                                    break;
+                                }
+                                thread::sleep(Duration::from_millis(500));
+                                emit = Some(Arc::new({
+                                    let app_for_emit = app.clone();
+                                    move |progress: LocalScanProgress| {
+                                        let _ = app_for_emit.emit("local-scan-progress", progress);
+                                    }
+                                }));
+                            }
+                            Err(_) => {
+                                service_for_emit.update_client_status(client, |status| {
+                                    status.phase = "error".into();
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            let _ = &watcher;
+        }
+    }
+
+    fn watch_roots(&self, client: LocalClient) -> Vec<PathBuf> {
+        let Ok(source) = self.sources.resolve(client) else {
+            return Vec::new();
+        };
+        let mut roots = Vec::new();
+        match client {
+            LocalClient::Stable => {
+                if let Some(root) = source.beatmap_root.filter(|path| path.is_dir()) {
+                    roots.push(root);
+                }
+                if let Some(root) = source.skin_root.filter(|path| path.is_dir()) {
+                    if !roots.iter().any(|existing| existing == &root) {
+                        roots.push(root);
+                    }
+                }
+            }
+            LocalClient::Lazer => {
+                if let Some(root) = source
+                    .repository_root
+                    .and_then(|path| path.parent().map(Path::to_path_buf))
+                    .filter(|path| path.is_dir())
+                {
+                    roots.push(root);
+                }
+            }
+        }
+        roots
+    }
+
+    fn update_client_status<F>(&self, client: LocalClient, update: F)
+    where
+        F: FnOnce(&mut LocalIndexClientStatus),
+    {
+        if let Ok(mut status) = self.load_status.write()
+            && let Some(client_status) = status.clients.get_mut(&client)
+        {
+            update(client_status);
         }
     }
 
@@ -326,7 +525,14 @@ impl LocalAnalysisService {
             scans.insert(client, Arc::clone(&cancel));
         }
 
-        let result = self.run_scan(client, force, emit_event, &cancel);
+        self.update_client_status(client, |status| {
+            status.phase = "scanning".into();
+            status.pending_changes = 0;
+        });
+
+        let result = self
+            .pool
+            .install(|| self.run_scan(client, force, emit_event, &cancel));
         if let Ok(mut scans) = self.scans.lock() {
             scans.remove(&client);
         }
@@ -340,6 +546,17 @@ impl LocalAnalysisService {
                 Err(error) => span.finish_error(error),
             }
         }
+        self.update_client_status(client, |status| match &result {
+            Ok(summary) => {
+                status.phase = "watching".into();
+                status.pending_changes = 0;
+                status.last_scan_at = Some(summary.scanned_at.clone());
+            }
+            Err(error) if error.code == "SCAN_CANCELLED" => {
+                status.phase = "watching".into();
+            }
+            Err(_) => status.phase = "error".into(),
+        });
         result
     }
 
@@ -350,6 +567,7 @@ impl LocalAnalysisService {
         emit_event: Arc<dyn Fn(LocalScanProgress) + Send + Sync>,
         cancel: &AtomicBool,
     ) -> CommandResult<LocalLibrarySummary> {
+        check_cancelled(cancel)?;
         let source = self.sources.resolve(client)?;
         if !source.status.valid {
             return Err(CommandError::new(
@@ -386,6 +604,13 @@ impl LocalAnalysisService {
                     .collect::<BTreeMap<_, _>>()
             })
             .unwrap_or_default();
+        let changes = scan_changes(&discovery.candidates, &previous_entries);
+        self.update_client_status(client, |status| {
+            status.added = changes.added;
+            status.modified = changes.modified;
+            status.removed = changes.removed;
+            status.reused = changes.reused;
+        });
         let processed = AtomicUsize::new(0);
         let reporter_for_pool = Arc::clone(&reporter);
 
@@ -495,6 +720,39 @@ impl LocalAnalysisService {
         })
     }
 
+    /// Resolve a local standard beatmap by its stable online id for consumers
+    /// that need the original bytes rather than a paginated UI result.
+    pub fn beatmap_path_by_id(
+        &self,
+        client: LocalClient,
+        beatmap_id: i32,
+    ) -> CommandResult<Option<(String, String)>> {
+        let index = self.require_current_index(client)?;
+        let entry = index.entries.iter().find(|entry| {
+            matches!(
+                &entry.data,
+                IndexedData::Beatmap { summary, .. }
+                    if summary.beatmap_id == Some(beatmap_id)
+            )
+        });
+        let Some(entry) = entry else {
+            return Ok(None);
+        };
+        let IndexedData::Beatmap { summary, .. } = &entry.data else {
+            return Ok(None);
+        };
+        let path = entry.physical_path.canonicalize().map_err(|error| {
+            CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                format!("本地谱面文件不可用：{error}"),
+            )
+        })?;
+        Ok(Some((
+            path.to_string_lossy().into_owned(),
+            summary.resource.resource_id.clone(),
+        )))
+    }
+
     pub(crate) fn contains_beatmapset_id(&self, beatmapset_id: i32) -> bool {
         [LocalClient::Stable, LocalClient::Lazer]
             .into_iter()
@@ -524,7 +782,7 @@ impl LocalAnalysisService {
         let mut sets = Vec::with_capacity(capacity);
         let mut total = 0usize;
         for (set_key, positions) in &index.beatmap_sets {
-            let mut maps = positions
+            let maps = positions
                 .iter()
                 .filter_map(|position| match &index.entries.get(*position)?.data {
                     IndexedData::Beatmap { summary, detail }
@@ -535,70 +793,7 @@ impl LocalAnalysisService {
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            let Some(set) = (|| {
-                maps.sort_by(|(left, _), (right, _)| {
-                    option_f64_order(left.stars, right.stars)
-                        .then_with(|| text_order(&left.difficulty_name, &right.difficulty_name))
-                });
-                let (representative, _) = *maps.first()?;
-                let creators = maps
-                    .iter()
-                    .map(|(summary, _)| summary.creator.clone())
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>();
-                let stars = maps
-                    .iter()
-                    .filter_map(|(summary, _)| summary.stars)
-                    .collect::<Vec<_>>();
-                let min_stars = stars.iter().copied().min_by(f64::total_cmp);
-                let max_stars = stars.iter().copied().max_by(f64::total_cmp);
-                let bpm = maps
-                    .iter()
-                    .map(|(summary, _)| summary.bpm)
-                    .max_by(f64::total_cmp)
-                    .unwrap_or_default();
-                let length_ms = maps
-                    .iter()
-                    .map(|(summary, _)| summary.length_ms)
-                    .max_by(f64::total_cmp)
-                    .unwrap_or_default();
-                let object_count = maps
-                    .iter()
-                    .map(|(summary, _)| summary.object_count)
-                    .max()
-                    .unwrap_or_default();
-                let modified_at = maps
-                    .iter()
-                    .filter_map(|(summary, _)| summary.modified_at.clone())
-                    .max();
-                let background_resource_id = maps.iter().find_map(|(summary, detail)| {
-                    (!detail.background_file.trim().is_empty())
-                        .then(|| summary.resource.resource_id.clone())
-                });
-                Some(LocalBeatmapSetSummary {
-                    set_key: set_key.clone(),
-                    completeness: Completeness::Complete,
-                    grouping_inferred: representative.set_grouping_inferred,
-                    beatmap_set_id: representative.beatmap_set_id,
-                    title: representative.title.clone(),
-                    title_unicode: representative.title_unicode.clone(),
-                    artist: representative.artist.clone(),
-                    artist_unicode: representative.artist_unicode.clone(),
-                    creators,
-                    min_stars,
-                    max_stars,
-                    bpm,
-                    length_ms,
-                    object_count,
-                    modified_at,
-                    background_resource_id,
-                    difficulties: maps
-                        .into_iter()
-                        .map(|(summary, _)| summary.clone())
-                        .collect(),
-                })
-            })() else {
+            let Some(set) = service_stage::summarize_set(set_key, maps) else {
                 continue;
             };
             total += 1;
@@ -1016,114 +1211,167 @@ impl LocalAnalysisService {
         client: LocalClient,
         resource_id: &str,
     ) -> CommandResult<Option<String>> {
-        let index = self.require_current_index(client)?;
-        let entry = index
-            .entries
-            .iter()
-            .find(|entry| {
-                matches!(
-                    &entry.data,
-                    IndexedData::Beatmap { summary, .. }
-                        if summary.resource.resource_id == resource_id
-                )
-            })
-            .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面资源"))?;
-        let detail = match &entry.data {
-            IndexedData::Beatmap { detail, .. } => detail,
-            _ => unreachable!("entry matched beatmap"),
-        };
-        let background_name = detail.background_file.trim();
-        if background_name.is_empty() {
-            return Ok(None);
-        }
-        let background = match client {
-            LocalClient::Stable => {
-                let Some(beatmap_directory) = entry.physical_path.parent() else {
-                    return Ok(None);
-                };
-                let Ok(directory) = beatmap_directory.canonicalize() else {
-                    return Ok(None);
-                };
-                let Ok(background) = beatmap_directory.join(background_name).canonicalize() else {
-                    return Ok(None);
-                };
-                if !background.starts_with(&directory) {
-                    return Ok(None);
-                }
-                background
-            }
-            // Lazer：背景文件在谱面集的 Realm 文件清单里按原始文件名匹配，
-            // 实际内容从 files/ 内容寻址目录按哈希取回。
-            LocalClient::Lazer => {
-                let Some(files) = entry.lazer_files.as_ref() else {
-                    return Ok(None);
-                };
-                let Some(file) = files
-                    .iter()
-                    .find(|file| file.filename.eq_ignore_ascii_case(background_name))
-                else {
-                    return Ok(None);
-                };
-                let files_root = self.lazer_files_root(client)?;
-                files_root.join(lazer_realm::blob_relative_path(&file.hash))
-            }
-        };
-        let Ok(metadata) = fs::metadata(&background) else {
-            return Ok(None);
-        };
-        if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
-            return Ok(None);
-        }
+        self.beatmap_background_sized(
+            client,
+            resource_id,
+            super::models::BackgroundSize::Thumbnail,
+        )
+    }
 
-        let stamp = stamp(&metadata);
-        let cache_key = sha256(
-            format!(
-                "{}:{}:{}",
-                background.to_string_lossy(),
-                stamp.bytes,
-                stamp.modified_ms
-            )
-            .as_bytes(),
-        );
-        let thumbnail_path = self
-            .cache_dir
-            .join("thumbnails")
-            .join(format!("{cache_key}.jpg"));
-        let thumbnail = if let Ok(bytes) = fs::read(&thumbnail_path) {
-            bytes
-        } else {
-            let mut reader =
-                match ImageReader::open(&background).and_then(ImageReader::with_guessed_format) {
+    pub fn beatmap_background_sized(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+        size: super::models::BackgroundSize,
+    ) -> CommandResult<Option<String>> {
+        let span =
+            global().map(|logger| logger.operation("local_analysis", "read_beatmap_background"));
+        let result = (|| {
+            let index = self.require_current_index(client)?;
+            let entry = index
+                .entries
+                .iter()
+                .find(|entry| {
+                    matches!(
+                        &entry.data,
+                        IndexedData::Beatmap { summary, .. }
+                            if summary.resource.resource_id == resource_id
+                    )
+                })
+                .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面资源"))?;
+            let detail = match &entry.data {
+                IndexedData::Beatmap { detail, .. } => detail,
+                _ => unreachable!("entry matched beatmap"),
+            };
+            let background_name = detail.background_file.trim();
+            if background_name.is_empty() {
+                return Ok(None);
+            }
+            let background = match client {
+                LocalClient::Stable => {
+                    let Some(beatmap_directory) = entry.physical_path.parent() else {
+                        return Ok(None);
+                    };
+                    let Ok(directory) = beatmap_directory.canonicalize() else {
+                        return Ok(None);
+                    };
+                    let Ok(background) = beatmap_directory.join(background_name).canonicalize()
+                    else {
+                        return Ok(None);
+                    };
+                    if !background.starts_with(&directory) {
+                        return Ok(None);
+                    }
+                    background
+                }
+                // Lazer：背景文件在谱面集的 Realm 文件清单里按原始文件名匹配，
+                // 实际内容从 files/ 内容寻址目录按哈希取回。
+                LocalClient::Lazer => {
+                    let Some(files) = entry.lazer_files.as_ref() else {
+                        return Ok(None);
+                    };
+                    let Some(file) = files
+                        .iter()
+                        .find(|file| file.filename.eq_ignore_ascii_case(background_name))
+                    else {
+                        return Ok(None);
+                    };
+                    let files_root = self.lazer_files_root(client)?;
+                    files_root.join(lazer_realm::blob_relative_path(&file.hash))
+                }
+            };
+            let metadata_result = fs::metadata(&background);
+            if let Some(s) = &span {
+                s.fs_op("metadata", &background, &metadata_result);
+            }
+            let Ok(metadata) = metadata_result else {
+                return Ok(None);
+            };
+            if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
+                return Ok(None);
+            }
+
+            let stamp = stamp(&metadata);
+            let cache_key = sha256(
+                format!(
+                    "{}:{}:{}:{size:?}",
+                    background.to_string_lossy(),
+                    stamp.bytes,
+                    stamp.modified_ms
+                )
+                .as_bytes(),
+            );
+            let thumbnail_path = self
+                .cache_dir
+                .join("thumbnails")
+                .join(format!("{cache_key}.jpg"));
+            let cache_result = fs::read(&thumbnail_path);
+            if let Some(s) = &span {
+                s.fs_op("read_cache", &thumbnail_path, &cache_result);
+            }
+            let thumbnail = if let Ok(bytes) = cache_result {
+                bytes
+            } else {
+                let read_result =
+                    ImageReader::open(&background).and_then(ImageReader::with_guessed_format);
+                if let Some(s) = &span {
+                    s.fs_op("read", &background, &read_result);
+                }
+                let mut reader = match read_result {
                     Ok(reader) => reader,
                     Err(_) => return Ok(None),
                 };
-            let mut limits = Limits::default();
-            limits.max_image_width = Some(8_192);
-            limits.max_image_height = Some(8_192);
-            limits.max_alloc = Some(128 * 1024 * 1024);
-            reader.limits(limits);
-            let Ok(image) = reader.decode() else {
-                return Ok(None);
+                let mut limits = Limits::default();
+                limits.max_image_width = Some(8_192);
+                limits.max_image_height = Some(8_192);
+                limits.max_alloc = Some(128 * 1024 * 1024);
+                reader.limits(limits);
+                let decode_result = reader.decode();
+                if let Some(s) = &span {
+                    s.io("decode_image", &decode_result);
+                }
+                let Ok(image) = decode_result else {
+                    return Ok(None);
+                };
+                let (width, height) = match size {
+                    super::models::BackgroundSize::Thumbnail => (960, 540),
+                    super::models::BackgroundSize::Stage => (1920, 1080),
+                };
+                let thumbnail = if matches!(size, super::models::BackgroundSize::Thumbnail)
+                    || image.width() > width
+                    || image.height() > height
+                {
+                    image.resize(width, height, FilterType::Triangle)
+                } else {
+                    image
+                };
+                let mut bytes = Vec::new();
+                if JpegEncoder::new_with_quality(&mut bytes, 78)
+                    .encode_image(&thumbnail)
+                    .is_err()
+                {
+                    return Ok(None);
+                }
+                let temporary = thumbnail_path.with_extension("jpg.tmp");
+                let write_result = fs::write(&temporary, &bytes);
+                if let Some(s) = &span {
+                    s.fs_op("write", &temporary, &write_result);
+                }
+                if write_result.is_ok() {
+                    let rename_result = fs::rename(&temporary, &thumbnail_path);
+                    if let Some(s) = &span {
+                        s.fs_op("rename", &thumbnail_path, &rename_result);
+                    }
+                    let _ = self.trim_thumbnail_cache();
+                }
+                bytes
             };
-            let thumbnail = image.resize(960, 540, FilterType::Triangle);
-            let mut bytes = Vec::new();
-            if JpegEncoder::new_with_quality(&mut bytes, 78)
-                .encode_image(&thumbnail)
-                .is_err()
-            {
-                return Ok(None);
-            }
-            let temporary = thumbnail_path.with_extension("jpg.tmp");
-            if fs::write(&temporary, &bytes).is_ok() {
-                let _ = fs::rename(temporary, &thumbnail_path);
-                let _ = self.trim_thumbnail_cache();
-            }
-            bytes
-        };
-        Ok(Some(format!(
-            "data:image/jpeg;base64,{}",
-            BASE64_STANDARD.encode(thumbnail)
-        )))
+            Ok(Some(format!(
+                "data:image/jpeg;base64,{}",
+                BASE64_STANDARD.encode(thumbnail)
+            )))
+        })();
+        crate::infrastructure::logging::finish_span(span, result)
     }
 
     pub fn query_skins(&self, query: SkinQuery) -> CommandResult<Page<LocalSkinSummary>> {
@@ -1932,6 +2180,41 @@ fn discover(
     Ok(discovery)
 }
 
+fn scan_changes(
+    candidates: &[Candidate],
+    previous_entries: &BTreeMap<String, IndexedEntry>,
+) -> ScanChanges {
+    let mut changes = ScanChanges::default();
+    let mut current_keys = BTreeSet::new();
+    for candidate in candidates {
+        current_keys.insert(candidate.key.as_str());
+        match previous_entries.get(&candidate.key) {
+            Some(previous) if previous.stamp == candidate.stamp => changes.reused += 1,
+            Some(_) => changes.modified += 1,
+            None => changes.added += 1,
+        }
+    }
+    changes.removed = previous_entries
+        .keys()
+        .filter(|key| !current_keys.contains(key.as_str()))
+        .count();
+    changes
+}
+
+fn watch_event_relevant(client: LocalClient, roots: &[PathBuf], event: &notify::Event) -> bool {
+    match client {
+        LocalClient::Stable => !event.paths.is_empty(),
+        LocalClient::Lazer => {
+            let Some(data_root) = roots.first() else {
+                return false;
+            };
+            event.paths.iter().any(|path| {
+                path == &data_root.join("client.realm") || path.starts_with(data_root.join("files"))
+            })
+        }
+    }
+}
+
 fn discover_stable_tree(
     tree_root: &Path,
     logical_root: &Path,
@@ -2636,6 +2919,102 @@ SliderTickRate:1
         assert_eq!(again, path.to_string_lossy());
     }
 
+    #[test]
+    fn lazer_audio_resolves_realm_hash_files_without_materializing_a_set() {
+        let beatmap_hash = "aa11000000000000000000000000000000000000000000000000000000000000";
+        let audio_hash = "bb22000000000000000000000000000000000000000000000000000000000000";
+        let video_hash = "cc33000000000000000000000000000000000000000000000000000000000000";
+        let beatmap_blob = "a/aa".to_string();
+        let cache = tempfile::tempdir().expect("cache");
+        let data = tempfile::tempdir().expect("lazer data");
+        fs::write(data.path().join("client.realm"), []).expect("realm");
+        let files_root = data.path().join("files");
+        for (hash, bytes) in [
+            (beatmap_hash, OSU_FIXTURE.as_bytes()),
+            (audio_hash, b"ID3test audio"),
+            (video_hash, b"fake video"),
+        ] {
+            let relative = lazer_realm::blob_relative_path(hash);
+            let blob = files_root.join(&relative);
+            fs::create_dir_all(blob.parent().expect("parent")).expect("dirs");
+            fs::write(&blob, bytes).expect("blob");
+        }
+
+        let service = LocalAnalysisService::new(cache.path()).expect("service");
+        let source = service
+            .sources
+            .set_override(LocalClient::Lazer, data.path())
+            .expect("lazer source");
+
+        let mut parsed = parse_beatmap(
+            LocalClient::Lazer,
+            OSU_FIXTURE.as_bytes(),
+            beatmap_hash,
+            None,
+            Some(beatmap_hash),
+        )
+        .expect("parse");
+        parsed.summary.set_key = "realm:test".into();
+        let entry = IndexedEntry {
+            key: format!("lazer:{beatmap_blob}"),
+            physical_path: files_root.join(lazer_realm::blob_relative_path(beatmap_hash)),
+            stamp: service_data::FileStamp {
+                bytes: OSU_FIXTURE.len() as u64,
+                modified_ms: 0,
+            },
+            content_hash: Some(beatmap_hash.into()),
+            beatmap_md5: None,
+            lazer_files: Some(vec![
+                lazer_realm::LazerRealmFile {
+                    filename: "Artist - Title (Mapper).osu".into(),
+                    hash: beatmap_hash.into(),
+                    size: OSU_FIXTURE.len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "audio.mp3".into(),
+                    hash: audio_hash.into(),
+                    size: b"ID3test audio".len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "video.mp4".into(),
+                    hash: "cc33000000000000000000000000000000000000000000000000000000000000".into(),
+                    size: b"fake video".len() as u64,
+                },
+            ]),
+            data: IndexedData::Beatmap {
+                summary: parsed.summary.clone(),
+                detail: Box::new(parsed.detail),
+            },
+            diagnostics: Vec::new(),
+        };
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = source.status.data_root.clone().expect("data root");
+        index.entries = vec![entry];
+        index.rebuild_runtime_indexes();
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index));
+
+        let payload = service
+            .beatmap_audio(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+            .expect("lazer audio");
+        assert_eq!(payload.mime_type, "audio/mpeg");
+        assert_eq!(
+            BASE64_STANDARD.decode(payload.bytes_base64).expect("bytes"),
+            b"ID3test audio"
+        );
+        assert!(!service.materialized_sets_root().exists());
+        fs::remove_file(files_root.join(lazer_realm::blob_relative_path(audio_hash)))
+            .expect("remove audio");
+        assert!(
+            service
+                .beatmap_audio(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+                .is_err()
+        );
+    }
+
     /// live render 的皮肤消费路径：lazer 皮肤以 "lazer:<resource_id>"
     /// 引用，`materialize_lazer_skin` 在实际选用时才把 Realm 清单物化成
     /// Stable 布局目录（原始文件名，可直接交给皮肤加载器）。
@@ -2881,6 +3260,101 @@ SliderTickRate:1
     }
 
     #[test]
+    fn universal_search_matches_metadata_and_combines_keywords() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        fs::write(
+            &beatmap,
+            OSU_FIXTURE
+                .replace("BeatmapID:-1", "BeatmapID:12345")
+                .replace("BeatmapSetID:-1", "BeatmapSetID:67890")
+                .replace(
+                    "Version:Normal",
+                    "Version:Normal\nSource:Anime Series\nTags:piano electronic",
+                ),
+        )
+        .expect("metadata");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        for search in [
+            "fixture",
+            "测试谱面",
+            "ARTIST",
+            "艺术家",
+            "mapper",
+            "normal",
+            "anime series",
+            "electronic",
+            "12345",
+            "67890",
+            "  ARTIST\tMapper   测试谱面  piano\n",
+            "67890 normal",
+        ] {
+            let query = BeatmapQuery {
+                search: search.into(),
+                ..BeatmapQuery::default()
+            };
+            assert_eq!(
+                service
+                    .query_beatmap_sets(query.clone())
+                    .expect("sets")
+                    .total,
+                1,
+                "{search}"
+            );
+            assert_eq!(
+                service.query_beatmaps(query.clone()).expect("maps").total,
+                1,
+                "{search}"
+            );
+            assert!(
+                service
+                    .random_beatmap_set(query, None)
+                    .expect("random")
+                    .is_some(),
+                "{search}"
+            );
+        }
+        for search in ["mapper missing", "1234", "6789"] {
+            let query = BeatmapQuery {
+                search: search.into(),
+                ..BeatmapQuery::default()
+            };
+            assert_eq!(
+                service
+                    .query_beatmap_sets(query.clone())
+                    .expect("sets")
+                    .total,
+                0,
+                "{search}"
+            );
+            assert!(
+                service
+                    .random_beatmap_set(query, None)
+                    .expect("random")
+                    .is_none(),
+                "{search}"
+            );
+        }
+        assert_eq!(
+            service
+                .query_beatmap_sets(BeatmapQuery {
+                    search: "artist mapper".into(),
+                    min_ar: Some(8.0),
+                    ..BeatmapQuery::default()
+                })
+                .expect("filtered")
+                .total,
+            0
+        );
+    }
+
+    #[test]
     fn groups_difficulties_and_applies_structural_filters() {
         let (_app_data, _stable, service, beatmap) = fixture_service();
         fs::write(
@@ -2910,6 +3384,195 @@ SliderTickRate:1
         assert_eq!(filtered.total, 1);
         assert_eq!(filtered.items[0].difficulties.len(), 1);
         assert_eq!(filtered.items[0].difficulties[0].difficulty_name, "Hard");
+        let complete = service
+            .complete_beatmap_set(
+                LocalClient::Stable,
+                &filtered.items[0].set_key,
+                Ruleset::Osu,
+            )
+            .expect("complete set");
+        assert_eq!(complete.difficulties.len(), 2);
+        assert!(
+            service
+                .complete_beatmap_set(LocalClient::Stable, &complete.set_key, Ruleset::Mania)
+                .is_err()
+        );
+        let only = service
+            .random_beatmap_set(
+                BeatmapQuery {
+                    min_ar: Some(8.0),
+                    ..BeatmapQuery::default()
+                },
+                Some(&complete.set_key),
+            )
+            .expect("random")
+            .expect("single match");
+        assert_eq!(only.set_key, complete.set_key);
+        assert_eq!(only.difficulties.len(), 1);
+        assert!(
+            service
+                .random_beatmap_set(
+                    BeatmapQuery {
+                        min_ar: Some(11.0),
+                        ..BeatmapQuery::default()
+                    },
+                    None
+                )
+                .expect("no match")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn random_set_excludes_current_set_and_respects_search() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        let other = beatmap
+            .parent()
+            .expect("set folder")
+            .parent()
+            .expect("songs")
+            .join("Other");
+        fs::create_dir(&other).expect("other set");
+        fs::write(
+            other.join("other.osu"),
+            OSU_FIXTURE.replace("Title:Fixture", "Title:Other"),
+        )
+        .expect("map");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        let sets = service
+            .query_beatmap_sets(BeatmapQuery::default())
+            .expect("sets");
+        assert_eq!(sets.total, 2);
+        for _ in 0..8 {
+            let picked = service
+                .random_beatmap_set(BeatmapQuery::default(), Some(&sets.items[0].set_key))
+                .expect("pick")
+                .expect("match");
+            assert_eq!(picked.set_key, sets.items[1].set_key);
+        }
+        let picked = service
+            .random_beatmap_set(
+                BeatmapQuery {
+                    search: "Other".into(),
+                    ..BeatmapQuery::default()
+                },
+                None,
+            )
+            .expect("pick")
+            .expect("match");
+        assert_eq!(picked.title, "Other");
+    }
+
+    #[test]
+    fn local_audio_reads_preview_time_and_rejects_parent_traversal() {
+        let (_app_data, stable, service, beatmap) = fixture_service();
+        let audio = beatmap.parent().expect("set").join("audio.mp3");
+        fs::write(&audio, b"ID3test audio").expect("audio");
+        fs::write(
+            &beatmap,
+            OSU_FIXTURE.replace("Mode: 0", "Mode: 0\nPreviewTime: 1200"),
+        )
+        .expect("map");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        let id = service
+            .query_beatmaps(BeatmapQuery::default())
+            .expect("maps")
+            .items[0]
+            .resource
+            .resource_id
+            .clone();
+        let payload = service
+            .beatmap_audio(LocalClient::Stable, &id)
+            .expect("audio payload");
+        assert_eq!(payload.preview_time_ms, 1200.0);
+        assert_eq!(payload.mime_type, "audio/mpeg");
+        assert_eq!(
+            BASE64_STANDARD
+                .decode(payload.bytes_base64)
+                .expect("decode"),
+            b"ID3test audio"
+        );
+        fs::write(stable.path().join("outside.mp3"), b"ID3outside").expect("outside");
+        fs::write(
+            &beatmap,
+            OSU_FIXTURE.replace("audio.mp3", "../../outside.mp3"),
+        )
+        .expect("unsafe map");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("rescan");
+        let id = service
+            .query_beatmaps(BeatmapQuery::default())
+            .expect("maps")
+            .items[0]
+            .resource
+            .resource_id
+            .clone();
+        assert!(service.beatmap_audio(LocalClient::Stable, &id).is_err());
+    }
+
+    #[test]
+    fn stage_background_preserves_small_images_and_separates_cache_sizes() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        let background = beatmap.parent().expect("set").join("bg.jpg");
+        image::RgbImage::new(1500, 900)
+            .save(&background)
+            .expect("background");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        let id = service
+            .query_beatmaps(BeatmapQuery::default())
+            .expect("maps")
+            .items[0]
+            .resource
+            .resource_id
+            .clone();
+        let read_size = |url: String| {
+            let bytes = BASE64_STANDARD
+                .decode(url.split_once(',').expect("url").1)
+                .expect("decode");
+            let image = image::load_from_memory(&bytes).expect("image");
+            (image.width(), image.height())
+        };
+        let thumbnail = service
+            .beatmap_background(LocalClient::Stable, &id)
+            .expect("thumbnail")
+            .expect("image");
+        let stage = service
+            .beatmap_background_sized(
+                LocalClient::Stable,
+                &id,
+                super::super::models::BackgroundSize::Stage,
+            )
+            .expect("stage")
+            .expect("image");
+        assert_eq!(read_size(thumbnail), (900, 540));
+        assert_eq!(read_size(stage), (1500, 900));
     }
 
     #[test]
@@ -2936,6 +3599,48 @@ SliderTickRate:1
             .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
             .expect("incremental delete");
         assert_eq!(summary.beatmap_count, 1);
+    }
+
+    #[test]
+    fn scan_changes_counts_reused_modified_added_and_removed_entries() {
+        let (_app_data, _stable, service, _beatmap) = fixture_service();
+        let cancel = AtomicBool::new(false);
+        service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("first scan");
+        let index = service
+            .current_index(LocalClient::Stable)
+            .expect("index")
+            .expect("loaded index");
+        let previous = index
+            .entries
+            .iter()
+            .map(|entry| (entry.key.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let source = service
+            .sources
+            .resolve(LocalClient::Stable)
+            .expect("source");
+        let discovery = discover(
+            &source,
+            LocalClient::Stable,
+            &cancel,
+            &ProgressReporter::new(Arc::new(|_| {}), LocalClient::Stable),
+        )
+        .expect("discovery");
+        let mut candidates = discovery.candidates;
+        let mut modified = candidates[0].clone();
+        modified.stamp.bytes = modified.stamp.bytes.saturating_add(1);
+        candidates[0] = modified;
+        candidates.pop();
+        let mut added = candidates[0].clone();
+        added.key.push_str(":added");
+        candidates.push(added);
+        let changes = scan_changes(&candidates, &previous);
+        assert_eq!(changes.added, 1);
+        assert_eq!(changes.modified, 1);
+        assert_eq!(changes.removed, 1);
+        assert_eq!(changes.reused, previous.len().saturating_sub(2));
     }
 
     #[test]

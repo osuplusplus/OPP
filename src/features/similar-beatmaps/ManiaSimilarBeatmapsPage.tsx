@@ -1,518 +1,188 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
+/* eslint-disable react-refresh/only-export-components */
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FolderOpen, History, LoaderCircle, Map as MapIcon, RefreshCw, Search, Trophy, Upload, X } from "lucide-react";
+import { ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { PageHeader } from "../../shared/components/PageHeader";
-import { Button, Card, EmptyState, InfoTip } from "../../shared/components/ui";
-import { APP_TIME_ZONE, errorMessage } from "../../shared/lib/format";
+import { Button, EmptyState } from "../../shared/components/ui";
+import { errorMessage } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
-import type {
-  ManiaKeyCount,
-  ManiaGameMod,
-  ManiaSimilarityQueryRequest,
-  ManiaSimilarityQueryResponse,
-  ManiaSimilarityRecommendationResponse,
-  ManiaSimilarityResult,
-  SimilarityIndexStatus,
-  SimilarityRecommendationKind,
-} from "../../shared/types/osu";
+import type { AnySimilarityResult, ManiaGameMod, ManiaKeyCount, ManiaSimilarityQueryRequest, ManiaSimilarityQueryResponse, ManiaSimilarityRecommendationResponse, ManiaSimilarityResult, SimilarityIndexStatus, SimilarityRecommendationKind, SimilaritySource } from "../../shared/types/osu";
 import { openCollectionDialog } from "../collections/events";
 import { normalizePreviewUrl } from "../online-beatmaps/filters";
 import { resolveDefaultDownloadProvider } from "../online-beatmaps/downloadProvider";
 import { settingsQueryKey, useSettings } from "../settings/api";
-import {
-  similarityIndexStatusKey,
-  similarityRecommendationKey,
-  useSimilarityIndexStatus,
-  useSimilarityQuery,
-  useSimilarityRecommendation,
-} from "./api";
+import { similarityIndexStatusKey, similarityRecommendationKey, useSimilarityIndexStatus, useSimilarityQuery, useSimilarityRecommendation } from "./api";
 import { createManiaSimilarityRequest } from "./defaults";
-import {
-  onlineBeatmapRouteForSimilarityResult,
-  parseSimilarityLaunch,
-} from "./navigation";
-import {
-  excludeTodayRecommendedResults,
-  getTodayRecommendationHistory,
-  getTodayRecommendedBeatmapIds,
-  recordDisplayedRecommendationBatch,
-  type RecommendationHistoryEntry,
-} from "./recommendationHistory";
-import { SimilarityComparisonPanel } from "./SimilarityComparisonPanel";
-import { SimilarityRadar } from "./SimilarityRadar";
-import { SimilarityResultCard } from "./SimilarityResultCard";
-import { formatDataCutoff, similarityIndexStateCopy } from "./viewModel";
+import { defaultManiaCandidateFilters, ManiaCandidateFilters, matchesManiaCandidate, type ManiaCandidateFilterValue } from "./ManiaCandidateFilters";
+import { onlineBeatmapRouteForSimilarityResult, parseSimilarityLaunch } from "./navigation";
+import { excludeTodayRecommendedResults, getTodayRecommendationHistory, getTodayRecommendedBeatmapIds, recordDisplayedRecommendation, type RecommendationHistoryEntry } from "./recommendationHistory";
+import { SimilarityHistoryDialog, SimilarityHome, SimilarityMessage, SimilaritySearch, SimilarityStage } from "./SimilarityWorkspace";
+import { similarityIndexStateCopy } from "./viewModel";
 
 const KEY_COUNTS = [4, 6, 7] as const;
 const MANIA_MODS: ManiaGameMod[] = ["NM", "DT", "HT"];
-const DEFAULT_RESULTS_PER_PAGE = 5;
-const ALLOWED_RESULTS_PER_PAGE = [5, 10, 15, 20] as const;
+const resultKey = (result: { beatmap_id: number; game_mod: ManiaGameMod }) => `${result.beatmap_id}:${result.game_mod}`;
 
-interface ManiaSimilaritySession {
-  request: ManiaSimilarityQueryRequest;
-  response: ManiaSimilarityQueryResponse | null;
-  recommendationResponse: ManiaSimilarityRecommendationResponse | null;
-  selectedResultKey: string | null;
-  activeKeyCount: ManiaKeyCount;
-  batches: Record<ManiaKeyCount, number>;
-  scrollY: number | null;
-}
+interface ManiaSession { request: ManiaSimilarityQueryRequest; response: ManiaSimilarityQueryResponse | null; recommendation: ManiaSimilarityRecommendationResponse | null; selectedKey: string | null; activeKeyCount: ManiaKeyCount; }
+let maniaSession: ManiaSession | null = null;
+export function resetManiaSimilaritySessionForTests() { maniaSession = null; }
 
-let maniaSimilaritySession: ManiaSimilaritySession | null = null;
-
-function saveManiaSimilaritySession(session: ManiaSimilaritySession) {
-  maniaSimilaritySession = session;
-}
-
-function durationLabel(seconds: number) {
-  const rounded = Math.max(0, Math.round(seconds));
-  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`;
-}
-
-function percentileLabel(value: number) {
-  return `${Math.round(value * 100)}%`;
-}
-
-function maniaResultKey(result: { beatmap_id: number; game_mod: ManiaGameMod }) {
-  return `${result.beatmap_id}:${result.game_mod}`;
-}
-
-function ManiaIndexUnavailable({
-  status,
-  busy,
-  onChoose,
-  onRetry,
-}: {
-  status: SimilarityIndexStatus;
-  busy: boolean;
-  onChoose: () => void;
-  onRetry: () => void;
-}) {
+function IndexUnavailable({ status, busy, onChoose, onRetry }: { status: SimilarityIndexStatus; busy: boolean; onChoose: () => void; onRetry: () => void }) {
   const copy = similarityIndexStateCopy[status.state as Exclude<SimilarityIndexStatus["state"], "ready">];
-  return (
-    <EmptyState
-      action={<div className="flex justify-center gap-2"><Button type="button" variant="primary" onClick={onChoose} disabled={busy}><FolderOpen size={16} />选择 Mania 索引目录</Button><Button type="button" onClick={onRetry} disabled={busy}><RefreshCw size={16} />重新校验</Button></div>}
-      description={`${copy.description}${status.message ? ` ${status.message}` : ""}`}
-      icon={<a aria-label="查看 Mania 索引说明" href="https://github.com/osuplusplus/osu-difficulty-lab/tree/1fa21fa6a5144992df58efe7ce9d96019981fad3" rel="noreferrer" target="_blank"><ExternalLink size={22} /></a>}
-      title={copy.title}
-    />
-  );
+  return <EmptyState action={<div className="flex justify-center gap-2"><Button type="button" variant="primary" onClick={onChoose} disabled={busy}><FolderOpen size={16} />选择 Mania 索引目录</Button><Button type="button" onClick={onRetry} disabled={busy}><RefreshCw size={16} />重新校验</Button></div>} description={`${copy.description}${status.message ? ` ${status.message}` : ""}`} icon={<a aria-label="查看 Mania 索引说明" href="https://github.com/osuplusplus/osu-difficulty-lab/tree/1fa21fa6a5144992df58efe7ce9d96019981fad3" rel="noreferrer" target="_blank"><ExternalLink size={22} /></a>} title={copy.title} />;
+}
+
+function mergeRecommendation(current: ManiaSimilarityRecommendationResponse | null, next: ManiaSimilarityRecommendationResponse) {
+  if (!current) return next;
+  return {
+    ...next,
+    groups: KEY_COUNTS.map((keyCount) => {
+      const oldGroup = current.groups.find((group) => group.key_count === keyCount);
+      const newGroup = next.groups.find((group) => group.key_count === keyCount);
+      const results = [...(oldGroup?.results ?? [])];
+      const known = new Set(results.map(resultKey));
+      for (const result of newGroup?.results ?? []) if (!known.has(resultKey(result))) results.push(result);
+      return { key_count: keyCount, seed_count: newGroup?.seed_count ?? oldGroup?.seed_count ?? 0, results };
+    }),
+  };
 }
 
 export function ManiaSimilarBeatmapsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const settings = useSettings();
   const statusQuery = useSimilarityIndexStatus("mania");
   const similarityQuery = useSimilarityQuery("mania");
   const similarityRecommendation = useSimilarityRecommendation("mania");
-  const settings = useSettings();
-  const [request, setRequest] = useState<ManiaSimilarityQueryRequest>(() =>
-    maniaSimilaritySession?.request ?? createManiaSimilarityRequest({ kind: "beatmap_id", value: "" }),
-  );
-  const [response, setResponse] = useState<ManiaSimilarityQueryResponse | null>(() => maniaSimilaritySession?.response ?? null);
-  const [recommendationResponse, setRecommendationResponse] = useState<ManiaSimilarityRecommendationResponse | null>(() => maniaSimilaritySession?.recommendationResponse ?? null);
-  const [selectedResultKey, setSelectedResultKey] = useState<string | null>(() => maniaSimilaritySession?.selectedResultKey ?? null);
-  const [activeKeyCount, setActiveKeyCount] = useState<ManiaKeyCount>(() => maniaSimilaritySession?.activeKeyCount ?? 4);
-  const [batches, setBatches] = useState<Record<ManiaKeyCount, number>>(() => maniaSimilaritySession?.batches ?? { 4: 0, 6: 0, 7: 0 });
+  const [request, setRequest] = useState<ManiaSimilarityQueryRequest>(() => maniaSession?.request ?? createManiaSimilarityRequest({ kind: "beatmap_id", value: "" }));
+  const [response, setResponse] = useState<ManiaSimilarityQueryResponse | null>(() => maniaSession?.response ?? null);
+  const [recommendation, setRecommendation] = useState<ManiaSimilarityRecommendationResponse | null>(() => maniaSession?.recommendation ?? null);
+  const [activeKeyCount, setActiveKeyCount] = useState<ManiaKeyCount>(() => maniaSession?.activeKeyCount ?? 4);
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => maniaSession?.selectedKey ?? null);
+  const [filters, setFilters] = useState<ManiaCandidateFilterValue>({ ...defaultManiaCandidateFilters });
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<RecommendationHistoryEntry[]>(() => getTodayRecommendationHistory("mania"));
   const [configuring, setConfiguring] = useState(false);
-  const [configurationError, setConfigurationError] = useState<string | null>(null);
-  const [quickDownloadId, setQuickDownloadId] = useState<number | null>(null);
-  const [quickDownloadDirectory, setQuickDownloadDirectory] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
+  const [downloadId, setDownloadId] = useState<number | null>(null);
+  const [downloadDirectory, setDownloadDirectory] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<number | null>(null);
   const [recommendationCompleting, setRecommendationCompleting] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [recommendationHistory, setRecommendationHistory] = useState<RecommendationHistoryEntry[]>(() => getTodayRecommendationHistory("mania"));
-  const handledLaunch = useRef<string | null>(null);
-  const restoreScrollY = useRef(maniaSimilaritySession?.scrollY ?? null);
+  const [searchText, setSearchText] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const handledLaunch = useRef<string | null>(null);
   const recommendationRun = useRef(0);
   const previewVolume = settings.data?.preview_volume ?? 65;
-  const configuredResultsPerPage = settings.data?.similarity_preferences?.results_per_page ?? DEFAULT_RESULTS_PER_PAGE;
-  const resultsPerPage = ALLOWED_RESULTS_PER_PAGE.includes(configuredResultsPerPage as (typeof ALLOWED_RESULTS_PER_PAGE)[number])
-    ? configuredResultsPerPage
-    : DEFAULT_RESULTS_PER_PAGE;
+  const status = statusQuery.data ?? ({ ruleset: "mania", state: "unconfigured", directory: null, record_count: null, analyzer_version: null, normalization_version: null, algorithm_id: null, data_cutoff_at: null, supports_dynamic_weighting: false, records_by_key_count: null, message: statusQuery.error ? errorMessage(statusQuery.error) : "" } satisfies SimilarityIndexStatus);
+  const activeGroup = recommendation?.groups.find((group) => group.key_count === activeKeyCount) ?? null;
+  const unfilteredResults = useMemo(() => recommendation ? activeGroup?.results ?? [] : response?.results ?? [], [activeGroup, recommendation, response]);
+  const results = useMemo(() => unfilteredResults.filter((result) => matchesManiaCandidate(result, filters)), [filters, unfilteredResults]);
+  const selected = results.find((result) => resultKey(result) === selectedKey) ?? results[0] ?? null;
+  const stageResult = selected ?? unfilteredResults.find((result) => resultKey(result) === selectedKey) ?? unfilteredResults[0] ?? null;
+  const selectedIndex = selected ? results.findIndex((result) => resultKey(result) === resultKey(selected)) : -1;
+  const recommendedBy = stageResult && recommendation ? activeGroup?.results.find((result) => resultKey(result) === resultKey(stageResult))?.recommended_by ?? null : null;
+  const source = recommendedBy ?? response?.target ?? null;
 
-  const status = statusQuery.data ?? ({
-    ruleset: "mania",
-    state: "unconfigured",
-    directory: null,
-    record_count: null,
-    analyzer_version: null,
-    normalization_version: null,
-    algorithm_id: null,
-    data_cutoff_at: null,
-    supports_dynamic_weighting: false,
-    records_by_key_count: {},
-    message: statusQuery.error ? errorMessage(statusQuery.error) : "",
-  } satisfies SimilarityIndexStatus);
-
-  const activeGroup = useMemo(
-    () => recommendationResponse?.groups.find((group) => group.key_count === activeKeyCount) ?? null,
-    [activeKeyCount, recommendationResponse],
-  );
-  const allResults = useMemo(
-    () => recommendationResponse ? activeGroup?.results ?? [] : response?.results ?? [],
-    [activeGroup, recommendationResponse, response],
-  );
-  const resultBatchCount = Math.max(1, Math.ceil(allResults.length / resultsPerPage));
-  const activeResultBatch = batches[activeKeyCount] % resultBatchCount;
-  const visibleResults = useMemo(
-    () => allResults.slice(activeResultBatch * resultsPerPage, (activeResultBatch + 1) * resultsPerPage),
-    [activeResultBatch, allResults, resultsPerPage],
-  );
-  const selected = useMemo(() => {
-    if (!visibleResults.length) return null;
-    return visibleResults.find((result) => maniaResultKey(result) === selectedResultKey) ?? visibleResults[0];
-  }, [selectedResultKey, visibleResults]);
-  const recommendedBy = selected && recommendationResponse
-    ? activeGroup?.results.find((result) => maniaResultKey(result) === maniaResultKey(selected))?.recommended_by ?? null
-    : null;
-  const comparisonTarget = recommendedBy ?? response?.target ?? null;
-
-  useEffect(() => {
-    if (!recommendationResponse || visibleResults.length !== resultsPerPage) return;
-    recordDisplayedRecommendationBatch(visibleResults, "mania", resultsPerPage);
-  }, [recommendationResponse, resultsPerPage, visibleResults]);
-
-  useEffect(() => {
-    saveManiaSimilaritySession({ request, response, recommendationResponse, selectedResultKey, activeKeyCount, batches, scrollY: restoreScrollY.current });
-  }, [activeKeyCount, batches, recommendationResponse, request, response, selectedResultKey]);
-
-  useLayoutEffect(() => {
-    const scrollY = restoreScrollY.current;
-    if (scrollY == null) return;
-    const frame = window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
-
-  useEffect(() => () => { audioRef.current?.pause(); audioRef.current = null; }, []);
+  useEffect(() => { maniaSession = { request, response, recommendation, selectedKey, activeKeyCount }; }, [activeKeyCount, recommendation, request, response, selectedKey]);
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
+  useEffect(() => { audioRef.current?.pause(); audioRef.current = null; }, [selected?.beatmap_id, selected?.game_mod]);
   useEffect(() => { if (audioRef.current) audioRef.current.volume = previewVolume / 100; }, [previewVolume]);
 
   useEffect(() => {
     const launch = parseSimilarityLaunch(searchParams);
-    const launchKey = searchParams.toString();
-    if (!launch) {
-      handledLaunch.current = null;
-      return;
-    }
-    if (launch.ruleset !== "mania" || settings.isLoading || status.state !== "ready" || handledLaunch.current === launchKey) return;
-    handledLaunch.current = launchKey;
-    const run = async () => {
-      const source = launch.kind === "beatmap_id"
-        ? { kind: "beatmap_id" as const, value: launch.beatmapId }
-        : { kind: "local_file" as const, path: await desktopApi.getLocalBeatmapPath(launch.client, launch.resourceId) };
-      const nextRequest = createManiaSimilarityRequest(source);
-      setRequest(nextRequest);
-      setResponse(null);
-      setRecommendationResponse(null);
-      setSelectedResultKey(null);
-      similarityQuery.mutate(nextRequest, { onSuccess: (nextResponse) => {
-        if (nextResponse.ruleset !== "mania") return;
-        setResponse(nextResponse);
-        setActiveKeyCount(nextResponse.target.key_count);
-      } });
+    const key = searchParams.toString();
+    if (!launch) { handledLaunch.current = null; return; }
+    if (launch.ruleset !== "mania" || settings.isLoading || status.state !== "ready" || handledLaunch.current === key) return;
+    handledLaunch.current = key;
+    void (async () => {
+      const source: SimilaritySource = launch.kind === "beatmap_id" ? { kind: "beatmap_id", value: launch.beatmapId } : { kind: "local_file", path: await desktopApi.getLocalBeatmapPath(launch.client, launch.resourceId) };
+      runSource(source);
       setSearchParams(new URLSearchParams(), { replace: true });
-    };
-    void run().catch((error) => setConfigurationError(errorMessage(error)));
-  }, [searchParams, setSearchParams, settings.isLoading, similarityQuery, status.state]);
+    })().catch((error) => setNotice(errorMessage(error)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams, settings.isLoading, status.state]);
 
-  async function chooseIndexDirectory() {
-    setConfigurationError(null);
-    const selectedDirectory = await desktopApi.chooseDirectory("选择 osu!mania 相似谱面索引目录", status.directory ?? undefined);
-    if (!selectedDirectory) return;
-    setConfiguring(true);
-    try {
-      const nextStatus = await desktopApi.configureSimilarityIndex("mania", selectedDirectory);
-      queryClient.setQueryData(similarityIndexStatusKey("mania"), nextStatus);
-      await queryClient.invalidateQueries({ queryKey: settingsQueryKey });
-      similarityQuery.reset();
-      similarityRecommendation.reset();
-      setResponse(null);
-      setRecommendationResponse(null);
-      setSelectedResultKey(null);
-    } catch (error) {
-      setConfigurationError(errorMessage(error));
-    } finally {
-      setConfiguring(false);
-    }
-  }
-
-  function resetResults() {
+  function resetResultState() {
     recommendationRun.current += 1;
-    setRecommendationCompleting(false);
-    similarityQuery.reset();
-    similarityRecommendation.reset();
-    setResponse(null);
-    setRecommendationResponse(null);
-    setSelectedResultKey(null);
-    setBatches({ 4: 0, 6: 0, 7: 0 });
+    similarityQuery.reset(); similarityRecommendation.reset();
+    setResponse(null); setRecommendation(null); setSelectedKey(null); setRecommendationCompleting(false); setNotice(null);
   }
-
-  function switchSource(kind: "beatmap_id" | "local_file") {
-    resetResults();
-    setRequest((current) => ({ ...current, source: kind === "beatmap_id" ? { kind: "beatmap_id", value: "" } : { kind: "local_file", path: "" } }));
+  function runSource(source: SimilaritySource) {
+    resetResultState();
+    const next: ManiaSimilarityQueryRequest = { ...request, source };
+    setRequest(next);
+    similarityQuery.mutate(next, { onSuccess: (value) => { if (value.ruleset !== "mania") return; setResponse(value); setActiveKeyCount(value.target.key_count); } });
   }
-
-  function selectTargetMod(targetMod: ManiaGameMod) {
-    setRequest((current) => ({
-      ...current,
-      target_mod: targetMod,
-      candidate_mods: current.candidate_mods.length > 1 ? current.candidate_mods : [targetMod],
-    }));
-  }
-
-  function setMixedModPool(enabled: boolean) {
-    setRequest((current) => ({
-      ...current,
-      candidate_mods: enabled ? [...MANIA_MODS] : [current.target_mod],
-    }));
-  }
-
-  async function chooseOsuFile() {
-    const path = await desktopApi.chooseSimilarityBeatmapFile();
-    if (path) setRequest((current) => ({ ...current, source: { kind: "local_file", path } }));
-  }
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const value = request.source.kind === "beatmap_id" ? request.source.value.trim() : request.source.path.trim();
-    if (!value) return;
-    resetResults();
-    const nextRequest: ManiaSimilarityQueryRequest = {
-      ...request,
-      source: request.source.kind === "beatmap_id" ? { kind: "beatmap_id", value } : { kind: "local_file", path: value },
-    };
-    similarityQuery.mutate(nextRequest, { onSuccess: (nextResponse) => {
-      if (nextResponse.ruleset !== "mania") return;
-      setResponse(nextResponse);
-      setActiveKeyCount(nextResponse.target.key_count);
-    } });
-  }
+  async function chooseFile() { const path = await desktopApi.chooseSimilarityBeatmapFile(); if (path) runSource({ kind: "local_file", path }); }
+  function selectTargetMod(targetMod: ManiaGameMod) { setRequest((current) => ({ ...current, target_mod: targetMod, candidate_mods: current.candidate_mods.length > 1 ? current.candidate_mods : [targetMod] })); }
+  function setMixedMods(enabled: boolean) { setRequest((current) => ({ ...current, candidate_mods: enabled ? [...MANIA_MODS] : [current.target_mod] })); }
 
   function recommend(kind: SimilarityRecommendationKind) {
     const run = recommendationRun.current + 1;
-    recommendationRun.current = run;
-    setConfigurationError(null);
-    setResponse(null);
-    setRecommendationResponse(null);
-    setSelectedResultKey(null);
-    setBatches({ 4: 0, 6: 0, 7: 0 });
-    setRecommendationCompleting(false);
-    similarityQuery.reset();
-    const excludedBeatmapIds = [...getTodayRecommendedBeatmapIds("mania")];
-    const quickDisplayedBeatmapIds = new Set<number>();
-    const withoutTodayHistory = (nextResponse: ManiaSimilarityRecommendationResponse): ManiaSimilarityRecommendationResponse => ({
-      ...nextResponse,
-      groups: nextResponse.groups.map((group) => ({
-        ...group,
-        results: excludeTodayRecommendedResults(
-          group.results,
-          "mania",
-          quickDisplayedBeatmapIds,
-        ),
-      })),
-    });
-    const showQuickResponse = (nextResponse: ManiaSimilarityRecommendationResponse) => {
-      const visible = withoutTodayHistory(nextResponse);
-      const firstVisibleGroup = visible.groups.find((group) => group.results.length);
-      for (const group of visible.groups) {
-        for (const result of group.results.slice(0, resultsPerPage)) {
-          quickDisplayedBeatmapIds.add(result.beatmap_id);
-        }
-      }
-      setRecommendationResponse(visible);
-      setActiveKeyCount(firstVisibleGroup?.key_count ?? 4);
-    };
-    const fullRequest = { ruleset: "mania" as const, kind, result_limit: request.result_limit, excluded_beatmap_ids: excludedBeatmapIds, candidate_mods: request.candidate_mods };
-    const fullCacheKey = similarityRecommendationKey(fullRequest);
-    const complete = (nextResponse: ManiaSimilarityRecommendationResponse) => {
-      if (recommendationRun.current !== run) return;
-      const visible = withoutTodayHistory(nextResponse);
-      queryClient.setQueryData(fullCacheKey, nextResponse);
-      setRecommendationResponse(visible);
-      setActiveKeyCount(visible.groups.find((group) => group.results.length)?.key_count ?? 4);
-      setRecommendationCompleting(false);
-    };
-    const cached = queryClient.getQueryData<ManiaSimilarityRecommendationResponse>(fullCacheKey);
+    resetResultState(); recommendationRun.current = run;
+    const clean = (value: ManiaSimilarityRecommendationResponse): ManiaSimilarityRecommendationResponse => ({ ...value, groups: value.groups.map((group) => ({ ...group, results: excludeTodayRecommendedResults(group.results, "mania") })) });
+    const fullRequest = { ruleset: "mania" as const, kind, result_limit: request.result_limit, excluded_beatmap_ids: [...getTodayRecommendedBeatmapIds("mania")], candidate_mods: request.candidate_mods };
+    const fullKey = similarityRecommendationKey(fullRequest);
+    const complete = (value: ManiaSimilarityRecommendationResponse) => { if (recommendationRun.current !== run) return; queryClient.setQueryData(fullKey, value); const cleaned = clean(value); setRecommendation((current) => mergeRecommendation(current, cleaned)); setActiveKeyCount((current) => cleaned.groups.some((group) => group.key_count === current && group.results.length) ? current : cleaned.groups.find((group) => group.results.length)?.key_count ?? 4); setRecommendationCompleting(false); };
+    const cached = queryClient.getQueryData<ManiaSimilarityRecommendationResponse>(fullKey);
     if (cached) { complete(cached); return; }
-
     const quickRequest = { ...fullRequest, result_limit: 5, seed_limit: 5 };
-    const quickCacheKey = similarityRecommendationKey(quickRequest);
-    const finishInBackground = () => {
-      if (fullRequest.result_limit <= 5) return;
-      setRecommendationCompleting(true);
-      void desktopApi.recommendSimilarBeatmaps(fullRequest).then((nextResponse) => {
-        if (nextResponse.ruleset === "mania") complete(nextResponse);
-      }).catch(() => { if (recommendationRun.current === run) setRecommendationCompleting(false); });
-    };
-    const quickCached = queryClient.getQueryData<ManiaSimilarityRecommendationResponse>(quickCacheKey);
-    if (quickCached) {
-      showQuickResponse(quickCached);
-      finishInBackground();
-      return;
-    }
-    similarityRecommendation.mutate(quickRequest, { onSuccess: (nextResponse) => {
-      if (recommendationRun.current !== run || nextResponse.ruleset !== "mania") return;
-      queryClient.setQueryData(quickCacheKey, nextResponse);
-      showQuickResponse(nextResponse);
-      finishInBackground();
-    } });
+    const quickKey = similarityRecommendationKey(quickRequest);
+    const finish = () => { if (fullRequest.result_limit <= 5) return; setRecommendationCompleting(true); void desktopApi.recommendSimilarBeatmaps(fullRequest).then((value) => { if (value.ruleset === "mania") complete(value); }).catch((error) => { if (recommendationRun.current === run) { setRecommendationCompleting(false); setNotice(errorMessage(error)); } }); };
+    const quickCached = queryClient.getQueryData<ManiaSimilarityRecommendationResponse>(quickKey);
+    if (quickCached) { const value = clean(quickCached); setRecommendation(value); setActiveKeyCount(value.groups.find((group) => group.results.length)?.key_count ?? 4); finish(); return; }
+    similarityRecommendation.mutate(quickRequest, { onSuccess: (value) => { if (recommendationRun.current !== run || value.ruleset !== "mania") return; queryClient.setQueryData(quickKey, value); const cleaned = clean(value); setRecommendation(cleaned); setActiveKeyCount(cleaned.groups.find((group) => group.results.length)?.key_count ?? 4); finish(); } });
   }
 
-  async function downloadResults(results: ManiaSimilarityResult[]) {
-    if (!results.length) return;
-    let destination = quickDownloadDirectory ?? settings.data?.beatmap_download_directory ?? "";
-    if (!destination) {
-      destination = await desktopApi.chooseBeatmapDownloadDirectory(null) ?? "";
-      if (!destination) return;
-      setQuickDownloadDirectory(destination);
-      if (settings.data) {
-        const saved = await desktopApi.updateSettings({ ...settings.data, beatmap_download_directory: destination });
-        queryClient.setQueryData(settingsQueryKey, saved);
-      }
-    }
-    setConfigurationError(null);
-    setDownloadNotice(null);
-    setQuickDownloadId(results.length === 1 ? results[0].beatmap_id : -1);
-    try {
-      const downloaded = await desktopApi.downloadOnlineBeatmapsets({
-        destination,
-        provider: resolveDefaultDownloadProvider(settings.data),
-        overwrite: false,
-        include_video: settings.data?.include_video_in_beatmap_downloads ?? true,
-        items: Array.from(new Map(results.map((result) => [result.beatmapset_id, { beatmapset_id: result.beatmapset_id, artist: result.artist, title: result.title }])).values()),
-      });
-      setDownloadNotice(downloaded.completed > 0 ? `已下载 ${downloaded.completed} 个谱面集到：${downloaded.destination}` : `下载已处理；保存位置：${downloaded.destination}`);
-    } catch (error) {
-      setConfigurationError(errorMessage(error));
-    } finally {
-      setQuickDownloadId(null);
-    }
+  async function chooseIndex() {
+    const directory = await desktopApi.chooseDirectory("选择 osu!mania 相似谱面索引目录", status.directory ?? undefined); if (!directory) return;
+    setConfiguring(true); setNotice(null);
+    try { const value = await desktopApi.configureSimilarityIndex("mania", directory); queryClient.setQueryData(similarityIndexStatusKey("mania"), value); await queryClient.invalidateQueries({ queryKey: settingsQueryKey }); resetResultState(); }
+    catch (error) { setNotice(errorMessage(error)); } finally { setConfiguring(false); }
   }
 
-  function openOnlineBeatmap(result: ManiaSimilarityResult) {
-    saveManiaSimilaritySession({ request, response, recommendationResponse, selectedResultKey, activeKeyCount, batches, scrollY: window.scrollY || null });
-    navigate(onlineBeatmapRouteForSimilarityResult(result), { state: { returnTo: "/online/similar" } });
+  async function download(result: ManiaSimilarityResult) {
+    if (!result.online_url) return;
+    let destination = downloadDirectory ?? settings.data?.beatmap_download_directory ?? "";
+    if (!destination) { destination = await desktopApi.chooseBeatmapDownloadDirectory(null) ?? ""; if (!destination) return; setDownloadDirectory(destination); if (settings.data) { const saved = await desktopApi.updateSettings({ ...settings.data, beatmap_download_directory: destination }); queryClient.setQueryData(settingsQueryKey, saved); } }
+    setDownloadId(result.beatmap_id); setDownloadNotice(null);
+    try { const value = await desktopApi.downloadOnlineBeatmapsets({ destination, provider: resolveDefaultDownloadProvider(settings.data), overwrite: false, include_video: settings.data?.include_video_in_beatmap_downloads ?? true, items: [{ beatmapset_id: result.beatmapset_id, artist: result.artist, title: result.title }] }); setDownloadNotice(value.completed ? `已下载到：${value.destination}` : `下载已处理；保存位置：${value.destination}`); }
+    catch (error) { setNotice(errorMessage(error)); } finally { setDownloadId(null); }
   }
-
   async function togglePreview(result: ManiaSimilarityResult) {
-    if (playingId === result.beatmap_id && audioRef.current) {
-      audioRef.current.pause(); audioRef.current = null; setPlayingId(null); return;
-    }
+    if (!result.online_url) return;
+    if (playingId === result.beatmap_id && audioRef.current) { audioRef.current.pause(); audioRef.current = null; setPlayingId(null); return; }
     setPreviewLoadingId(result.beatmap_id);
-    try {
-      const beatmapset = await desktopApi.getOnlineBeatmapset(result.beatmapset_id);
-      const source = normalizePreviewUrl(beatmapset.preview_url);
-      if (!source) return;
-      audioRef.current?.pause();
-      const audio = new Audio(source);
-      audio.volume = previewVolume / 100;
-      audio.onended = () => setPlayingId(null);
-      audio.onerror = () => setPlayingId(null);
-      audioRef.current = audio;
-      setPlayingId(result.beatmap_id);
-      await audio.play();
-    } catch (error) {
-      setConfigurationError(errorMessage(error));
-      audioRef.current = null;
-      setPlayingId(null);
-    } finally {
-      setPreviewLoadingId(null);
-    }
+    try { const beatmapset = await desktopApi.getOnlineBeatmapset(result.beatmapset_id); const url = normalizePreviewUrl(beatmapset.preview_url); if (!url) throw new Error("该谱面没有可用试听音频"); audioRef.current?.pause(); const audio = new Audio(url); audio.volume = previewVolume / 100; audio.onended = () => setPlayingId(null); audio.onerror = () => setPlayingId(null); audioRef.current = audio; setPlayingId(result.beatmap_id); await audio.play(); }
+    catch (error) { setNotice(errorMessage(error)); setPlayingId(null); audioRef.current = null; } finally { setPreviewLoadingId(null); }
   }
+  function openOnline(result: ManiaSimilarityResult) { if (!result.online_url) return; maniaSession = { request, response, recommendation, selectedKey: resultKey(result), activeKeyCount }; navigate(onlineBeatmapRouteForSimilarityResult(result), { state: { returnTo: "/online/similar" } }); }
 
-  function showNextBatch() {
-    const nextBatch = (activeResultBatch + 1) % resultBatchCount;
-    setBatches((current) => ({ ...current, [activeKeyCount]: nextBatch }));
-    const next = allResults[nextBatch * resultsPerPage];
-    setSelectedResultKey(next ? maniaResultKey(next) : null);
-  }
+  if (statusQuery.isLoading) return <><PageHeader title="相似谱面" description="正在检查本地 Mania 相似谱面索引。" /><EmptyState title="正在校验 Mania 索引" description="正在以只读方式检查本机配置。" icon={<RefreshCw className="animate-spin" size={22} />} /></>;
+  if (status.state !== "ready") return <><PageHeader title="相似谱面" description="从本地私有索引中寻找特征相近的 osu!mania 谱面。" />{notice ? <p className="online-notice" role="alert">{notice}</p> : null}<IndexUnavailable status={status} busy={configuring || statusQuery.isFetching} onChoose={() => void chooseIndex()} onRetry={() => void statusQuery.refetch()} /></>;
 
-  if (statusQuery.isLoading) {
-    return <><PageHeader title="相似谱面" description="从本地私有索引中寻找特征相近的 osu!mania 谱面。" /><EmptyState description="正在以只读方式检查本机配置。" icon={<RefreshCw className="animate-spin" size={22} />} title="正在校验 Mania 索引" /></>;
-  }
-
-  return (
-    <>
-      <Dialog.Root open={historyOpen} onOpenChange={(open) => { setHistoryOpen(open); if (open) setRecommendationHistory(getTodayRecommendationHistory("mania")); }}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[260] bg-black/70 backdrop-blur-sm" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[270] flex max-h-[min(760px,calc(100vh-32px))] w-[min(760px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#101724] shadow-2xl outline-none">
-            <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] p-6"><div><Dialog.Title className="text-lg font-semibold text-white">今日 Mania 推荐历史</Dialog.Title><Dialog.Description className="mt-1 text-sm text-slate-400">按 Mania 模式独立记录，共 {recommendationHistory.length} 张。</Dialog.Description></div><Dialog.Close aria-label="关闭今日推荐历史" className="text-slate-500 transition hover:text-white"><X className="size-5" /></Dialog.Close></div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">
-              {recommendationHistory.length ? <div className="space-y-2">{recommendationHistory.map(({ displayed_at, key_count, result }) => <button className="flex w-full items-center gap-4 rounded-xl border border-white/[0.06] bg-black/10 px-4 py-3 text-left transition hover:border-cyan-300/20 hover:bg-white/[0.04]" key={result.beatmap_id} onClick={() => { setHistoryOpen(false); if (result.ruleset === "mania") openOnlineBeatmap(result); }} type="button"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-slate-100">{result.artist} - {result.title}</p><p className="mt-1 truncate text-xs text-slate-500">{key_count}K · [{result.version}] · {result.creator}</p></div><time className="shrink-0 text-xs text-slate-500">{new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: APP_TIME_ZONE }).format(new Date(displayed_at))}</time></button>)}</div> : <EmptyState title="今天还没有 Mania 推荐记录" description="当一页推荐谱面完整展示后，会自动出现在这里。" />}
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-
-      <PageHeader
-        title="相似谱面"
-        description="先按 Analyzer 的键数、family 与 pattern 分类，再在分类内排序；支持 NM / DT / HT 同池检索。"
-        actions={<div className="flex items-center gap-2"><Button onClick={() => navigate("/local/maps")} size="sm" variant="secondary"><MapIcon className="size-3.5" />前往本地谱面</Button><InfoTip text="DT / HT 会从索引目录 beatmaps 下的 .osu 源文件重算时间轴与特征；难度分位不是官方星数。" /></div>}
-      />
-
-      {configurationError ? <div className="mb-5 rounded-xl border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">{configurationError}</div> : null}
-      {downloadNotice ? <div className="mb-5 rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100">{downloadNotice}</div> : null}
-
-      {status.state !== "ready" ? (
-        <ManiaIndexUnavailable status={status} busy={configuring || statusQuery.isFetching} onChoose={() => void chooseIndexDirectory()} onRetry={() => void statusQuery.refetch()} />
-      ) : (
-        <>
-          <Card className="mb-4 flex items-center justify-between gap-4 border-white/[0.055] bg-black/[0.06] px-4 py-2.5">
-            <div className="min-w-0 text-xs text-slate-500"><span className="mr-2 inline-flex items-center gap-1.5 text-slate-400"><span className="size-1.5 rounded-full bg-emerald-400/70" />Mania 索引已就绪</span><span>{status.record_count == null ? "已通过本机只读校验" : `共 ${status.record_count.toLocaleString()} 条记录`}{KEY_COUNTS.map((keyCount) => status.records_by_key_count?.[keyCount] == null ? "" : ` · ${keyCount}K ${status.records_by_key_count[keyCount]!.toLocaleString()}`).join("")}{status.analyzer_version == null ? "" : ` · Analyzer v${status.analyzer_version}`} · {formatDataCutoff(status.data_cutoff_at)}</span></div>
-            <div className="flex gap-2"><Button type="button" size="sm" variant="ghost" onClick={() => void statusQuery.refetch()} disabled={statusQuery.isFetching}><RefreshCw size={14} />重新校验</Button><Button type="button" size="sm" variant="ghost" onClick={() => void chooseIndexDirectory()} disabled={configuring}><FolderOpen size={14} />更换目录</Button></div>
-          </Card>
-
-          <Card className="mb-5 p-5">
-            <div className="mb-5 border-b border-white/[0.07] pb-5">
-              <div className="mb-3"><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">为你推荐</span><p className="mt-1 text-xs text-slate-400">最近成绩与 BP 会按 4K、6K、7K 分组，每组独立推荐和分页。</p></div>
-              <div className="flex flex-wrap gap-2"><Button type="button" variant="primary" disabled={similarityQuery.isPending || similarityRecommendation.isPending} loading={similarityRecommendation.isPending && similarityRecommendation.variables?.kind === "recent"} onClick={() => recommend("recent")}><History size={16} />根据最近游玩推荐</Button><Button type="button" disabled={similarityQuery.isPending || similarityRecommendation.isPending} loading={similarityRecommendation.isPending && similarityRecommendation.variables?.kind === "best"} onClick={() => recommend("best")}><Trophy size={16} />根据你的 BP 推荐</Button><Button type="button" variant="ghost" onClick={() => { setRecommendationHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }}><History size={16} />今日推荐历史</Button></div>
-            </div>
-            <form onSubmit={submit}>
-              <div className="mb-5 inline-flex rounded-lg border border-white/[0.08] bg-black/15 p-1" role="tablist" aria-label="参考谱面输入方式"><Button type="button" role="tab" aria-selected={request.source.kind === "beatmap_id"} size="sm" variant={request.source.kind === "beatmap_id" ? "primary" : "ghost"} onClick={() => switchSource("beatmap_id")}>ID / 链接</Button><Button type="button" role="tab" aria-selected={request.source.kind === "local_file"} size="sm" variant={request.source.kind === "local_file" ? "primary" : "ghost"} onClick={() => switchSource("local_file")}>本地 .osu</Button></div>
-              <div className="flex items-end gap-3">
-                <label className="min-w-0 flex-1 text-xs text-slate-400"><span className="mb-1.5 block">{request.source.kind === "beatmap_id" ? "Beatmap ID 或 osu! 链接" : "osu!mania 谱面文件"}</span><input className="opp-input" value={request.source.kind === "beatmap_id" ? request.source.value : request.source.path} placeholder={request.source.kind === "beatmap_id" ? "例如 1234567 或 https://osu.ppy.sh/beatmaps/1234567" : "选择一个 4K、6K 或 7K .osu 文件"} readOnly={request.source.kind === "local_file"} onChange={(event) => setRequest((current) => ({ ...current, source: { kind: "beatmap_id", value: event.target.value } }))} /></label>
-                {request.source.kind === "local_file" ? <Button type="button" onClick={() => void chooseOsuFile()}><Upload size={16} />选择文件</Button> : null}
-                <Button variant="primary" type="submit" disabled={!(request.source.kind === "beatmap_id" ? request.source.value : request.source.path).trim() || similarityQuery.isPending || similarityRecommendation.isPending}><Search size={16} />{similarityQuery.isPending ? "检索中…" : "查找相似谱面"}</Button>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-white/[0.07] bg-black/10 px-4 py-3">
-                <div className="flex items-center gap-2"><span className="text-xs text-slate-500">参考 Mod</span>{MANIA_MODS.map((gameMod) => <Button aria-pressed={request.target_mod === gameMod} key={gameMod} onClick={() => selectTargetMod(gameMod)} size="sm" type="button" variant={request.target_mod === gameMod ? "primary" : "ghost"}>{gameMod}</Button>)}</div>
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300"><input checked={request.candidate_mods.length > 1} className="accent-[var(--theme-primary)]" onChange={(event) => setMixedModPool(event.target.checked)} type="checkbox" />NM / DT / HT 多 Mod 混池</label>
-                <span className="text-xs text-slate-500">当前候选：{request.candidate_mods.join(" + ")}</span>
-              </div>
-            </form>
-          </Card>
-
-          {similarityQuery.error || similarityRecommendation.error ? <div className="mb-5 rounded-xl border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">{errorMessage(similarityQuery.error ?? similarityRecommendation.error)}</div> : null}
-
-          {response || recommendationResponse ? (
-            <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-              <div className="min-w-0">
-                {recommendationResponse ? (
-                  <Card className="mb-5 p-5"><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">Mania 个性化推荐</span><h2 className="mt-2 text-lg font-semibold text-white">{recommendationResponse.kind === "recent" ? "根据最近游玩生成" : "根据你的 BP 生成"}</h2><p className="mt-1 text-sm text-slate-400">已使用 {recommendationResponse.seed_count} 张参考谱面{recommendationResponse.skipped_seed_count ? `，跳过 ${recommendationResponse.skipped_seed_count} 张不支持或无法读取的谱面` : ""}</p>{recommendationCompleting ? <p className="mt-3 flex items-center gap-2 text-xs text-[var(--theme-primary-light)]"><LoaderCircle className="size-3.5 animate-spin" />已按键数优先展示首批结果，正在后台完善更多推荐</p> : null}</Card>
-                ) : response ? (
-                  <Card className="similarity-reference-summary mb-4 grid items-center gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_230px]"><div><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--theme-primary)]">Mania 参考谱面</span><h2 className="mt-2 text-lg font-semibold text-white">{response.target.key_count}K · {response.target.game_mod} · {response.target.version || "本地谱面"}</h2><p className="mt-1 text-sm text-slate-400">{response.target.artist} — {response.target.title}</p><div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400"><span>{response.target.family.toUpperCase()} / {response.target.pattern}</span><span>同键数难度分位 {percentileLabel(response.target.difficulty_percentile)}</span><span>BPM {Math.round(response.target.base.bpm)}</span><span>有效长度 {durationLabel(response.target.base.active_length_seconds)}</span></div></div><SimilarityRadar compact target={response.target.difficulty} /></Card>
-                ) : null}
-
-                {recommendationResponse ? <div className="mb-4 inline-flex rounded-lg border border-white/[0.08] bg-black/15 p-1" role="tablist" aria-label="Mania 键数分组">{KEY_COUNTS.map((keyCount) => { const group = recommendationResponse.groups.find((item) => item.key_count === keyCount); const first = group?.results[0]; return <Button aria-selected={activeKeyCount === keyCount} key={keyCount} onClick={() => { setActiveKeyCount(keyCount); setSelectedResultKey(first ? maniaResultKey(first) : null); }} role="tab" size="sm" type="button" variant={activeKeyCount === keyCount ? "primary" : "ghost"}>{keyCount}K · {group?.results.length ?? 0}<span className="ml-1 text-[10px] opacity-60">({group?.seed_count ?? 0} seeds)</span></Button>; })}</div> : null}
-
-                <div className="mb-3 flex items-end justify-between gap-3"><div><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">推荐结果</span><h2 className="mt-1 text-base font-semibold text-white">{allResults.length} 个 {activeKeyCount}K 相似谱面集</h2></div><div className="flex flex-wrap items-center justify-end gap-2"><span className="text-sm text-slate-500">第 {activeResultBatch + 1} / {resultBatchCount} 批</span>{allResults.length > resultsPerPage ? <Button disabled={quickDownloadId !== null} onClick={showNextBatch} size="sm"><RefreshCw className="size-3.5" />换一批</Button> : null}<Button disabled={!visibleResults.length || quickDownloadId !== null} loading={quickDownloadId === -1} onClick={() => void downloadResults(visibleResults)} size="sm" variant="primary"><Download className="size-3.5" />下载本批</Button></div></div>
-
-                {allResults.length ? <div className="space-y-3">{visibleResults.map((result) => <SimilarityResultCard key={maniaResultKey(result)} result={result} recommendedBy={activeGroup?.results.find((item) => maniaResultKey(item) === maniaResultKey(result))?.recommended_by} selected={selected ? maniaResultKey(selected) === maniaResultKey(result) : false} onSelect={() => setSelectedResultKey(maniaResultKey(result))} onDownload={() => void downloadResults([result])} onAddToCollection={() => openCollectionDialog([{ beatmap_id: result.beatmap_id, beatmapset_id: result.beatmapset_id, checksum: null, ruleset: result.ruleset, difficulty_name: `${result.version} +${result.game_mod}`, title: result.title, artist: result.artist, creator: result.creator }])} downloading={quickDownloadId === result.beatmap_id} downloadDisabled={quickDownloadId !== null} onOpen={() => openOnlineBeatmap(result)} onPreview={() => void togglePreview(result)} playing={playingId === result.beatmap_id} previewLoading={previewLoadingId === result.beatmap_id} />)}</div> : <EmptyState title={`没有可展示的 ${activeKeyCount}K 推荐`} description="该键数组可能没有可用参考成绩，或今天已展示过全部候选；可切换其他键数组。" />}
-              </div>
-
-              {selected && comparisonTarget ? <SimilarityComparisonPanel selected={selected} target={comparisonTarget} recommendedBy={recommendedBy} dynamicProfile={null} onOpen={() => openOnlineBeatmap(selected)} /> : null}
-            </section>
-          ) : null}
-        </>
-      )}
-    </>
-  );
+  const busy = similarityQuery.isPending || similarityRecommendation.isPending;
+  const showHome = !response && !recommendation;
+  const modControls = <div className="flex flex-wrap items-center gap-2">{MANIA_MODS.map((gameMod) => <Button key={gameMod} size="sm" type="button" variant={request.target_mod === gameMod ? "primary" : "ghost"} aria-pressed={request.target_mod === gameMod} onClick={() => selectTargetMod(gameMod)}>{gameMod}</Button>)}<label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" aria-label="NM / DT / HT 多 Mod 混池" checked={request.candidate_mods.length > 1} onChange={(event) => setMixedMods(event.target.checked)} />多 Mod</label></div>;
+  const keyTabs = recommendation ? <div className="flex gap-1" role="tablist" aria-label="Mania 键数分组">{KEY_COUNTS.map((keyCount) => { const group = recommendation.groups.find((item) => item.key_count === keyCount); return <Button key={keyCount} size="sm" role="tab" aria-selected={activeKeyCount === keyCount} variant={activeKeyCount === keyCount ? "primary" : "ghost"} onClick={() => { setActiveKeyCount(keyCount); setSelectedKey(null); }}>{keyCount}K · {group?.results.length ?? 0}</Button>; })}</div> : null;
+  return <>
+    <SimilarityHistoryDialog open={historyOpen} title="今日 Mania 推荐历史" entries={history} onClose={() => setHistoryOpen(false)} onChoose={(result: AnySimilarityResult) => { if (result.ruleset === "mania" && result.online_url) { setHistoryOpen(false); openOnline(result); } }} />
+    <SimilarityMessage message={notice ?? (similarityQuery.error || similarityRecommendation.error ? errorMessage(similarityQuery.error ?? similarityRecommendation.error) : null)} onClose={() => { setNotice(null); similarityQuery.reset(); similarityRecommendation.reset(); }} />
+    <SimilarityMessage message={downloadNotice} tone="status" onClose={() => setDownloadNotice(null)} />
+    {showHome ? <><SimilarityHome busy={busy} ruleset="mania" searchValue={searchText} onSearchValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} onRecommend={recommend} onHistory={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }} status={<><span>Mania 索引已就绪 · {status.record_count?.toLocaleString() ?? "已校验"} 条记录</span><button type="button" onClick={() => void statusQuery.refetch()}>重新校验</button><button type="button" onClick={() => void chooseIndex()}>更换目录</button></>} /><div className="mx-auto -mt-16 flex max-w-[820px] justify-center">{modControls}</div></> : stageResult && source ? <SimilarityStage
+      result={stageResult} source={source} index={selectedIndex} total={results.length || unfilteredResults.length} emptyMessage={results.length ? null : "请重新打开筛选调整条件；来源谱面和当前舞台会保持不变。"} recommendation={Boolean(recommendation)} playing={playingId === stageResult.beatmap_id} previewLoading={previewLoadingId === stageResult.beatmap_id} downloading={downloadId === stageResult.beatmap_id} completing={recommendationCompleting}
+      adjacentBeatmapsetIds={[...[results[selectedIndex - 1], results[selectedIndex + 1]].filter((item) => item?.online_url).map((item) => item.beatmapset_id)]}
+      onHome={resetResultState}
+      onDisplayed={() => { if (recommendation && selected) recordDisplayedRecommendation(selected, "mania"); }}
+      onPrevious={() => setSelectedKey(results[selectedIndex - 1] ? resultKey(results[selectedIndex - 1]) : null)} onNext={() => setSelectedKey(results[selectedIndex + 1] ? resultKey(results[selectedIndex + 1]) : null)} onPreview={() => void togglePreview(stageResult)} onDownload={() => void download(stageResult)}
+      onCollect={() => { if (!stageResult.online_url) return; openCollectionDialog([{ beatmap_id: stageResult.beatmap_id, beatmapset_id: stageResult.beatmapset_id, checksum: null, ruleset: stageResult.ruleset, difficulty_name: `${stageResult.version} +${stageResult.game_mod}`, title: stageResult.title, artist: stageResult.artist, creator: stageResult.creator }]); }}
+      toolbar={<><SimilaritySearch compact busy={busy} ruleset="mania" value={searchText} onValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} /><ManiaCandidateFilters value={filters} onChange={setFilters} total={unfilteredResults.length} visible={results.length} />{keyTabs}<Button size="sm" variant="ghost" onClick={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }}>历史</Button></>}
+      details={<div className="flex flex-wrap items-center gap-2">{modControls}</div>}
+    /> : <div className="p-8"><div className="mb-4 flex flex-wrap items-center justify-center gap-3"><SimilaritySearch compact busy={busy} ruleset="mania" onChoose={runSource} onChooseFile={() => void chooseFile()} /><ManiaCandidateFilters value={filters} onChange={setFilters} total={unfilteredResults.length} visible={results.length} />{keyTabs}</div><EmptyState title={`没有符合条件的 ${activeKeyCount}K 候选`} description="可清除候选过滤条件、切换键数，或换一张参考谱面。" /></div>}
+  </>;
 }

@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::{CacheRecord, PersistedState},
+    domain::{AppSettings, CacheRecord, PersistedState},
     error::{CommandError, CommandResult},
 };
 
@@ -71,10 +71,20 @@ impl StateStore {
 
     /// 返回一致的内存快照，不会触发磁盘写入。
     pub fn snapshot(&self) -> CommandResult<PersistedState> {
+        self.read(Clone::clone)
+    }
+
+    /// 只复制调用方需要的字段。闭包必须短小，不执行 I/O 或其他长任务。
+    pub fn read<R>(&self, select: impl FnOnce(&PersistedState) -> R) -> CommandResult<R> {
         self.value
             .lock()
-            .map(|state| state.clone())
+            .map(|state| select(&state))
             .map_err(|_| CommandError::new("STATE_ERROR", "本地状态锁已损坏"))
+    }
+
+    /// 设置读取不应复制、整理或序列化可能达数十 MB 的响应缓存。
+    pub fn settings_snapshot(&self) -> CommandResult<AppSettings> {
+        self.read(|state| state.settings.clone())
     }
 
     /// 在同一持久化临界区中修改状态、执行缓存淘汰并按需落盘。
@@ -202,6 +212,32 @@ mod tests {
             reloaded.snapshot().expect("snapshot").client_id.as_deref(),
             Some("42")
         );
+    }
+
+    #[test]
+    fn settings_read_does_not_persist_or_prune_response_cache() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let store = StateStore::load(directory.path()).expect("create store");
+        {
+            let mut state = store.value.lock().unwrap();
+            state.settings.onboarding_version = 42;
+            for index in 0..=MAX_CACHE_ENTRIES {
+                state.cache.insert(
+                    index.to_string(),
+                    CacheRecord {
+                        value: json!({ "cached": true }),
+                        fetched_at: Utc::now(),
+                    },
+                );
+            }
+        }
+        assert_eq!(store.settings_snapshot().unwrap().onboarding_version, 42);
+        assert_eq!(
+            store.value.lock().unwrap().cache.len(),
+            MAX_CACHE_ENTRIES + 1
+        );
+        assert!(!store.path.exists());
+        assert!(!store.cache_path.exists());
     }
 
     #[test]

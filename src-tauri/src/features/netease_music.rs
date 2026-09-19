@@ -2,7 +2,7 @@ use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::error::{CommandError, CommandResult};
-use crate::infrastructure::logging::{global, finish_span};
+use crate::infrastructure::logging::{finish_span, global};
 
 /// Opens NetEase Cloud Music's web search in the user's default browser.
 #[tauri::command]
@@ -13,9 +13,8 @@ pub fn open_netease_music_search(
     artist: String,
     title: String,
 ) -> CommandResult<()> {
-    let span = global().map(|logger| {
-        logger.operation("netease_music", "open_netease_music_search")
-    });
+    let span =
+        global().map(|logger| logger.operation("netease_music", "open_netease_music_search"));
 
     // 记录输入参数
     if let Some(ref s) = span {
@@ -24,7 +23,7 @@ pub fn open_netease_music_search(
             Some(serde_json::json!({
                 "artist": artist.trim(),
                 "title": title.trim(),
-            }))
+            })),
         );
     }
 
@@ -52,7 +51,7 @@ pub fn open_netease_music_search(
         if let Some(ref s) = span {
             s.info(
                 "在浏览器中打开搜索 URL",
-                Some(serde_json::json!({ "query": query }))
+                Some(serde_json::json!({ "query": query })),
             );
         }
 

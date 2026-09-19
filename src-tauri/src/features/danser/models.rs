@@ -70,3 +70,10 @@ pub struct DanserRuntime {
     pub(super) cancelled: Mutex<HashSet<String>>,
     pub(super) worker_running: AtomicBool,
 }
+
+impl DanserRuntime {
+    pub(crate) fn is_busy(&self) -> bool {
+        self.worker_running
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+}

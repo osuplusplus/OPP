@@ -1,10 +1,10 @@
-use std::{fs, future::Future, path::Path};
+use std::{fs, path::Path};
 
 use url::Url;
 
 use crate::{
     error::{CommandError, CommandResult},
-    features::online_beatmaps::providers::{ProviderBytes, ProviderRegistry},
+    features::online_beatmaps::providers::ProviderRegistry,
 };
 
 const MAX_OSU_FILE_BYTES: u64 = 16 * 1024 * 1024;
@@ -87,12 +87,7 @@ pub async fn fetch_online_osu(
     providers: &ProviderRegistry,
     beatmap_id: u64,
 ) -> CommandResult<Vec<u8>> {
-    let download = catboy_then_nerinyan(
-        || providers.catboy_osu(beatmap_id),
-        || providers.nerinyan_osu(beatmap_id),
-    )
-    .await
-    .map_err(|_| {
+    let download = providers.official_osu(beatmap_id).await.map_err(|_| {
         CommandError::new(
             "BEATMAP_SOURCE_UNAVAILABLE",
             "目标谱面不在本地索引中，在线获取也失败了，请改用本地 .osu 文件",
@@ -104,28 +99,18 @@ pub async fn fetch_online_osu(
             "在线谱面文件超过 16 MiB，无法即时分析",
         ));
     }
-    Ok(download.bytes)
-}
-
-async fn catboy_then_nerinyan<Primary, PrimaryFuture, Fallback, FallbackFuture>(
-    primary: Primary,
-    fallback: Fallback,
-) -> CommandResult<ProviderBytes>
-where
-    Primary: FnOnce() -> PrimaryFuture,
-    PrimaryFuture: Future<Output = CommandResult<ProviderBytes>>,
-    Fallback: FnOnce() -> FallbackFuture,
-    FallbackFuture: Future<Output = CommandResult<ProviderBytes>>,
-{
-    match primary().await {
-        Ok(download) => Ok(download),
-        Err(_) => fallback().await,
+    if !download.bytes.starts_with(b"osu file format v") {
+        return Err(CommandError::new(
+            "INVALID_BEATMAP_FILE",
+            "osu! 官方返回的内容不是有效的 .osu 谱面文件",
+        ));
     }
+    Ok(download.bytes)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::Cell, fs::File};
+    use std::fs::File;
 
     use super::*;
 
@@ -167,32 +152,5 @@ mod tests {
         let error = read_local_osu(oversized.to_str().expect("osu path"))
             .expect_err("oversized file must be rejected");
         assert_eq!(error.code, "BEATMAP_FILE_TOO_LARGE");
-    }
-
-    #[tokio::test]
-    async fn falls_back_from_catboy_to_nerinyan_in_memory() {
-        let fallback_called = Cell::new(false);
-        let download = catboy_then_nerinyan(
-            || async {
-                Err(CommandError::new(
-                    "CATBOY_OSU_DOWNLOAD_FAILED",
-                    "synthetic failure",
-                ))
-            },
-            || async {
-                fallback_called.set(true);
-                Ok(ProviderBytes {
-                    bytes: b"osu file format v14".to_vec(),
-                    suggested_filename: Some("synthetic.osu".into()),
-                    source: "nerinyan".into(),
-                })
-            },
-        )
-        .await
-        .expect("fallback result");
-
-        assert!(fallback_called.get());
-        assert_eq!(download.source, "nerinyan");
-        assert_eq!(download.bytes, b"osu file format v14");
     }
 }

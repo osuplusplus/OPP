@@ -26,6 +26,12 @@ pub struct CommandError {
     pub origin: Option<String>,
 }
 
+impl From<tauri::Error> for CommandError {
+    fn from(error: tauri::Error) -> Self {
+        Self::from_error("WINDOW_OPERATION_ERROR", error)
+    }
+}
+
 impl CommandError {
     #[track_caller]
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {

@@ -236,7 +236,7 @@ export function BeatmapsetDetailDialog({
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <h3 className="text-sm font-semibold text-white">单谱面难度 / PP</h3>
-                      <p className="mt-1 text-[10px] text-slate-600">选择上方难度后从 Catboy 获取 .osu 文件计算</p>
+                      <p className="mt-1 text-[10px] text-slate-600">选择上方难度后获取 .osu 文件计算</p>
                     </div>
                     <div className="flex gap-2"><Button onClick={() => setShowCalculator(false)} size="sm" variant="ghost">关闭</Button><Button disabled={!selectedBeatmapId} loading={false} onClick={calculate} size="sm">计算</Button></div>
                   </div>

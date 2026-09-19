@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
+  startTransition,
   useCallback,
   createContext,
   useContext,
@@ -46,13 +47,15 @@ export function ModeProvider({ children }: { children: ReactNode }) {
   );
 
   const setRuleset = useCallback((ruleset: Ruleset) => {
-    setRulesetValue(ruleset);
-    setHasRulesetPreference(true);
+    startTransition(() => {
+      setRulesetValue(ruleset);
+      setHasRulesetPreference(true);
+    });
     window.localStorage.setItem(RULESET_STORAGE_KEY, ruleset);
   }, []);
 
   const setClient = useCallback((client: OsuClient) => {
-    setClientValue(client);
+    startTransition(() => setClientValue(client));
     window.localStorage.setItem(CLIENT_STORAGE_KEY, client);
   }, []);
 

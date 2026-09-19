@@ -103,8 +103,11 @@ import type {
   LazerDedupeProgress,
   LazerDedupeResult,
   ObsStatus,
+  OtdStatus,
   PlatformCapabilities,
   NewReplaysDetected,
+  SkillAnalysisRequest,
+  SkillAnalysisResult,
 } from "../types/osu";
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -207,6 +210,18 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_osekai_medal_detail") return { content: [{ Medal_ID: Number(args?.medalId ?? 1), Name: "Preview Medal", Description: "完成一次练习", Instructions: "在 osu! 中完成目标。", Solution: "完成目标即可解锁。", Link: "all-secret-jackpot.png" }] } as T;
   if (command === "get_osekai_medal_beatmaps") return { content: [] } as T;
   if (command === "get_scores") return { data: [], fetched_at: new Date().toISOString(), stale: false } as T;
+  if (command === "get_online_beatmap_background") return null as T;
+  if (command === "analyze_player_skills") return {
+    player: { id: 10001, username: "Preview User", country_code: "CN", avatar_url: "https://a.ppy.sh/10001", avatar_data_url: null },
+    ruleset: "osu",
+    algorithm: { id: "opp-osuskills-standard", version: "1", source: "Public osuSkills model, clean Rust implementation" },
+    skills: { stamina: 286, tenacity: 241, agility: 318, accuracy: 274, precision: 302, reaction: 219, memory: 96, reading: 337 },
+    contributions: [1, 2, 3].map((id, index) => ({
+      beatmap_id: 1000 + id, title: ["Signal Garden", "Night Circuit", "Blue Window"][index], artist: "Preview Artist", version: "Insane", creator: "Preview Mapper", mods: index === 1 ? ["HD", "DT"] : [], pp: 320 - index * 24, accuracy: 98.4 - index * 0.4, combo: 850 - index * 60, max_combo: 902, misses: index, source: index === 2 ? "online" : "local", resource_id: index === 2 ? null : `stable:beatmap:preview-${id}`, skills: { stamina: 260 + index * 8, tenacity: 220 + index * 12, agility: 310 - index * 14, accuracy: 280, precision: 300 - index * 9, reaction: 215 + index * 8, memory: index * 12, reading: 330 - index * 10 }, weighted_skills: { stamina: 250 + index * 5, tenacity: 210 + index * 10, agility: 295 - index * 12, accuracy: 280, precision: 288 - index * 8, reaction: 205 + index * 8, memory: index * 10, reading: 315 - index * 9 }, error: null,
+    })),
+    coverage: { requested_scores: 200, analyzed_scores: 184, local_scores: 156, online_scores: 28, skipped_scores: 16, skipped_reasons: ["部分谱面暂时不可用"] },
+    fetched_at: new Date().toISOString(), stale: false,
+  } as T;
   if (command === "get_game_status") return { clients: [{ client: "stable", running: false, executable: null, detected_at: new Date().toISOString() }, { client: "lazer", running: false, executable: null, detected_at: new Date().toISOString() }] } as T;
   if (command === "get_game_session_status") return null as T;
   if (command === "get_local_sources") return [] as T;
@@ -216,6 +231,7 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_obs_scenes") return ["直播场景", "练习场景"] as T;
   if (command === "refresh_selected_obs_scene") return { refreshed_sources: [], skipped: true, message: "预览模式未连接 OBS" } as T;
   if (command === "get_default_file_clients") return { beatmap: "stable", skin: "stable" } as T;
+  if (command === "get_otd_status") return { installed: false, executable_path: null, daemon_running: false, owned_by_opp: false, version: null, tablet_name: null, config_path: null, config_summary: null, last_error: null } as T;
   if (command === "check_for_updates") return {
     current_version: __APP_VERSION__,
     latest_version: __APP_VERSION__,
@@ -260,7 +276,23 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
       const difficulty = { speed: 0.72, hand_stream: 0.68, jack: 0.44, chordjack: 0.61, technical: 0.57, stamina: 0.64, long_note: 0.18, course: 0.51 };
       const style = { stream: 0.72, chordstream: 0.58, jacks: 0.37, coordination: 0.49, density: 0.66, wildcard: 0.21, chord_rate: 0.34, large_chord_rate: 0.12, rotation_rate: 0.48, anchor_rate: 0.22, rhythm_entropy: 0.59, transition_entropy: 0.54, ln_note_ratio: 0.08, hold_occupancy: 0.06, hybrid_row_ratio: 0.04, peak_to_sustain_gap: 0.31 };
       const base = { bpm: 180, length_seconds: 132, active_length_seconds: 116, note_count: 812, row_count: 687, avg_nps: 7, peak_nps: 12.4, break_density: 0.12, sv_change_rate: 0 };
-      const target = { ruleset: "mania" as const, beatmap_id: 3001, beatmapset_id: 701, artist: "Synthetic Artist", title: "Key Reference", version: "4K Another", creator: "Preview Mapper", online_url: "https://osu.ppy.sh/beatmaps/3001", key_count: 4 as const, family: "rc" as const, pattern: "stream" as const, difficulty, style, base, difficulty_percentile: 0.78, difficulty_band: 7 };
+      const patternView = {
+        category: "Shield",
+        mode_tag: "Mix",
+        coverage: [0.52, 0.31, 0.12, 0.66, 0.48, 0.09],
+        bars: [
+          { pattern: "Coordination", amount: 158_000, relative: 0.66, specific_types: [["Shield", 0.092], ["Chordjack", 0.041]] },
+          { pattern: "Stream", amount: 121_000, relative: 0.51, specific_types: [["Light Stream", 0.28]] },
+          { pattern: "Wildcard", amount: 239_000, relative: 1, specific_types: [] },
+        ],
+        subtypes: [["Shield", 0.092], ["Light Stream", 0.081]],
+        ln_note_ratio: 0.234,
+        intensity: [6.4, 12.1, 5.2, 18.5],
+        temporal: [0.42, 0.18, 0.12],
+        duration_seconds: 132,
+        sv_amount: 0,
+      };
+      const target = { ruleset: "mania" as const, beatmap_id: 3001, beatmapset_id: 701, artist: "Synthetic Artist", title: "Key Reference", version: "4K Another", creator: "Preview Mapper", online_url: "https://osu.ppy.sh/beatmaps/3001", key_count: 4 as const, family: "rc" as const, pattern: "stream" as const, difficulty, style, base, difficulty_percentile: 0.78, difficulty_band: 7, game_mod: "target_mod" in similarityRequest ? similarityRequest.target_mod : similarityRequest.candidate_mods[0] ?? "NM", pattern_view: patternView };
       const results = [
         { ...target, beatmap_id: 3101, beatmapset_id: 711, artist: "Parallel Keys", title: "Stream Motion", version: "4K Hyper", difficulty: { ...difficulty, speed: 0.7 }, final_distance: 0.054, distance_components: { skill: 0.04, pattern: 0.06, structure: 0.08, difficulty: 0.03, context: 0.05 } },
         { ...target, beatmap_id: 3102, beatmapset_id: 712, artist: "Night Matrix", title: "Hand Balance", version: "4K Another", family: "hb" as const, pattern: "coordination" as const, final_distance: 0.089, distance_components: { skill: 0.07, pattern: 0.09, structure: 0.11, difficulty: 0.05, context: 0.08 } },
@@ -290,7 +322,8 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     ...(browserPreviewValue<AppSettings>("get_settings") ?? {}),
     ignored_update_version: args?.version,
   } as T;
-  if (["clear_profile_cache", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
+  if (["clear_profile_cache", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
+  if (command === "backup_otd_config") return `${args?.destinationDir ?? "C:\\Export"}/OpenTabletDriver-backup.json` as T;
   return undefined;
 }
 
@@ -371,6 +404,8 @@ export const desktopApi = {
       limit,
       forceRefresh,
     }),
+  analyzePlayerSkills: (request: SkillAnalysisRequest) =>
+    call<SkillAnalysisResult>("analyze_player_skills", { request }),
   searchOnlineBeatmapsets: (query: OnlineBeatmapSearchQuery) =>
     call<OnlineBeatmapSearchResponse>("search_online_beatmapsets", { query }),
   collectOnlineBeatmapsets: (
@@ -380,6 +415,8 @@ export const desktopApi = {
     call<CollectedBeatmapsets>("collect_online_beatmapsets", { query, limit }),
   getOnlineBeatmapset: (beatmapsetId: number) =>
     call<OnlineBeatmapset>("get_online_beatmapset", { beatmapsetId }),
+  getOnlineBeatmapBackground: (beatmapsetId: number) =>
+    call<string | null>("get_online_beatmap_background", { beatmapsetId }),
   getOnlineBeatmap: (beatmapId: number) =>
     call<Record<string, unknown>>("get_online_beatmap", { beatmapId }),
   getOnlineBeatmapProviderStatus: () =>
@@ -465,6 +502,18 @@ export const desktopApi = {
   setDefaultFileClient: (kind: "beatmap" | "skin", client: OsuClient) =>
     call<void>("set_default_file_client", { kind, client }),
   setDisplayGamma: (gamma: number) => call<void>("set_display_gamma", { gamma }),
+  getOtdStatus: () => call<OtdStatus>("get_otd_status"),
+  chooseOtdExecutable: async (current?: string | null) => {
+    if (!isTauri()) return null;
+    const selected = await openDialog({ defaultPath: current ?? undefined, multiple: false, directory: false, title: "选择 OpenTabletDriver 可执行文件", filters: [{ name: "OpenTabletDriver", extensions: ["exe", "AppImage", "bin"] }] });
+    return typeof selected === "string" ? selected : null;
+  },
+  setOtdExecutable: (path: string) => call<OtdStatus>("set_otd_executable", { path }),
+  startOtd: () => call<void>("start_otd"),
+  stopOtd: () => call<void>("stop_otd"),
+  readOtdConfigSummary: () => call<OtdStatus>("read_otd_config_summary"),
+  backupOtdConfig: (destinationDir: string) => call<string>("backup_otd_config", { destinationDir }),
+  openOtd: () => call<void>("open_otd"),
   openNeteaseMusicSearch: (artist: string, title: string) =>
     call<void>("open_netease_music_search", { artist, title }),
   generateTrainerBeatmap: (request: TrainerRequest) =>
@@ -511,6 +560,12 @@ export const desktopApi = {
     call<Page<LocalBeatmapSummary>>("query_local_beatmaps", { query }),
   queryLocalBeatmapSets: (query: BeatmapQuery) =>
     call<Page<LocalBeatmapSetSummary>>("query_local_beatmap_sets", { query }),
+  getLocalBeatmapSet: (client: OsuClient, setKey: string, ruleset: Ruleset) =>
+    call<LocalBeatmapSetSummary>("get_local_beatmap_set", { client, setKey, ruleset }),
+  pickRandomLocalBeatmapSet: (query: BeatmapQuery, excludeSetKey: string | null = null) =>
+    call<LocalBeatmapSetSummary | null>("pick_random_local_beatmap_set", { query, excludeSetKey }),
+  getLocalBeatmapAudio: (client: OsuClient, resourceId: string) =>
+    call<import("../types/osu").LocalBeatmapAudioPayload>("get_local_beatmap_audio", { client, resourceId }),
   getLocalBeatmapDetail: (client: OsuClient, resourceId: string) =>
     call<LocalBeatmapDetail>("get_local_beatmap_detail", {
       client,
@@ -518,10 +573,11 @@ export const desktopApi = {
     }),
   getLocalBeatmapPath: (client: OsuClient, resourceId: string) =>
     call<string>("get_local_beatmap_path", { client, resourceId }),
-  getLocalBeatmapBackground: (client: OsuClient, resourceId: string) =>
+  getLocalBeatmapBackground: (client: OsuClient, resourceId: string, size: "thumbnail" | "stage" = "thumbnail") =>
     call<string | null>("get_local_beatmap_background", {
       client,
       resourceId,
+      size,
     }),
   queryLocalSkins: (query: SkinQuery) =>
     call<Page<LocalSkinSummary>>("query_local_skins", { query }),
@@ -726,7 +782,7 @@ export const desktopApi = {
     beatmapPath: string,
     replayPath: string,
     options: LiveRenderOptions,
-    rect: { x: number; y: number; width: number; height: number },
+    rect: { x: number; y: number; width: number; height: number; viewport_width?: number; viewport_height?: number },
   ) =>
     call<{ durationMs: number }>("live_render_open", {
       beatmapPath,
@@ -735,7 +791,7 @@ export const desktopApi = {
       rect,
     }),
   /** 以谱面 Autoplay 打开实时预览时传入空 replayPath。 */
-  liveRenderMove: (rect: { x: number; y: number; width: number; height: number; suppressed?: boolean }) =>
+  liveRenderMove: (rect: { x: number; y: number; width: number; height: number; viewport_width?: number; viewport_height?: number; suppressed?: boolean }) =>
     call<void>("live_render_move", { rect }),
   liveRenderSeek: (timeMs: number) => call<void>("live_render_seek", { timeMs }),
   liveRenderSetOptions: (options: LiveRenderOptions) =>

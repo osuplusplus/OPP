@@ -90,7 +90,7 @@ async fn query_standard(
     let (indexed_id, bytes, source_label) =
         resolve_standard_source(request.source(), state, &dataset).await?;
 
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let target = if let Some(beatmap_id) = indexed_id {
             dataset.target_for_id(beatmap_id)
         } else {
@@ -120,7 +120,7 @@ async fn query_mania(
     let (indexed_id, bytes, source_beatmap_id, source_label) =
         resolve_mania_source(request.source(), state, &dataset, target_mod).await?;
 
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let target = if let Some(beatmap_id) = indexed_id {
             dataset.target_for_id_with_mod(beatmap_id, target_mod)
         } else {
@@ -263,7 +263,7 @@ async fn recommend_standard(
         .iter()
         .copied()
         .collect::<HashSet<_>>();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let mut batches = Vec::with_capacity(targets.len());
         for target in targets {
             let response = dataset
@@ -327,7 +327,7 @@ async fn recommend_mania(
         .iter()
         .copied()
         .collect::<HashSet<_>>();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         let mut batches = Vec::with_capacity(targets.len());
         for target in targets {
             let results = dataset
@@ -393,7 +393,7 @@ async fn resolve_mania_source(
 }
 
 async fn read_local_source(path: String) -> CommandResult<Vec<u8>> {
-    tauri::async_runtime::spawn_blocking(move || read_local_osu(&path))
+    crate::infrastructure::tasks::background("similarity", move || read_local_osu(&path))
         .await
         .map_err(|_| CommandError::new("BEATMAP_READ_FAILED", "谱面文件读取任务意外停止"))?
 }
@@ -402,7 +402,7 @@ async fn load_standard_dataset(
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
     directory: String,
 ) -> CommandResult<Arc<Dataset>> {
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         runtime
             .standard_dataset(&directory)
             .map_err(map_runtime_error)
@@ -415,7 +415,7 @@ async fn load_mania_dataset(
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
     directory: String,
 ) -> CommandResult<Arc<ManiaDataset>> {
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("similarity", move || {
         runtime.mania_dataset(&directory).map_err(map_runtime_error)
     })
     .await
@@ -475,9 +475,11 @@ async fn inspect(
     ruleset: Ruleset,
     directory: Option<String>,
 ) -> CommandResult<SimilarityIndexStatus> {
-    tauri::async_runtime::spawn_blocking(move || runtime.inspect(ruleset, directory.as_deref()))
-        .await
-        .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "本地索引校验任务意外停止"))
+    crate::infrastructure::tasks::background("similarity", move || {
+        runtime.inspect(ruleset, directory.as_deref())
+    })
+    .await
+    .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "本地索引校验任务意外停止"))
 }
 
 fn required_directory(state: &AppState, ruleset: Ruleset) -> CommandResult<String> {
@@ -525,6 +527,201 @@ fn unsupported_ruleset_error(ruleset: Ruleset) -> CommandError {
         "SIMILARITY_RULESET_UNSUPPORTED",
         format!("相似谱面暂不支持 {ruleset} 模式"),
     )
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    /// Exercises the command's seed acceptance as well as ranking/serialization. No OAuth or
+    /// network is needed: every reference and Mod variant must already exist in the old index.
+    #[tokio::test]
+    #[ignore = "requires LEGACY_MANIA_DATASET with native 4K/6K/7K NM/DT/HT records"]
+    async fn legacy_dataset_still_recommends_without_pattern_records() {
+        let root = std::env::var("LEGACY_MANIA_DATASET").expect("LEGACY_MANIA_DATASET");
+        let metadata =
+            std::fs::canonicalize(std::path::Path::new(&root).join("mania-metadata.sqlite"))
+                .unwrap();
+        let mut uri = url::Url::from_file_path(&metadata).unwrap();
+        uri.set_query(Some("mode=ro&immutable=1"));
+        let connection = rusqlite::Connection::open_with_flags(
+            uri.as_str(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        let ids: Vec<u64> = connection
+            .prepare("SELECT min(beatmap_id) FROM mania_beatmaps WHERE key_count IN (4,6,7) GROUP BY key_count")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(ids.len(), 3);
+        let app_dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(app_dir.path()).unwrap();
+        let dataset = state.similarity.mania_dataset(&root).unwrap();
+        assert!(!dataset.has_pattern_records());
+        for kind in [
+            SimilarityRecommendationKind::Recent,
+            SimilarityRecommendationKind::Best,
+        ] {
+            for mods in [
+                vec![ManiaGameMod::Nm],
+                vec![ManiaGameMod::Dt],
+                vec![ManiaGameMod::Ht],
+                ManiaGameMod::ALL.to_vec(),
+            ] {
+                let seeds: Vec<_> = ids
+                    .iter()
+                    .flat_map(|id| {
+                        mods.iter().map(move |game_mod| ManiaSeed {
+                            beatmap_id: *id,
+                            game_mod: *game_mod,
+                        })
+                    })
+                    .collect();
+                for seed in &seeds {
+                    assert!(dataset.contains_mod(seed.beatmap_id, seed.game_mod));
+                }
+                let response = recommend_mania(
+                    SimilarityRecommendationRequest::Mania {
+                        kind,
+                        result_limit: 5,
+                        seed_limit: None,
+                        excluded_beatmap_ids: Vec::new(),
+                        candidate_mods: mods.clone(),
+                    },
+                    seeds,
+                    0,
+                    root.clone(),
+                    &state,
+                )
+                .await
+                .unwrap();
+                let SimilarityRecommendationResponse::Mania {
+                    seed_count,
+                    skipped_seed_count,
+                    groups,
+                    ..
+                } = response
+                else {
+                    panic!("Mania response")
+                };
+                assert_eq!(seed_count, ids.len() * mods.len());
+                assert_eq!(skipped_seed_count, 0);
+                assert_eq!(groups.len(), 3);
+                for group in groups {
+                    assert!(!group.results.is_empty());
+                    for item in group.results {
+                        assert!(item.recommended_by.pattern_view.is_none());
+                        assert!(item.result.beatmap.pattern_view.is_none());
+                        assert_eq!(item.result.beatmap.key_count, group.key_count);
+                        assert!(mods.contains(&item.result.beatmap.game_mod));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The distributed v4 package intentionally contains no source beatmaps. This verifies the
+    /// application command can still build recent/BP recommendations for every key count and Mod
+    /// pool, and that the serialized response carries the packaged MMA records.
+    #[tokio::test]
+    #[ignore = "requires MMA_PACKAGED_DATASET pointing to an osu-mania-dataset-v4 package"]
+    async fn v4_packaged_dataset_produces_pattern_recommendations() {
+        let root = std::env::var("MMA_PACKAGED_DATASET").expect("MMA_PACKAGED_DATASET");
+        assert!(!std::path::Path::new(&root).join("beatmaps").exists());
+        let metadata =
+            std::fs::canonicalize(std::path::Path::new(&root).join("mania-metadata.sqlite"))
+                .unwrap();
+        let mut uri = url::Url::from_file_path(&metadata).unwrap();
+        uri.set_query(Some("mode=ro&immutable=1"));
+        let connection = rusqlite::Connection::open_with_flags(
+            uri.as_str(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        let ids: Vec<u64> = connection
+            .prepare(
+                "SELECT min(beatmap_id) FROM mania_beatmaps \
+                 WHERE key_count IN (4,6,7) GROUP BY key_count, online_url = ''",
+            )
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            ids.len(),
+            6,
+            "expected online and local-only seeds for 4K/6K/7K"
+        );
+
+        let app_dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(app_dir.path()).unwrap();
+        let dataset = state.similarity.mania_dataset(&root).unwrap();
+        assert!(dataset.has_pattern_records());
+        assert_eq!(dataset.info().record_count, 12_450);
+
+        for kind in [
+            SimilarityRecommendationKind::Recent,
+            SimilarityRecommendationKind::Best,
+        ] {
+            for mods in [
+                vec![ManiaGameMod::Nm],
+                vec![ManiaGameMod::Dt],
+                vec![ManiaGameMod::Ht],
+                ManiaGameMod::ALL.to_vec(),
+            ] {
+                let seeds: Vec<_> = ids
+                    .iter()
+                    .flat_map(|id| {
+                        mods.iter().map(move |game_mod| ManiaSeed {
+                            beatmap_id: *id,
+                            game_mod: *game_mod,
+                        })
+                    })
+                    .collect();
+                let response = recommend_mania(
+                    SimilarityRecommendationRequest::Mania {
+                        kind,
+                        result_limit: 5,
+                        seed_limit: None,
+                        excluded_beatmap_ids: Vec::new(),
+                        candidate_mods: mods.clone(),
+                    },
+                    seeds,
+                    0,
+                    root.clone(),
+                    &state,
+                )
+                .await
+                .unwrap();
+                let SimilarityRecommendationResponse::Mania {
+                    seed_count,
+                    skipped_seed_count,
+                    groups,
+                    ..
+                } = response
+                else {
+                    panic!("Mania response")
+                };
+                assert_eq!(seed_count, ids.len() * mods.len());
+                assert_eq!(skipped_seed_count, 0);
+                assert_eq!(groups.len(), 3);
+                for group in groups {
+                    assert!(group.seed_count > 0);
+                    assert!(!group.results.is_empty());
+                    for item in group.results {
+                        assert!(item.recommended_by.pattern_view.is_some());
+                        assert!(item.result.beatmap.pattern_view.is_some());
+                        assert_eq!(item.result.beatmap.key_count, group.key_count);
+                        assert!(mods.contains(&item.result.beatmap.game_mod));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

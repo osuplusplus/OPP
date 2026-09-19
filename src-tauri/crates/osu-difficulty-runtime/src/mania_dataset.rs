@@ -10,15 +10,21 @@ use rusqlite::{Connection, OpenFlags};
 use crate::{
     MANIA_ANALYZER_ALGORITHM_ID, MANIA_ANALYZER_SNAPSHOT, MANIA_ANALYZER_VERSION,
     MANIA_NORMALIZATION_VERSION, ManiaAnalyzer, ManiaBeatmapMetadata, ManiaDatasetInfo,
-    ManiaFeatureRecord, ManiaGameMod, ManiaModFeatureRecord, ManiaModeFamily, ManiaNormalizer,
-    ManiaPattern, ManiaQueryOptions, ManiaQueryResult, ManiaQueryTarget, RuntimeError,
+    ManiaDistanceComponents, ManiaFeatureRecord, ManiaGameMod, ManiaModFeatureRecord,
+    ManiaModeFamily, ManiaNormalizer, ManiaPattern, ManiaQueryOptions, ManiaQueryResult,
+    ManiaQueryTarget, RuntimeError,
     mania_index::{ManiaBucketIndex, classification_tier, distance_components, final_distance},
 };
+use bincode::Options;
+use mania_pattern::{MANIA_MMA_ALGORITHM_VERSION, ManiaMmaRecord};
 
 const FEATURE_HEADER: &[u8; 8] = b"ODLMAN1\0";
 const FEATURE_HEADER_LEN: usize = FEATURE_HEADER.len();
 const MOD_FEATURE_HEADER: &[u8; 8] = b"ODLMMV1\0";
 const MOD_FEATURE_HEADER_LEN: usize = MOD_FEATURE_HEADER.len();
+/// 键型记录文件由 osu-difficulty-lab 的 mania-mma-reanalyze 写入。
+const PATTERN_FEATURE_FILE: &str = "mania-mma-features.bin";
+const PATTERN_FEATURE_HEADER: &[u8; 8] = b"ODLMMA1\0";
 
 #[derive(Debug)]
 pub struct ManiaDataset {
@@ -32,6 +38,7 @@ pub struct ManiaDataset {
     analyzer: ManiaAnalyzer,
     info: ManiaDatasetInfo,
     mod_records: HashMap<(u64, ManiaGameMod), ManiaFeatureRecord>,
+    pattern_records: PatternRecords,
 }
 
 impl ManiaDataset {
@@ -101,6 +108,7 @@ impl ManiaDataset {
 
         let connection = open_immutable(&metadata_path)?;
         validate_schema(&connection)?;
+        let pattern_records = read_pattern_records(root, &connection)?;
         validate_state(&connection, file_record_count)?;
         let (metadata, data_cutoff_at) = read_metadata(&connection)?;
         for ((beatmap_id, game_mod), record) in &mod_records {
@@ -222,7 +230,20 @@ impl ManiaDataset {
                 supports_dynamic_weighting: false,
             },
             mod_records,
+            pattern_records,
         })
+    }
+
+    pub fn has_pattern_records(&self) -> bool {
+        !self.pattern_records.is_empty()
+    }
+
+    pub fn pattern_record(
+        &self,
+        beatmap_id: u64,
+        game_mod: ManiaGameMod,
+    ) -> Option<ManiaMmaRecord> {
+        self.pattern_records.get(&(beatmap_id, game_mod)).cloned()
     }
 
     pub fn info(&self) -> &ManiaDatasetInfo {
@@ -279,10 +300,12 @@ impl ManiaDataset {
         let mut metadata = metadata;
         metadata.mode_family = record.mode_family;
         metadata.dominant_pattern = record.dominant_pattern;
+        let pattern = self.pattern_record(beatmap_id, game_mod);
         Ok(ManiaQueryTarget {
             metadata,
             record,
             game_mod,
+            pattern,
         })
     }
 
@@ -317,10 +340,20 @@ impl ManiaDataset {
             .normalizer
             .transform(&raw)
             .map_err(|error| RuntimeError::analysis(error.to_string()))?;
+        // Reuse a stored result only for the exact source bytes. Local edits often
+        // retain the online ID, so ID alone must not select an older analysis.
+        let stored = self
+            .metadata
+            .get(&metadata.beatmap_id)
+            .filter(|old| old.checksum == metadata.checksum)
+            .and_then(|_| self.pattern_record(metadata.beatmap_id, game_mod));
+        // 键型只来自数据集；源校验值不匹配时没有键型，改用原 v1 距离排序。
+        let pattern = stored;
         Ok(ManiaQueryTarget {
             metadata,
             record,
             game_mod,
+            pattern,
         })
     }
 
@@ -357,6 +390,9 @@ impl ManiaDataset {
             ));
         }
         let mut ranked = Vec::new();
+        if let Some(pattern) = &target.pattern {
+            return self.query_patterns(target, pattern, options);
+        }
         let mut seen = HashSet::new();
         for game_mod in options.candidate_mods.iter().copied() {
             let mut lookup = target.record;
@@ -402,20 +438,189 @@ impl ManiaDataset {
         ranked
             .into_iter()
             .map(|(variant, components, final_distance)| {
+                let pattern = variant.pattern;
                 Ok(ManiaQueryResult {
                     metadata: variant.metadata,
                     record: variant.record,
                     final_distance,
                     components,
                     game_mod: variant.game_mod,
+                    pattern,
                 })
             })
             .collect()
     }
 
+    // mania_map_analyser has its own feature space. A v1 difficulty-band prefilter can discard
+    // the closest patterns, so score all compatible key-count/Mod records.
+    fn query_patterns(
+        &self,
+        target: &ManiaQueryTarget,
+        pattern: &ManiaMmaRecord,
+        options: &ManiaQueryOptions,
+    ) -> Result<Vec<ManiaQueryResult>, RuntimeError> {
+        let mut ranked = Vec::new();
+        for (&(id, game_mod), candidate) in &self.pattern_records {
+            if candidate.key_count != pattern.key_count
+                || !options.candidate_mods.contains(&game_mod)
+                || !self.contains_mod(id, game_mod)
+            {
+                continue;
+            }
+            let Some(metadata) = self.metadata.get(&id) else {
+                continue;
+            };
+            if metadata.checksum == target.metadata.checksum
+                || id == target.record.beatmap_id
+                || (!options.include_same_set
+                    && target.metadata.beatmapset_id != 0
+                    && metadata.beatmapset_id == target.metadata.beatmapset_id)
+            {
+                continue;
+            }
+            ranked.push((
+                id,
+                game_mod,
+                mania_pattern::similarity::distance(pattern, candidate),
+            ));
+        }
+        ranked.sort_by(|a, b| {
+            a.2.total
+                .total_cmp(&b.2.total)
+                .then(a.0.cmp(&b.0))
+                .then(a.1.as_str().cmp(b.1.as_str()))
+        });
+        let mut hashes = HashSet::new();
+        let mut results = Vec::new();
+        for (id, game_mod, distance) in ranked {
+            if !hashes.insert(&self.metadata[&id].checksum) {
+                continue;
+            }
+            let variant = self.target_for_id_with_mod(id, game_mod)?;
+            results.push(ManiaQueryResult {
+                metadata: variant.metadata,
+                record: variant.record,
+                game_mod,
+                pattern: variant.pattern,
+                final_distance: distance.total as f32,
+                components: ManiaDistanceComponents {
+                    skill: distance.skill as f32,
+                    pattern: distance.pattern as f32,
+                    structure: distance.structure as f32,
+                    difficulty: distance.difficulty as f32,
+                    context: distance.context as f32,
+                },
+            });
+            if results.len() == options.result_limit {
+                break;
+            }
+        }
+        Ok(results)
+    }
+
     fn record_at_offset(&self, offset: usize) -> Result<ManiaFeatureRecord, RuntimeError> {
         deserialize_record(&self.feature_map, offset, self.record_size)
     }
+}
+
+fn runtime_game_mod(code: &str) -> Option<ManiaGameMod> {
+    match code {
+        "NM" => Some(ManiaGameMod::Nm),
+        "DT" => Some(ManiaGameMod::Dt),
+        "HT" => Some(ManiaGameMod::Ht),
+        _ => None,
+    }
+}
+
+type PatternRecords = HashMap<(u64, ManiaGameMod), ManiaMmaRecord>;
+
+fn read_pattern_records(
+    root: &Path,
+    connection: &Connection,
+) -> Result<PatternRecords, RuntimeError> {
+    let path = root.join(PATTERN_FEATURE_FILE);
+    if !path.is_file() {
+        return Ok(HashMap::new());
+    }
+    let has_table: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='mania_mma_analyses')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !has_table {
+        return Ok(HashMap::new());
+    }
+
+    let file = File::open(&path)
+        .map_err(|_| RuntimeError::invalid("Mania key-pattern file cannot be opened"))?;
+    // 打开后调用方不得替换或截断该文件，与既有特征文件的 mmap 约定一致。
+    let map = unsafe { MmapOptions::new().map(&file) }
+        .map_err(|_| RuntimeError::invalid("Mania key-pattern file cannot be mapped"))?;
+    if map.get(..PATTERN_FEATURE_HEADER.len()) != Some(PATTERN_FEATURE_HEADER) {
+        return Err(RuntimeError::invalid(
+            "Mania key-pattern file has an invalid header",
+        ));
+    }
+
+    let mut statement = connection
+        .prepare(
+            "SELECT a.beatmap_id, a.game_mod, a.mma_offset, b.beatmapset_id, b.key_count
+             FROM mania_mma_analyses a JOIN mania_beatmaps b ON a.beatmap_id=b.beatmap_id
+             WHERE a.mma_version=?1 AND a.status=1 AND a.checksum=b.checksum",
+        )
+        .map_err(|_| RuntimeError::invalid("cannot read Mania key-pattern offsets"))?;
+    let rows = statement
+        .query_map([MANIA_MMA_ALGORITHM_VERSION as i64], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|_| RuntimeError::invalid("cannot read Mania key-pattern offsets"))?;
+
+    let mut offsets = HashMap::new();
+    for row in rows {
+        let (beatmap_id, code, offset, beatmapset_id, key_count) =
+            row.map_err(|_| RuntimeError::invalid("cannot read Mania key-pattern offsets"))?;
+        let Some(game_mod) = runtime_game_mod(&code) else {
+            continue;
+        };
+        if beatmap_id <= 0
+            || offset < PATTERN_FEATURE_HEADER.len() as i64
+            || offset as usize >= map.len()
+        {
+            return Err(RuntimeError::invalid(
+                "Mania SQLite contains an invalid key-pattern offset",
+            ));
+        }
+        let record: ManiaMmaRecord = bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .with_limit(4 * 1024 * 1024)
+            .deserialize(&map[offset as usize..])
+            .map_err(|_| RuntimeError::invalid("Mania key-pattern record is malformed"))?;
+        mania_pattern::validate_record(&record)
+            .map_err(|error| RuntimeError::invalid(error.to_string()))?;
+        if record.beatmap_id != beatmap_id as u64
+            || record.beatmapset_id != beatmapset_id as u64
+            || record.key_count as i64 != key_count
+            || record.game_mod.as_str() != code
+            || offsets
+                .insert((beatmap_id as u64, game_mod), record)
+                .is_some()
+        {
+            return Err(RuntimeError::invalid(
+                "Mania key-pattern identity does not match metadata",
+            ));
+        }
+    }
+
+    Ok(offsets)
 }
 
 fn validate_offset(offset: usize, record_size: usize, file_len: usize) -> Result<(), RuntimeError> {
@@ -465,7 +670,7 @@ fn read_mod_records(
     })
     .map_err(|_| RuntimeError::invalid("Mania mod feature record format is invalid"))?
         as usize;
-    if (bytes.len() - MOD_FEATURE_HEADER_LEN) % record_size != 0 {
+    if !(bytes.len() - MOD_FEATURE_HEADER_LEN).is_multiple_of(record_size) {
         return Err(RuntimeError::invalid(
             "Mania mod feature file has a truncated record",
         ));
@@ -602,9 +807,19 @@ fn validate_schema(connection: &Connection) -> Result<(), RuntimeError> {
                 .collect::<rusqlite::Result<Vec<_>>>()
         })
         .map_err(|_| RuntimeError::invalid("cannot inspect Mania SQLite schema"))?;
-    if table_names != ["mania_analyses", "mania_beatmaps", "mania_state"] {
+    // 基础 v1 表必须齐全；键型记录表是数据集后续版本新增的可选表，
+    // 出现时可以读取，其余未知表仍然拒绝。
+    const REQUIRED_TABLES: [&str; 3] = ["mania_analyses", "mania_beatmaps", "mania_state"];
+    const OPTIONAL_TABLES: [&str; 1] = ["mania_mma_analyses"];
+    let missing = REQUIRED_TABLES
+        .iter()
+        .any(|name| !table_names.iter().any(|existing| existing == name));
+    let unexpected = table_names.iter().any(|name| {
+        !REQUIRED_TABLES.contains(&name.as_str()) && !OPTIONAL_TABLES.contains(&name.as_str())
+    });
+    if missing || unexpected {
         return Err(RuntimeError::incompatible(
-            "Mania SQLite does not have the exact v1 table set",
+            "Mania SQLite does not have the expected v1 table set",
         ));
     }
 

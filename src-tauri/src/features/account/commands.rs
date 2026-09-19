@@ -1,5 +1,5 @@
 use chrono::{Duration, Utc};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::{
     domain::{
@@ -19,18 +19,28 @@ const MANUAL_REFRESH_SECONDS: i64 = 60;
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn get_auth_status(state: State<'_, AppState>) -> CommandResult<AuthStatus> {
-    let snapshot = state.store.snapshot()?;
-    let has_secret = state.credentials.get_client_secret()?.is_some();
-    let tokens = state.credentials.get_tokens()?;
-    Ok(AuthStatus {
-        credentials_configured: snapshot.client_id.is_some() && has_secret,
-        connected: tokens.is_some(),
-        client_id: snapshot.client_id,
-        callback_url: oauth::CALLBACK_URL.into(),
-        user_id: snapshot.current_user_id,
-        username: snapshot.username,
+pub async fn get_auth_status(app: AppHandle) -> CommandResult<AuthStatus> {
+    crate::infrastructure::tasks::blocking_io("get_auth_status", move || {
+        let state = app.state::<AppState>();
+        let (client_id, user_id, username) = state.store.read(|persisted| {
+            (
+                persisted.client_id.clone(),
+                persisted.current_user_id,
+                persisted.username.clone(),
+            )
+        })?;
+        let has_secret = state.credentials.get_client_secret()?.is_some();
+        let tokens = state.credentials.get_tokens()?;
+        Ok(AuthStatus {
+            credentials_configured: client_id.is_some() && has_secret,
+            connected: tokens.is_some(),
+            client_id,
+            callback_url: oauth::CALLBACK_URL.into(),
+            user_id,
+            username,
+        })
     })
+    .await?
 }
 
 #[tauri::command]
@@ -129,8 +139,9 @@ pub async fn get_own_profile(
     state: State<'_, AppState>,
 ) -> CommandResult<Cached<OwnProfile>> {
     let key = format!("profile:{ruleset}");
-    let snapshot = state.store.snapshot()?;
-    let cached = snapshot.cache.get(&key).cloned();
+    let cached = state
+        .store
+        .read(|persisted| persisted.cache.get(&key).cloned())?;
     if !force_refresh {
         if let Some(record) = cached.as_ref()
             && Utc::now() - record.fetched_at < Duration::seconds(PROFILE_CACHE_SECONDS)
@@ -190,8 +201,12 @@ pub async fn get_scores(
         ));
     }
     let key = format!("scores:{ruleset}:{category}:{offset}:{limit}");
-    let snapshot = state.store.snapshot()?;
-    let cached = snapshot.cache.get(&key).cloned();
+    let (cached, user_id) = state.store.read(|persisted| {
+        (
+            persisted.cache.get(&key).cloned(),
+            persisted.current_user_id,
+        )
+    })?;
     if !force_refresh {
         if let Some(record) = cached.as_ref()
             && Utc::now() - record.fetched_at < Duration::seconds(SCORE_CACHE_SECONDS)
@@ -202,8 +217,7 @@ pub async fn get_scores(
         enforce_manual_cooldown(&state, &key)?;
     }
 
-    let user_id = snapshot
-        .current_user_id
+    let user_id = user_id
         .ok_or_else(|| CommandError::new("PROFILE_REQUIRED", "请先加载个人资料，再查看最佳成绩"))?;
     let access_token = ensure_access_token(&state).await?;
     match state
@@ -246,73 +260,91 @@ pub fn clear_profile_cache(state: State<'_, AppState>) -> CommandResult<()> {
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn get_settings(state: State<'_, AppState>) -> CommandResult<AppSettings> {
-    state.store.update(|persisted| {
-        if persisted.settings.beatmap_download_directory.is_none() {
-            persisted.settings.beatmap_download_directory = default_download_directory();
+pub async fn get_settings(app: AppHandle) -> CommandResult<AppSettings> {
+    crate::infrastructure::tasks::blocking_io("get_settings", move || {
+        let state = app.state::<AppState>();
+        let mut settings = state.store.settings_snapshot()?;
+        if settings.beatmap_download_directory.is_none() {
+            settings = state.store.update(|persisted| {
+                if persisted.settings.beatmap_download_directory.is_none() {
+                    persisted.settings.beatmap_download_directory = default_download_directory();
+                }
+                persisted.settings.clone()
+            })?;
         }
-        persisted.settings.clone()
+        Ok(settings)
     })
+    .await?
 }
 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：记录用户已完成的引导状态。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn mark_onboarding_seen(
-    version: u32,
-    state: State<'_, AppState>,
-) -> CommandResult<AppSettings> {
-    state.store.update(|persisted| {
-        persisted.settings.onboarding_version = persisted.settings.onboarding_version.max(version);
-        persisted.settings.clone()
+pub async fn mark_onboarding_seen(version: u32, app: AppHandle) -> CommandResult<AppSettings> {
+    crate::infrastructure::tasks::blocking_io("mark_onboarding_seen", move || {
+        let state = app.state::<AppState>();
+        state.store.update(|persisted| {
+            persisted.settings.onboarding_version =
+                persisted.settings.onboarding_version.max(version);
+            persisted.settings.clone()
+        })
     })
+    .await?
 }
 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：记录用户已完成的引导状态。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn mark_page_onboarding_seen(
+pub async fn mark_page_onboarding_seen(
     page_id: String,
     version: u32,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CommandResult<AppSettings> {
-    if page_id.is_empty()
-        || page_id.len() > 64
-        || !page_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
-        return Err(CommandError::new("INVALID_PAGE_ID", "页面引导标识无效"));
-    }
-    state.store.update(|persisted| {
-        let stored = persisted
-            .settings
-            .page_onboarding_versions
-            .entry(page_id)
-            .or_default();
-        *stored = (*stored).max(version);
-        persisted.settings.clone()
+    crate::infrastructure::tasks::blocking_io("mark_page_onboarding_seen", move || {
+        let state = app.state::<AppState>();
+        if page_id.is_empty()
+            || page_id.len() > 64
+            || !page_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(CommandError::new("INVALID_PAGE_ID", "页面引导标识无效"));
+        }
+        state.store.update(|persisted| {
+            let stored = persisted
+                .settings
+                .page_onboarding_versions
+                .entry(page_id)
+                .or_default();
+            *stored = (*stored).max(version);
+            persisted.settings.clone()
+        })
     })
+    .await?
 }
 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：更新持久化设置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn update_settings(
+pub async fn update_settings(
     mut settings: AppSettings,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CommandResult<AppSettings> {
-    settings.cache_limit_mb = settings.cache_limit_mb.clamp(64, 10_240);
-    if settings.beatmap_download_directory.is_none() {
-        settings.beatmap_download_directory = default_download_directory();
-    }
-    state
-        .local_analysis
-        .set_thumbnail_cache_limit_mb(settings.cache_limit_mb)?;
-    state
-        .store
-        .update(|persisted| persisted.settings = settings.clone())?;
-    Ok(settings)
+    crate::infrastructure::tasks::blocking_io("update_settings", move || {
+        let state = app.state::<AppState>();
+        settings.cache_limit_mb = settings.cache_limit_mb.clamp(64, 10_240);
+        if settings.beatmap_download_directory.is_none() {
+            settings.beatmap_download_directory = default_download_directory();
+        }
+        state
+            .local_analysis
+            .set_thumbnail_cache_limit_mb(settings.cache_limit_mb)?;
+        state
+            .store
+            .update(|persisted| persisted.settings = settings.clone())?;
+        Ok(settings)
+    })
+    .await?
 }
 
 fn default_download_directory() -> Option<String> {

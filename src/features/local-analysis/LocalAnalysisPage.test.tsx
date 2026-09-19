@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ModeProvider } from "../../app/ModeContext";
 import type {
+  LocalBeatmapSetSummary,
   LocalLibrarySummary,
   LocalSourceStatus,
 } from "../../shared/types/osu";
@@ -15,12 +16,17 @@ const mocks = vi.hoisted(() => ({
   getLocalSources: vi.fn(),
   getLocalSummary: vi.fn(),
   queryLocalBeatmapSets: vi.fn(),
+  pickRandomLocalBeatmapSet: vi.fn(),
+  getLocalBeatmapSet: vi.fn(),
+  getLocalIndexStatus: vi.fn(),
   queryLocalSkins: vi.fn(),
   getLocalSkinDetail: vi.fn(),
   getLocalSkinPreview: vi.fn(),
   getLocalSkinAsset: vi.fn(),
   onLocalScanProgress: vi.fn(async () => () => undefined),
 }));
+
+vi.mock("../settings/api", () => ({ useSettings: () => ({ data: { preview_volume: 65 } }) }));
 
 vi.mock("../../shared/lib/tauri", () => ({
   desktopApi: {
@@ -107,6 +113,9 @@ describe("LocalAnalysisPage", () => {
     localStorage.clear();
     vi.clearAllMocks();
     mocks.getLocalSources.mockResolvedValue([source("stable"), source("lazer")]);
+    mocks.getLocalIndexStatus.mockResolvedValue({ phase: "ready", clients: {} });
+    mocks.pickRandomLocalBeatmapSet.mockImplementation(async (query) => (await mocks.queryLocalBeatmapSets(query)).items[0] ?? null);
+    mocks.getLocalBeatmapSet.mockImplementation(async () => (await mocks.queryLocalBeatmapSets({})).items[0]);
     mocks.queryLocalBeatmapSets.mockResolvedValue({
       items: [],
       total: 0,
@@ -139,9 +148,76 @@ describe("LocalAnalysisPage", () => {
         client: "stable",
         rulesets: ["osu"],
         offset: 0,
-        limit: 40,
+        limit: 20,
       }),
     );
+  });
+
+  it("renders incomplete lazer difficulty data without crashing", async () => {
+    localStorage.setItem("opp.global-client", "lazer");
+    mocks.getLocalSummary.mockResolvedValue(summary("lazer"));
+    mocks.queryLocalBeatmapSets.mockResolvedValue({
+      items: [{
+        set_key: "realm:incomplete",
+        completeness: "complete",
+        grouping_inferred: false,
+        beatmap_set_id: null,
+        title: "Incomplete Lazer Set",
+        title_unicode: "",
+        artist: "Mapper",
+        artist_unicode: "",
+        creators: ["Mapper"],
+        min_stars: null,
+        max_stars: null,
+        bpm: null,
+        length_ms: 0,
+        object_count: 0,
+        modified_at: null,
+        background_resource_id: null,
+        difficulties: [{
+          resource: {
+            resource_id: "lazer:beatmap:incomplete",
+            client: "lazer",
+            content_hash: "incomplete",
+            logical_path: null,
+          },
+          set_key: "realm:incomplete",
+          set_grouping_inferred: false,
+          beatmap_id: null,
+          beatmap_set_id: null,
+          title: "Incomplete Lazer Set",
+          title_unicode: "",
+          artist: "Mapper",
+          artist_unicode: "",
+          creator: "Mapper",
+          difficulty_name: "Unknown",
+          ruleset: "osu",
+          format_version: 14,
+          stars: null,
+          max_pp: null,
+          max_combo: null,
+          bpm: null,
+          length_ms: 0,
+          object_count: 0,
+          cs: null,
+          ar: null,
+          od: null,
+          hp: null,
+          average_nps: null,
+          peak_nps: null,
+          modified_at: null,
+          analysis_status: "partial",
+        }],
+      } as unknown as LocalBeatmapSetSummary],
+      total: 1,
+      offset: 0,
+      limit: 40,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Incomplete Lazer Set")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
   it("keeps lazer Skin browsing in its own partial-index section", async () => {

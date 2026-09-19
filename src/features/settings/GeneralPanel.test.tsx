@@ -3,9 +3,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { LocalLibrarySummary, LocalSourceStatus } from "../shared/types/osu";
-import { GlobalContextBar } from "./GlobalContextBar";
-import { ModeProvider } from "./ModeContext";
+import type { LocalLibrarySummary, LocalSourceStatus } from "../../shared/types/osu";
+import { GeneralPanel } from "./panels/GeneralPanel";
+import { ModeProvider } from "../../app/ModeContext";
 
 const mocks = vi.hoisted(() => ({
   getLocalSources: vi.fn(),
@@ -14,9 +14,10 @@ const mocks = vi.hoisted(() => ({
   onLocalScanProgress: vi.fn(async () => () => undefined),
   getGameStatus: vi.fn(async () => ({ clients: [] })),
   onGameStatusChanged: vi.fn(async () => () => undefined),
+  configure: vi.fn(),
 }));
 
-vi.mock("../shared/lib/tauri", () => ({
+vi.mock("../../shared/lib/tauri", () => ({
   desktopApi: mocks,
 }));
 
@@ -69,7 +70,7 @@ function summary(): LocalLibrarySummary {
   };
 }
 
-function renderBar(path = "/tools") {
+function renderSettings(path = "/tools") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -77,14 +78,14 @@ function renderBar(path = "/tools") {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <ModeProvider>
-          <GlobalContextBar />
+          <GeneralPanel onConfigure={mocks.configure} />
         </ModeProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-describe("GlobalContextBar local scan action", () => {
+describe("General settings local scan action", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
@@ -93,9 +94,22 @@ describe("GlobalContextBar local scan action", () => {
     mocks.scanLocalSource.mockResolvedValue(summary());
   });
 
+  it("persists mode and client switches and restores them when reopened", async () => {
+    const user = userEvent.setup();
+    const view = renderSettings("/settings");
+    await user.click(screen.getByRole("tab", { name: "mania" }));
+    await user.click(screen.getByRole("tab", { name: "Lazer" }));
+    expect(localStorage.getItem("opp.global-ruleset")).toBe("mania");
+    expect(localStorage.getItem("opp.global-client")).toBe("lazer");
+    view.unmount();
+    renderSettings("/settings");
+    expect(screen.getByRole("tab", { name: "mania" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Lazer" })).toHaveAttribute("aria-selected", "true");
+  });
+
   it("can start the first local scan from a non-local page", async () => {
     const user = userEvent.setup();
-    renderBar("/tools");
+    renderSettings("/tools");
 
     const button = await screen.findByRole("button", { name: "扫描本地数据" });
     await user.click(button);
@@ -107,16 +121,19 @@ describe("GlobalContextBar local scan action", () => {
 
   it("hides the scan action when the current client already has an index", async () => {
     mocks.getLocalSummary.mockResolvedValue(summary());
-    renderBar("/online/beatmaps");
+    renderSettings("/online/beatmaps");
 
     await waitFor(() => expect(mocks.getLocalSummary).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "扫描本地数据" })).not.toBeInTheDocument();
   });
 
   it("offers data-source configuration instead of a failing scan", async () => {
+    const user = userEvent.setup();
     mocks.getLocalSources.mockResolvedValue([source(false)]);
-    renderBar("/data");
+    renderSettings("/data");
 
-    expect(await screen.findByRole("button", { name: "配置数据源" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "配置数据源" }));
+    expect(mocks.configure).toHaveBeenCalledOnce();
+    expect(mocks.scanLocalSource).not.toHaveBeenCalled();
   });
 });

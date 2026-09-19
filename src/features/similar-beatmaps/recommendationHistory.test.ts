@@ -4,7 +4,7 @@ import type { ManiaSimilarityResult, SimilarityResult } from "../../shared/types
 import {
   getTodayRecommendationHistory,
   getTodayRecommendedBeatmapIds,
-  recordDisplayedRecommendationBatch,
+  recordDisplayedRecommendation,
 } from "./recommendationHistory";
 
 function today() {
@@ -47,6 +47,7 @@ const maniaResult: ManiaSimilarityResult = {
   difficulty_percentile: 0.75,
   difficulty_band: 7,
   game_mod: "NM",
+  pattern_view: null,
   final_distance: 0.08,
   distance_components: { skill: 0.1, pattern: 0.1, structure: 0.1, difficulty: 0.1, context: 0.1 },
 };
@@ -71,8 +72,8 @@ describe("recommendation history", () => {
   });
 
   it("does not let the same Beatmap ID collide across rulesets", () => {
-    recordDisplayedRecommendationBatch([standardResult], "osu", 1);
-    recordDisplayedRecommendationBatch([maniaResult], "mania", 1);
+    recordDisplayedRecommendation(standardResult, "osu");
+    recordDisplayedRecommendation(maniaResult, "mania");
 
     expect(getTodayRecommendedBeatmapIds("osu")).toEqual(new Set([42]));
     expect(getTodayRecommendedBeatmapIds("mania")).toEqual(new Set([42]));
@@ -81,7 +82,7 @@ describe("recommendation history", () => {
   });
 
   it("persists the Mania key count in v2", () => {
-    recordDisplayedRecommendationBatch([maniaResult], "mania", 1);
+    recordDisplayedRecommendation(maniaResult, "mania");
     expect(getTodayRecommendationHistory("mania")[0]).toMatchObject({ ruleset: "mania", key_count: 6 });
     expect(localStorage.getItem("opp.similarity-recommendation-history.v2")).toContain('"key_count":6');
   });

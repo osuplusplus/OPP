@@ -1,0 +1,21 @@
+.local-stage, .music-player {
+  --stage-hue: 210;
+  --stage-accent: var(--stage-accent-dark, var(--theme-primary-light, var(--stage-fallback, #cffafe)));
+  --stage-ink: #f5f3ee; --stage-muted: #c3c7ce; --stage-line: rgba(235, 239, 246, .2);
+  --stage-panel: hsla(var(--stage-hue), 16%, 9%, .65); --stage-menu: hsl(var(--stage-hue), 12%, 11%);
+}
+:root[data-theme-mode="light"] :is(.local-stage, .music-player) {
+  --stage-accent: var(--stage-accent-light, var(--theme-primary-light, var(--stage-fallback, #1e40af)));
+  --stage-ink: #202624; --stage-muted: #4d5655; --stage-line: rgba(32, 42, 40, .25);
+  --stage-panel: hsla(var(--stage-hue), 15%, 94%, .68); --stage-menu: hsl(var(--stage-hue), 13%, 96%);
+}
+:root[data-theme-primary="blue"] { --stage-fallback: #dbeafe; }
+:root[data-theme-primary="violet"] { --stage-fallback: #ede9fe; }
+:root[data-theme-primary="pink"] { --stage-fallback: #fce7f3; }
+:root[data-theme-primary="orange"] { --stage-fallback: #ffedd5; }
+:root[data-theme-primary="green"] { --stage-fallback: #dcfce7; }
+:root[data-theme-mode="light"][data-theme-primary="blue"] { --stage-fallback: #1e3a8a; }
+:root[data-theme-mode="light"][data-theme-primary="violet"] { --stage-fallback: #4c1d95; }
+:root[data-theme-mode="light"][data-theme-primary="pink"] { --stage-fallback: #831843; }
+:root[data-theme-mode="light"][data-theme-primary="orange"] { --stage-fallback: #7c2d12; }
+:root[data-theme-mode="light"][data-theme-primary="green"] { --stage-fallback: #14532d; }

@@ -15,6 +15,8 @@ pub use dataset::{Dataset, RuntimeError, RuntimeErrorKind, star_section};
 pub use mania_analyzer::{ManiaAnalyzeError, ManiaAnalyzer};
 pub use mania_dataset::ManiaDataset;
 pub use mania_normalizer::{ManiaNormalizeError, ManiaNormalizer, overall_intensity};
+pub use mania_pattern::similarity::display_category as mania_display_category;
+pub use mania_pattern::{ManiaMmaBar, ManiaMmaCluster, ManiaMmaRecord};
 pub use mania_types::*;
 pub use types::*;
 
