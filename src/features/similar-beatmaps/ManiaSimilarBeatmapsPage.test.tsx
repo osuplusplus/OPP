@@ -55,8 +55,16 @@ describe("mania similarity workspace", () => {
       expect(recommend.mock.calls[index * 2 + 1][0]).toEqual(expect.objectContaining({ kind, candidate_mods: pool }));
       expect(recommend.mock.calls[index * 2 + 1][0].seed_limit).toBeUndefined();
       expect(recommend.mock.calls[index * 2 + 1][0].result_limit).toBeGreaterThan(5);
+      await waitFor(() => expect(localStorage.getItem("opp.similarity-recommendation-history.v2")).toContain("4K One"));
       await user.click(screen.getByRole("button", { name: "返回搜索首页" }));
+      await screen.findByRole("button", { name: buttonName });
+      localStorage.removeItem("opp.similarity-recommendation-history.v2");
     }
+    await user.click(screen.getByLabelText("NM / DT / HT 多 Mod 混池"));
+    await user.click(screen.getByRole("button", { name: "NM" }));
+    await user.click(screen.getByRole("button", { name: buttonName }));
+    await screen.findByText("4K One");
+    expect(recommend).toHaveBeenCalledTimes(8);
   });
 
   it("queries with Mania mods and navigates one result at a time", async () => {
