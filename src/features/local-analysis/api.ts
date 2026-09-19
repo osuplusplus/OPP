@@ -41,6 +41,8 @@ export function useLocalIndexStatus() {
   const queryClient = useQueryClient();
   const result = useQuery({
     queryKey: localIndexStatusKey,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: false,
     queryFn: desktopApi.getLocalIndexStatus,
     refetchInterval: (query) => {
       const status = query.state.data;

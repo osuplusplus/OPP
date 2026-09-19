@@ -2454,10 +2454,10 @@ static EXPORT_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 
 /// FFmpeg 解析:设置中手动路径 > PATH 自动检测 > danser 发行包自带。
 fn ffmpeg_path(state: &tauri::State<'_, crate::state::AppState>) -> Option<std::path::PathBuf> {
-    let saved = state.store.snapshot().ok().map(|snapshot| {
+    let saved = state.store.settings_snapshot().ok().map(|snapshot| {
         (
-            snapshot.settings.ffmpeg_executable_path.clone(),
-            snapshot.settings.danser_executable_path.clone(),
+            snapshot.ffmpeg_executable_path.clone(),
+            snapshot.danser_executable_path.clone(),
         )
     });
     let (ffmpeg, danser) = saved.unzip();
@@ -2502,10 +2502,10 @@ pub async fn live_render_get_ffmpeg_status(app: AppHandle) -> CommandResult<Ffmp
 fn live_render_get_ffmpeg_status_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> FfmpegStatus {
-    let settings = state.store.snapshot().ok().map(|s| {
+    let settings = state.store.settings_snapshot().ok().map(|s| {
         (
-            s.settings.ffmpeg_executable_path.clone(),
-            s.settings.danser_executable_path.clone(),
+            s.ffmpeg_executable_path.clone(),
+            s.danser_executable_path.clone(),
         )
     });
     let (manual, danser) = settings.unzip();

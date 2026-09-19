@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({
   getBeatmapHubAuthStatus: vi.fn(),
   getAuthStatus: vi.fn(),
-  listCollections: vi.fn(),
+  listCollectionSummaries: vi.fn(),
   getBeatmapHubProfile: vi.fn(),
   previewBeatmapHubPack: vi.fn(),
   getOnlineBeatmapset: vi.fn(),
@@ -24,7 +24,7 @@ describe("BeatmapHubPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getAuthStatus.mockResolvedValue({ credentials_configured: true, connected: true, client_id: "1", callback_url: "http://localhost", user_id: 1, username: "L1rics" });
-    api.listCollections.mockResolvedValue({ folders: [], sources: [] });
+    api.listCollectionSummaries.mockResolvedValue({ folders: [], sources: [] });
   });
 
   it("offers independent profile creation and device linking", async () => {

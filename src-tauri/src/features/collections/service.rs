@@ -5,6 +5,7 @@ use std::{
     sync::Mutex,
 };
 
+use crate::infrastructure::lazy_mutex::LazyMutex;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -21,6 +22,10 @@ const MAX_PRESENCE_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(super) struct CollectionFile {
+    #[serde(skip)]
+    pub(super) revisions: HashMap<String, u64>,
+    #[serde(skip)]
+    pub(super) revision: u64,
     #[serde(default)]
     pub(super) sharded: bool,
     #[serde(default)]
@@ -51,6 +56,7 @@ struct CollectionCacheFile {
 
 #[derive(Default)]
 struct CollectionPersistedBytes {
+    initialized: bool,
     collections: Vec<u8>,
     cache: Vec<u8>,
     folders: HashMap<String, Vec<u8>>,
@@ -71,16 +77,31 @@ pub struct CollectionService {
     path: PathBuf,
     cache_path: PathBuf,
     folders_path: PathBuf,
-    pub(super) value: Mutex<CollectionFile>,
+    pub(super) value: LazyMutex<CollectionFile>,
     persist: Mutex<CollectionPersistedBytes>,
 }
 
 impl CollectionService {
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
+        let root = app_data_dir.to_path_buf();
+        Ok(Self {
+            path: root.join("collections.json"),
+            cache_path: root.join("collections-cache.json"),
+            folders_path: root.join("collections-data"),
+            value: LazyMutex::new(move || Self::load_file(&root)),
+            persist: Mutex::new(CollectionPersistedBytes::default()),
+        })
+    }
+
+    fn load_file(app_data_dir: &Path) -> CommandResult<CollectionFile> {
         // 收藏夹按文件夹拆分持久化，单个文件损坏不会使整个集合不可恢复。
         fs::create_dir_all(app_data_dir)?;
         let path = app_data_dir.join("collections.json");
-        let collection_bytes = fs::read(&path).unwrap_or_default();
+        let collection_bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(error.into()),
+        };
         let mut value: CollectionFile = serde_json::from_slice(&collection_bytes)
             .ok()
             .unwrap_or_default();
@@ -91,7 +112,6 @@ impl CollectionService {
         }
         let folders_path = app_data_dir.join("collections-data");
         fs::create_dir_all(&folders_path)?;
-        let mut persisted_folders = HashMap::new();
         let mut sharded_folders = HashMap::new();
         for entry in fs::read_dir(&folders_path)?.filter_map(Result::ok) {
             let path = entry.path();
@@ -99,13 +119,10 @@ impl CollectionService {
             {
                 continue;
             }
-            let Ok(bytes) = fs::read(&path) else {
-                continue;
-            };
+            let bytes = fs::read(&path)?;
             let Ok(folder) = serde_json::from_slice::<CollectionFolder>(&bytes) else {
                 continue;
             };
-            persisted_folders.insert(folder.id.clone(), bytes);
             sharded_folders.insert(folder.id.clone(), folder);
         }
         if value.sharded {
@@ -119,17 +136,7 @@ impl CollectionService {
             value.folders.extend(remaining);
         }
         prune_presence_cache(&mut value.local_presence_cache);
-        Ok(Self {
-            path,
-            cache_path,
-            folders_path,
-            value: Mutex::new(value),
-            persist: Mutex::new(CollectionPersistedBytes {
-                collections: collection_bytes,
-                cache: cache_bytes,
-                folders: persisted_folders,
-            }),
-        })
+        Ok(value)
     }
 
     pub(super) fn update<R>(
@@ -141,24 +148,24 @@ impl CollectionService {
             .persist
             .lock()
             .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹持久化状态不可用"))?;
-        let (result, file) = {
-            let mut file = self
-                .value
-                .lock()
-                .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?;
-            let result = action(&mut file)?;
-            prune_presence_cache(&mut file.local_presence_cache);
-            (result, file.clone())
-        };
+        let mut file = self.value.lock()?.clone();
+        let result = action(&mut file)?;
+        prune_presence_cache(&mut file.local_presence_cache);
         let cache = CollectionCacheFile {
             local_presence_cache: file.local_presence_cache.clone(),
         };
-        let folders = file.folders.clone();
-        let mut durable = file;
-        durable.sharded = true;
-        durable.folder_order = folders.iter().map(|folder| folder.id.clone()).collect();
-        durable.folders.clear();
-        durable.local_presence_cache.clear();
+        let durable = CollectionFile {
+            sharded: true,
+            folder_order: file
+                .folders
+                .iter()
+                .map(|folder| folder.id.clone())
+                .collect(),
+            stable_fingerprint: file.stable_fingerprint.clone(),
+            stable_version: file.stable_version,
+            refreshed_at: file.refreshed_at.clone(),
+            ..Default::default()
+        };
         let collection_bytes = serde_json::to_vec_pretty(&durable)?;
         let cache_bytes = serde_json::to_vec(&cache)?;
         if persisted.cache != cache_bytes {
@@ -168,7 +175,7 @@ impl CollectionService {
             persisted.cache = cache_bytes;
         }
         let mut current_folder_ids = HashSet::new();
-        for folder in folders {
+        for folder in &file.folders {
             current_folder_ids.insert(folder.id.clone());
             let bytes = serde_json::to_vec(&folder)?;
             if persisted.folders.get(&folder.id) == Some(&bytes) {
@@ -180,7 +187,9 @@ impl CollectionService {
             let temporary = target.with_extension("json.tmp");
             fs::write(&temporary, &bytes)?;
             atomic_replace(&temporary, &target)?;
-            persisted.folders.insert(folder.id, bytes);
+            persisted.folders.insert(folder.id.clone(), bytes);
+            file.revision += 1;
+            file.revisions.insert(folder.id.clone(), file.revision);
         }
         let removed = persisted
             .folders
@@ -202,6 +211,46 @@ impl CollectionService {
             fs::write(&temporary, &collection_bytes)?;
             atomic_replace(&temporary, &self.path)?;
             persisted.collections = collection_bytes;
+        }
+        file.sharded = true;
+        file.folder_order = durable.folder_order;
+        file.revisions
+            .retain(|id, _| current_folder_ids.contains(id));
+        *self.value.lock()? = file;
+        persisted.initialized = true;
+        Ok(result)
+    }
+
+    /// Common edits copy and serialize only the selected folder, after initial migration.
+    fn edit_folder<R>(
+        &self,
+        folder_id: &str,
+        action: impl FnOnce(&mut CollectionFolder) -> CommandResult<R>,
+    ) -> CommandResult<R> {
+        let mut persisted = self
+            .persist
+            .lock()
+            .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹持久化状态不可用"))?;
+        if !persisted.initialized {
+            drop(persisted);
+            return self.update(|file| action(folder_mut(file, folder_id)?));
+        }
+        let mut folder = self.folder(folder_id)?;
+        let result = action(&mut folder)?;
+        let bytes = serde_json::to_vec(&folder)?;
+        if persisted.folders.get(folder_id) != Some(&bytes) {
+            let target = self
+                .folders_path
+                .join(format!("{}.json", folder_storage_key(folder_id)));
+            let temporary = target.with_extension("json.tmp");
+            fs::write(&temporary, &bytes)?;
+            atomic_replace(&temporary, &target)?;
+            let mut file = self.value.lock()?;
+            *folder_mut(&mut file, folder_id)? = folder;
+            file.revision += 1;
+            let revision = file.revision;
+            file.revisions.insert(folder_id.to_owned(), revision);
+            persisted.folders.insert(folder_id.to_owned(), bytes);
         }
         Ok(result)
     }
@@ -248,8 +297,7 @@ impl CollectionService {
 
     pub(super) fn rename(&self, folder_id: &str, name: &str) -> CommandResult<()> {
         let name = validate_name(name)?;
-        self.update(|file| {
-            let folder = folder_mut(file, folder_id)?;
+        self.edit_folder(folder_id, |folder| {
             ensure_writable(folder)?;
             folder.name = name;
             touch(folder);
@@ -275,8 +323,7 @@ impl CollectionService {
         folder_id: &str,
         candidates: Vec<CollectionCandidate>,
     ) -> CommandResult<()> {
-        self.update(|file| {
-            let folder = folder_mut(file, folder_id)?;
+        self.edit_folder(folder_id, |folder| {
             ensure_writable(folder)?;
             for candidate in candidates {
                 let entry = candidate_to_entry(candidate);
@@ -294,8 +341,7 @@ impl CollectionService {
     }
 
     pub(super) fn remove_entry(&self, folder_id: &str, entry_id: &str) -> CommandResult<()> {
-        self.update(|file| {
-            let folder = folder_mut(file, folder_id)?;
+        self.edit_folder(folder_id, |folder| {
             ensure_writable(folder)?;
             folder.entries.retain(|entry| entry.id != entry_id);
             touch(folder);

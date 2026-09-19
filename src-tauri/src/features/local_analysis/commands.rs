@@ -153,24 +153,38 @@ pub async fn get_local_beatmap_background(
     state: State<'_, AppState>,
 ) -> CommandResult<Option<String>> {
     let service = Arc::clone(&state.local_analysis);
-    crate::infrastructure::tasks::interactive("local_analysis", move || {
-        let span = crate::infrastructure::logging::global()
-            .map(|log| log.operation("local_analysis", "get_local_beatmap_background"));
-        let result = match size.unwrap_or_default() {
-            BackgroundSize::Thumbnail => service.beatmap_background(client, &resource_id),
-            BackgroundSize::Stage => {
-                service.beatmap_background_sized(client, &resource_id, BackgroundSize::Stage)
-            }
-        };
-        crate::infrastructure::logging::finish_span(span, result)
-    })
-    .await
-    .map_err(|error| {
-        CommandError::new(
-            "LOCAL_BACKGROUND_TASK_ERROR",
-            format!("谱面背景处理任务异常结束：{error}"),
-        )
-    })?
+    let key = (
+        client,
+        resource_id.clone(),
+        matches!(size, Some(BackgroundSize::Stage)),
+        service.background_revision(client)?,
+    );
+    service
+        .background_requests
+        .run(key, || async {
+            let service = Arc::clone(&service);
+            crate::infrastructure::tasks::interactive("local_analysis", move || {
+                let span = crate::infrastructure::logging::global()
+                    .map(|log| log.operation("local_analysis", "get_local_beatmap_background"));
+                let result = match size.unwrap_or_default() {
+                    BackgroundSize::Thumbnail => service.beatmap_background(client, &resource_id),
+                    BackgroundSize::Stage => service.beatmap_background_sized(
+                        client,
+                        &resource_id,
+                        BackgroundSize::Stage,
+                    ),
+                };
+                crate::infrastructure::logging::finish_span(span, result)
+            })
+            .await
+            .map_err(|error| {
+                CommandError::new(
+                    "LOCAL_BACKGROUND_TASK_ERROR",
+                    format!("谱面背景处理任务异常结束：{error}"),
+                )
+            })?
+        })
+        .await
 }
 
 #[tauri::command(async)]

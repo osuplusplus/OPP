@@ -1,5 +1,6 @@
+import { visiblePoll } from "../shared/lib/visiblePoll";
 import { RouteContent } from "./RouteContent";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, FolderOpen, Loader2, Play, Settings2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -15,7 +16,7 @@ import { Badge, Button, Card, DataLine } from "../shared/components/ui";
 import { CollectionAddDialog } from "../features/collections/CollectionAddDialog";
 import { requestCollectionTaskCancellation, subscribeCollectionTask, updateCollectionTask, type CollectionTaskStatus } from "../features/collections/taskStatus";
 import { settingsQueryKey, useSettings } from "../features/settings/api";
-import { OnboardingTour } from "../features/onboarding/OnboardingTour";
+const OnboardingTour = lazy(() => import("../features/onboarding/OnboardingTour").then((module) => ({ default: module.OnboardingTour })));
 import {
   CURRENT_ONBOARDING_VERSION,
   needsOnboarding,
@@ -60,9 +61,11 @@ function DownloadToast() {
   const [displaySpeed, setDisplaySpeed] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
   useEffect(() => {
+    let disposed = false;
     let dispose: (() => void) | undefined;
     let timer: number | undefined;
     void desktopApi.onBeatmapDownloadProgress((next) => {
+      if (disposed) return;
       window.clearTimeout(timer);
       setProgress(next);
       if (next.phase === "started") {
@@ -78,8 +81,8 @@ function DownloadToast() {
         setProgress(null);
         setDisplaySpeed(null);
       }, 5_000);
-    }).then((unlisten) => { dispose = unlisten; });
-    return () => { window.clearTimeout(timer); dispose?.(); };
+    }).then((unlisten) => { if (disposed) unlisten(); else dispose = unlisten; });
+    return () => { disposed = true; window.clearTimeout(timer); dispose?.(); };
   }, []);
   if (!progress) return null;
   const completed = progress.phase === "finished" || progress.phase === "cancelled";
@@ -131,19 +134,20 @@ function CollectionTaskToast() {
   }), []);
 
   useEffect(() => {
+    let disposed = false;
     let disposeCollection: (() => void) | undefined;
     let disposeDownload: (() => void) | undefined;
     void desktopApi.onCollectionTaskProgress((progress: CollectionTaskProgress) => {
-      if (!active.current) return;
+      if (disposed || !active.current) return;
       updateCollectionTask({
         phase: progress.phase,
         message: progress.message,
         processed: progress.processed,
         total: progress.total,
       });
-    }).then((unlisten) => { disposeCollection = unlisten; });
+    }).then((unlisten) => { if (disposed) unlisten(); else disposeCollection = unlisten; });
     void desktopApi.onBeatmapDownloadProgress((progress) => {
-      if (!active.current) return;
+      if (disposed || !active.current) return;
       if (progress.phase === "cancelled") {
         updateCollectionTask({ phase: "cancelled", message: "缺失曲包下载已取消" });
         return;
@@ -154,8 +158,8 @@ function CollectionTaskToast() {
         processed: progress.processed,
         total: progress.total,
       });
-    }).then((unlisten) => { disposeDownload = unlisten; });
-    return () => { disposeCollection?.(); disposeDownload?.(); };
+    }).then((unlisten) => { if (disposed) unlisten(); else disposeDownload = unlisten; });
+    return () => { disposed = true; disposeCollection?.(); disposeDownload?.(); };
   }, []);
 
   if (!status) return null;
@@ -193,9 +197,11 @@ function DownloadCompletedPlaylist() {
   const [noticeVisible, setNoticeVisible] = useState(false);
 
   useEffect(() => {
+    let disposed = false;
     let dispose: (() => void) | undefined;
     let timer: number | undefined;
     void desktopApi.onBeatmapDownloadProgress((next) => {
+      if (disposed) return;
       if (next.phase !== "finished" || !next.completed_paths?.length) return;
       window.clearTimeout(timer);
       setFiles(next.completed_paths);
@@ -206,8 +212,8 @@ function DownloadCompletedPlaylist() {
         setFiles([]);
         setDestination(null);
       }, 5_000);
-    }).then((unlisten) => { dispose = unlisten; });
-    return () => { window.clearTimeout(timer); dispose?.(); };
+    }).then((unlisten) => { if (disposed) unlisten(); else dispose = unlisten; });
+    return () => { disposed = true; window.clearTimeout(timer); dispose?.(); };
   }, []);
 
   if (!files.length) return null;
@@ -287,9 +293,10 @@ export function AppShell() {
   const analysisEnabled = true;
 
   useEffect(() => {
-    let off: () => void = () => undefined;
-    void desktopApi.onNewReplaysDetected(setNewReplays).then((unlisten) => { off = unlisten; });
-    return () => off();
+    let disposed = false;
+    let off: (() => void) | undefined;
+    void desktopApi.onNewReplaysDetected((value) => { if (!disposed) setNewReplays(value); }).then((unlisten) => { if (disposed) unlisten(); else off = unlisten; });
+    return () => { disposed = true; off?.(); };
   }, []);
 
   useEffect(() => {
@@ -356,9 +363,8 @@ export function AppShell() {
         if (!disposed && analysisEnabled && session && !session.running && session.end && session.started_at !== dismissedSession) setCompletedSession(session);
       } catch { /* The rest of the shell remains usable when the desktop bridge is unavailable. */ }
     };
-    const initial = window.setTimeout(() => void poll(), 0);
-    const timer = window.setInterval(() => void poll(), 2000);
-    return () => { disposed = true; window.clearTimeout(initial); window.clearInterval(timer); };
+    const stop = visiblePoll(poll, 2000);
+    return () => { disposed = true; stop(); };
   }, [analysisEnabled, dismissedSession]);
 
   useEffect(() => {
@@ -450,6 +456,7 @@ export function AppShell() {
       ) : null}
       {completedSession || newReplays ? <><GameCompletionOverlay key={newReplays?.detected_at ?? completedSession?.started_at} session={completedSession} discovery={newReplays} settings={settingsQuery.data} onNavigate={(path) => navigate(path)} onClose={() => { if (completedSession) setDismissedSession(completedSession.started_at); setCompletedSession(null); setNewReplays(null); }} /><div className="fixed bottom-8 left-1/2 z-[110] -translate-x-1/2 rounded-xl border border-cyan-300/15 bg-[#0b101b]/95 px-4 py-2 text-xs text-slate-400 shadow-xl">Tips：嘛，如果拘泥于数据就会让游戏本来的乐趣消失哦</div></> : null}
       {tosuPromptSettings ? <TosuLaunchPrompt settings={tosuPromptSettings} onClose={() => setTosuPromptSettings(null)} /> : null}
+      <Suspense fallback={null}>
       {onboardingOpen ? (
         <OnboardingTour
           onClose={() => {
@@ -467,6 +474,7 @@ export function AppShell() {
           steps={pageGuide.steps}
         />
       ) : null}
+      </Suspense>
       {location.pathname !== "/online/beatmaps" ? <DownloadToast /> : null}
       <CollectionTaskToast />
       <DownloadCompletedPlaylist />

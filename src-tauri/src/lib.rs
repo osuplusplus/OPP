@@ -111,10 +111,6 @@ pub fn run() {
                     .await;
             });
             state.local_analysis.start_watchers(app.handle().clone());
-            let beatmaphub = state.beatmaphub.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = beatmaphub.recommendations(20, true).await;
-            });
             start_game_monitor(
                 state.local_analysis.clone(),
                 state.game_monitor.clone(),
@@ -165,6 +161,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 app.state::<AppState>().music.shutdown();
                 features::tosu::cleanup_on_exit(&app.state::<AppState>().tosu);
+                logging::shutdown();
             }
         });
 }

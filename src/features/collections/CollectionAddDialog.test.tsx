@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CollectionCandidate } from "../../shared/types/osu";
@@ -9,7 +9,7 @@ import { desktopApi } from "../../shared/lib/tauri";
 
 vi.mock("../../shared/lib/tauri", () => ({
   desktopApi: {
-    listCollections: vi.fn().mockResolvedValue({ folders: [], sources: [] }),
+    listCollectionSummaries: vi.fn().mockResolvedValue({ folders: [], sources: [] }),
   },
 }));
 
@@ -38,12 +38,12 @@ const candidates: CollectionCandidate[] = [
 
 describe("CollectionAddDialog", () => {
   it("does not fetch the library while the global dialog is closed", async () => {
-    vi.mocked(desktopApi.listCollections).mockClear();
+    vi.mocked(desktopApi.listCollectionSummaries).mockClear();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><CollectionAddDialog /></QueryClientProvider>);
-    expect(desktopApi.listCollections).not.toHaveBeenCalled();
-    openCollectionDialog(candidates);
-    await waitFor(() => expect(desktopApi.listCollections).toHaveBeenCalledTimes(1));
+    expect(desktopApi.listCollectionSummaries).not.toHaveBeenCalled();
+    await act(async () => { openCollectionDialog(candidates); await import("./CollectionAddDialogContent"); });
+    await waitFor(() => expect(desktopApi.listCollectionSummaries).toHaveBeenCalledTimes(1));
   });
 
   it("starts with every difficulty unselected", async () => {
@@ -56,7 +56,7 @@ describe("CollectionAddDialog", () => {
       </QueryClientProvider>,
     );
 
-    openCollectionDialog(candidates);
+    await act(async () => { openCollectionDialog(candidates); await import("./CollectionAddDialogContent"); });
 
     await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
     expect(screen.getAllByRole("checkbox")).toHaveLength(2);

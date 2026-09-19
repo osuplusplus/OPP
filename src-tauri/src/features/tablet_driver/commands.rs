@@ -8,7 +8,7 @@ use std::{path::Path, process::Command};
 use tauri::State;
 
 fn settings(state: &AppState) -> CommandResult<AppSettings> {
-    Ok(state.store.snapshot()?.settings)
+    state.store.settings_snapshot()
 }
 
 fn log_command(name: &str) {

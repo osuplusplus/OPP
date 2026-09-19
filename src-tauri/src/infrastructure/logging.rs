@@ -4,11 +4,12 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        OnceLock,
-        mpsc::{self, Sender},
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+        mpsc::{self, SyncSender, TrySendError},
     },
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
@@ -19,8 +20,15 @@ use crate::error::CommandResult;
 
 #[derive(Clone)]
 pub struct Logger {
-    tx: Sender<String>,
+    tx: SyncSender<WriterMessage>,
+    dropped: Arc<AtomicU64>,
+    fallback: Arc<Mutex<PathBuf>>,
     directory: PathBuf,
+}
+
+enum WriterMessage {
+    Record(String, bool),
+    Shutdown(mpsc::Sender<()>),
 }
 
 static LOGGER: OnceLock<Logger> = OnceLock::new();
@@ -65,29 +73,78 @@ pub fn init(app_data_dir: &Path) -> Logger {
         &Uuid::new_v4().to_string()[..8]
     );
     let path = directory.join(&current);
-    let (tx, rx) = mpsc::channel::<String>();
+    let fallback = Arc::new(Mutex::new(path.with_extension("emergency.jsonl")));
+    let (tx, rx) = mpsc::sync_channel::<WriterMessage>(1024);
+    let dropped = Arc::new(AtomicU64::new(0));
+    let lost = dropped.clone();
     let _ = thread::Builder::new()
         .name("opp-log-writer".into())
-        .spawn(move || {
-            use std::io::Write;
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-                .ok();
-            for line in rx {
-                if let Some(output) = file.as_mut() {
-                    let _ = writeln!(output, "{line}");
-                    let _ = output.flush();
+        .spawn(move || write_records(path, rx, lost));
+    let logger = Logger {
+        tx,
+        dropped,
+        fallback,
+        directory,
+    };
+    let _ = LOGGER.set(logger.clone());
+    install_panic_hook();
+    logger
+}
+
+fn write_records(path: PathBuf, rx: mpsc::Receiver<WriterMessage>, lost: Arc<AtomicU64>) {
+    use std::io::{BufWriter, Write};
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()
+        .map(BufWriter::new);
+    let mut pending = 0;
+    loop {
+        let message = rx.recv_timeout(Duration::from_millis(250));
+        let count = lost.swap(0, Ordering::Relaxed);
+        if count > 0 {
+            let line = serde_json::json!({"timestamp": Utc::now().to_rfc3339(), "level": "WARN", "target": "logging", "message": "日志队列已满，合并普通日志", "fields": {"dropped_records": count}}).to_string();
+            if let Some(output) = &mut file {
+                let _ = writeln!(output, "{line}");
+            } else {
+                eprintln!("{line}");
+            }
+            pending += 1;
+        }
+        match message {
+            Ok(WriterMessage::Record(line, urgent)) => {
+                if let Some(output) = &mut file {
+                    if writeln!(output, "{line}").is_err() {
+                        eprintln!("{line}");
+                    }
+                    pending += 1;
+                    if urgent || pending >= 64 {
+                        let _ = output.flush();
+                        pending = 0;
+                    }
                 } else {
                     eprintln!("{line}");
                 }
             }
-        });
-    let logger = Logger { tx, directory };
-    let _ = LOGGER.set(logger.clone());
-    install_panic_hook();
-    logger
+            Ok(WriterMessage::Shutdown(done)) => {
+                if let Some(output) = &mut file {
+                    let _ = output.flush();
+                }
+                let _ = done.send(());
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if pending > 0 {
+                    if let Some(output) = &mut file {
+                        let _ = output.flush();
+                    }
+                    pending = 0;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
 }
 
 pub fn global() -> Option<&'static Logger> {
@@ -210,7 +267,38 @@ impl Logger {
         let line = serde_json::to_string(&record).unwrap_or_else(|error| {
             format!("{{\"level\":\"ERROR\",\"message\":\"log serialization failed: {error}\"}}")
         });
-        let _ = self.tx.send(line);
+        let urgent = matches!(record.level.as_str(), "ERROR" | "CRITICAL");
+        match self.tx.try_send(WriterMessage::Record(line, urgent)) {
+            Ok(()) => {}
+            Err(TrySendError::Full(WriterMessage::Record(line, urgent))) => {
+                if urgent {
+                    self.write_fallback(&line);
+                } else {
+                    self.dropped.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            Err(TrySendError::Disconnected(WriterMessage::Record(line, _))) => {
+                self.write_fallback(&line)
+            }
+            Err(_) => {}
+        }
+    }
+
+    fn write_fallback(&self, line: &str) {
+        use std::io::Write;
+        // Windows release builds have no console: preserve errors in a separate
+        // file when the bounded queue is full. This rare path never enqueues logs.
+        let result = self.fallback.lock().ok().and_then(|path| {
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&*path)
+                .ok()
+                .and_then(|mut output| writeln!(output, "{line}").ok())
+        });
+        if result.is_none() {
+            eprintln!("{line}");
+        }
     }
 
     pub fn operation(&self, target: impl Into<String>, operation: impl Into<String>) -> LogSpan {
@@ -699,6 +787,16 @@ pub fn finish_span<T>(
     }
 }
 
+/// Called after business workers finish their shutdown logging. FIFO drains all queued records.
+pub(crate) fn shutdown() {
+    if let Some(logger) = global() {
+        let (done, wait) = mpsc::channel();
+        if logger.tx.send(WriterMessage::Shutdown(done)).is_ok() {
+            let _ = wait.recv();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -721,5 +819,61 @@ mod tests {
         assert_eq!(value["code"], "NETWORK_ERROR");
         assert_eq!(value["access_token"], "<redacted>");
         assert_eq!(value["nested"]["password"], "<redacted>");
+    }
+}
+
+#[cfg(test)]
+mod writer_tests {
+    use super::*;
+    #[test]
+    fn overloaded_error_logs_have_a_sanitized_file_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("emergency.jsonl");
+        let (tx, _rx) = mpsc::sync_channel(1);
+        let logger = Logger {
+            tx,
+            directory: dir.path().to_path_buf(),
+            dropped: Arc::new(AtomicU64::new(0)),
+            fallback: Arc::new(Mutex::new(path.clone())),
+        };
+        logger.log("INFO", "test", "fills queue");
+        logger.log("INFO", "test", "aggregated");
+        logger.log("ERROR", "test", "token=private-value");
+        assert_eq!(logger.dropped.load(Ordering::Relaxed), 1);
+        let content = fs::read_to_string(path).unwrap();
+        assert!(!content.contains("private-value"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(content.trim()).unwrap()["level"],
+            "ERROR"
+        );
+    }
+
+    #[test]
+    fn shutdown_drains_records_and_reports_aggregated_overflow() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let output = path.clone();
+        let (tx, rx) = mpsc::sync_channel(8);
+        let lost = Arc::new(AtomicU64::new(17));
+        let worker = thread::spawn(move || write_records(output, rx, lost));
+        for index in 0..100 {
+            tx.send(WriterMessage::Record(
+                serde_json::json!({"index": index}).to_string(),
+                false,
+            ))
+            .unwrap();
+        }
+        let (done, wait) = mpsc::channel();
+        tx.send(WriterMessage::Shutdown(done)).unwrap();
+        wait.recv().unwrap();
+        worker.join().unwrap();
+        let text = fs::read_to_string(path).unwrap();
+        let records = text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 101);
+        assert_eq!(records[0]["fields"]["dropped_records"], 17);
+        assert_eq!(records.last().unwrap()["index"], 99);
     }
 }

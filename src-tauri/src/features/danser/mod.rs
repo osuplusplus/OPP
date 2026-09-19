@@ -75,7 +75,7 @@ fn command_error(code: &str, message: impl Into<String>) -> CommandError {
 }
 
 fn resolve_danser(state: &AppState) -> CommandResult<PathBuf> {
-    let saved = state.store.snapshot()?.settings.danser_executable_path;
+    let saved = state.store.settings_snapshot()?.danser_executable_path;
     resolve_danser_path(saved.as_deref()).ok_or_else(|| {
         command_error(
             "DANSER_NOT_FOUND",
@@ -88,7 +88,7 @@ fn resolve_danser(state: &AppState) -> CommandResult<PathBuf> {
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn get_danser_status(state: State<'_, AppState>) -> CommandResult<DanserStatus> {
-    let saved = state.store.snapshot()?.settings.danser_executable_path;
+    let saved = state.store.settings_snapshot()?.danser_executable_path;
     crate::infrastructure::tasks::blocking_io("get_danser_status", move || {
         let executable = find_danser(saved.as_deref());
         let profiles = executable
@@ -115,7 +115,7 @@ pub async fn get_danser_status(state: State<'_, AppState>) -> CommandResult<Dans
 /// 供前端调用的 Tauri 命令：列出可用资源。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn list_danser_profiles(state: State<'_, AppState>) -> CommandResult<Vec<String>> {
-    let saved = state.store.snapshot()?.settings.danser_executable_path;
+    let saved = state.store.settings_snapshot()?.danser_executable_path;
     crate::infrastructure::tasks::blocking_io("list_danser_profiles", move || {
         Ok(list_profiles_for(
             &resolve_danser_path(saved.as_deref())
@@ -791,8 +791,7 @@ pub fn enqueue_danser_renders(
     }
     let export_directory = state
         .store
-        .snapshot()?
-        .settings
+        .settings_snapshot()?
         .replay_export_directory
         .map(PathBuf::from)
         .ok_or_else(|| {
@@ -872,8 +871,7 @@ pub fn start_danser_render_queue(state: State<'_, AppState>, app: AppHandle) -> 
     }
     let export_directory = state
         .store
-        .snapshot()?
-        .settings
+        .settings_snapshot()?
         .replay_export_directory
         .map(PathBuf::from)
         .ok_or_else(|| command_error("REPLAY_EXPORT_DIRECTORY_NOT_SET", "请先选择回放导出位置"))?;
@@ -933,8 +931,7 @@ pub fn cancel_danser_render(
 pub fn open_danser_output(path: String, state: State<'_, AppState>) -> CommandResult<()> {
     let directory = state
         .store
-        .snapshot()?
-        .settings
+        .settings_snapshot()?
         .replay_export_directory
         .map(PathBuf::from)
         .ok_or_else(|| command_error("REPLAY_EXPORT_DIRECTORY_NOT_SET", "尚未设置回放导出目录"))?;

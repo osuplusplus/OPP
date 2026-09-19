@@ -27,3 +27,8 @@ pub use stable::{
     write_stable_collections,
 };
 pub use task::{begin_collection_task, cancel_collection_task};
+
+mod paging;
+pub use paging::{
+    list_collection_summaries, query_collection_entries, refresh_collection_summaries,
+};

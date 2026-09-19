@@ -22,9 +22,9 @@ const AUTHORIZATION_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 /// 建立一次仅在本机回调端口上有效的 OAuth 会话，并用随机 state 抵御 CSRF 回调。
 pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
     let app_state = app.state::<AppState>();
-    let snapshot = app_state.store.snapshot()?;
-    let client_id = snapshot
-        .client_id
+    let client_id = app_state
+        .store
+        .read(|state| state.client_id.clone())?
         .filter(|value| !value.is_empty())
         .ok_or_else(CommandError::credentials_required)?;
     if app_state.credentials.get_client_secret()?.is_none() {
@@ -208,9 +208,9 @@ async fn process_callback(
         .ok_or_else(|| CommandError::new("MISSING_AUTH_CODE", "回调中缺少授权码"))?;
 
     let app_state = app.state::<AppState>();
-    let snapshot = app_state.store.snapshot()?;
-    let client_id = snapshot
-        .client_id
+    let client_id = app_state
+        .store
+        .read(|state| state.client_id.clone())?
         .ok_or_else(CommandError::credentials_required)?;
     let client_secret = app_state
         .credentials

@@ -14,7 +14,7 @@ use super::{
 };
 
 fn settings(state: &AppState) -> CommandResult<AppSettings> {
-    Ok(state.store.snapshot()?.settings)
+    state.store.settings_snapshot()
 }
 
 async fn api_reachable(base: &str) -> bool {

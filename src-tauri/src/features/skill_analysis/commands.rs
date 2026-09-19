@@ -41,11 +41,14 @@ pub async fn analyze_player_skills(
             "skill-analysis:{}:{}:{}:{CACHE_REVISION}",
             request.client, request.ruleset, ALGORITHM_VERSION
         );
-        state
-            .store
-            .snapshot()
-            .ok()
-            .and_then(|snapshot| snapshot.cache.get(&key).cloned())
+        let store = state.store.clone();
+        crate::infrastructure::tasks::blocking_io("read_skill_fallback", move || {
+            store.read_cached(|saved| saved.cache.get(&key).cloned())
+        })
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten()
     } else {
         None
     };
@@ -93,8 +96,12 @@ async fn analyze_player_skills_inner(
         "skill-analysis:{}:{}:{}:{CACHE_REVISION}",
         request.client, request.ruleset, ALGORITHM_VERSION
     );
-    let snapshot = state.store.snapshot()?;
-    let cached = snapshot.cache.get(&cache_key).cloned();
+    let store = state.store.clone();
+    let key = cache_key.clone();
+    let cached = crate::infrastructure::tasks::blocking_io("read_skill_cache", move || {
+        store.read_cached(|saved| saved.cache.get(&key).cloned())
+    })
+    .await??;
     if !request.force_refresh
         && let Some(record) = cached.as_ref()
         && Utc::now() - record.fetched_at < Duration::seconds(CACHE_SECONDS)
@@ -136,15 +143,18 @@ async fn analyze_player_skills_inner(
 
     let result = analyze_scores(&state, &profile, &scores, &request, span).await?;
     let value = serde_json::to_value(&result)?;
-    state.store.update(|persisted| {
-        persisted.cache.insert(
+    let store = state.store.clone();
+    crate::infrastructure::tasks::blocking_io("write_skill_cache", move || {
+        store.insert_cache(
             cache_key,
             CacheRecord {
                 value,
                 fetched_at: Utc::now(),
             },
-        );
-    })?;
+            None,
+        )
+    })
+    .await??;
     Ok(result)
 }
 

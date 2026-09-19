@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { markInteractive } from "../shared/lib/performance";
 import { ModeProvider } from "./ModeContext";
 import { AppRoutes } from "./AppRoutes";
 import { AppLoading } from "./AppLoading";
@@ -16,6 +18,7 @@ function ConnectedApplication() {
 /** Resolves desktop authentication before mounting feature routes. */
 export function AppConnectionGate() {
   const auth = useAuthStatus();
+  useEffect(() => { if (!auth.isLoading) markInteractive(); }, [auth.isLoading]);
 
   if (auth.isLoading) return <AppLoading />;
   if (auth.error || !auth.data) {

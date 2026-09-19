@@ -44,8 +44,8 @@ pub async fn invoke<T: for<'de> Deserialize<'de>, P: Serialize>(
     payload: Option<P>,
 ) -> CommandResult<T> {
     let span = global().map(|logger| logger.operation("collection_manager", op));
-    let settings = match state.store.snapshot() {
-        Ok(snapshot) => snapshot.settings,
+    let settings = match state.store.settings_snapshot() {
+        Ok(settings) => settings,
         Err(error) => return finish_span(span, Err(error)),
     };
     let path = match settings.collection_manager_path {
@@ -127,9 +127,9 @@ fn finish_span<T>(
 pub async fn status(state: &AppState) -> CollectionManagerStatus {
     let configured = state
         .store
-        .snapshot()
+        .settings_snapshot()
         .ok()
-        .and_then(|s| s.settings.collection_manager_path)
+        .and_then(|s| s.collection_manager_path)
         .is_some();
     if !configured {
         return CollectionManagerStatus {

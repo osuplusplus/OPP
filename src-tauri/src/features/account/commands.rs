@@ -139,9 +139,12 @@ pub async fn get_own_profile(
     state: State<'_, AppState>,
 ) -> CommandResult<Cached<OwnProfile>> {
     let key = format!("profile:{ruleset}");
-    let cached = state
-        .store
-        .read(|persisted| persisted.cache.get(&key).cloned())?;
+    let store = state.store.clone();
+    let lookup_key = key.clone();
+    let cached = crate::infrastructure::tasks::blocking_io("read_profile_cache", move || {
+        store.read_cached(|persisted| persisted.cache.get(&lookup_key).cloned())
+    })
+    .await??;
     if !force_refresh {
         if let Some(record) = cached.as_ref()
             && Utc::now() - record.fetched_at < Duration::seconds(PROFILE_CACHE_SECONDS)
@@ -159,13 +162,12 @@ pub async fn get_own_profile(
         Ok(mut profile) => {
             let fetched_at = Utc::now();
             let value = serde_json::to_value(&profile)?;
-            state.store.update(|persisted| {
-                persisted.current_user_id = Some(profile.id);
-                persisted.username = Some(profile.username.clone());
-                persisted
-                    .cache
-                    .insert(key, CacheRecord { value, fetched_at });
-            })?;
+            let store = state.store.clone();
+            let identity = (profile.id, profile.username.clone());
+            crate::infrastructure::tasks::blocking_io("write_profile_cache", move || {
+                store.insert_cache(key, CacheRecord { value, fetched_at }, Some(identity))
+            })
+            .await??;
             attach_avatar(&state, &mut profile, force_refresh).await;
             Ok(Cached {
                 data: profile,
@@ -201,12 +203,18 @@ pub async fn get_scores(
         ));
     }
     let key = format!("scores:{ruleset}:{category}:{offset}:{limit}");
-    let (cached, user_id) = state.store.read(|persisted| {
-        (
-            persisted.cache.get(&key).cloned(),
-            persisted.current_user_id,
-        )
-    })?;
+    let store = state.store.clone();
+    let lookup_key = key.clone();
+    let (cached, user_id) =
+        crate::infrastructure::tasks::blocking_io("read_scores_cache", move || {
+            store.read_cached(|persisted| {
+                (
+                    persisted.cache.get(&lookup_key).cloned(),
+                    persisted.current_user_id,
+                )
+            })
+        })
+        .await??;
     if !force_refresh {
         if let Some(record) = cached.as_ref()
             && Utc::now() - record.fetched_at < Duration::seconds(SCORE_CACHE_SECONDS)
@@ -228,11 +236,11 @@ pub async fn get_scores(
         Ok(scores) => {
             let fetched_at = Utc::now();
             let value = serde_json::to_value(&scores)?;
-            state.store.update(|persisted| {
-                persisted
-                    .cache
-                    .insert(key, CacheRecord { value, fetched_at });
-            })?;
+            let store = state.store.clone();
+            crate::infrastructure::tasks::blocking_io("write_scores_cache", move || {
+                store.insert_cache(key, CacheRecord { value, fetched_at }, None)
+            })
+            .await??;
             Ok(Cached {
                 data: scores,
                 fetched_at,
@@ -265,11 +273,11 @@ pub async fn get_settings(app: AppHandle) -> CommandResult<AppSettings> {
         let state = app.state::<AppState>();
         let mut settings = state.store.settings_snapshot()?;
         if settings.beatmap_download_directory.is_none() {
-            settings = state.store.update(|persisted| {
-                if persisted.settings.beatmap_download_directory.is_none() {
-                    persisted.settings.beatmap_download_directory = default_download_directory();
+            settings = state.store.update_settings(|settings| {
+                if settings.beatmap_download_directory.is_none() {
+                    settings.beatmap_download_directory = default_download_directory();
                 }
-                persisted.settings.clone()
+                settings.clone()
             })?;
         }
         Ok(settings)
@@ -283,10 +291,9 @@ pub async fn get_settings(app: AppHandle) -> CommandResult<AppSettings> {
 pub async fn mark_onboarding_seen(version: u32, app: AppHandle) -> CommandResult<AppSettings> {
     crate::infrastructure::tasks::blocking_io("mark_onboarding_seen", move || {
         let state = app.state::<AppState>();
-        state.store.update(|persisted| {
-            persisted.settings.onboarding_version =
-                persisted.settings.onboarding_version.max(version);
-            persisted.settings.clone()
+        state.store.update_settings(|settings| {
+            settings.onboarding_version = settings.onboarding_version.max(version);
+            settings.clone()
         })
     })
     .await?
@@ -310,14 +317,13 @@ pub async fn mark_page_onboarding_seen(
         {
             return Err(CommandError::new("INVALID_PAGE_ID", "页面引导标识无效"));
         }
-        state.store.update(|persisted| {
-            let stored = persisted
-                .settings
+        state.store.update_settings(|settings| {
+            let stored = settings
                 .page_onboarding_versions
                 .entry(page_id)
                 .or_default();
             *stored = (*stored).max(version);
-            persisted.settings.clone()
+            settings.clone()
         })
     })
     .await?
@@ -341,7 +347,7 @@ pub async fn update_settings(
             .set_thumbnail_cache_limit_mb(settings.cache_limit_mb)?;
         state
             .store
-            .update(|persisted| persisted.settings = settings.clone())?;
+            .update_settings(|saved| *saved = settings.clone())?;
         Ok(settings)
     })
     .await?
@@ -373,8 +379,7 @@ pub async fn export_replay_video(
     }
     let directory = state
         .store
-        .snapshot()?
-        .settings
+        .settings_snapshot()?
         .replay_export_directory
         .ok_or_else(|| {
             CommandError::new(

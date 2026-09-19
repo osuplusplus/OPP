@@ -1,14 +1,16 @@
+import { measureCommand } from "./performance";
 // Kept separate from the full desktop adapter so the mini entry cannot pull in app features.
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MusicControl, MusicLocation, MusicQueuePage, MusicQueueRequest, MusicState, MusicWindowSession } from "../types/music";
-import type { AppSettings, CollectionSnapshot } from "../types/osu";
+import type { AppSettings, CollectionSummaries } from "../types/osu";
 
 export const emptyMusicState: MusicState = { version: 0, queue_version: 0, current: null, resource_id: null, playing: false, position: 0, duration: 0, volume: .65, mode: "repeat_all", total: 0, notice: null, mini: false, background_tasks: 0 };
 function call<T>(command: string, args?: Record<string, unknown>) {
   if (!isTauri()) return Promise.reject(new Error("请在 OPP 桌面应用中使用本地播放器"));
-  return invoke<T>(command, args);
+  const finish = measureCommand(command);
+  return invoke<T>(command, args).then((result) => { finish(result); return result; }, (error) => { finish(); throw error; });
 }
 export const musicDesktop = {
   available: isTauri,
@@ -26,7 +28,7 @@ export const musicDesktop = {
   hide: () => getCurrentWindow().hide(),
   exit: () => call<void>("exit_app"),
   settings: () => call<AppSettings>("get_settings"),
-  collections: () => call<CollectionSnapshot>("list_collections"),
+  collections: () => call<CollectionSummaries>("list_collection_summaries"),
   subscribe: (callback: (state: MusicState) => void) => isTauri() ? listen<MusicState>("music-player-state", ({ payload }) => callback(payload)) : Promise.resolve(() => {}),
   onWindowError: (callback: (message: string) => void) => isTauri() ? listen<string>("music-window-error", ({ payload }) => callback(payload)) : Promise.resolve(() => {}),
 };

@@ -1904,3 +1904,10 @@ export interface LocalScanProgress {
   total: number;
   percent: number;
 }
+
+export interface CollectionFolderSummary {
+  id: string; name: string; creator: string; source: CollectionSource;
+  read_only: boolean; pending_write: boolean; entry_count: number; missing_count: number; beatmapset_count: number; revision: number;
+}
+export interface CollectionSummaries { folders: CollectionFolderSummary[]; sources: CollectionSourceStatus[] }
+export interface CollectionEntryPage { items: CollectionEntry[]; total: number; offset: number; limit: number; revision: number }

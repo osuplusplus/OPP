@@ -1,3 +1,4 @@
+import { measureCommand } from "./performance";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -28,7 +29,7 @@ import type {
   CollectionInstallResult,
   CollectionOpenResult,
   CollectionSharePreview,
-  CollectionSnapshot,
+  CollectionSnapshot, CollectionSummaries, CollectionEntryPage,
   CollectionSyncStatus,
   CollectionTaskProgress,
   CollectionWriteResult,
@@ -178,10 +179,13 @@ async function call<T>(
     } satisfies CommandError;
   }
   const id = requestId();
+  const finish = measureCommand(command);
   try {
     const result = await invoke<T>(command, args);
+    finish(result);
     return result;
   } catch (error) {
+    finish();
     const normalized = normalizeError(error);
     void writeLogRaw("error", "frontend.command.return_err", JSON.stringify({ event: "return_err", command, request_id: id, code: normalized.code, message: normalized.message, backend_request_id: normalized.request_id }));
     throw normalized;
@@ -192,7 +196,7 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_capabilities") return { os: "windows", display_gamma: true, file_association: true } as T;
   if (command === "get_beatmaphub_auth_status") return { has_identity: false, connected: false, public_key: null, user_id: null, device_id: null, display_name: null, device_name: "Preview PC", expires_at: null } as T;
   if (command === "get_beatmaphub_recommendations") return [] as T;
-  if (command === "list_collections") return { folders: [], sources: [] } as T;
+  if (command === "list_collections" || command === "list_collection_summaries") return { folders: [], sources: [] } as T;
   if (command === "get_lazer_disk_usage") return { path: "C:\\osu!", total_size: 1610612736, unique_size: 536870912, file_count: 4096 } as T;
   if (command === "export_local_beatmap_set") return `${args?.outDir ?? "C:\\Export"}/export.osz` as T;
   if (command === "export_local_skin") return `${args?.outDir ?? "C:\\Export"}/export.osk` as T;
@@ -427,6 +431,9 @@ export const desktopApi = {
     call<BeatmapDownloadResult>("download_online_beatmapsets", { request }),
   cancelOnlineBeatmapDownload: () =>
     call<void>("cancel_online_beatmap_download"),
+  refreshCollectionSummaries: (client: OsuClient) => call<CollectionSummaries>("refresh_collection_summaries", { client }),
+  listCollectionSummaries: () => call<CollectionSummaries>("list_collection_summaries"),
+  queryCollectionEntries: (folderId: string, offset: number, limit: number, revision: number) => call<CollectionEntryPage>("query_collection_entries", { folderId, offset, limit, revision }),
   listCollections: () => call<CollectionSnapshot>("list_collections"),
   getCollectionSyncStatus: () => call<CollectionSyncStatus>("get_collection_sync_status"),
   refreshCollections: (client: OsuClient) => call<CollectionSnapshot>("refresh_collections", { client }),
