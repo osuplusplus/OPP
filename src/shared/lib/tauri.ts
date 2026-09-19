@@ -276,7 +276,23 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
       const difficulty = { speed: 0.72, hand_stream: 0.68, jack: 0.44, chordjack: 0.61, technical: 0.57, stamina: 0.64, long_note: 0.18, course: 0.51 };
       const style = { stream: 0.72, chordstream: 0.58, jacks: 0.37, coordination: 0.49, density: 0.66, wildcard: 0.21, chord_rate: 0.34, large_chord_rate: 0.12, rotation_rate: 0.48, anchor_rate: 0.22, rhythm_entropy: 0.59, transition_entropy: 0.54, ln_note_ratio: 0.08, hold_occupancy: 0.06, hybrid_row_ratio: 0.04, peak_to_sustain_gap: 0.31 };
       const base = { bpm: 180, length_seconds: 132, active_length_seconds: 116, note_count: 812, row_count: 687, avg_nps: 7, peak_nps: 12.4, break_density: 0.12, sv_change_rate: 0 };
-      const target = { ruleset: "mania" as const, beatmap_id: 3001, beatmapset_id: 701, artist: "Synthetic Artist", title: "Key Reference", version: "4K Another", creator: "Preview Mapper", online_url: "https://osu.ppy.sh/beatmaps/3001", key_count: 4 as const, family: "rc" as const, pattern: "stream" as const, difficulty, style, base, difficulty_percentile: 0.78, difficulty_band: 7 };
+      const patternView = {
+        category: "Shield",
+        mode_tag: "Mix",
+        coverage: [0.52, 0.31, 0.12, 0.66, 0.48, 0.09],
+        bars: [
+          { pattern: "Coordination", amount: 158_000, relative: 0.66, specific_types: [["Shield", 0.092], ["Chordjack", 0.041]] },
+          { pattern: "Stream", amount: 121_000, relative: 0.51, specific_types: [["Light Stream", 0.28]] },
+          { pattern: "Wildcard", amount: 239_000, relative: 1, specific_types: [] },
+        ],
+        subtypes: [["Shield", 0.092], ["Light Stream", 0.081]],
+        ln_note_ratio: 0.234,
+        intensity: [6.4, 12.1, 5.2, 18.5],
+        temporal: [0.42, 0.18, 0.12],
+        duration_seconds: 132,
+        sv_amount: 0,
+      };
+      const target = { ruleset: "mania" as const, beatmap_id: 3001, beatmapset_id: 701, artist: "Synthetic Artist", title: "Key Reference", version: "4K Another", creator: "Preview Mapper", online_url: "https://osu.ppy.sh/beatmaps/3001", key_count: 4 as const, family: "rc" as const, pattern: "stream" as const, difficulty, style, base, difficulty_percentile: 0.78, difficulty_band: 7, game_mod: "target_mod" in similarityRequest ? similarityRequest.target_mod : similarityRequest.candidate_mods[0] ?? "NM", pattern_view: patternView };
       const results = [
         { ...target, beatmap_id: 3101, beatmapset_id: 711, artist: "Parallel Keys", title: "Stream Motion", version: "4K Hyper", difficulty: { ...difficulty, speed: 0.7 }, final_distance: 0.054, distance_components: { skill: 0.04, pattern: 0.06, structure: 0.08, difficulty: 0.03, context: 0.05 } },
         { ...target, beatmap_id: 3102, beatmapset_id: 712, artist: "Night Matrix", title: "Hand Balance", version: "4K Another", family: "hb" as const, pattern: "coordination" as const, final_distance: 0.089, distance_components: { skill: 0.07, pattern: 0.09, structure: 0.11, difficulty: 0.05, context: 0.08 } },

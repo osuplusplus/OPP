@@ -147,6 +147,7 @@ export function ManiaSimilarBeatmapsPage() {
   }
 
   async function download(result: ManiaSimilarityResult) {
+    if (!result.online_url) return;
     let destination = downloadDirectory ?? settings.data?.beatmap_download_directory ?? "";
     if (!destination) { destination = await desktopApi.chooseBeatmapDownloadDirectory(null) ?? ""; if (!destination) return; setDownloadDirectory(destination); if (settings.data) { const saved = await desktopApi.updateSettings({ ...settings.data, beatmap_download_directory: destination }); queryClient.setQueryData(settingsQueryKey, saved); } }
     setDownloadId(result.beatmap_id); setDownloadNotice(null);
@@ -154,12 +155,13 @@ export function ManiaSimilarBeatmapsPage() {
     catch (error) { setNotice(errorMessage(error)); } finally { setDownloadId(null); }
   }
   async function togglePreview(result: ManiaSimilarityResult) {
+    if (!result.online_url) return;
     if (playingId === result.beatmap_id && audioRef.current) { audioRef.current.pause(); audioRef.current = null; setPlayingId(null); return; }
     setPreviewLoadingId(result.beatmap_id);
     try { const beatmapset = await desktopApi.getOnlineBeatmapset(result.beatmapset_id); const url = normalizePreviewUrl(beatmapset.preview_url); if (!url) throw new Error("该谱面没有可用试听音频"); audioRef.current?.pause(); const audio = new Audio(url); audio.volume = previewVolume / 100; audio.onended = () => setPlayingId(null); audio.onerror = () => setPlayingId(null); audioRef.current = audio; setPlayingId(result.beatmap_id); await audio.play(); }
     catch (error) { setNotice(errorMessage(error)); setPlayingId(null); audioRef.current = null; } finally { setPreviewLoadingId(null); }
   }
-  function openOnline(result: ManiaSimilarityResult) { maniaSession = { request, response, recommendation, selectedKey: resultKey(result), activeKeyCount }; navigate(onlineBeatmapRouteForSimilarityResult(result), { state: { returnTo: "/online/similar" } }); }
+  function openOnline(result: ManiaSimilarityResult) { if (!result.online_url) return; maniaSession = { request, response, recommendation, selectedKey: resultKey(result), activeKeyCount }; navigate(onlineBeatmapRouteForSimilarityResult(result), { state: { returnTo: "/online/similar" } }); }
 
   if (statusQuery.isLoading) return <><PageHeader title="相似谱面" description="正在检查本地 Mania 相似谱面索引。" /><EmptyState title="正在校验 Mania 索引" description="正在以只读方式检查本机配置。" icon={<RefreshCw className="animate-spin" size={22} />} /></>;
   if (status.state !== "ready") return <><PageHeader title="相似谱面" description="从本地私有索引中寻找特征相近的 osu!mania 谱面。" />{notice ? <p className="online-notice" role="alert">{notice}</p> : null}<IndexUnavailable status={status} busy={configuring || statusQuery.isFetching} onChoose={() => void chooseIndex()} onRetry={() => void statusQuery.refetch()} /></>;
@@ -169,16 +171,16 @@ export function ManiaSimilarBeatmapsPage() {
   const modControls = <div className="flex flex-wrap items-center gap-2">{MANIA_MODS.map((gameMod) => <Button key={gameMod} size="sm" type="button" variant={request.target_mod === gameMod ? "primary" : "ghost"} aria-pressed={request.target_mod === gameMod} onClick={() => selectTargetMod(gameMod)}>{gameMod}</Button>)}<label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" aria-label="NM / DT / HT 多 Mod 混池" checked={request.candidate_mods.length > 1} onChange={(event) => setMixedMods(event.target.checked)} />多 Mod</label></div>;
   const keyTabs = recommendation ? <div className="flex gap-1" role="tablist" aria-label="Mania 键数分组">{KEY_COUNTS.map((keyCount) => { const group = recommendation.groups.find((item) => item.key_count === keyCount); return <Button key={keyCount} size="sm" role="tab" aria-selected={activeKeyCount === keyCount} variant={activeKeyCount === keyCount ? "primary" : "ghost"} onClick={() => { setActiveKeyCount(keyCount); setSelectedKey(null); }}>{keyCount}K · {group?.results.length ?? 0}</Button>; })}</div> : null;
   return <>
-    <SimilarityHistoryDialog open={historyOpen} title="今日 Mania 推荐历史" entries={history} onClose={() => setHistoryOpen(false)} onChoose={(result: AnySimilarityResult) => { setHistoryOpen(false); if (result.ruleset === "mania") openOnline(result); }} />
+    <SimilarityHistoryDialog open={historyOpen} title="今日 Mania 推荐历史" entries={history} onClose={() => setHistoryOpen(false)} onChoose={(result: AnySimilarityResult) => { if (result.ruleset === "mania" && result.online_url) { setHistoryOpen(false); openOnline(result); } }} />
     <SimilarityMessage message={notice ?? (similarityQuery.error || similarityRecommendation.error ? errorMessage(similarityQuery.error ?? similarityRecommendation.error) : null)} onClose={() => { setNotice(null); similarityQuery.reset(); similarityRecommendation.reset(); }} />
     <SimilarityMessage message={downloadNotice} tone="status" onClose={() => setDownloadNotice(null)} />
     {showHome ? <><SimilarityHome busy={busy} ruleset="mania" searchValue={searchText} onSearchValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} onRecommend={recommend} onHistory={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }} status={<><span>Mania 索引已就绪 · {status.record_count?.toLocaleString() ?? "已校验"} 条记录</span><button type="button" onClick={() => void statusQuery.refetch()}>重新校验</button><button type="button" onClick={() => void chooseIndex()}>更换目录</button></>} /><div className="mx-auto -mt-16 flex max-w-[820px] justify-center">{modControls}</div></> : stageResult && source ? <SimilarityStage
       result={stageResult} source={source} index={selectedIndex} total={results.length || unfilteredResults.length} emptyMessage={results.length ? null : "请重新打开筛选调整条件；来源谱面和当前舞台会保持不变。"} recommendation={Boolean(recommendation)} playing={playingId === stageResult.beatmap_id} previewLoading={previewLoadingId === stageResult.beatmap_id} downloading={downloadId === stageResult.beatmap_id} completing={recommendationCompleting}
-      adjacentBeatmapsetIds={[results[selectedIndex - 1]?.beatmapset_id ?? 0, results[selectedIndex + 1]?.beatmapset_id ?? 0]}
+      adjacentBeatmapsetIds={[...[results[selectedIndex - 1], results[selectedIndex + 1]].filter((item) => item?.online_url).map((item) => item.beatmapset_id)]}
       onHome={resetResultState}
       onDisplayed={() => { if (recommendation && selected) recordDisplayedRecommendation(selected, "mania"); }}
       onPrevious={() => setSelectedKey(results[selectedIndex - 1] ? resultKey(results[selectedIndex - 1]) : null)} onNext={() => setSelectedKey(results[selectedIndex + 1] ? resultKey(results[selectedIndex + 1]) : null)} onPreview={() => void togglePreview(stageResult)} onDownload={() => void download(stageResult)}
-      onCollect={() => openCollectionDialog([{ beatmap_id: stageResult.beatmap_id, beatmapset_id: stageResult.beatmapset_id, checksum: null, ruleset: stageResult.ruleset, difficulty_name: `${stageResult.version} +${stageResult.game_mod}`, title: stageResult.title, artist: stageResult.artist, creator: stageResult.creator }])}
+      onCollect={() => { if (!stageResult.online_url) return; openCollectionDialog([{ beatmap_id: stageResult.beatmap_id, beatmapset_id: stageResult.beatmapset_id, checksum: null, ruleset: stageResult.ruleset, difficulty_name: `${stageResult.version} +${stageResult.game_mod}`, title: stageResult.title, artist: stageResult.artist, creator: stageResult.creator }]); }}
       toolbar={<><SimilaritySearch compact busy={busy} ruleset="mania" value={searchText} onValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} /><ManiaCandidateFilters value={filters} onChange={setFilters} total={unfilteredResults.length} visible={results.length} />{keyTabs}<Button size="sm" variant="ghost" onClick={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }}>历史</Button></>}
       details={<div className="flex flex-wrap items-center gap-2">{modControls}</div>}
     /> : <div className="p-8"><div className="mb-4 flex flex-wrap items-center justify-center gap-3"><SimilaritySearch compact busy={busy} ruleset="mania" onChoose={runSource} onChooseFile={() => void chooseFile()} /><ManiaCandidateFilters value={filters} onChange={setFilters} total={unfilteredResults.length} visible={results.length} />{keyTabs}</div><EmptyState title={`没有符合条件的 ${activeKeyCount}K 候选`} description="可清除候选过滤条件、切换键数，或换一张参考谱面。" /></div>}

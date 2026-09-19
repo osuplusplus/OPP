@@ -1,20 +1,21 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use osu_difficulty_runtime::{
-    DifficultyWeights, ManiaBeatmapMetadata, ManiaFeatureRecord, ManiaGameMod, ManiaQueryOptions,
-    ManiaQueryResult as RuntimeManiaQueryResult, ManiaQueryTarget as RuntimeManiaQueryTarget,
-    QueryFilters, QueryOptions, QueryResponse as RuntimeQueryResponse,
-    QueryTarget as RuntimeQueryTarget, RuntimeError, RuntimeErrorKind, WeightingMode,
+    DifficultyWeights, ManiaBeatmapMetadata, ManiaFeatureRecord, ManiaGameMod, ManiaMmaRecord,
+    ManiaQueryOptions, ManiaQueryResult as RuntimeManiaQueryResult,
+    ManiaQueryTarget as RuntimeManiaQueryTarget, QueryFilters, QueryOptions,
+    QueryResponse as RuntimeQueryResponse, QueryTarget as RuntimeQueryTarget, RuntimeError,
+    RuntimeErrorKind, WeightingMode,
 };
 
 use crate::{
     domain::Ruleset,
     error::{CommandError, CommandResult},
     features::similarity::models::{
-        ManiaSimilarityBeatmap, ManiaSimilarityRecommendationGroup,
-        ManiaSimilarityRecommendationResult, ManiaSimilarityResult, ManiaSimilarityTarget,
-        SimilarityBeatmap, SimilarityQueryRequest, SimilarityQueryResponse,
-        SimilarityRecommendationKind, SimilarityRecommendationRequest,
+        ManiaPatternBarView, ManiaPatternView, ManiaSimilarityBeatmap,
+        ManiaSimilarityRecommendationGroup, ManiaSimilarityRecommendationResult,
+        ManiaSimilarityResult, ManiaSimilarityTarget, SimilarityBeatmap, SimilarityQueryRequest,
+        SimilarityQueryResponse, SimilarityRecommendationKind, SimilarityRecommendationRequest,
         SimilarityRecommendationResponse, SimilarityRecommendationResult, SimilarityResult,
         SimilaritySeedDynamicProfile, SimilarityTarget,
     },
@@ -274,12 +275,22 @@ pub fn mania_response_from_runtime(
             analyzer_version: target.record.analyzer_version,
             normalization_version: target.record.normalization_version,
             source: source.into(),
-            beatmap: mania_beatmap_from_parts(target.metadata, target.record, target.game_mod),
+            beatmap: mania_beatmap_from_parts(
+                target.metadata,
+                target.record,
+                target.game_mod,
+                target.pattern,
+            ),
         },
         results: results
             .into_iter()
             .map(|result| ManiaSimilarityResult {
-                beatmap: mania_beatmap_from_parts(result.metadata, result.record, result.game_mod),
+                beatmap: mania_beatmap_from_parts(
+                    result.metadata,
+                    result.record,
+                    result.game_mod,
+                    result.pattern,
+                ),
                 final_distance: result.final_distance,
                 distance_components: result.components,
             })
@@ -376,8 +387,12 @@ pub fn mania_recommendation_response_from_runtime(
     for (target, results) in batches {
         let key_count = target.record.key_count;
         *seeds_by_key.entry(key_count).or_default() += 1;
-        let recommended_by =
-            mania_beatmap_from_parts(target.metadata, target.record, target.game_mod);
+        let recommended_by = mania_beatmap_from_parts(
+            target.metadata,
+            target.record,
+            target.game_mod,
+            target.pattern,
+        );
         let nearest_by_set = nearest_by_key.entry(key_count).or_default();
         for result in results {
             if result.record.key_count != key_count
@@ -395,6 +410,7 @@ pub fn mania_recommendation_response_from_runtime(
                         result.metadata,
                         result.record,
                         result.game_mod,
+                        result.pattern,
                     ),
                     final_distance: result.final_distance,
                     distance_components: result.components,
@@ -527,6 +543,7 @@ fn mania_beatmap_from_parts(
     metadata: ManiaBeatmapMetadata,
     record: ManiaFeatureRecord,
     game_mod: ManiaGameMod,
+    pattern: Option<ManiaMmaRecord>,
 ) -> ManiaSimilarityBeatmap {
     ManiaSimilarityBeatmap {
         ruleset: Ruleset::Mania,
@@ -546,6 +563,31 @@ fn mania_beatmap_from_parts(
         difficulty_percentile: record.difficulty_percentile,
         difficulty_band: record.difficulty_band,
         game_mod,
+        pattern_view: pattern.as_ref().map(mania_pattern_view),
+    }
+}
+
+fn mania_pattern_view(record: &ManiaMmaRecord) -> ManiaPatternView {
+    ManiaPatternView {
+        category: osu_difficulty_runtime::mania_display_category(record).to_owned(),
+        mode_tag: record.mode_tag.clone(),
+        coverage: record.coverage,
+        bars: record
+            .bars
+            .iter()
+            .map(|bar| ManiaPatternBarView {
+                pattern: bar.pattern.clone(),
+                amount: bar.amount,
+                relative: bar.relative,
+                specific_types: bar.specific_types.clone(),
+            })
+            .collect(),
+        subtypes: record.subtypes.clone(),
+        ln_note_ratio: record.ln_note_ratio,
+        intensity: record.intensity,
+        temporal: record.temporal,
+        duration_seconds: record.duration_seconds,
+        sv_amount: record.sv_amount,
     }
 }
 
@@ -904,6 +946,7 @@ mod tests {
 
     fn mania_target(id: u64, set: u64, key_count: u8) -> RuntimeManiaQueryTarget {
         RuntimeManiaQueryTarget {
+            pattern: None,
             metadata: mania_metadata(id, set, key_count),
             record: mania_record(id, set, key_count),
             game_mod: ManiaGameMod::Nm,
@@ -912,6 +955,7 @@ mod tests {
 
     fn mania_result(id: u64, set: u64, key_count: u8, distance: f32) -> RuntimeManiaQueryResult {
         RuntimeManiaQueryResult {
+            pattern: None,
             metadata: mania_metadata(id, set, key_count),
             record: mania_record(id, set, key_count),
             final_distance: distance,

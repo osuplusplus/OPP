@@ -206,7 +206,11 @@ impl ManiaAnalyzer {
             title: parsed.title,
             version: parsed.version,
             creator: parsed.creator,
-            online_url: format!("https://osu.ppy.sh/b/{}", parsed.beatmap_id),
+            online_url: if parsed.beatmap_id < (1_u64 << 48) {
+                format!("https://osu.ppy.sh/b/{}", parsed.beatmap_id)
+            } else {
+                String::new()
+            },
             key_count: parsed.key_count,
             mode_family: family,
             dominant_pattern: dominant,
@@ -362,7 +366,8 @@ fn parse_beatmap(bytes: &[u8]) -> Result<ParsedManiaBeatmap, ManiaAnalyzeError> 
     });
     if beatmap_id == 0 {
         let digest = Sha256::digest(bytes);
-        beatmap_id = u64::from_le_bytes(digest[..8].try_into().expect("SHA-256 prefix"));
+        beatmap_id = (1_u64 << 48)
+            + (u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 prefix")) >> 16);
         if beatmap_id == 0 {
             beatmap_id = 1;
         }

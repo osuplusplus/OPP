@@ -172,6 +172,38 @@ pub struct ManiaSimilarityBeatmap {
     pub difficulty_percentile: f32,
     pub difficulty_band: u8,
     pub game_mod: ManiaGameMod,
+    /// 键型视图；旧数据集或未生成键型记录时为 null。
+    #[serde(default)]
+    pub pattern_view: Option<ManiaPatternView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ManiaPatternView {
+    /// mania_map_analyser 的分类结果，例如 `Shield`、`Jumpstream/Handstream Tech`。
+    pub category: String,
+    /// `RC` / `HB` / `Mix` / `LN`。
+    pub mode_tag: String,
+    /// 六类覆盖率，顺序为 Stream、Chordstream、Jacks、Coordination、Density、Wildcard。
+    pub coverage: [f32; 6],
+    pub bars: Vec<ManiaPatternBarView>,
+    pub subtypes: Vec<(String, f32)>,
+    #[serde(rename = "ln_note_ratio")]
+    pub ln_note_ratio: f32,
+    /// 平均 NPS、峰值 NPS、持续 NPS、最长持续段秒数。
+    pub intensity: [f32; 4],
+    /// 持续段占比、最长持续段占全谱比例、空窗比例。
+    pub temporal: [f32; 3],
+    pub duration_seconds: f32,
+    pub sv_amount: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ManiaPatternBarView {
+    pub pattern: String,
+    pub amount: f32,
+    /// 相对最长条的比例，仅用于显示；覆盖率本身不做归一化。
+    pub relative: f32,
+    pub specific_types: Vec<(String, f32)>,
 }
 
 #[derive(Debug, Clone, Serialize)]

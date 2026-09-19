@@ -47,6 +47,7 @@ const maniaResult: ManiaSimilarityResult = {
   difficulty_percentile: 0.75,
   difficulty_band: 7,
   game_mod: "NM",
+  pattern_view: null,
   final_distance: 0.08,
   distance_components: { skill: 0.1, pattern: 0.1, structure: 0.1, difficulty: 0.1, context: 0.1 },
 };

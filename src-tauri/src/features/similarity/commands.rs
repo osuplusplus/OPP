@@ -530,6 +530,101 @@ fn unsupported_ruleset_error(ruleset: Ruleset) -> CommandError {
 }
 
 #[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    /// Exercises the command's seed acceptance as well as ranking/serialization. No OAuth or
+    /// network is needed: every reference and Mod variant must already exist in the old index.
+    #[tokio::test]
+    #[ignore = "requires LEGACY_MANIA_DATASET with native 4K/6K/7K NM/DT/HT records"]
+    async fn legacy_dataset_still_recommends_without_pattern_records() {
+        let root = std::env::var("LEGACY_MANIA_DATASET").expect("LEGACY_MANIA_DATASET");
+        let metadata =
+            std::fs::canonicalize(std::path::Path::new(&root).join("mania-metadata.sqlite"))
+                .unwrap();
+        let mut uri = url::Url::from_file_path(&metadata).unwrap();
+        uri.set_query(Some("mode=ro&immutable=1"));
+        let connection = rusqlite::Connection::open_with_flags(
+            uri.as_str(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        let ids: Vec<u64> = connection
+            .prepare("SELECT min(beatmap_id) FROM mania_beatmaps WHERE key_count IN (4,6,7) GROUP BY key_count")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(ids.len(), 3);
+        let app_dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(app_dir.path()).unwrap();
+        let dataset = state.similarity.mania_dataset(&root).unwrap();
+        assert!(!dataset.has_pattern_records());
+        for kind in [
+            SimilarityRecommendationKind::Recent,
+            SimilarityRecommendationKind::Best,
+        ] {
+            for mods in [
+                vec![ManiaGameMod::Nm],
+                vec![ManiaGameMod::Dt],
+                vec![ManiaGameMod::Ht],
+                ManiaGameMod::ALL.to_vec(),
+            ] {
+                let seeds: Vec<_> = ids
+                    .iter()
+                    .flat_map(|id| {
+                        mods.iter().map(move |game_mod| ManiaSeed {
+                            beatmap_id: *id,
+                            game_mod: *game_mod,
+                        })
+                    })
+                    .collect();
+                for seed in &seeds {
+                    assert!(dataset.contains_mod(seed.beatmap_id, seed.game_mod));
+                }
+                let response = recommend_mania(
+                    SimilarityRecommendationRequest::Mania {
+                        kind,
+                        result_limit: 5,
+                        seed_limit: None,
+                        excluded_beatmap_ids: Vec::new(),
+                        candidate_mods: mods.clone(),
+                    },
+                    seeds,
+                    0,
+                    root.clone(),
+                    &state,
+                )
+                .await
+                .unwrap();
+                let SimilarityRecommendationResponse::Mania {
+                    seed_count,
+                    skipped_seed_count,
+                    groups,
+                    ..
+                } = response
+                else {
+                    panic!("Mania response")
+                };
+                assert_eq!(seed_count, ids.len() * mods.len());
+                assert_eq!(skipped_seed_count, 0);
+                assert_eq!(groups.len(), 3);
+                for group in groups {
+                    assert!(!group.results.is_empty());
+                    for item in group.results {
+                        assert!(item.recommended_by.pattern_view.is_none());
+                        assert!(item.result.beatmap.pattern_view.is_none());
+                        assert_eq!(item.result.beatmap.key_count, group.key_count);
+                        assert!(mods.contains(&item.result.beatmap.game_mod));
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

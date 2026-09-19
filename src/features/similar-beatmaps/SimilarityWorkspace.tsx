@@ -40,6 +40,7 @@ import type {
 import { BeatmapPreviewCard } from "../tools/ToolsPage";
 import type { RecommendationHistoryEntry } from "./recommendationHistory";
 import { SimilarityRadar } from "./SimilarityRadar";
+import { MmaPatternPanel } from "./MmaPatternPanel";
 import "./similarityWorkspace.css";
 
 const explicitBeatmapId = (value: string) => {
@@ -318,7 +319,7 @@ export function SimilarityHistoryDialog({
   return <div className="similarity-history-dialog" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
     <motion.div initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .2 }} onClick={(event) => event.stopPropagation()}>
       <header><div><h2>{title}</h2><p>只记录今天真正浏览过的推荐谱面，共 {entries.length} 张。</p></div><button type="button" aria-label="关闭今日推荐历史" onClick={onClose}><X /></button></header>
-      <main>{entries.length ? entries.map(({ displayed_at, key_count, result }) => <button type="button" key={`${result.ruleset}:${result.beatmap_id}:${displayed_at}`} onClick={() => onChoose(result)}><span><strong>{result.artist} - {result.title}</strong><small>{key_count ? `${key_count}K · ` : ""}[{result.version}] · {result.creator}</small></span><time>{new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(displayed_at))}</time></button>) : <p>今天还没有浏览过推荐谱面。</p>}</main>
+      <main>{entries.length ? entries.map(({ displayed_at, key_count, result }) => <button type="button" key={`${result.ruleset}:${result.beatmap_id}:${displayed_at}`} disabled={result.ruleset === "mania" && !result.online_url} title={result.ruleset === "mania" && !result.online_url ? "本地谱面没有在线页面" : undefined} onClick={() => onChoose(result)}><span><strong>{result.artist} - {result.title}</strong><small>{key_count ? `${key_count}K · ` : ""}[{result.version}] · {result.creator}</small></span><time>{new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(displayed_at))}</time></button>) : <p>今天还没有浏览过推荐谱面。</p>}</main>
     </motion.div>
   </div>;
 }
@@ -365,10 +366,13 @@ function useBeatmapArtwork(beatmapsetId: number | null) {
 
 function EvidenceRail({ source, result, cover, recommendation, details }: { source: AnySimilarityBeatmap; result: AnySimilarityResult; cover: string | null; recommendation: boolean; details: ReactNode }) {
   const mania = source.ruleset === "mania";
+  const sourcePattern = mania ? source.pattern_view : null;
+  const resultPattern = result.ruleset === "mania" ? result.pattern_view : null;
+  const comparePatterns = Boolean(sourcePattern && resultPattern);
   return <motion.aside className="similarity-evidence-rail" layout initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .22 }}>
     <div className="similarity-source-cover">{cover ? <img src={cover} alt="" /> : <div />}</div>
     <div className="similarity-source-copy">
-      <div className="similarity-source-kicker"><span>{recommendation ? "本首推荐依据" : "参考谱面"}</span><small>{source.beatmap_id > 0 ? `BID ${source.beatmap_id}` : "本地谱面"}</small></div>
+      <div className="similarity-source-kicker"><span>{recommendation ? "本首推荐依据" : "参考谱面"}</span><small>{source.online_url && source.beatmap_id > 0 ? `BID ${source.beatmap_id}` : "本地谱面"}</small></div>
       <h2>{source.title}</h2><p>{source.artist}</p>
       <dl>
         <div><dt>难度</dt><dd>{source.version}</dd></div>
@@ -381,8 +385,9 @@ function EvidenceRail({ source, result, cover, recommendation, details }: { sour
     {details ? <div className="similarity-evidence-context">{details}</div> : null}
     <div className="similarity-radar-overlay" aria-label="特征维度对比">
       <div className="similarity-radar-heading"><span>FEATURE PROFILE</span><strong>特征对比</strong></div>
-      <div className="similarity-radar-chart"><SimilarityRadar compact target={source.difficulty} comparison={result.difficulty} /></div>
+      <div className="similarity-radar-chart"><SimilarityRadar compact target={source.difficulty} comparison={result.difficulty} patternView={comparePatterns ? sourcePattern : null} patternViewComparison={comparePatterns ? resultPattern : null} /></div>
     </div>
+    {sourcePattern ? <section aria-label="参考谱面键型" className="similarity-evidence-context"><MmaPatternPanel compact view={sourcePattern} /></section> : null}
   </motion.aside>;
 }
 
@@ -438,8 +443,9 @@ export function SimilarityStage({
 }) {
   const reduced = useReducedMotion();
   const [visualPreview, setVisualPreview] = useState(false);
-  const candidate = useBeatmapArtwork(result.beatmapset_id);
-  const reference = useBeatmapArtwork(source.beatmapset_id);
+  const online = result.ruleset !== "mania" || Boolean(result.online_url);
+  const candidate = useBeatmapArtwork(online ? result.beatmapset_id : null);
+  const reference = useBeatmapArtwork(source.ruleset !== "mania" || source.online_url ? source.beatmapset_id : null);
   const referenceCover = reference.set?.covers?.["card@2x"] ?? reference.set?.covers?.card ?? reference.set?.covers?.["cover@2x"] ?? reference.artwork.source;
   const adjacentKey = adjacentBeatmapsetIds.join(",");
   const resultAnimationKey = `${result.ruleset}:${result.beatmap_id}:${result.ruleset === "mania" ? result.game_mod : "NM"}`;
@@ -485,7 +491,7 @@ export function SimilarityStage({
       <main className="similarity-candidate-stage">
         <AnimatePresence mode="popLayout" initial={false}>
           {emptyMessage ? <motion.div key="empty" className="similarity-stage-empty" initial={{ opacity: 0, y: reduced ? 0 : 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .2 }}><span>0 / {total}</span><h2>没有符合条件的候选谱面</h2><p>{emptyMessage}</p></motion.div> : <motion.div key={resultAnimationKey} className="similarity-candidate-copy" initial={{ opacity: 0, x: reduced ? 0 : 22 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: reduced ? 0 : -18 }} transition={{ duration: reduced ? 0 : .22 }}>
-            <div className="similarity-candidate-meta"><span>BID {result.beatmap_id}</span><span>距离 {result.final_distance.toFixed(4)}</span>{completing ? <span><LoaderCircle className="animate-spin" />正在完善推荐</span> : null}</div>
+            <div className="similarity-candidate-meta"><span>{online ? `BID ${result.beatmap_id}` : "本地谱面"}</span><span>距离 {result.final_distance.toFixed(4)}</span>{completing ? <span><LoaderCircle className="animate-spin" />正在完善推荐</span> : null}</div>
             <p>{result.artist}</p>
             <h1>{result.title}</h1>
             <div className="similarity-candidate-difficulty">
@@ -493,11 +499,12 @@ export function SimilarityStage({
               <span>mapped by {result.creator}</span>
             </div>
             <CandidateMetrics result={result} />
+            {result.ruleset === "mania" && result.pattern_view ? <section aria-label="候选谱面键型" className="similarity-candidate-patterns"><MmaPatternPanel compact view={result.pattern_view} /></section> : null}
             <div className="similarity-stage-actions">
-              <button type="button" disabled={previewLoading} onClick={onPreview}>{playing ? <Pause /> : <Headphones />}{playing ? "暂停试听" : "试听"}</button>
-              <button className="is-primary" type="button" disabled={downloading} onClick={onDownload}><Download />{downloading ? "下载中" : "下载"}</button>
-              <button type="button" onClick={() => setVisualPreview(true)}><ImageIcon />预览</button>
-              <button type="button" onClick={onCollect}><Heart />收藏</button>
+              <button type="button" disabled={!online || previewLoading} onClick={onPreview}>{playing ? <Pause /> : <Headphones />}{playing ? "暂停试听" : "试听"}</button>
+              <button className="is-primary" type="button" disabled={!online || downloading} onClick={onDownload}><Download />{downloading ? "下载中" : "下载"}</button>
+              <button type="button" disabled={!online} onClick={() => setVisualPreview(true)}><ImageIcon />预览</button>
+              <button type="button" disabled={!online} onClick={onCollect}><Heart />收藏</button>
               <div className="similarity-stage-navigation" aria-label="候选谱面切换">
                 <button type="button" disabled={index === 0} onClick={onPrevious}><ArrowLeft />上一首</button>
                 <span>{index + 1} / {total}</span>
@@ -509,6 +516,6 @@ export function SimilarityStage({
         </AnimatePresence>
       </main>
     </div>
-    {visualPreview ? <div className="similarity-visual-preview" role="dialog" aria-label="谱面预览" onClick={() => setVisualPreview(false)}><div onClick={(event) => event.stopPropagation()}><button className="similarity-preview-close" aria-label="关闭谱面预览" type="button" onClick={() => setVisualPreview(false)}><X /></button><BeatmapPreviewCard embeddedBid={result.beatmap_id} /></div></div> : null}
+    {visualPreview && online ? <div className="similarity-visual-preview" role="dialog" aria-label="谱面预览" onClick={() => setVisualPreview(false)}><div onClick={(event) => event.stopPropagation()}><button className="similarity-preview-close" aria-label="关闭谱面预览" type="button" onClick={() => setVisualPreview(false)}><X /></button><BeatmapPreviewCard embeddedBid={result.beatmap_id} /></div></div> : null}
   </section>;
 }
