@@ -186,11 +186,19 @@ fn file_fingerprint(path: &Path) -> CommandResult<String> {
 }
 
 pub(super) fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
+    let manager_configured = state
+        .store
+        .settings_snapshot()
+        .ok()
+        .and_then(|settings| settings.collection_manager_path)
+        .is_some_and(|path| Path::new(&path).is_file());
     [LocalClient::Stable, LocalClient::Lazer]
         .into_iter()
         .map(|client| {
             let source = state.local_analysis.source_status(client).ok();
-            let available = source.as_ref().is_some_and(|value| value.valid);
+            let source_available = source.as_ref().is_some_and(|value| value.valid);
+            let available =
+                source_available && (client == LocalClient::Stable || manager_configured);
             let (read_only, message) = match client {
                 LocalClient::Stable => (
                     false,
@@ -201,11 +209,13 @@ pub(super) fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
                     },
                 ),
                 LocalClient::Lazer => (
-                    false,
-                    if available {
-                        "通过 CollectionManager 读取和写回 lazer 收藏夹"
-                    } else {
+                    !manager_configured,
+                    if !source_available {
                         "请先在设置中配置 osu!lazer 数据目录"
+                    } else if !manager_configured {
+                        "未配置有效的 CollectionManager，无法读取或写回 lazer 收藏夹"
+                    } else {
+                        "已配置 CollectionManager；读取与写回能力需通过其协议验证"
                     },
                 ),
             };
@@ -450,18 +460,16 @@ pub async fn refresh_collections(
 pub(super) async fn refresh_impl(client: LocalClient, state: &AppState) -> CommandResult<()> {
     // 刷新会将 stable 的外部变化合并进内部副本，而不是覆盖本地创建的收藏夹。
     if client == LocalClient::Lazer {
-        if let Ok(folders) = adapter::invoke::<Vec<CollectionFolder>, ()>(state, "read", None).await
-        {
-            let collections = state.collections.clone();
-            crate::infrastructure::tasks::blocking_io("refresh_lazer_collections", move || {
-                collections.update(|file| {
-                    file.folders.retain(|f| f.source != CollectionSource::Lazer);
-                    file.folders.extend(folders);
-                    Ok(())
-                })
+        let folders = adapter::invoke::<Vec<CollectionFolder>, ()>(state, "read", None).await?;
+        let collections = state.collections.clone();
+        crate::infrastructure::tasks::blocking_io("refresh_lazer_collections", move || {
+            collections.update(|file| {
+                file.folders.retain(|f| f.source != CollectionSource::Lazer);
+                file.folders.extend(folders);
+                Ok(())
             })
-            .await??;
-        }
+        })
+        .await??;
         return Ok(());
     }
     let path = stable_path(state)?;

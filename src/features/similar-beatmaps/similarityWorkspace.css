@@ -208,7 +208,6 @@
   border-right: 1px solid var(--similarity-line);
   background: linear-gradient(90deg, #0c111cb8, #0c111c7a 82%, transparent);
   backdrop-filter: blur(10px);
-  scrollbar-width: thin;
 }
 .similarity-evidence-rail::after { display: none; }
 .similarity-source-cover {
@@ -256,7 +255,7 @@
   overflow: hidden;
 }
 .similarity-candidate-copy { max-width: 920px; text-shadow: 0 1px 12px #0009; }
-.similarity-candidate-patterns { width: min(480px, 100%); max-height: min(220px, 26vh); overflow-y: auto; padding: 0 4px 16px 0; margin-bottom: 12px; scrollbar-width: thin; }
+.similarity-candidate-patterns { width: min(480px, 100%); max-height: min(220px, 26vh); overflow-y: auto; padding: 0 4px 16px 0; margin-bottom: 12px; }
 .similarity-candidate-copy > p { margin: 18px 0 5px; color: var(--stage-artist); font-size: clamp(16px, 2cqw, 24px); }
 .similarity-candidate-copy h1 {
   color: var(--stage-title);

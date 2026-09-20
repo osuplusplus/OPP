@@ -368,7 +368,6 @@ function EvidenceRail({ source, result, cover, recommendation, details }: { sour
   const mania = source.ruleset === "mania";
   const sourcePattern = mania ? source.pattern_view : null;
   const resultPattern = result.ruleset === "mania" ? result.pattern_view : null;
-  const comparePatterns = Boolean(sourcePattern && resultPattern);
   return <motion.aside className="similarity-evidence-rail" layout initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .22 }}>
     <div className="similarity-source-cover">{cover ? <img src={cover} alt="" /> : <div />}</div>
     <div className="similarity-source-copy">
@@ -385,7 +384,7 @@ function EvidenceRail({ source, result, cover, recommendation, details }: { sour
     {details ? <div className="similarity-evidence-context">{details}</div> : null}
     <div className="similarity-radar-overlay" aria-label="特征维度对比">
       <div className="similarity-radar-heading"><span>FEATURE PROFILE</span><strong>特征对比</strong></div>
-      <div className="similarity-radar-chart"><SimilarityRadar compact target={source.difficulty} comparison={result.difficulty} patternView={comparePatterns ? sourcePattern : null} patternViewComparison={comparePatterns ? resultPattern : null} /></div>
+      <div className="similarity-radar-chart"><SimilarityRadar compact target={source.difficulty} comparison={result.difficulty} patternView={sourcePattern} patternViewComparison={resultPattern} /></div>
     </div>
     {sourcePattern ? <section aria-label="参考谱面键型" className="similarity-evidence-context"><MmaPatternPanel compact view={sourcePattern} /></section> : null}
   </motion.aside>;

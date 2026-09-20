@@ -34,20 +34,8 @@ pub async fn view_trainer_import(
         // 导入编辑器时优先使用 Stable 的实际 Songs 根目录。
         let target_root = if client == crate::features::local_analysis::LocalClient::Lazer {
             let root = analysis
-                .source_status(crate::features::local_analysis::LocalClient::Stable)
-                .ok()
-                .and_then(|status| status.install_root)
-                .map(std::path::PathBuf::from)
-                .map(|root| {
-                    if root
-                        .file_name()
-                        .is_some_and(|name| name.eq_ignore_ascii_case("Songs"))
-                    {
-                        root
-                    } else {
-                        root.join("Songs")
-                    }
-                });
+                .resolved_source(crate::features::local_analysis::LocalClient::Stable)?
+                .beatmap_root;
             if root.as_ref().is_none_or(|path| !path.is_dir()) {
                 return Err(crate::error::CommandError::new(
                     "VIEW_TRAINER_IMPORT_FAILED",

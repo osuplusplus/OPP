@@ -28,15 +28,3 @@ export function mmaRadarValues(view: ManiaPatternView | null | undefined): MmaAx
     };
   });
 }
-
-/**
- * 六轴雷达只在两侧都有键型数据时绘制对比多边形；缺一侧时只画已有的一侧，
- * 避免把没有数据的一侧画成覆盖率为 0 的形状。旧版难度雷达沿用原判断。
- */
-export function showsRadarComparison(
-  patternView: ManiaPatternView | null | undefined,
-  patternViewComparison: ManiaPatternView | null | undefined,
-  hasDifficultyComparison: boolean,
-): boolean {
-  return patternView ? Boolean(patternViewComparison) : hasDifficultyComparison;
-}

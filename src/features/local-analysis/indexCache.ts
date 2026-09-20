@@ -28,7 +28,7 @@ export function observeLocalIndex(queryClient: QueryClient, status: LocalIndexLo
   if (status.phase !== "ready") return;
   for (const client of ["stable", "lazer"] as const) {
     const revision = status.clients?.[client]?.last_scan_at;
-    if ((previous && previous.phase !== "ready") ||
+    if ((!previous || previous.phase !== "ready") ||
         (revision && revision !== previous?.clients?.[client]?.last_scan_at)) {
       void invalidateLocalClient(queryClient, client);
     }

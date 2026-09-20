@@ -98,8 +98,11 @@ pub fn read_realm_data(realm_path: &Path) -> Result<LazerRealmData, String> {
 
 /// 复制一份快照用于读取，避免触碰 lazer 的锁文件。
 fn snapshot_realm(realm_path: &Path) -> Result<PathBuf, String> {
-    let snapshot =
-        std::env::temp_dir().join(format!("opp-client-realm-{}.realm", std::process::id()));
+    let snapshot = std::env::temp_dir().join(format!(
+        "opp-client-realm-{}-{}.realm",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
     std::fs::copy(realm_path, &snapshot)
         .map_err(|error| format!("复制 client.realm 快照失败：{error}"))?;
     Ok(snapshot)
@@ -424,14 +427,31 @@ fn resolve_named_files(
 mod tests {
     use super::*;
 
+    #[test]
+    fn snapshots_do_not_overwrite_another_reader() {
+        let root = tempfile::tempdir().unwrap();
+        let realm = root.path().join("client.realm");
+        std::fs::write(&realm, b"first snapshot").unwrap();
+        let first = snapshot_realm(&realm).unwrap();
+        std::fs::write(&realm, b"second snapshot").unwrap();
+        let second = snapshot_realm(&realm).unwrap();
+        let first_bytes = std::fs::read(&first).unwrap();
+        let second_bytes = std::fs::read(&second).unwrap();
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
+        assert_ne!(first, second);
+        assert_eq!(first_bytes, b"first snapshot");
+        assert_eq!(second_bytes, b"second snapshot");
+    }
+
     /// 对真实 lazer 数据库的读取测试：
     /// `cargo test --lib lazer_realm -- --ignored`（需要本地存在 lazer）。
     #[test]
     #[ignore = "需要本机安装 osu!lazer 且存在 client.realm"]
     fn reads_real_lazer_realm() {
         let started = std::time::Instant::now();
-        let data_root =
-            crate::infrastructure::platform::lazer_data_root().expect("未找到 lazer 数据目录");
+        let data_root = crate::infrastructure::platform::resolve_lazer_data_root()
+            .expect("未找到 lazer 数据目录");
         let data =
             read_realm_data(&data_root.join("client.realm")).expect("读取 client.realm 失败");
         eprintln!(

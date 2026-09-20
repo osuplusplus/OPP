@@ -11,6 +11,46 @@ use super::{
         StableCollection, StableDb, encode_stable_db, parse_stable_db, stable_collection_entry,
     },
 };
+
+#[tokio::test]
+async fn lazer_refresh_reports_missing_manager_without_changing_collections() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::state::AppState::new(directory.path()).unwrap();
+    state.collections.create("keep", "test").unwrap();
+    let before = fs::read(directory.path().join("collections.json")).unwrap();
+    let error = stable::refresh_impl(crate::features::local_analysis::LocalClient::Lazer, &state)
+        .await
+        .expect_err("missing shim must not appear to be a successful refresh");
+    assert_eq!(error.code, "COLLECTION_MANAGER_NOT_CONFIGURED");
+    assert_eq!(
+        fs::read(directory.path().join("collections.json")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn lazer_collection_source_requires_collection_manager() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    fs::write(source.path().join("client.realm"), []).unwrap();
+    fs::create_dir(source.path().join("files")).unwrap();
+    let state = crate::state::AppState::new(directory.path()).unwrap();
+    state
+        .local_analysis
+        .set_source(
+            crate::features::local_analysis::LocalClient::Lazer,
+            source.path(),
+        )
+        .unwrap();
+    let statuses = stable::source_statuses(&state);
+    let lazer = statuses
+        .iter()
+        .find(|s| s.client == crate::features::local_analysis::LocalClient::Lazer)
+        .unwrap();
+    assert!(!lazer.available);
+    assert!(lazer.read_only);
+    assert!(lazer.message.contains("CollectionManager"));
+}
 #[test]
 fn stable_db_round_trip_unicode() {
     let db = StableDb {

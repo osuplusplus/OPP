@@ -22,6 +22,17 @@ function cacheLibrary(queryClient: QueryClient, client: OsuClient) {
 }
 
 describe("local index cache", () => {
+  it("refreshes a startup cache miss even if the first observed status is already ready", () => {
+    const queries = new QueryClient();
+    const key = ["local-summary", "lazer"];
+    queries.setQueryData(key, null);
+    observeLocalIndex(queries, status(null, null));
+    expect(queries.getQueryState(key)?.isInvalidated).toBe(true);
+    queries.setQueryData(key, { scanned_at: "saved-revision" });
+    observeLocalIndex(queries, status(null, null));
+    expect(queries.getQueryState(key)?.isInvalidated).toBe(false);
+    queries.clear();
+  });
   it("reuses resources across page remounts and mode/client switches", () => {
     const queries = new QueryClient();
     observeLocalIndex(queries, status("revision-1", "revision-2"));

@@ -10,3 +10,41 @@
   padding: 0.625rem 2.5rem 0.625rem 2.75rem;
   font-size: clamp(0.875rem, calc(0.625rem + 0.3vw), 1rem);
 }
+
+.online-filter-dialog .opp-beatmap-filter button[aria-pressed] {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.online-filter-dialog .opp-beatmap-filter button[aria-pressed="true"] {
+  background: var(--theme-primary-muted);
+  color: var(--theme-primary-light);
+}
+
+.online-filter-dialog .opp-beatmap-filter button[aria-pressed]:hover {
+  background: var(--surface-interactive-hover);
+  color: var(--text);
+}
+
+.opp-filter-actions {
+  position: sticky;
+  bottom: -24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line-subtle);
+  background: var(--surface-panel);
+}
+
+.opp-filter-actions button[type="submit"] {
+  background: var(--theme-primary);
+  border-color: transparent;
+  color: var(--on-primary);
+  box-shadow: none;
+}

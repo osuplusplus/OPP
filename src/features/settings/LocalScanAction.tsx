@@ -4,6 +4,7 @@ import { Database, Settings2 } from "lucide-react";
 import { Button } from "../../shared/components/ui";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { CommandError, LocalScanProgress, OsuClient } from "../../shared/types/osu";
+import { useLocalSummary } from "../local-analysis/api";
 
 const localSourcesKey = ["local-sources"] as const;
 const localSummaryKey = (client: OsuClient) => ["local-summary", client] as const;
@@ -19,11 +20,7 @@ export function LocalScanAction({ client, onConfigure }: { client: OsuClient; on
     staleTime: 30_000,
     retry: false,
   });
-  const summaryQuery = useQuery({
-    queryKey: localSummaryKey(client),
-    queryFn: () => desktopApi.getLocalSummary(client),
-    retry: false,
-  });
+  const summaryQuery = useLocalSummary(client);
   const source = sourcesQuery.data?.find((item) => item.client === client);
 
   const refreshLocalData = useCallback(async () => {
@@ -78,7 +75,7 @@ export function LocalScanAction({ client, onConfigure }: { client: OsuClient; on
     }
   };
 
-  if (summaryQuery.isLoading || sourcesQuery.isLoading || summaryQuery.data) return null;
+  if (summaryQuery.isPending || sourcesQuery.isLoading || summaryQuery.data) return null;
 
   const needsConfiguration = !source?.valid;
   return (

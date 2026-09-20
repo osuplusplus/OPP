@@ -43,7 +43,7 @@ function renderPage() {
 afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); resetManiaSimilaritySessionForTests(); });
 
 describe("mania similarity workspace", () => {
-  it.each([[true, true], [true, false], [false, true], [false, false]])("compares patterns only when both sides have records (reference=%s, candidate=%s)", async (hasSource, hasCandidate) => {
+  it.each([[true, true], [true, false], [false, true], [false, false]])("preserves each available MMA pattern independently (reference=%s, candidate=%s)", async (hasSource, hasCandidate) => {
     const user = userEvent.setup();
     vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue(ready);
     vi.spyOn(desktopApi, "querySimilarBeatmaps").mockResolvedValue({
@@ -55,8 +55,8 @@ describe("mania similarity workspace", () => {
     await user.type(await screen.findByLabelText("搜索本地谱面、Beatmap ID 或链接"), "3001");
     await user.click(screen.getByRole("button", { name: "查询相似" }));
     await screen.findByText("Stream One");
-    expect(screen.getByTestId("mania-radar")).toHaveAttribute("data-pattern", String(hasSource && hasCandidate));
-    expect(screen.getByTestId("mania-radar")).toHaveAttribute("data-pattern-comparison", String(hasSource && hasCandidate));
+    expect(screen.getByTestId("mania-radar")).toHaveAttribute("data-pattern", String(hasSource));
+    expect(screen.getByTestId("mania-radar")).toHaveAttribute("data-pattern-comparison", String(hasCandidate));
     if (hasSource) {
       const panel = within(screen.getByRole("region", { name: "参考谱面键型" }));
       expect(panel.getByText("Mix · Shield")).toBeInTheDocument();

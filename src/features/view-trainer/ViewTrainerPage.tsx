@@ -1155,7 +1155,7 @@ export function ViewTrainerPage() {
                 }}
               >
                 <Download className="size-4" />
-                {importing ? "正在导入…" : "导入到 osu!"}
+                {importing ? "正在导入…" : "导入到 osu! Stable"}
               </Button>
             ) : null}
             {importedPath ? (

@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ModeProvider } from "../../app/ModeContext";
 import type {
   LocalBeatmapSetSummary,
   LocalLibrarySummary,
+  LocalIndexLoadStatus,
   LocalSourceStatus,
 } from "../../shared/types/osu";
 import {
@@ -136,6 +138,45 @@ describe("LocalAnalysisPage", () => {
 
     expect(await screen.findByText("还没有本地索引")).toBeInTheDocument();
     expect(screen.getAllByText(/扫描/).length).toBeGreaterThan(0);
+  });
+
+  it("switches both library management and beatmap queries to lazer without closing management", async () => {
+    mocks.getLocalSummary.mockImplementation(async (client) => summary(client));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("region", { name: "本地谱面工作区" });
+    await user.click(screen.getByRole("button", { name: /谱库管理/ }));
+    await user.click(within(screen.getByRole("dialog", { name: "谱库管理" })).getByRole("tab", { name: "Lazer" }));
+    await waitFor(() => expect(mocks.getLocalSummary).toHaveBeenCalledWith("lazer"));
+    const dialog = screen.getByRole("dialog", { name: "谱库管理" });
+    expect(within(dialog).getByRole("tab", { name: "Lazer" })).toHaveAttribute("aria-selected", "true");
+    expect(within(dialog).getByText("C:\\Roaming\\osu")).toBeVisible();
+    await user.click(within(dialog).getByRole("button", { name: "关闭谱库管理" }));
+    await waitFor(() => expect(mocks.queryLocalBeatmapSets).toHaveBeenCalledWith(expect.objectContaining({ client: "lazer" })));
+    expect(localStorage.getItem("opp.global-client")).toBe("lazer");
+  });
+
+  it("can select lazer before either library has an index", async () => {
+    mocks.getLocalSummary.mockResolvedValue(null);
+    renderPage();
+    await screen.findByText("还没有本地索引");
+    await userEvent.click(screen.getByRole("tab", { name: "Lazer" }));
+    await waitFor(() => expect(mocks.getLocalSummary).toHaveBeenCalledWith("lazer"));
+    expect(await screen.findByText("C:\\Roaming\\osu")).toBeVisible();
+  });
+
+  it("waits for the saved lazer index before querying its summary", async () => {
+    localStorage.setItem("opp.global-client", "lazer");
+    let loaded!: (status: LocalIndexLoadStatus) => void;
+    mocks.getLocalIndexStatus.mockReturnValue(new Promise<LocalIndexLoadStatus>((resolve) => { loaded = resolve; }));
+    mocks.getLocalSummary.mockResolvedValue(summary("lazer"));
+    renderPage();
+    await waitFor(() => expect(mocks.getLocalIndexStatus).toHaveBeenCalled());
+    expect(mocks.getLocalSummary).not.toHaveBeenCalled();
+    expect(screen.queryByText("还没有本地索引")).not.toBeInTheDocument();
+    await act(async () => loaded({ phase: "ready", error: null, clients: {} }));
+    await waitFor(() => expect(mocks.getLocalSummary).toHaveBeenCalledWith("lazer"));
+    expect(screen.queryByText("还没有本地索引")).not.toBeInTheDocument();
   });
 
   it("uses the global ruleset in paged beatmap queries", async () => {

@@ -9,8 +9,7 @@ import {
   Tooltip,
 } from "recharts";
 import type { DifficultyFeatureVector, ManiaDifficultyVector, ManiaPatternView } from "../../shared/types/osu";
-import { maniaSkillProfile } from "./maniaDifficulty";
-import { mmaRadarValues, showsRadarComparison, type MmaAxisValue } from "./mmaRadar";
+import { mmaRadarValues, type MmaAxisValue } from "./mmaRadar";
 
 const dimensions: Array<{
   key: keyof DifficultyFeatureVector;
@@ -21,20 +20,6 @@ const dimensions: Array<{
   { key: "reading", label: "Reading" },
   { key: "slider", label: "Slider" },
   { key: "overlap", label: "Overlap" },
-];
-
-const maniaDimensions: Array<{
-  key: keyof ManiaDifficultyVector;
-  label: string;
-}> = [
-  { key: "speed", label: "Speed" },
-  { key: "hand_stream", label: "Hand" },
-  { key: "jack", label: "Jack" },
-  { key: "chordjack", label: "Chordjack" },
-  { key: "technical", label: "Technical" },
-  { key: "stamina", label: "Stamina" },
-  { key: "long_note", label: "LN" },
-  { key: "course", label: "Course" },
 ];
 
 export function MmaCoverageTooltip({
@@ -71,31 +56,29 @@ export function SimilarityRadar({
   patternViewComparison?: ManiaPatternView | null;
 }) {
   const mania = "hand_stream" in target;
-  const targetProfile = mania ? maniaSkillProfile(target) : null;
-  const comparisonProfile = comparison && "hand_stream" in comparison ? maniaSkillProfile(comparison) : null;
   const targetValues = mmaRadarValues(patternView);
   const comparisonValues = mmaRadarValues(patternViewComparison);
-  const showsComparison = showsRadarComparison(patternView, patternViewComparison, Boolean(comparison));
-  const data = patternView
+  const showsTarget = !mania || Boolean(patternView);
+  const showsComparison = mania ? Boolean(patternViewComparison) : Boolean(comparison && "aim" in comparison);
+  const data = mania
     ? targetValues.map((value, index) => ({ dimension: value.dimension, target: value.radius, comparison: comparisonValues[index].radius }))
-    : mania
-      ? maniaDimensions.map(({ key, label }) => ({
-          dimension: label,
-          target: Number(targetProfile?.[key] ?? 0),
-          comparison: Number(comparisonProfile?.[key] ?? 0),
-        }))
-      : dimensions.map(({ key, label }) => ({
-          dimension: label,
-          target: target[key],
-          comparison: comparison && "aim" in comparison ? comparison[key] : 0,
-        }));
+    : dimensions.map(({ key, label }) => ({
+        dimension: label,
+        target: target[key],
+        comparison: comparison && "aim" in comparison ? comparison[key] : 0,
+      }));
+
+  if (mania && !patternView && !patternViewComparison) {
+    return <div role="status" className="grid h-40 place-items-center text-xs text-slate-400">暂无 MMA 六维覆盖数据</div>;
+  }
 
   return (
     <div
-      aria-label={patternView ? "MMA 六维覆盖率雷达图" : mania ? "Mania 八维难度雷达图" : "五维难度雷达图"}
-      className={compact ? "h-40 sm:h-44" : "h-72"}
+      aria-label={mania ? "MMA 六维覆盖率雷达图" : "五维难度雷达图"}
+      className={compact ? "relative h-40 sm:h-44" : "relative h-72"}
       role="img"
     >
+      {mania && (!patternView || !patternViewComparison) ? <p className="absolute inset-x-0 top-0 text-center text-[10px] text-slate-400">{patternView ? "候选谱面" : "参考谱面"}暂无 MMA 数据</p> : null}
       <ResponsiveContainer height="100%" width="100%">
         <RadarChart data={data} outerRadius={compact ? "68%" : "72%"}>
           <PolarGrid gridType="polygon" radialLines stroke="rgba(0,0,0,.72)" strokeWidth={1.35} />
@@ -107,10 +90,10 @@ export function SimilarityRadar({
             axisLine={false}
             domain={[0, 1]}
             tick={false}
-            ticks={patternView ? [0, 0.2, 0.5, Math.sqrt(0.5), 1] : undefined}
+            ticks={mania ? [0, 0.2, 0.5, Math.sqrt(0.5), 1] : undefined}
             tickCount={3}
           />
-          {patternView ? (
+          {mania ? (
             <Tooltip
               content={({ active, label }) => {
                 if (!active) return null;
@@ -120,7 +103,7 @@ export function SimilarityRadar({
                   <MmaCoverageTooltip
                     label={String(label)}
                     series={[
-                      { name: "参考谱面", value: targetValues[index] },
+                      ...(patternView ? [{ name: "参考谱面", value: targetValues[index] }] : []),
                       ...(patternViewComparison ? [{ name: "候选谱面", value: comparisonValues[index] }] : []),
                     ]}
                   />
@@ -128,14 +111,14 @@ export function SimilarityRadar({
               }}
             />
           ) : null}
-          <Radar
+          {showsTarget ? <Radar
             dataKey="target"
             fill="var(--theme-primary)"
             fillOpacity={0.18}
             name="参考谱面"
             stroke="var(--theme-primary)"
             strokeWidth={2}
-          />
+          /> : null}
           {showsComparison ? (
             <Radar
               dataKey="comparison"

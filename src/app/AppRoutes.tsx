@@ -1,5 +1,6 @@
-import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
+import { lazy, Suspense, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams, type Location } from "react-router-dom";
+import { isOverlayRoute, RouteOverlayContext } from "./routeOverlay";
 import { AppShell } from "./AppShell";
 import { AppLoading } from "./AppLoading";
 
@@ -47,9 +48,21 @@ function TosuRedirect() {
 }
 
 export function AppRoutes() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [history, setHistory] = useState<{ current: Location; background: Location | null }>({ current: location, background: null });
+  let background = history.background;
+  if (history.current !== location) {
+    background = isOverlayRoute(location.pathname)
+      ? isOverlayRoute(history.current.pathname) ? history.background : history.current
+      : null;
+    setHistory({ current: location, background });
+  }
+  const overlay = isOverlayRoute(location.pathname);
+  const fallbackLocation = { ...location, pathname: "/online/beatmaps", search: "", hash: "" };
   return (
     <Suspense fallback={<AppLoading />}>
-      <Routes>
+      <Routes location={overlay ? background ?? fallbackLocation : location}>
         <Route element={<AppShell />}>
           <Route index element={<Navigate replace to="/online/beatmaps" />} />
           <Route path="/data" element={<DataCenterPage />}>
@@ -79,20 +92,26 @@ export function AppRoutes() {
           <Route path="/local/media/screenshots" element={<Navigate replace to="/local/media?type=screenshot" />} />
           <Route path="/local/media/replays" element={<Navigate replace to="/local/media?type=replay" />} />
           <Route path="/local/media/render" element={<ReplayRenderPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/game" element={<Navigate replace to="/online/beatmaps" />} />
-          <Route path="/tools" element={<ToolsLayout />}>
-            <Route index element={<ToolsIndexRedirect />} />
-            <Route path="game" element={<ToolCategoryPages.game />} />
-            <Route path="beatmaps" element={<ToolCategoryPages.beatmaps />} />
-            <Route path="system" element={<ToolCategoryPages.system />} />
-            <Route path="live" element={<ToolCategoryPages.live />} />
-          </Route>
           <Route path="/tools/replay-render" element={<Navigate replace to="/local/media/render" />} />
           <Route path="/tosu" element={<TosuRedirect />} />
           <Route path="*" element={<Navigate replace to="/online/beatmaps" />} />
         </Route>
       </Routes>
+      {overlay ? <RouteOverlayContext.Provider value={() => { if (background) navigate(-1); else navigate("/online/beatmaps", { replace: true }); }}>
+        <Suspense fallback={<div role="status" className="fixed inset-0 z-[70] grid place-items-center bg-black/50 text-sm text-white">正在加载…</div>}>
+          <Routes location={location}>
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/tools" element={<ToolsLayout />}>
+              <Route index element={<ToolsIndexRedirect />} />
+              <Route path="game" element={<ToolCategoryPages.game />} />
+              <Route path="beatmaps" element={<ToolCategoryPages.beatmaps />} />
+              <Route path="system" element={<ToolCategoryPages.system />} />
+              <Route path="live" element={<ToolCategoryPages.live />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </RouteOverlayContext.Provider> : null}
     </Suspense>
   );
 }

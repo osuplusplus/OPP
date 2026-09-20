@@ -71,28 +71,27 @@ export function MapCard({
         <div className="mt-auto min-w-0">
           <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-white" title={title}>{title}</h3>
           <p className="mt-0.5 truncate text-xs font-medium text-slate-300">{entry.artist || "未知艺术家"}</p>
-          <div className="opp-map-card__difficulty-row mt-2 flex min-w-0 items-center gap-2 border-t border-white/10 pt-2">
+          <div className="opp-map-card__difficulty-row relative mt-2 flex min-h-14 min-w-0 items-center gap-2 border-t border-white/10 pt-2">
             <span className="h-[1.05rem] w-[3px] shrink-0 rounded-full bg-[linear-gradient(180deg,var(--theme-primary-light),var(--theme-secondary))] shadow-[0_0_12px_var(--theme-primary-glow)]" />
             <strong className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white" title={difficulty}>{difficulty}</strong>
             <span className="opp-map-card__creator shrink-0 text-[11px] text-slate-400">谱师 · {entry.creator || "未知"}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 悬停层按比例定位，始终为具体难度信息保留稳定空间。 */}
-      <div aria-hidden="true" className="opp-map-card__details pointer-events-none absolute inset-x-0 bottom-0 top-[28.5%] z-20 translate-y-2 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.98),rgba(13,16,21,.99))] p-[15px] opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 motion-reduce:transition-none">
-        <div className="opp-map-card__metrics grid grid-cols-3 gap-x-3">
-          <div>
-            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">难度 ID</p>
-            <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100">{entry.beatmap_id ? `#${entry.beatmap_id}` : "未解析"}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">谱面集 ID</p>
-            <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100">{entry.beatmapset_id ? `#${entry.beatmapset_id}` : "未解析"}</p>
-          </div>
-          <div className="opp-map-card__checksum min-w-0">
-            <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">校验信息</p>
-            <p className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100"><Hash className="size-3" />{entry.checksum ? "已记录精确 MD5" : "等待本地谱面解析"}</p>
+            {/* ID 信息只覆盖难度行，保留标题、艺术家和操作按钮。 */}
+            <div aria-hidden="true" className="opp-map-card__details pointer-events-none absolute inset-x-0 bottom-0 top-0 z-20 translate-y-2 border-t border-white/[.08] bg-[linear-gradient(180deg,rgba(21,25,31,.98),rgba(13,16,21,.99))] px-1 py-2 opacity-0 [transition:opacity_var(--motion-base)_ease,transform_var(--motion-base)_cubic-bezier(.2,.8,.2,1)] group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:transition-none">
+              <div className="opp-map-card__metrics grid grid-cols-3 gap-x-3">
+                <div>
+                  <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">难度 ID</p>
+                  <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100">{entry.beatmap_id ? `#${entry.beatmap_id}` : "未解析"}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">谱面集 ID</p>
+                  <p className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100">{entry.beatmapset_id ? `#${entry.beatmapset_id}` : "未解析"}</p>
+                </div>
+                <div className="opp-map-card__checksum min-w-0">
+                  <p className="text-[10px] font-[650] uppercase tracking-[.08em] text-slate-500">校验信息</p>
+                  <p className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-slate-100"><Hash className="size-3" />{entry.checksum ? "已记录精确 MD5" : "等待本地谱面解析"}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

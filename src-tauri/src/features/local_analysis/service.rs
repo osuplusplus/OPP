@@ -7,6 +7,10 @@ mod service_query;
 #[path = "service_stage.rs"]
 mod service_stage;
 
+#[cfg(test)]
+#[path = "lazer_acceptance.rs"]
+mod lazer_acceptance;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -192,6 +196,13 @@ impl LocalAnalysisService {
                 .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "本地索引状态已损坏"))?;
             for (client, index) in loaded {
                 indexes.entry(client).or_insert(index);
+            }
+            // Publish the restored revision as well as the ready phase. A page can
+            // miss the loading phase while its summary request still sees no index.
+            for (client, index) in indexes.iter() {
+                self.update_client_status(*client, |status| {
+                    status.last_scan_at = Some(index.summary.scanned_at.clone());
+                });
             }
             drop(indexes);
             self.trim_thumbnail_cache()?;
@@ -947,6 +958,12 @@ impl LocalAnalysisService {
                 format!("皮肤名「{name}」无法用作目录名"),
             ));
         }
+        // Different Realm skins can share the same display name. Keep their
+        // staged files separate so selecting one cannot overwrite another.
+        let safe_name = format!(
+            "{safe_name}-{}",
+            &sha256(detail.summary.resource.resource_id.as_bytes())[..12]
+        );
         let directory = self.staged_skins_root().join(&safe_name);
         fs::create_dir_all(&directory)?;
         let files = entry.lazer_files.as_ref().ok_or_else(|| {
@@ -2215,6 +2232,10 @@ fn scan_changes(
 }
 
 fn watch_event_relevant(client: LocalClient, roots: &[PathBuf], event: &notify::Event) -> bool {
+    // Reading a Realm snapshot, cover or audio file must not schedule another scan.
+    if matches!(event.kind, notify::EventKind::Access(_)) {
+        return false;
+    }
     match client {
         LocalClient::Stable => !event.paths.is_empty(),
         LocalClient::Lazer => {
@@ -3097,7 +3118,17 @@ SliderTickRate:1
             .status
             .data_root
             .expect("data root");
-        index.entries = vec![entry];
+        let mut other = entry.clone();
+        let other_id = format!("{resource_id}-other");
+        if let IndexedData::Skin { detail } = &mut other.data {
+            detail.summary.resource.resource_id = other_id.clone();
+        }
+        let other_hash = "ff33000000000000000000000000000000000000000000000000000000000000";
+        let other_blob = files_root.join(lazer_realm::blob_relative_path(other_hash));
+        fs::create_dir_all(other_blob.parent().unwrap()).unwrap();
+        fs::write(other_blob, b"different cursor").unwrap();
+        other.lazer_files.as_mut().unwrap()[1].hash = other_hash.into();
+        index.entries = vec![entry, other];
         index.rebuild_runtime_indexes();
         service
             .indexes
@@ -3109,9 +3140,19 @@ SliderTickRate:1
             .materialize_lazer_skin(&resource_id)
             .expect("staged skin directory");
         assert!(directory.starts_with(cache.path().join("local-analysis").join("staged-skins")));
+        assert!(
+            directory
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("测试皮肤-")
+        );
+        let other_directory = service.materialize_lazer_skin(&other_id).unwrap();
+        assert_ne!(directory, other_directory);
         assert_eq!(
-            directory.file_name().and_then(|name| name.to_str()),
-            Some("测试皮肤")
+            fs::read(other_directory.join("cursor.png")).unwrap(),
+            b"different cursor"
         );
         assert_eq!(
             fs::read(directory.join("skin.ini")).expect("skin.ini"),
@@ -3930,6 +3971,53 @@ SliderTickRate:1
         assert_eq!(changes.modified, 1);
         assert_eq!(changes.removed, 1);
         assert_eq!(changes.reused, previous.len().saturating_sub(2));
+    }
+
+    #[test]
+    fn watcher_ignores_reads_but_keeps_library_changes() {
+        use notify::{
+            Event, EventKind,
+            event::{AccessKind, DataChange, ModifyKind},
+        };
+        let root = PathBuf::from("library");
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            let path = root.join("client.realm");
+            let roots = [root.clone()];
+            assert!(!watch_event_relevant(
+                client,
+                &roots,
+                &Event::new(EventKind::Access(AccessKind::Read)).add_path(path.clone())
+            ));
+            assert!(watch_event_relevant(
+                client,
+                &roots,
+                &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+                    .add_path(path)
+            ));
+        }
+    }
+
+    #[test]
+    fn restored_lazer_cache_publishes_its_revision_without_rescanning() {
+        let app_data = tempfile::tempdir().expect("cache");
+        let service = LocalAnalysisService::new(app_data.path()).expect("service");
+        let index = empty_index(DIFFICULTY_ALGORITHM);
+        let revision = index.summary.scanned_at.clone();
+        persist_index(&service.cache_dir, LocalClient::Lazer, &index).expect("save");
+        let restored = LocalAnalysisService::new(app_data.path()).expect("restart");
+        restored.load_cached_indexes();
+        assert!(
+            restored
+                .current_index(LocalClient::Lazer)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            restored.index_load_status().unwrap().clients[&LocalClient::Lazer]
+                .last_scan_at
+                .as_deref(),
+            Some(revision.as_str())
+        );
     }
 
     #[test]

@@ -161,12 +161,15 @@ describe("search engine flow", () => {
     const second = screen.getByRole("button", { name: "查看 Song 2" }).closest<HTMLElement>('[role=listitem]')!;
     const top = second.style.top;
     await userEvent.hover(first);
+    expect(screen.queryByRole("region", { name: "Song 1 的难度详情" })).not.toBeInTheDocument();
+    const trigger = within(first).getByRole("button", { name: "1 个难度" });
+    await userEvent.hover(trigger);
+    expect(screen.queryByRole("region", { name: "Song 1 的难度详情" })).not.toBeInTheDocument();
     const popover = await screen.findByRole("region", { name: "Song 1 的难度详情" });
     expect(document.body).toContainElement(popover); expect(first).not.toContainElement(popover);
     expect(second.style.top).toBe(top); expect(within(popover).getByText("Insane")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("region", { name: "Song 1 的难度详情" })).not.toBeInTheDocument());
-    const trigger = within(first).getByRole("button", { name: "1 个难度" });
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     await waitFor(() => expect(screen.getByRole("region", { name: "Song 1 的难度详情" })).toHaveFocus());
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });

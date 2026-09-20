@@ -22,13 +22,23 @@ export function OnlineResultCard({ item, index, total, selected, queued, busy, p
   const detailId = useId();
   const present = useIsPresent();
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const enter = () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); setHovered(true); setDismissed(false); };
-  const leave = () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); leaveTimer.current = setTimeout(() => { setHovered(false); setDismissed(false); }, 90); };
+  const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enter = () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    if (enterTimer.current) clearTimeout(enterTimer.current);
+    enterTimer.current = setTimeout(() => { setHovered(true); setDismissed(false); }, 300);
+  };
+  const leave = () => {
+    if (enterTimer.current) clearTimeout(enterTimer.current);
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(() => { setHovered(false); setDismissed(false); }, 120);
+  };
   const close = useCallback(() => {
+    if (enterTimer.current) clearTimeout(enterTimer.current);
     if (document.getElementById(detailId)?.contains(document.activeElement)) root.current?.querySelector<HTMLButtonElement>(".online-result-difficulty-toggle")?.focus({ preventScroll: true });
     setDismissed(true); setTouchOpen(false);
   }, [detailId]);
-  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); }, []);
+  useEffect(() => () => { if (leaveTimer.current) clearTimeout(leaveTimer.current); if (enterTimer.current) clearTimeout(enterTimer.current); }, []);
   const title = displayTitle(item);
   const difficulties = [...(item.beatmaps ?? [])].sort((a, b) => a.difficulty_rating - b.difficulty_rating || a.id - b.id);
   const cover = item.covers?.cover ?? item.covers?.["cover@2x"] ?? item.covers?.card;
@@ -44,12 +54,9 @@ export function OnlineResultCard({ item, index, total, selected, queued, busy, p
   }, [item.id, onHeight, multi]);
 
   return <div ref={root} role="listitem" aria-setsize={total} aria-posinset={index + 1} className={`online-result-row ${selected ? "is-selected" : ""}`} style={style}
-    onPointerEnter={(event) => { if (event.pointerType !== "touch") { touch.current = false; enter(); } }}
-    onPointerLeave={leave}
     onPointerDown={(event) => { touch.current = event.pointerType === "touch"; setFocused(false); }}
-    onFocus={(event) => { if (!touch.current && event.target.matches(":focus-visible")) { setFocused(true); setDismissed(false); } }}
     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget) && !document.getElementById(detailId)?.contains(event.relatedTarget)) { setFocused(false); setDismissed(false); } }}
-    onKeyDown={(event) => { if (event.key === "Escape") { close(); } else { touch.current = false; setFocused(true); } }}>
+    onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
     <div className="online-result-summary">
       {multi ? <input type="checkbox" aria-label={`选择 ${title}`} checked={checked} disabled={item.availability?.download_disabled} onChange={onToggle} /> : null}
       <button className="online-result-main" data-result-index={index} aria-label={`查看 ${title}`} aria-current={selected ? "true" : undefined} onClick={onChoose} onKeyDown={onNavigate}>
@@ -59,7 +66,9 @@ export function OnlineResultCard({ item, index, total, selected, queued, busy, p
     </div>
     <div className="online-result-meta"><OnlineStatusBadge status={item.status} /><span>{starRange(item.beatmaps)}</span>{queued ? <small>已在清单</small> : null}{item.availability?.download_disabled ? <small>禁止下载</small> : null}</div>
     <div className="online-result-bottom">
-      <button className="online-result-difficulty-toggle" aria-label={`${difficulties.length} 个难度`} title="按向下方向键进入难度详情" aria-expanded={open} aria-controls={detailId} onKeyDown={(event) => {
+      <button className="online-result-difficulty-toggle" aria-label={`${difficulties.length} 个难度`} title="按向下方向键进入难度详情" aria-expanded={open} aria-controls={detailId}
+        onPointerEnter={(event) => { if (event.pointerType !== "touch") { touch.current = false; enter(); } }} onPointerLeave={leave}
+        onFocus={(event) => { if (!touch.current && event.target.matches(":focus-visible")) { setFocused(true); setDismissed(false); } }} onKeyDown={(event) => {
         if (event.key === "ArrowDown") {
           event.preventDefault(); event.stopPropagation(); setFocused(true); setDismissed(false);
           requestAnimationFrame(() => document.getElementById(detailId)?.focus({ preventScroll: true }));

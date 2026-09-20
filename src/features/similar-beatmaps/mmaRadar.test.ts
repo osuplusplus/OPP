@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ManiaPatternView } from "../../shared/types/osu";
-import { mmaRadarValues, showsRadarComparison } from "./mmaRadar";
+import { mmaRadarValues } from "./mmaRadar";
 
 const view = {
   category: "Shield",
@@ -40,11 +40,4 @@ describe("MMA coverage radar", () => {
     expect(mmaRadarValues({ ...view, coverage: [] }).every((value) => value.radius === 0)).toBe(true);
   });
 
-  it("draws the comparison polygon only when both sides carry key-pattern data", () => {
-    expect(showsRadarComparison(view, view, true)).toBe(true);
-    expect(showsRadarComparison(view, undefined, true)).toBe(false);
-    expect(showsRadarComparison(undefined, view, false)).toBe(false);
-    expect(showsRadarComparison(undefined, undefined, true)).toBe(true);
-    expect(showsRadarComparison(undefined, undefined, false)).toBe(false);
-  });
 });

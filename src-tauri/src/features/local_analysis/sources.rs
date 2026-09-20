@@ -399,7 +399,9 @@ fn looks_like_lazer_install(path: &Path) -> bool {
 }
 
 fn read_lazer_version(root: &Path) -> Option<String> {
-    let text = fs::read_to_string(root.join("current").join("sq.version")).ok()?;
+    let text = fs::read_to_string(root.join("sq.version"))
+        .or_else(|_| fs::read_to_string(root.join("current").join("sq.version")))
+        .ok()?;
     let (_, after) = text.split_once("<version>")?;
     let (version, _) = after.split_once("</version>")?;
     Some(version.trim().to_string())
@@ -419,6 +421,26 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lazer_version_accepts_current_directory_as_install_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let current = directory.path().join("current");
+        fs::create_dir(&current).unwrap();
+        fs::write(
+            current.join("sq.version"),
+            "<version>2026.804.2-lazer</version>",
+        )
+        .unwrap();
+        assert_eq!(
+            read_lazer_version(directory.path()).as_deref(),
+            Some("2026.804.2-lazer")
+        );
+        assert_eq!(
+            read_lazer_version(&current).as_deref(),
+            Some("2026.804.2-lazer")
+        );
+    }
 
     #[test]
     fn resolves_relative_and_absolute_beatmap_directories() {

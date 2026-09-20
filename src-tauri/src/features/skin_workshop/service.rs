@@ -606,7 +606,7 @@ impl SkinWorkshopService {
         if client != LocalClient::Stable {
             return Err(CommandError::new(
                 "SKIN_WORKSHOP_LAZER_READ_ONLY",
-                "Lazer Skin 目前仅提供配置摘要，无法可靠定位资源归属",
+                "Lazer Skin Workshop 当前仅提供配置摘要，暂不支持组件浏览和融合",
             ));
         }
         Ok(())

@@ -59,9 +59,11 @@ export function useLocalIndexStatus() {
 }
 
 export function useLocalSummary(client: OsuClient) {
+  const indexStatus = useLocalIndexStatus();
   return useQuery({
     queryKey: localSummaryKey(client),
     queryFn: () => desktopApi.getLocalSummary(client),
+    enabled: indexStatus.data?.phase === "ready",
     staleTime: 30_000,
     retry: false,
   });

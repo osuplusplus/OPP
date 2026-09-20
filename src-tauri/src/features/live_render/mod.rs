@@ -2452,6 +2452,23 @@ pub struct ExportProgress {
 static EXPORT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static EXPORT_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+struct ExportPermit<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl<'a> ExportPermit<'a> {
+    fn acquire(running: &'a std::sync::atomic::AtomicBool) -> CommandResult<Self> {
+        if running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(CommandError::new("LIVE_RENDER", "已有导出任务在进行中"));
+        }
+        Ok(Self(running))
+    }
+}
+
+impl Drop for ExportPermit<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// FFmpeg 解析:设置中手动路径 > PATH 自动检测 > danser 发行包自带。
 fn ffmpeg_path(state: &tauri::State<'_, crate::state::AppState>) -> Option<std::path::PathBuf> {
     let saved = state.store.settings_snapshot().ok().map(|snapshot| {
@@ -2634,9 +2651,7 @@ pub fn live_render_export(
     use std::sync::atomic::Ordering;
     let ffmpeg = ffmpeg_path(&state)
         .ok_or_else(|| CommandError::new("LIVE_RENDER", "未找到 FFmpeg(已尝试设置路径、PATH 与 danser 发行包),请在设置页配置或安装 FFmpeg 后重试"))?;
-    if EXPORT_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err(CommandError::new("LIVE_RENDER", "已有导出任务在进行中"));
-    }
+    let permit = ExportPermit::acquire(&EXPORT_RUNNING)?;
     EXPORT_CANCEL.store(false, Ordering::SeqCst);
     // 导出是实际消费点:lazer 皮肤引用在这里物化。
     let options = resolve_lazer_skin(&state, options)?;
@@ -2661,7 +2676,7 @@ pub fn live_render_export(
                 eprintln!("live_render: 导出 panic: {msg}");
                 Err(format!("导出过程崩溃: {msg}"))
             });
-            EXPORT_RUNNING.store(false, Ordering::SeqCst);
+            drop(permit);
             let _ = tx.send(result);
         })
         .map_err(|e| CommandError::new("LIVE_RENDER", format!("无法启动导出线程: {e}")))?;
@@ -3188,6 +3203,21 @@ fn probe_sample_rate(ffmpeg: &std::path::Path, media: &std::path::Path) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn export_permit_releases_after_preparation_failure() {
+        let running = std::sync::atomic::AtomicBool::new(false);
+        let prepare = || -> crate::error::CommandResult<()> {
+            let _permit = super::ExportPermit::acquire(&running)?;
+            assert!(super::ExportPermit::acquire(&running).is_err());
+            Err(crate::error::CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "missing skin",
+            ))
+        };
+        assert!(prepare().is_err());
+        assert!(super::ExportPermit::acquire(&running).is_ok());
+        assert!(!running.load(std::sync::atomic::Ordering::SeqCst));
+    }
     use super::ffmpeg_encoder_args;
 
     fn joined(args: &[String]) -> String {

@@ -6,6 +6,7 @@ import { errorMessage } from "../../shared/lib/format";
 import type { BeatmapDownloadProvider } from "../../shared/types/osu";
 import { downloadSession } from "./downloadSession";
 import { useOnlineDownload } from "./useOnlineDownload";
+import { useSettings } from "../settings/api";
 
 function DownloadContents() {
   const { state, start, destination, defaultProvider, saveDestination } = useOnlineDownload();
@@ -22,6 +23,7 @@ function DownloadContents() {
   };
   const pending = state.queue.filter((item) => !state.activeIds.includes(item.id));
   return <>
+    <div className="online-download-body">
     <div className="online-download-summary"><span>{state.queue.length} 个谱面集</span><button disabled={!pending.length} onClick={() => downloadSession.clear()}>清空待下载</button></div>
     <div className="online-download-items">
       {!state.queue.length ? <p className="online-empty">清单为空。可从搜索结果多选添加，也可以按筛选条件批量加入。</p> : state.queue.map((item) => <div key={item.id}>
@@ -40,14 +42,16 @@ function DownloadContents() {
     {state.result ? <p role="status">完成 {state.result.completed} · 跳过 {state.result.skipped} · 失败 {state.result.failed}{state.result.cancelled ? " · 已取消" : ""}</p> : null}
     {state.result?.failures.map((failure) => <p className="online-notice" key={failure.beatmapset_id}>{failure.title}：{failure.message}</p>)}
     {error || state.error ? <p className="online-notice" role="alert">{error || state.error}</p> : null}
+    </div>
     <footer>{state.busy ? <button onClick={() => void downloadSession.cancel()}>取消本批下载</button> : <button className="is-primary" disabled={!state.queue.length || choosing || provider === "none"} onClick={() => void start(state.queue, { destination: path, provider, overwrite })}><Download />开始下载 · {state.queue.length}</button>}</footer>
   </>;
 }
 
 export function DownloadDrawer() {
   const { state } = useOnlineDownload();
+  const settings = useSettings();
   return <Dialog.Root><Dialog.Trigger asChild><button className="online-download-trigger" data-page-guide-online-download="true"><Download />{state.busy ? `↓ ${state.progress?.processed ?? 0}/${state.progress?.total ?? state.activeIds.length}` : `下载清单 · ${state.queue.length}`}{state.error ? " !" : ""}</button></Dialog.Trigger>
-    <Dialog.Portal><Dialog.Overlay className="online-dialog-overlay" /><Dialog.Content className="online-dialog online-download-drawer">
+    <Dialog.Portal><Dialog.Overlay className="online-dialog-overlay" /><Dialog.Content data-dialog-layout="drawer" data-reduce-motion={settings.data?.reduce_motion || undefined} className="online-dialog online-download-drawer">
       <Dialog.Title>下载清单</Dialog.Title><Dialog.Description>跨搜索保留所选谱面，关闭清单后下载继续。</Dialog.Description><Dialog.Close className="online-dialog-close" aria-label="关闭下载清单"><X /></Dialog.Close>
       <DownloadContents />
     </Dialog.Content></Dialog.Portal>

@@ -19,6 +19,7 @@ import { useMode } from "../../app/ModeContext";
 import { musicApi, useMusicResourceId } from "../music-player/api";
 import type { MusicLocation } from "../../shared/types/music";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
+import { ClientSwitch } from "../../shared/components/ClientSwitch";
 import { PageHeader } from "../../shared/components/PageHeader";
 import {
   Badge,
@@ -287,8 +288,8 @@ function SourceBar({
   );
 }
 
-function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSection; followTarget: MusicLocation | null }) {
-  const { client, ruleset } = useMode();
+function LocalAnalysisClientPage({ section, followTarget, libraryOpen, setLibraryOpen }: { section: LocalSection; followTarget: MusicLocation | null; libraryOpen: boolean; setLibraryOpen: (open: boolean) => void }) {
+  const { client, ruleset, setClient } = useMode();
   const queryClient = useQueryClient();
   const sourcesQuery = useLocalSources();
   const indexStatusQuery = useLocalIndexStatus();
@@ -397,17 +398,13 @@ function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSect
     ?? (indexStatusQuery.data?.phase === "loading" ? "正在后台加载本地索引…" : null)
     ?? (clientIndexStatus?.phase === "error" ? "索引监听异常，请打开谱库管理检查" : null)
     ?? (scanning || clientIndexStatus?.phase === "scanning" ? progress ? `${phaseLabels[progress.phase]} · ${fixedNumber(progress.percent, 1)}%` : "正在更新谱库…" : null);
-  const libraryControl = <Dialog.Root>
+  const libraryControl = <><ClientSwitch value={client} onChange={setClient} />
     <Dialog.Trigger asChild><button type="button" className="local-stage-button local-library-trigger"><Database className="size-4" /><span>谱库管理<small>{client === "stable" ? "Stable" : "Lazer"} · {fullNumber(summary?.beatmap_set_count ?? 0)} sets</small></span></button></Dialog.Trigger>
-    <Dialog.Portal><Dialog.Overlay className="local-library-overlay" /><Dialog.Content className="local-library-dialog">
-      <Dialog.Title>谱库管理</Dialog.Title><Dialog.Description>管理本地目录、扫描进度与索引状态。</Dialog.Description>
-      <Dialog.Close aria-label="关闭谱库管理" className="local-library-dialog-close"><X className="size-4" /></Dialog.Close>
-      {sourceControl}
-    </Dialog.Content></Dialog.Portal>
-  </Dialog.Root>;
+  </>;
 
   return (
-    <>
+    <Dialog.Root open={libraryOpen} onOpenChange={setLibraryOpen}>
+      {section !== "maps" || !summary ? <div className="mb-4 flex items-center gap-3">{libraryControl}</div> : null}
       {section !== "maps" ? <PageHeader
         description="浏览 Skin 配置、图像与音效资源"
         eyebrow="Local library"
@@ -426,7 +423,7 @@ function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSect
 
       {section !== "maps" || !summary ? <div className={section === "maps" ? "local-library-empty" : undefined}>{sourceControl}</div> : null}
 
-      {summaryQuery.isLoading ? (
+      {summaryQuery.isPending ? (
         <Skeleton className="h-96" />
       ) : summaryQuery.error ? (
         <ErrorPanel error={summaryQuery.error} onRetry={() => summaryQuery.refetch()} />
@@ -473,7 +470,13 @@ function LocalAnalysisClientPage({ section, followTarget }: { section: LocalSect
           resourceId={selectedBeatmap}
         />
       ) : null}
-    </>
+      <Dialog.Portal><Dialog.Overlay className="local-library-overlay" /><Dialog.Content className="local-library-dialog">
+        <Dialog.Title>谱库管理</Dialog.Title><Dialog.Description>管理本地目录、扫描进度与索引状态。</Dialog.Description>
+        <Dialog.Close aria-label="关闭谱库管理" className="local-library-dialog-close"><X className="size-4" /></Dialog.Close>
+        <div className="mb-4"><ClientSwitch value={client} onChange={setClient} /></div>
+        {sourceControl}
+      </Dialog.Content></Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -485,6 +488,7 @@ export function LocalAnalysisPage({
   const { client, ruleset, setClient, setRuleset } = useMode();
   const musicResourceId = useMusicResourceId();
   const [followTarget, setFollowTarget] = useState<MusicLocation | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const mode = useRef({ client, ruleset });
   useEffect(() => { mode.current = { client, ruleset }; }, [client, ruleset]);
   useEffect(() => {
@@ -514,6 +518,8 @@ export function LocalAnalysisPage({
       key={`${client}:${ruleset}:${section}`}
       followTarget={followTarget?.resource_id === musicResourceId ? followTarget : null}
       section={section}
+      libraryOpen={libraryOpen}
+      setLibraryOpen={setLibraryOpen}
     />
   );
 }

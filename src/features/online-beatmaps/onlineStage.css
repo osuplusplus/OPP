@@ -150,9 +150,13 @@
 .online-dialog h2 + p { color: var(--text-muted, #aeb9c9); font-size: 12px; margin-bottom: 20px; }
 .online-dialog .online-dialog-close { position: absolute; top: 18px; right: 18px; }
 .online-filter-dialog { top: 7vh; left: 50%; transform: translateX(-50%); width: min(780px, calc(100vw - 36px)); max-height: 86vh; border-radius: 12px; }
-.online-download-drawer { top: 0; right: 0; bottom: 0; width: min(430px, 100vw); }
+.online-download-drawer { top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; width: min(460px, 100vw); height: 100vh; height: 100dvh; max-height: none; border-width: 0 0 0 1px; border-radius: 0; overflow: hidden; animation: online-drawer-enter 180ms ease-out; }
+.online-download-drawer > h2, .online-download-drawer > p { flex-shrink: 0; }
+.online-download-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+@keyframes online-drawer-enter { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.online-download-drawer[data-reduce-motion="true"] { animation: none; }
 .online-download-summary { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
-.online-download-items { max-height: 42vh; overflow-y: auto; margin-block: 15px; scrollbar-width: thin; }
+.online-download-items { margin-block: 15px; }
 .online-download-items > div { display: flex; align-items: center; gap: 12px; padding-block: 9px; border-bottom: 1px solid #ffffff0b; }
 .online-download-items > div > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .online-download-items strong, .online-download-items small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,7 +171,7 @@
 .online-download-progress > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .online-download-progress progress { width: 100%; height: 5px; accent-color: var(--theme-primary); }
 .online-download-progress small { color: var(--text-muted, #aeb9c9); }
-.online-download-drawer footer { margin-top: 20px; }
+.online-download-drawer footer { flex-shrink: 0; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-subtle); }
 .online-download-drawer footer button { width: 100%; }
 :root[data-theme-mode="light"] .online-stage { --online-ink: #202624; --online-muted: #4d5655; --online-panel: #f2f3eece; --online-line: #202a4040; --stage-accent: hsl(var(--stage-hue) 52% 30%); --stage-title: hsl(var(--stage-hue) 30% 18%); --stage-artist: hsl(var(--stage-hue) 46% 29%); }
 :root[data-theme-mode="light"] .online-stage .local-stage-art-shade { background: linear-gradient(180deg, #f2f0e9b3, #f2f0e908 30%, #f2f0e9cf); }
@@ -246,6 +250,14 @@
 .online-results-header .online-batch-menu p { border-top: 1px solid var(--online-line); padding-top: 12px; margin-top: 3px; }
 .online-difficulty-popover { position: fixed; z-index: 90; box-sizing: border-box; margin: 0; padding: 12px; border: 1px solid var(--online-line, #ebeff633); border-radius: 8px; background: var(--surface-panel, #17202d); color: var(--online-ink, #f5f3ee); box-shadow: 0 12px 36px #0005; outline-offset: 2px; }
 .online-difficulty-popover svg { width: 16px; height: 16px; }
+.online-difficulty-popover { animation: online-difficulty-enter 160ms ease-out both; }
+@keyframes online-difficulty-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .online-difficulty-popover { animation: none; }
+}
 .online-quiet-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; transition: scrollbar-color .2s; }
 .online-quiet-scroll:hover, .online-quiet-scroll:focus-within, .online-quiet-scroll[data-scrolling="true"] { scrollbar-color: color-mix(in srgb, var(--stage-accent, var(--text-muted)) 35%, transparent) transparent; }
 .online-quiet-scroll::-webkit-scrollbar { width: 4px; height: 4px; }

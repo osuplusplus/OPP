@@ -28,6 +28,13 @@ const CACHE_SECONDS: i64 = 600;
 const CACHE_REVISION: &str = "2";
 const MAX_LIMIT: usize = 200;
 
+fn skill_cache_key(request: &SkillAnalysisRequest) -> String {
+    format!(
+        "skill-analysis:{}:{}:{}:{CACHE_REVISION}:online={}",
+        request.client, request.ruleset, ALGORITHM_VERSION, request.include_online
+    )
+}
+
 #[tauri::command]
 pub async fn analyze_player_skills(
     request: SkillAnalysisRequest,
@@ -37,10 +44,7 @@ pub async fn analyze_player_skills(
     let can_fallback =
         request.force_refresh && request.ruleset == "osu" && request.score_limit == MAX_LIMIT;
     let fallback = if can_fallback {
-        let key = format!(
-            "skill-analysis:{}:{}:{}:{CACHE_REVISION}",
-            request.client, request.ruleset, ALGORITHM_VERSION
-        );
+        let key = skill_cache_key(&request);
         let store = state.store.clone();
         crate::infrastructure::tasks::blocking_io("read_skill_fallback", move || {
             store.read_cached(|saved| saved.cache.get(&key).cloned())
@@ -92,10 +96,7 @@ async fn analyze_player_skills_inner(
         ));
     }
 
-    let cache_key = format!(
-        "skill-analysis:{}:{}:{}:{CACHE_REVISION}",
-        request.client, request.ruleset, ALGORITHM_VERSION
-    );
+    let cache_key = skill_cache_key(&request);
     let store = state.store.clone();
     let key = cache_key.clone();
     let cached = crate::infrastructure::tasks::blocking_io("read_skill_cache", move || {
@@ -419,4 +420,29 @@ fn score_mods(score: &Score) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::features::local_analysis::LocalClient;
+
+    #[test]
+    fn skill_cache_separates_clients_and_online_policy() {
+        let mut request = SkillAnalysisRequest {
+            ruleset: "osu".into(),
+            client: LocalClient::Lazer,
+            score_limit: 200,
+            include_online: true,
+            force_refresh: false,
+        };
+        let online = skill_cache_key(&request);
+        request.include_online = false;
+        let local = skill_cache_key(&request);
+        assert_ne!(online, local);
+        request.force_refresh = true;
+        assert_eq!(local, skill_cache_key(&request));
+        request.client = LocalClient::Stable;
+        assert_ne!(local, skill_cache_key(&request));
+    }
 }

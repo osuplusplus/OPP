@@ -42,13 +42,17 @@ describe("MMA native presentation", () => {
     expect(screen.getByText("未识别到稳定模式")).toBeInTheDocument();
   });
 
-  it("uses the six-axis coverage radar when key-pattern data exists and keeps the legacy radar otherwise", () => {
+  it("uses only the six-axis MMA radar and explains missing data", () => {
     const { rerender } = render(<SimilarityRadar patternView={view} patternViewComparison={view} target={difficulty} />);
     expect(screen.getByRole("img", { name: "MMA 六维覆盖率雷达图" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Mania 八维难度雷达图" })).not.toBeInTheDocument();
     rerender(<SimilarityRadar target={difficulty} />);
-    expect(screen.getByRole("img", { name: "Mania 八维难度雷达图" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("暂无 MMA 六维覆盖数据");
+    expect(screen.queryByRole("img", { name: "Mania 八维难度雷达图" })).not.toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "MMA 六维覆盖率雷达图" })).not.toBeInTheDocument();
+    rerender(<SimilarityRadar target={difficulty} patternViewComparison={view} />);
+    expect(screen.getByRole("img", { name: "MMA 六维覆盖率雷达图" })).toBeInTheDocument();
+    expect(screen.getByText("参考谱面暂无 MMA 数据")).toBeInTheDocument();
   });
 
   it("describes each axis with real coverage, covered seconds and main subtypes", () => {
