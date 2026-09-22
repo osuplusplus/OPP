@@ -48,7 +48,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          # 手动发布时 tag 可以尚未创建；三个构建任务固定到同一触发提交。
+          ref: ${{ github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -104,6 +105,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
+          releaseCommitish: ${{ github.sha }}
           releaseName: "OPP ${{ env.RELEASE_TAG }}"
           releaseBody: ${{ steps.release-notes.outputs.body }}
           # 所有平台和 latest.json 上传完成后再发布，避免固定地址指向半成品。
