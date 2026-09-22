@@ -185,12 +185,20 @@ fn file_fingerprint(path: &Path) -> CommandResult<String> {
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
-fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
+pub(super) fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
+    let manager_configured = state
+        .store
+        .settings_snapshot()
+        .ok()
+        .and_then(|settings| settings.collection_manager_path)
+        .is_some_and(|path| Path::new(&path).is_file());
     [LocalClient::Stable, LocalClient::Lazer]
         .into_iter()
         .map(|client| {
             let source = state.local_analysis.source_status(client).ok();
-            let available = source.as_ref().is_some_and(|value| value.valid);
+            let source_available = source.as_ref().is_some_and(|value| value.valid);
+            let available =
+                source_available && (client == LocalClient::Stable || manager_configured);
             let (read_only, message) = match client {
                 LocalClient::Stable => (
                     false,
@@ -201,11 +209,13 @@ fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
                     },
                 ),
                 LocalClient::Lazer => (
-                    false,
-                    if available {
-                        "通过 CollectionManager 读取和写回 lazer 收藏夹"
-                    } else {
+                    !manager_configured,
+                    if !source_available {
                         "请先在设置中配置 osu!lazer 数据目录"
+                    } else if !manager_configured {
+                        "未配置有效的 CollectionManager，无法读取或写回 lazer 收藏夹"
+                    } else {
+                        "已配置 CollectionManager；读取与写回能力需通过其协议验证"
                     },
                 ),
             };
@@ -441,35 +451,35 @@ fn refresh_stable_collections(
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub async fn refresh_collections(
     client: LocalClient,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CommandResult<CollectionSnapshot> {
+    refresh_impl(client, &app.state::<AppState>()).await?;
+    list_collections(app).await
+}
+
+pub(super) async fn refresh_impl(client: LocalClient, state: &AppState) -> CommandResult<()> {
     // 刷新会将 stable 的外部变化合并进内部副本，而不是覆盖本地创建的收藏夹。
     if client == LocalClient::Lazer {
-        if let Ok(folders) =
-            adapter::invoke::<Vec<CollectionFolder>, ()>(&state, "read", None).await
-        {
-            state.collections.update(|file| {
+        let folders = adapter::invoke::<Vec<CollectionFolder>, ()>(state, "read", None).await?;
+        let collections = state.collections.clone();
+        crate::infrastructure::tasks::blocking_io("refresh_lazer_collections", move || {
+            collections.update(|file| {
                 file.folders.retain(|f| f.source != CollectionSource::Lazer);
                 file.folders.extend(folders);
                 Ok(())
-            })?;
-        }
-        return state.collections.snapshot(source_statuses(&state));
+            })
+        })
+        .await??;
+        return Ok(());
     }
-    let path = stable_path(&state)?;
+    let path = stable_path(state)?;
     let collections = std::sync::Arc::clone(&state.collections);
     let local_analysis = std::sync::Arc::clone(&state.local_analysis);
-    tokio::task::spawn_blocking(move || {
+    crate::infrastructure::tasks::background("refresh_stable_collections", move || {
         refresh_stable_collections(path, collections, local_analysis)
     })
-    .await
-    .map_err(|error| {
-        CommandError::new(
-            "COLLECTION_REFRESH_TASK_ERROR",
-            format!("收藏夹刷新任务异常结束：{error}"),
-        )
-    })??;
-    state.collections.snapshot(source_statuses(&state))
+    .await??;
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -505,8 +515,7 @@ pub fn get_collection_backup_status(
     };
     let dir = state
         .store
-        .snapshot()?
-        .settings
+        .settings_snapshot()?
         .collection_backup_directory
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("collection-backups"));
@@ -606,52 +615,77 @@ pub async fn write_lazer_collections(
 }
 
 #[tauri::command(async)]
-pub fn create_collection(
+pub async fn create_collection(
     name: String,
     creator: String,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CommandResult<CollectionFolder> {
-    state.collections.create(&name, &creator)
+    crate::infrastructure::tasks::blocking_io("create_collection", move || {
+        let state = app.state::<AppState>();
+
+        state.collections.create(&name, &creator)
+    })
+    .await?
 }
 #[tauri::command(async)]
-pub fn rename_collection(
+pub async fn rename_collection(
     folder_id: String,
     name: String,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CommandResult<()> {
-    state.collections.rename(&folder_id, &name)
+    crate::infrastructure::tasks::blocking_io("rename_collection", move || {
+        let state = app.state::<AppState>();
+
+        state.collections.rename(&folder_id, &name)
+    })
+    .await?
 }
 #[tauri::command(async)]
-pub fn delete_collection(folder_id: String, state: State<'_, AppState>) -> CommandResult<()> {
-    state.collections.delete(&folder_id)
+pub async fn delete_collection(folder_id: String, app: AppHandle) -> CommandResult<()> {
+    crate::infrastructure::tasks::blocking_io("delete_collection", move || {
+        let state = app.state::<AppState>();
+
+        state.collections.delete(&folder_id)
+    })
+    .await?
 }
 #[tauri::command(async)]
-pub fn add_collection_entries(
+pub async fn add_collection_entries(
     folder_id: String,
     mut candidates: Vec<CollectionCandidate>,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CommandResult<()> {
-    for candidate in &mut candidates {
-        if candidate.checksum.is_none()
-            && let (Some(client), Some(resource_id)) = (
-                candidate.local_client,
-                candidate.local_resource_id.as_deref(),
-            )
-            && let Ok(path) = state.local_analysis.beatmap_file_path(client, resource_id)
-            && let Ok(bytes) = fs::read(path)
-        {
-            candidate.checksum = Some(format!("{:x}", Md5::digest(bytes)));
+    crate::infrastructure::tasks::blocking_io("add_collection_entries", move || {
+        let state = app.state::<AppState>();
+
+        for candidate in &mut candidates {
+            if candidate.checksum.is_none()
+                && let (Some(client), Some(resource_id)) = (
+                    candidate.local_client,
+                    candidate.local_resource_id.as_deref(),
+                )
+                && let Ok(path) = state.local_analysis.beatmap_file_path(client, resource_id)
+                && let Ok(bytes) = fs::read(path)
+            {
+                candidate.checksum = Some(format!("{:x}", Md5::digest(bytes)));
+            }
         }
-    }
-    state.collections.add_entries(&folder_id, candidates)
+        state.collections.add_entries(&folder_id, candidates)
+    })
+    .await?
 }
 #[tauri::command(async)]
-pub fn remove_collection_entry(
+pub async fn remove_collection_entry(
     folder_id: String,
     entry_id: String,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CommandResult<()> {
-    state.collections.remove_entry(&folder_id, &entry_id)
+    crate::infrastructure::tasks::blocking_io("remove_collection_entry", move || {
+        let state = app.state::<AppState>();
+
+        state.collections.remove_entry(&folder_id, &entry_id)
+    })
+    .await?
 }
 
 #[tauri::command(async)]

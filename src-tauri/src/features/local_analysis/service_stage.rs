@@ -57,8 +57,10 @@ impl LocalAnalysisService {
                 let mut count = 0_u64;
                 // Reservoir sampling retains only a set key, never all result payloads.
                 for (key, positions) in &index.beatmap_sets {
-                    let matches = positions.iter().any(|position| matches!(&index.entries[*position].data,
-                    IndexedData::Beatmap { summary, detail } if beatmap_matches(summary, detail, &query, &search)));
+                    let matches = positions.iter().any(|position| {
+                        matches!(&index.entries[*position].data,
+                    IndexedData::Beatmap { .. } if index.matches(*position, &query, &search))
+                    });
                     if !matches {
                         continue;
                     }
@@ -76,7 +78,7 @@ impl LocalAnalysisService {
                         .iter()
                         .filter_map(|position| match &index.entries[*position].data {
                             IndexedData::Beatmap { summary, detail }
-                                if beatmap_matches(summary, detail, &query, &search) =>
+                                if index.matches(*position, &query, &search) =>
                             {
                                 Some((summary, detail.as_ref()))
                             }
@@ -98,12 +100,8 @@ impl LocalAnalysisService {
         let result = (|| {
             let index = self.require_current_index(client)?;
             let entry = index
-                .entries
-                .iter()
-                .find(|entry| {
-                    matches!(&entry.data,
-                IndexedData::Beatmap { summary, .. } if summary.resource.resource_id == resource_id)
-                })
+                .resource(resource_id)
+                .filter(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
                 .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面资源"))?;
             let IndexedData::Beatmap { detail, .. } = &entry.data else {
                 unreachable!()
@@ -238,7 +236,22 @@ fn preview_time(text: &str) -> f64 {
 
 pub(super) fn summarize_set(
     set_key: &str,
+    maps: Vec<(&LocalBeatmapSummary, &LocalBeatmapDetail)>,
+) -> Option<LocalBeatmapSetSummary> {
+    summarize_set_impl(set_key, maps, true)
+}
+
+pub(super) fn summarize_set_header(
+    set_key: &str,
+    maps: Vec<(&LocalBeatmapSummary, &LocalBeatmapDetail)>,
+) -> Option<LocalBeatmapSetSummary> {
+    summarize_set_impl(set_key, maps, false)
+}
+
+fn summarize_set_impl(
+    set_key: &str,
     mut maps: Vec<(&LocalBeatmapSummary, &LocalBeatmapDetail)>,
+    include_difficulties: bool,
 ) -> Option<LocalBeatmapSetSummary> {
     maps.sort_by(|(left, _), (right, _)| {
         option_f64_order(left.stars, right.stars)
@@ -296,10 +309,13 @@ pub(super) fn summarize_set(
         object_count,
         modified_at,
         background_resource_id,
-        difficulties: maps
-            .into_iter()
-            .map(|(summary, _)| summary.clone())
-            .collect(),
+        difficulties: if include_difficulties {
+            maps.into_iter()
+                .map(|(summary, _)| summary.clone())
+                .collect()
+        } else {
+            Vec::new()
+        },
     })
 }
 

@@ -413,8 +413,8 @@ pub fn start_game_monitor(
                     && app
                         .state::<AppState>()
                         .store
-                        .snapshot()
-                        .map(|saved| saved.settings.launch_tosu_on_game_detect)
+                        .settings_snapshot()
+                        .map(|saved| saved.launch_tosu_on_game_detect)
                         .unwrap_or(false)
                 {
                     let state = app.state::<AppState>();
@@ -491,7 +491,7 @@ pub async fn start_game_session(
     if launch_tosu.unwrap_or(false) {
         start_managed_tosu(&state, app)?;
     }
-    if state.store.snapshot()?.settings.launch_otd_with_game {
+    if state.store.settings_snapshot()?.launch_otd_with_game {
         start_managed_otd(&state)?;
     }
     let start = snapshot(&state, ruleset).await?;

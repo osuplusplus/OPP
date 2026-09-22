@@ -84,7 +84,12 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
         }
         found.insert(beatmap_id.expect("checked above"));
     }
-    if found.is_empty() || (!expected.is_empty() && found != expected) {
+    let matches = if item.allow_extra_difficulties {
+        expected.is_subset(&found)
+    } else {
+        found == expected
+    };
+    if found.is_empty() || (!expected.is_empty() && !matches) {
         return Err(CommandError::new(
             "STALE_BEATMAP_ARCHIVE",
             "镜像中的难度与官网当前难度不一致",
@@ -162,6 +167,7 @@ fn sanitizes_windows_download_names() {
         artist: "A/B".into(),
         title: "Title: Test?".into(),
         expected_beatmap_ids: vec![],
+        allow_extra_difficulties: false,
     };
     assert_eq!(download_file_name(&item, None), "42 A_B - Title_ Test_.osz");
     assert_eq!(
@@ -196,6 +202,7 @@ fn rejects_a_stale_mirror_archive_and_accepts_current_difficulties() {
         artist: "yax03".into(),
         title: "down".into(),
         expected_beatmap_ids: vec![5589234, 5589235],
+        allow_extra_difficulties: false,
     };
     assert_eq!(
         validate_osz(archive(&[5399092, 5260901]), &item)
@@ -204,4 +211,13 @@ fn rejects_a_stale_mirror_archive_and_accepts_current_difficulties() {
         "STALE_BEATMAP_ARCHIVE"
     );
     validate_osz(archive(&[5589234, 5589235]), &item).unwrap();
+    // Exact matching remains the default for normal online search downloads.
+    assert!(validate_osz(archive(&[5589234, 5589235, 5589236]), &item).is_err());
+    let pool_item = BeatmapDownloadItem {
+        allow_extra_difficulties: true,
+        ..item
+    };
+    validate_osz(archive(&[5589234, 5589235, 5589236]), &pool_item).unwrap();
+    assert!(validate_osz(archive(&[5589234, 5589236]), &pool_item).is_err());
+    assert!(validate_osz(archive(&[]), &pool_item).is_err());
 }

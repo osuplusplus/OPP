@@ -534,3 +534,8 @@ impl Default for LocalIndexClientStatus {
         }
     }
 }
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LocalArtwork {
+    pub client: LocalClient,
+    pub resource_id: String,
+}

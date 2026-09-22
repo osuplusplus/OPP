@@ -11,7 +11,8 @@
 .local-stage button:disabled { opacity: .45; cursor: not-allowed; }
 .local-stage button[aria-selected="true"], .local-stage button[aria-pressed="true"] { color: var(--stage-accent); background-image: none; }
 .local-stage :is(button, input, select):focus-visible { outline: 2px solid var(--stage-accent); outline-offset: 3px; }
-.local-stage-toolbar { z-index: 40; display: flex; align-items: center; gap: 16px; padding: 20px 28px; border-bottom: 1px solid var(--stage-line); }
+.local-stage-toolbar { z-index: 40; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 20px 28px; border-bottom: 1px solid var(--stage-line); }
+.local-stage-toolbar > .opp-control-track { flex-shrink: 0; }
 .local-stage-label { display: grid; line-height: 1.1; min-width: 96px; }
 .local-stage-label span { color: var(--stage-accent); letter-spacing: .25em; font-size: 9px; margin-bottom: 5px; }
 .local-stage-label strong { font-size: 16px; letter-spacing: -.04em; }

@@ -16,6 +16,15 @@ function setup() {
   return { session: createDownloadSession(api), api, dispose, finish: (result: Partial<BeatmapDownloadResult>) => finish({ destination: "C:/Maps", total: 3, completed: 0, skipped: 0, failed: 0, cancelled: false, failures: [], ...result }), emit: (progress: Partial<BeatmapDownloadProgress>) => emit({ phase: "downloading", total: 3, processed: 0, completed: 0, skipped: 0, failed: 0, current_beatmapset_id: null, current_title: null, message: null, ...progress }) };
 }
 describe("online download session", () => {
+  it("passes subset validation explicitly for tournament selections", async () => {
+    const { session, api, finish } = setup();
+    const run = session.start([{ ...set(20), beatmaps: [{ id: 10 }, { id: 11 }], allow_extra_difficulties: true }], options);
+    await vi.waitFor(() => expect(api.downloadOnlineBeatmapsets).toHaveBeenCalledOnce());
+    expect(api.downloadOnlineBeatmapsets).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.objectContaining({
+      beatmapset_id: 20, expected_beatmap_ids: [10, 11], allow_extra_difficulties: true,
+    })] }));
+    finish({ total: 1, completed: 1 }); await run;
+  });
   it("passes the current difficulty IDs to archive validation", async () => {
     const { session, api, finish } = setup();
     const item = { ...set(2419109), beatmaps: [{ id: 5589234 }, { id: 5589235 }] } as OnlineBeatmapset;

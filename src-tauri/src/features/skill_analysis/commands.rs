@@ -28,6 +28,13 @@ const CACHE_SECONDS: i64 = 600;
 const CACHE_REVISION: &str = "2";
 const MAX_LIMIT: usize = 200;
 
+fn skill_cache_key(request: &SkillAnalysisRequest) -> String {
+    format!(
+        "skill-analysis:{}:{}:{}:{CACHE_REVISION}:online={}",
+        request.client, request.ruleset, ALGORITHM_VERSION, request.include_online
+    )
+}
+
 #[tauri::command]
 pub async fn analyze_player_skills(
     request: SkillAnalysisRequest,
@@ -37,15 +44,15 @@ pub async fn analyze_player_skills(
     let can_fallback =
         request.force_refresh && request.ruleset == "osu" && request.score_limit == MAX_LIMIT;
     let fallback = if can_fallback {
-        let key = format!(
-            "skill-analysis:{}:{}:{}:{CACHE_REVISION}",
-            request.client, request.ruleset, ALGORITHM_VERSION
-        );
-        state
-            .store
-            .snapshot()
-            .ok()
-            .and_then(|snapshot| snapshot.cache.get(&key).cloned())
+        let key = skill_cache_key(&request);
+        let store = state.store.clone();
+        crate::infrastructure::tasks::blocking_io("read_skill_fallback", move || {
+            store.read_cached(|saved| saved.cache.get(&key).cloned())
+        })
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten()
     } else {
         None
     };
@@ -89,26 +96,26 @@ async fn analyze_player_skills_inner(
         ));
     }
 
-    let cache_key = format!(
-        "skill-analysis:{}:{}:{}:{CACHE_REVISION}",
-        request.client, request.ruleset, ALGORITHM_VERSION
-    );
-    let snapshot = state.store.snapshot()?;
-    let cached = snapshot.cache.get(&cache_key).cloned();
-    if !request.force_refresh {
-        if let Some(record) = cached.as_ref()
-            && Utc::now() - record.fetched_at < Duration::seconds(CACHE_SECONDS)
-        {
-            if let Some(span) = span {
-                span.info(
-                    "命中技能分析缓存",
-                    Some(serde_json::json!({ "cache_seconds": CACHE_SECONDS })),
-                );
-            }
-            let mut result: SkillAnalysisResult = serde_json::from_value(record.value.clone())?;
-            result.stale = false;
-            return Ok(result);
+    let cache_key = skill_cache_key(&request);
+    let store = state.store.clone();
+    let key = cache_key.clone();
+    let cached = crate::infrastructure::tasks::blocking_io("read_skill_cache", move || {
+        store.read_cached(|saved| saved.cache.get(&key).cloned())
+    })
+    .await??;
+    if !request.force_refresh
+        && let Some(record) = cached.as_ref()
+        && Utc::now() - record.fetched_at < Duration::seconds(CACHE_SECONDS)
+    {
+        if let Some(span) = span {
+            span.info(
+                "命中技能分析缓存",
+                Some(serde_json::json!({ "cache_seconds": CACHE_SECONDS })),
+            );
         }
+        let mut result: SkillAnalysisResult = serde_json::from_value(record.value.clone())?;
+        result.stale = false;
+        return Ok(result);
     }
 
     let profile = get_own_profile(Ruleset::Osu, request.force_refresh, state.clone())
@@ -137,15 +144,18 @@ async fn analyze_player_skills_inner(
 
     let result = analyze_scores(&state, &profile, &scores, &request, span).await?;
     let value = serde_json::to_value(&result)?;
-    state.store.update(|persisted| {
-        persisted.cache.insert(
+    let store = state.store.clone();
+    crate::infrastructure::tasks::blocking_io("write_skill_cache", move || {
+        store.insert_cache(
             cache_key,
             CacheRecord {
                 value,
                 fetched_at: Utc::now(),
             },
-        );
-    })?;
+            None,
+        )
+    })
+    .await??;
     Ok(result)
 }
 
@@ -410,4 +420,29 @@ fn score_mods(score: &Score) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::features::local_analysis::LocalClient;
+
+    #[test]
+    fn skill_cache_separates_clients_and_online_policy() {
+        let mut request = SkillAnalysisRequest {
+            ruleset: "osu".into(),
+            client: LocalClient::Lazer,
+            score_limit: 200,
+            include_online: true,
+            force_refresh: false,
+        };
+        let online = skill_cache_key(&request);
+        request.include_online = false;
+        let local = skill_cache_key(&request);
+        assert_ne!(online, local);
+        request.force_refresh = true;
+        assert_eq!(local, skill_cache_key(&request));
+        request.client = LocalClient::Stable;
+        assert_ne!(local, skill_cache_key(&request));
+    }
 }

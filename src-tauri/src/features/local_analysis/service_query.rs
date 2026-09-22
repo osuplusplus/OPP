@@ -22,26 +22,6 @@ use super::service_data::{IndexedData, IndexedEntry, LocalIndex};
 
 pub(super) const MAX_QUERY_LIMIT: usize = 500;
 
-pub(super) fn insert_bounded<T>(
-    items: &mut Vec<T>,
-    item: T,
-    capacity: usize,
-    compare: impl Fn(&T, &T) -> Ordering,
-) {
-    if capacity == 0 {
-        return;
-    }
-    let position = items
-        .binary_search_by(|current| compare(current, &item))
-        .unwrap_or_else(|position| position);
-    if position < capacity {
-        items.insert(position, item);
-        if items.len() > capacity {
-            items.pop();
-        }
-    }
-}
-
 pub(super) fn find_skin_entry<'a>(
     index: &'a LocalIndex,
     resource_id: &str,

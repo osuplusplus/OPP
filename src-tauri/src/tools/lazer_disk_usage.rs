@@ -2,7 +2,7 @@
 //! lazer 从 stable 导入的文件以硬链接形式存在（另一链接指向 stable 目录），
 //! 删除 lazer 目录不会释放这部分空间，因此实际占用不计入任何硬链接文件
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 use serde::Serialize;
@@ -10,7 +10,9 @@ use walkdir::WalkDir;
 
 use crate::{
     error::{CommandError, CommandResult},
-    infrastructure::platform,
+    features::local_analysis::{LocalAnalysisService, LocalClient},
+    infrastructure::logging::{finish_span, global},
+    state::AppState,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,9 +26,15 @@ pub struct LazerDiskUsage {
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub async fn get_lazer_disk_usage() -> CommandResult<LazerDiskUsage> {
-    let root = platform::resolve_lazer_data_root()
-        .ok_or_else(|| CommandError::new("LAZER_NOT_FOUND", "未找到 osu!lazer 数据目录"))?;
+pub async fn get_lazer_disk_usage(
+    state: tauri::State<'_, AppState>,
+) -> CommandResult<LazerDiskUsage> {
+    let span = global().map(|logger| logger.operation("tools", "get_lazer_disk_usage"));
+    finish_span(span, disk_usage(&state.local_analysis).await)
+}
+
+async fn disk_usage(analysis: &LocalAnalysisService) -> CommandResult<LazerDiskUsage> {
+    let root = usage_root(analysis)?;
     let path = root.display().to_string();
     let (total_size, unique_size, file_count) =
         crate::infrastructure::tasks::background("tools", move || compute_size(&root))
@@ -38,6 +46,15 @@ pub async fn get_lazer_disk_usage() -> CommandResult<LazerDiskUsage> {
         unique_size,
         file_count,
     })
+}
+
+fn usage_root(analysis: &LocalAnalysisService) -> CommandResult<PathBuf> {
+    let source = analysis.source_status(LocalClient::Lazer)?;
+    source
+        .data_root
+        .filter(|_| source.valid)
+        .map(PathBuf::from)
+        .ok_or_else(|| CommandError::new("LAZER_NOT_FOUND", "未配置有效的 osu!lazer 数据目录"))
 }
 
 fn compute_size(root: &Path) -> (u64, u64, u64) {
@@ -101,5 +118,35 @@ fn hard_linked(path: &Path) -> bool {
         let ok = GetFileInformationByHandle(handle, &mut info);
         CloseHandle(handle);
         ok != 0 && info.nNumberOfLinks > 1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn lazer_usage_follows_override_and_rejects_missing_source() {
+        let app = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        std::fs::write(data.path().join("client.realm"), b"realm").unwrap();
+        std::fs::create_dir(data.path().join("files")).unwrap();
+        std::fs::write(data.path().join("files").join("sample"), b"sample").unwrap();
+        let service = LocalAnalysisService::new(app.path()).unwrap();
+        service.set_source(LocalClient::Lazer, data.path()).unwrap();
+        let result = disk_usage(&service).await.unwrap();
+        assert_eq!(
+            Path::new(&result.path).canonicalize().unwrap(),
+            data.path().canonicalize().unwrap()
+        );
+        assert_eq!(
+            (result.total_size, result.unique_size, result.file_count),
+            (11, 11, 2)
+        );
+        std::fs::remove_file(data.path().join("client.realm")).unwrap();
+        assert_eq!(
+            disk_usage(&service).await.unwrap_err().code,
+            "LAZER_NOT_FOUND"
+        );
     }
 }

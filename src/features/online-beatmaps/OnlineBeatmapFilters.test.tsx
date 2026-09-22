@@ -26,7 +26,7 @@ describe("OnlineBeatmapFilters", () => {
     expect(moreFilters.querySelector("svg")).toHaveClass("lucide-chevron-down");
     expect(screen.getByRole("group", { name: "常规筛选" })).toBeVisible();
     expect(screen.getByRole("group", { name: "模式筛选" })).toBeVisible();
-    expect(screen.getByRole("group", { name: "分类筛选" })).toHaveClass("flex-nowrap", "overflow-x-auto");
+    expect(screen.getByRole("group", { name: "分类筛选" })).toHaveClass("flex-wrap");
     expect(screen.getByRole("group", { name: "不良内容筛选" })).toBeVisible();
     const coreFilterLabels = Array.from(container.querySelectorAll("[data-page-guide-online-core-filters] [role='group']"), (element) => element.getAttribute("aria-label"));
     expect(coreFilterLabels).toEqual(["常规筛选", "模式筛选", "分类筛选", "不良内容筛选"]);

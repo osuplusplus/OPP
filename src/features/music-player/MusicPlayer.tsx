@@ -4,17 +4,16 @@ import type { BeatmapQuery, OsuClient } from "../../shared/types/osu";
 import type { MusicMode, MusicQueueRequest } from "../../shared/types/music";
 import { useArtworkPalette } from "../../shared/lib/stageArtwork";
 import { MusicQueue } from "./MusicQueue";
-import { musicApi, musicError, musicTime, useMusicState } from "./api";
+import { musicApi, musicError, musicTime, useMusicState, useMusicControls } from "./api";
 import "./musicPlayer.css";
 
 export function MusicPlayer({ mini = false, client, resourceId, query }: { mini?: boolean; client?: OsuClient; resourceId?: string; query?: BeatmapQuery }) {
-  const state = useMusicState();
+  const state = useMusicControls();
   const [expanded, setExpanded] = useState(false);
   const [opened, setOpened] = useState(false);
   const [pinned, setPinned] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [seeking, setSeeking] = useState<number | null>(null);
   const [cover, setCover] = useState<{ id: string; source: string | null } | null>(null);
   const [source, setSource] = useState("all");
   const [collections, setCollections] = useState<{ id: string; name: string }[]>([]);
@@ -64,8 +63,7 @@ export function MusicPlayer({ mini = false, client, resourceId, query }: { mini?
     event.preventDefault();
     void musicApi.drag().catch((error) => setError(musicError(error)));
   };
-  const progress = state.duration > 0 ? Math.min(100, Math.max(0, state.position / state.duration * 100)) : 0;
-  return <section className={`music-player${mini ? " music-mini" : " music-docked"}${expanded ? " is-expanded" : ""}`} style={{ ...artwork.style, "--music-progress": `${progress}%` } as CSSProperties} aria-label={mini ? "迷你音乐播放器" : "本地音乐播放器"}>
+  return <section className={`music-player${mini ? " music-mini" : " music-docked"}${expanded ? " is-expanded" : ""}`} style={artwork.style} aria-label={mini ? "迷你音乐播放器" : "本地音乐播放器"}>
     {mini && artwork.source && <div className="music-artwork-backdrop" style={{ backgroundImage: `url("${artwork.source}")` }} aria-hidden="true" />}
     <div className="music-now" onMouseDown={dragMini}>
       <div className="music-cover">{artwork.source ? <img src={artwork.source} alt="" draggable={false} /> : <Music2 />}</div>
@@ -82,11 +80,7 @@ export function MusicPlayer({ mini = false, client, resourceId, query }: { mini?
         <button aria-label="退出播放器" onClick={() => void run(musicApi.exit)}><X /></button>
       </div> : <button aria-label="切换迷你播放器" title="切换迷你播放器并释放完整界面" disabled={busy} onClick={() => void run(() => musicApi.mode(true))}><Minimize2 /></button>}
       <button className="music-list-toggle" aria-label={expanded ? "收起播放列表" : "展开播放列表"} aria-expanded={expanded} onClick={expand}>{mini ? expanded ? <ChevronUp /> : <ChevronDown /> : <ListMusic />}</button>
-      <div className="music-progress" style={{ "--music-progress": `${seeking === null ? progress : state.duration ? seeking / state.duration * 100 : 0}%` } as CSSProperties}>
-        <span>{musicTime(seeking ?? state.position)}</span>
-        <input aria-label="音乐播放进度" type="range" min={0} max={state.duration || 1} step={.5} value={seeking ?? Math.min(state.position,state.duration || 1)} disabled={!state.duration} onChange={(e) => setSeeking(Number(e.target.value))} onPointerUp={(e) => { void musicApi.control({ action: "seek", seconds: Number(e.currentTarget.value) }).catch((error) => setError(musicError(error))); setSeeking(null); }} onKeyUp={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") { void musicApi.control({ action: "seek", seconds: Number(e.currentTarget.value) }).catch((error) => setError(musicError(error))); setSeeking(null); } }} />
-        <span>{musicTime(state.duration)}</span>
-      </div>
+      <MusicProgress onError={report} />
     </div>
     {(error || state.notice || state.background_tasks > 0) && <p className="music-notice" role={error ? "alert" : "status"} title={error || state.notice || "已有后台任务继续执行，完成后释放资源"}>{error || state.notice || `${state.background_tasks} 项后台任务继续运行`}</p>}
     <div className="music-expanded" aria-hidden={!expanded} inert={!expanded}>
@@ -106,4 +100,15 @@ export function MusicPlayer({ mini = false, client, resourceId, query }: { mini?
       </>}
     </div>
   </section>;
+}
+
+function MusicProgress({ onError }: { onError: (message: string) => void }) {
+  const state = useMusicState();
+  const [seeking, setSeeking] = useState<number | null>(null);
+  const progress = state.duration > 0 ? Math.min(100, Math.max(0, state.position / state.duration * 100)) : 0;
+  return (      <div className="music-progress" style={{ "--music-progress": `${seeking === null ? progress : state.duration ? seeking / state.duration * 100 : 0}%` } as CSSProperties}>
+        <span>{musicTime(seeking ?? state.position)}</span>
+        <input aria-label="音乐播放进度" type="range" min={0} max={state.duration || 1} step={.5} value={seeking ?? Math.min(state.position,state.duration || 1)} disabled={!state.duration} onChange={(e) => setSeeking(Number(e.target.value))} onPointerUp={(e) => { void musicApi.control({ action: "seek", seconds: Number(e.currentTarget.value) }).catch((error) => onError(musicError(error))); setSeeking(null); }} onKeyUp={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") { void musicApi.control({ action: "seek", seconds: Number(e.currentTarget.value) }).catch((error) => onError(musicError(error))); setSeeking(null); } }} />
+        <span>{musicTime(state.duration)}</span>
+      </div>);
 }

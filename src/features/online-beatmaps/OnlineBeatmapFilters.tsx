@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, Filter, RotateCcw } from "lucide-react";
-import { Badge, Button, Card, InfoTip, Input } from "../../shared/components/ui";
+import { ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { Badge, Button, InfoTip, Input } from "../../shared/components/ui";
 import type { OnlineBeatmapSearchQuery, Ruleset } from "../../shared/types/osu";
 import { SearchAutocomplete, type SearchSuggestion } from "../../shared/components/SearchAutocomplete";
 import { activeFilterCount, genreOptions, languageOptions, parseOptionalNumber, statusOptions } from "./filters";
@@ -14,9 +14,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function FilterRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid min-h-10 items-center gap-1 border-t border-[var(--line-subtle)] py-1 first:border-t-0 sm:grid-cols-[clamp(4.75rem,calc(3.25rem+2vw),6.25rem)_minmax(0,1fr)] sm:gap-2.5">
+    <div className="grid min-h-10 items-center gap-1 py-1 sm:grid-cols-[clamp(4.75rem,calc(3.25rem+2vw),6.25rem)_minmax(0,1fr)] sm:gap-2.5">
       <div className="whitespace-nowrap text-[clamp(11px,calc(8px+0.3vw),14px)] font-semibold leading-5 text-slate-500">{label}</div>
-      <div aria-label={`${label}筛选`} className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]" role="group">{children}</div>
+      <div aria-label={`${label}筛选`} className="flex min-w-0 flex-wrap items-center gap-1.5" role="group">{children}</div>
     </div>
   );
 }
@@ -67,20 +67,13 @@ export function OnlineBeatmapFilters({ query, loading, onChange, onReset, onSubm
   const toggleExtra = (extra: "video" | "storyboard") => select({ extras: query.extras.includes(extra) ? query.extras.filter((item) => item !== extra) : [...query.extras, extra] });
 
   return (
-    <Card className="opp-beatmap-filter opp-online-panel overflow-hidden rounded-[11px] border border-[var(--line-subtle)] bg-[color-mix(in_srgb,var(--surface-panel)_94%,transparent)] shadow-[0_14px_34px_rgba(0,0,0,0.08)]" unstyled>
+    <div className="opp-beatmap-filter">
       <form onSubmit={(event) => { event.preventDefault(); onSubmit(query); }}>
-        <div className="flex items-center gap-3 border-b border-[var(--line-subtle)] px-5 py-3.5">
-          <Filter className="size-4 text-[var(--theme-primary)]" />
-          <h2 className="text-[clamp(14px,calc(11px+0.2vw),15px)] font-semibold text-white">搜索与筛选</h2>
-          {count ? <Badge tone="cyan">{count} 项条件</Badge> : null}
-          <div className="ml-auto flex gap-2"><Button aria-label="重置筛选" onClick={onReset} size="icon" type="button" variant="ghost"><RotateCcw className="size-4" /></Button><Button loading={loading} size="sm" type="submit">{submitLabel}</Button></div>
-        </div>
-
-        <div className="px-5 pb-1">
+        <div className="pb-1">
           {!hideSearch ? <div className="relative py-3" data-page-guide-online-search="true"><SearchAutocomplete ariaLabel="搜索在线谱面" className="w-full" inputClassName={`opp-input ${inputClass} opp-filter-search-input`} onChange={(value) => patch({ query: value })} placeholder="输入关键字..." suggestions={suggestions} value={query.query} /><span className="absolute right-3 top-1/2 z-20 -translate-y-1/2"><InfoTip text="自动补全只基于当前已加载的搜索结果。输入后点击“应用筛选”进行完整的在线搜索。" /></span></div> : null}
 
           {/* 首屏只保留最常用条件，其余能力继续复用原有查询字段。 */}
-          <div className="border-y border-[var(--line-subtle)]" data-page-guide-online-core-filters="true">
+          <div className="space-y-2 py-3" data-page-guide-online-core-filters="true">
             <FilterRow label="常规">{contentOptions.map(([value, label]) => <TextOption active={query.content_filter === value} key={value || "all"} onClick={() => select({ content_filter: value })}>{label}</TextOption>)}</FilterRow>
             <FilterRow label="模式">{rulesetOptions.map((option) => <TextOption active={query.ruleset === option.value} key={option.value ?? "all"} onClick={() => select({ ruleset: option.value })}>{option.label}</TextOption>)}</FilterRow>
             <FilterRow label="分类">{statusOptions.map((option) => <TextOption active={query.status === option.value} key={option.value} onClick={() => select({ status: option.value })}>{option.value === "any" ? "全部" : option.label}</TextOption>)}</FilterRow>
@@ -120,7 +113,11 @@ export function OnlineBeatmapFilters({ query, loading, onChange, onReset, onSubm
             )}
           </div>
         </div>
+        <footer className="opp-filter-actions">
+          {count ? <Badge tone="cyan">{count} 项条件</Badge> : <span />}
+          <div className="ml-auto flex gap-2"><Button aria-label="重置筛选" onClick={onReset} size="sm" type="button" variant="ghost"><RotateCcw className="size-3.5" />重置</Button><Button loading={loading} size="sm" type="submit" variant="primary">{submitLabel}</Button></div>
+        </footer>
       </form>
-    </Card>
+    </div>
   );
 }

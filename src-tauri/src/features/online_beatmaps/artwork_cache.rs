@@ -4,10 +4,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crate::infrastructure::flights::Flights;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderValue, REFERER};
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::{
@@ -23,7 +24,9 @@ const SAYOBOT_FILES_URL: &str = "https://dl.sayobot.cn/beatmaps/files";
 pub struct OnlineArtworkCache {
     directory: PathBuf,
     client: reqwest::Client,
-    request_lock: Mutex<()>,
+    requests: Semaphore,
+    pending: Semaphore,
+    flights: Flights<u64, CommandResult<Option<String>>>,
 }
 
 impl OnlineArtworkCache {
@@ -48,15 +51,28 @@ impl OnlineArtworkCache {
         Ok(Self {
             directory,
             client,
-            request_lock: Mutex::new(()),
+            requests: Semaphore::new(1),
+            pending: Semaphore::new(128),
+            flights: Flights::default(),
         })
     }
 
     pub async fn load_or_fetch(&self, beatmapset_id: u64) -> CommandResult<Option<String>> {
+        self.flights
+            .run(beatmapset_id, || async {
+                self.load_once(beatmapset_id).await
+            })
+            .await
+    }
+
+    async fn load_once(&self, beatmapset_id: u64) -> CommandResult<Option<String>> {
+        let _pending = self
+            .pending
+            .try_acquire()
+            .map_err(|_| CommandError::new("TASK_QUEUE_FULL", "背景加载任务过多，请稍后重试"))?;
         let mut span = global().map(|logger| {
             logger.operation("online_beatmaps", format!("background:{beatmapset_id}"))
         });
-        let _guard = self.request_lock.lock().await;
         let image_path = self
             .directory
             .join(format!("background-{beatmapset_id}.bin"));
@@ -67,44 +83,69 @@ impl OnlineArtworkCache {
             .directory
             .join(format!("background-{beatmapset_id}.missing"));
 
-        if let Some(data_url) = self.read_cached(&image_path, &mime_path, span.as_ref()) {
+        let cached_image = image_path.clone();
+        let cached_mime = mime_path.clone();
+        let missing = missing_path.clone();
+        let (cached, absent) =
+            crate::infrastructure::tasks::blocking_io("read_online_artwork", move || {
+                let span = global()
+                    .map(|logger| logger.operation("online_beatmaps", "read_artwork_cache"));
+                (
+                    Self::read_cached(&cached_image, &cached_mime, span.as_ref()),
+                    missing_cache_is_fresh(&missing),
+                )
+            })
+            .await?;
+        if let Some(data_url) = cached {
             if let Some(ref mut current) = span {
                 current.finish_ok(Some(serde_json::json!({ "cache": "hit" })));
             }
             return Ok(Some(data_url));
         }
-        if missing_cache_is_fresh(&missing_path) {
+        if absent {
             if let Some(ref mut current) = span {
                 current.finish_ok(Some(serde_json::json!({ "cache": "missing" })));
             }
             return Ok(None);
         }
 
+        let permit = self
+            .requests
+            .acquire()
+            .await
+            .map_err(|_| CommandError::new("ARTWORK_STOPPED", "背景加载已停止"))?;
         let result = self.fetch(beatmapset_id, span.as_ref()).await;
+        drop(permit);
         match result {
             Ok(Some((bytes, mime))) => {
-                let write_image = fs::write(&image_path, &bytes);
+                let write_image = tokio::fs::write(&image_path, &bytes).await;
                 if let Some(ref current) = span {
                     current.fs_op("write", &image_path, &write_image);
                 }
                 write_image?;
-                let write_mime = fs::write(&mime_path, &mime);
+                let write_mime = tokio::fs::write(&mime_path, &mime).await;
                 if let Some(ref current) = span {
                     current.fs_op("write", &mime_path, &write_mime);
                 }
                 write_mime?;
-                let _ = fs::remove_file(&missing_path);
-                let value = Some(to_data_url(&bytes, &mime));
+                let _ = tokio::fs::remove_file(&missing_path).await;
+                let length = bytes.len();
+                let value = Some(
+                    crate::infrastructure::tasks::blocking_io("encode_online_artwork", move || {
+                        to_data_url(&bytes, &mime)
+                    })
+                    .await?,
+                );
                 if let Some(ref mut current) = span {
                     current.finish_ok(Some(serde_json::json!({
                         "cache": "stored",
-                        "bytes": bytes.len()
+                        "bytes": length
                     })));
                 }
                 Ok(value)
             }
             Ok(None) => {
-                let write_missing = fs::write(&missing_path, b"not-found");
+                let write_missing = tokio::fs::write(&missing_path, b"not-found").await;
                 if let Some(ref current) = span {
                     current.fs_op("write", &missing_path, &write_missing);
                 }
@@ -124,11 +165,13 @@ impl OnlineArtworkCache {
     }
 
     fn read_cached(
-        &self,
         image_path: &Path,
         mime_path: &Path,
         span: Option<&crate::infrastructure::logging::LogSpan>,
     ) -> Option<String> {
+        if fs::metadata(image_path).ok()?.len() > MAX_BACKGROUND_BYTES as u64 {
+            return None;
+        }
         let image = fs::read(image_path);
         if let Some(current) = span {
             current.fs_op("read", image_path, &image);
@@ -178,7 +221,7 @@ impl OnlineArtworkCache {
             return Ok(None);
         };
         let image_url = original_background_url(beatmapset_id, file_name)?;
-        let response = self
+        let mut response = self
             .client
             .get(image_url.clone())
             .send()
@@ -209,11 +252,20 @@ impl OnlineArtworkCache {
             .and_then(normalize_image_mime)
             .ok_or_else(|| CommandError::new("INVALID_BACKGROUND_DATA", "背景响应不是图片"))?
             .to_string();
-        let bytes = response
-            .bytes()
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
             .map_err(|error| CommandError::network(error.to_string()))?
-            .to_vec();
+        {
+            if bytes.len().saturating_add(chunk.len()) > MAX_BACKGROUND_BYTES {
+                return Err(CommandError::new(
+                    "BACKGROUND_TOO_LARGE",
+                    "在线谱面背景文件过大",
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
         if bytes.is_empty() || bytes.len() > MAX_BACKGROUND_BYTES {
             return Err(CommandError::new(
                 "BACKGROUND_TOO_LARGE",

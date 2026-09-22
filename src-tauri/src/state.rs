@@ -41,9 +41,10 @@ pub struct AppState {
     pub local_analysis: Arc<LocalAnalysisService>,
     pub skin_workshop: Arc<SkinWorkshopService>,
     pub collections: Arc<CollectionService>,
+    pub local_scores: crate::features::local_scores::LocalScoreService,
     pub beatmaphub: Arc<BeatmapHubService>,
     pub similarity: Arc<SimilarityRuntime>,
-    pub store: StateStore,
+    pub store: Arc<StateStore>,
     pub oauth: Mutex<OAuthRuntime>,
     pub beatmap_download: Mutex<Option<Arc<AtomicBool>>>,
     pub collection_task_cancel: AtomicBool,
@@ -61,40 +62,47 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
-        let store = StateStore::load(app_data_dir)?;
-        let local_analysis = Arc::new(LocalAnalysisService::new(app_data_dir)?);
-        let skin_workshop = Arc::new(SkinWorkshopService::new(
-            app_data_dir,
-            Arc::clone(&local_analysis),
-        )?);
-        let collections = Arc::new(CollectionService::new(app_data_dir)?);
-        let beatmaphub = Arc::new(BeatmapHubService::new(app_data_dir)?);
-        local_analysis.set_thumbnail_cache_limit_mb(store.snapshot()?.settings.cache_limit_mb)?;
-        Ok(Self {
-            api: OsuApi::new()?,
-            providers: ProviderRegistry::new()?,
-            online_artwork: OnlineArtworkCache::new(app_data_dir)?,
-            avatar_cache: AvatarCache::new(app_data_dir)?,
-            credentials: CredentialStore,
-            local_analysis,
-            skin_workshop,
-            collections,
-            beatmaphub,
-            similarity: Arc::new(SimilarityRuntime::default()),
-            store,
-            oauth: Mutex::new(OAuthRuntime::default()),
-            beatmap_download: Mutex::new(None),
-            collection_task_cancel: AtomicBool::new(false),
-            token_refresh: AsyncMutex::new(()),
-            game_session: GameSessionRuntime::default(),
-            game_monitor: Arc::new(GameMonitorRuntime::default()),
-            danser: Arc::new(DanserRuntime::default()),
-            tosu: Arc::new(TosuRuntime::default()),
-            otd: Arc::new(OtdRuntime::default()),
-            obs: Arc::new(ObsRuntime::default()),
-            music: crate::features::music_player::MusicRuntime::new(app_data_dir)?,
-            music_only: AtomicBool::new(false),
-            music_frontend_task: AtomicBool::new(false),
-        })
+        let span = crate::infrastructure::logging::global()
+            .map(|logger| logger.operation("app.lifecycle", "initialize_services"));
+        let result = (|| {
+            let store = Arc::new(StateStore::load(app_data_dir)?);
+            let local_analysis = Arc::new(LocalAnalysisService::new(app_data_dir)?);
+            let skin_workshop = Arc::new(SkinWorkshopService::new(
+                app_data_dir,
+                Arc::clone(&local_analysis),
+            )?);
+            let collections = Arc::new(CollectionService::new(app_data_dir)?);
+            let beatmaphub = Arc::new(BeatmapHubService::new(app_data_dir)?);
+            local_analysis
+                .set_thumbnail_cache_limit_mb(store.settings_snapshot()?.cache_limit_mb)?;
+            Ok(Self {
+                api: OsuApi::new()?,
+                providers: ProviderRegistry::new()?,
+                online_artwork: OnlineArtworkCache::new(app_data_dir)?,
+                avatar_cache: AvatarCache::new(app_data_dir)?,
+                credentials: CredentialStore,
+                local_analysis,
+                skin_workshop,
+                collections,
+                local_scores: Default::default(),
+                beatmaphub,
+                similarity: Arc::new(SimilarityRuntime::default()),
+                store,
+                oauth: Mutex::new(OAuthRuntime::default()),
+                beatmap_download: Mutex::new(None),
+                collection_task_cancel: AtomicBool::new(false),
+                token_refresh: AsyncMutex::new(()),
+                game_session: GameSessionRuntime::default(),
+                game_monitor: Arc::new(GameMonitorRuntime::default()),
+                danser: Arc::new(DanserRuntime::default()),
+                tosu: Arc::new(TosuRuntime::default()),
+                otd: Arc::new(OtdRuntime::default()),
+                obs: Arc::new(ObsRuntime::default()),
+                music: crate::features::music_player::MusicRuntime::new(app_data_dir)?,
+                music_only: AtomicBool::new(false),
+                music_frontend_task: AtomicBool::new(false),
+            })
+        })();
+        crate::infrastructure::logging::finish_span(span, result)
     }
 }

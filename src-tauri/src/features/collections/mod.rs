@@ -2,12 +2,15 @@
 
 mod adapter;
 mod archive;
+mod browser;
 mod downloads;
 mod models;
+pub(crate) mod notebook;
 mod service;
 mod share;
 mod stable;
 mod task;
+pub use browser::*;
 
 #[cfg(test)]
 mod tests;
@@ -27,3 +30,8 @@ pub use stable::{
     write_stable_collections,
 };
 pub use task::{begin_collection_task, cancel_collection_task};
+
+mod paging;
+pub use paging::{
+    list_collection_summaries, query_collection_entries, refresh_collection_summaries,
+};

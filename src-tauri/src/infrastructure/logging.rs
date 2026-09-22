@@ -4,11 +4,12 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        OnceLock,
-        mpsc::{self, Sender},
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+        mpsc::{self, SyncSender, TrySendError},
     },
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
@@ -19,9 +20,15 @@ use crate::error::CommandResult;
 
 #[derive(Clone)]
 pub struct Logger {
-    tx: Sender<String>,
+    tx: SyncSender<WriterMessage>,
+    dropped: Arc<AtomicU64>,
+    fallback: Arc<Mutex<PathBuf>>,
     directory: PathBuf,
-    current: String,
+}
+
+enum WriterMessage {
+    Record(String, bool),
+    Shutdown(mpsc::Sender<()>),
 }
 
 static LOGGER: OnceLock<Logger> = OnceLock::new();
@@ -41,6 +48,21 @@ struct LogRecord {
     fields: Option<serde_json::Value>,
 }
 
+#[derive(Default)]
+struct EventDetails {
+    duration_ms: Option<u128>,
+    fields: Option<serde_json::Value>,
+}
+
+impl EventDetails {
+    fn new(duration_ms: Option<u128>, fields: Option<serde_json::Value>) -> Self {
+        Self {
+            duration_ms,
+            fields,
+        }
+    }
+}
+
 pub fn init(app_data_dir: &Path) -> Logger {
     let directory = app_data_dir.join("logs");
     let _ = fs::create_dir_all(&directory);
@@ -51,33 +73,78 @@ pub fn init(app_data_dir: &Path) -> Logger {
         &Uuid::new_v4().to_string()[..8]
     );
     let path = directory.join(&current);
-    let (tx, rx) = mpsc::channel::<String>();
+    let fallback = Arc::new(Mutex::new(path.with_extension("emergency.jsonl")));
+    let (tx, rx) = mpsc::sync_channel::<WriterMessage>(1024);
+    let dropped = Arc::new(AtomicU64::new(0));
+    let lost = dropped.clone();
     let _ = thread::Builder::new()
         .name("opp-log-writer".into())
-        .spawn(move || {
-            use std::io::Write;
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-                .ok();
-            for line in rx {
-                if let Some(output) = file.as_mut() {
-                    let _ = writeln!(output, "{line}");
-                    let _ = output.flush();
-                } else {
-                    eprintln!("{line}");
-                }
-            }
-        });
+        .spawn(move || write_records(path, rx, lost));
     let logger = Logger {
         tx,
+        dropped,
+        fallback,
         directory,
-        current,
     };
     let _ = LOGGER.set(logger.clone());
     install_panic_hook();
     logger
+}
+
+fn write_records(path: PathBuf, rx: mpsc::Receiver<WriterMessage>, lost: Arc<AtomicU64>) {
+    use std::io::{BufWriter, Write};
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()
+        .map(BufWriter::new);
+    let mut pending = 0;
+    loop {
+        let message = rx.recv_timeout(Duration::from_millis(250));
+        let count = lost.swap(0, Ordering::Relaxed);
+        if count > 0 {
+            let line = serde_json::json!({"timestamp": Utc::now().to_rfc3339(), "level": "WARN", "target": "logging", "message": "日志队列已满，合并普通日志", "fields": {"dropped_records": count}}).to_string();
+            if let Some(output) = &mut file {
+                let _ = writeln!(output, "{line}");
+            } else {
+                eprintln!("{line}");
+            }
+            pending += 1;
+        }
+        match message {
+            Ok(WriterMessage::Record(line, urgent)) => {
+                if let Some(output) = &mut file {
+                    if writeln!(output, "{line}").is_err() {
+                        eprintln!("{line}");
+                    }
+                    pending += 1;
+                    if urgent || pending >= 64 {
+                        let _ = output.flush();
+                        pending = 0;
+                    }
+                } else {
+                    eprintln!("{line}");
+                }
+            }
+            Ok(WriterMessage::Shutdown(done)) => {
+                if let Some(output) = &mut file {
+                    let _ = output.flush();
+                }
+                let _ = done.send(());
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if pending > 0 {
+                    if let Some(output) = &mut file {
+                        let _ = output.flush();
+                    }
+                    pending = 0;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
 }
 
 pub fn global() -> Option<&'static Logger> {
@@ -105,8 +172,7 @@ fn install_panic_hook() {
                     payload,
                     Some("panic"),
                     None,
-                    None,
-                    Some(serde_json::json!({ "location": location })),
+                    EventDetails::new(None, Some(serde_json::json!({ "location": location }))),
                 )
             }
             previous(info);
@@ -137,8 +203,7 @@ pub fn sanitize(input: &str) -> String {
             };
             let start = search_from + relative;
             let after_key = start + key.len();
-            let Some(separator_offset) = out[after_key..].find(|ch: char| ch == '=' || ch == ':')
-            else {
+            let Some(separator_offset) = out[after_key..].find(['=', ':']) else {
                 search_from = after_key;
                 continue;
             };
@@ -169,26 +234,25 @@ pub fn sanitize(input: &str) -> String {
 
 impl Logger {
     pub fn log(&self, level: &str, target: &str, message: impl AsRef<str>) {
-        self.event(level, target, message, None, None, None, None);
+        self.event(level, target, message, None, None, EventDetails::default());
     }
 
-    pub fn event(
+    fn event(
         &self,
         level: &str,
         target: &str,
         message: impl AsRef<str>,
         event: Option<&str>,
         request_id: Option<&str>,
-        duration_ms: Option<u128>,
-        fields: Option<serde_json::Value>,
+        details: EventDetails,
     ) {
-        let mut record_fields = fields.unwrap_or_else(|| serde_json::json!({}));
+        let mut record_fields = details.fields.unwrap_or_else(|| serde_json::json!({}));
 
         // 添加 duration_ms 到 fields 中（如果存在）
-        if let Some(duration) = duration_ms {
-            if let Some(obj) = record_fields.as_object_mut() {
-                obj.insert("duration_ms".to_string(), serde_json::json!(duration));
-            }
+        if let Some(duration) = details.duration_ms
+            && let Some(obj) = record_fields.as_object_mut()
+        {
+            obj.insert("duration_ms".to_string(), serde_json::json!(duration));
         }
 
         let record = LogRecord {
@@ -203,7 +267,38 @@ impl Logger {
         let line = serde_json::to_string(&record).unwrap_or_else(|error| {
             format!("{{\"level\":\"ERROR\",\"message\":\"log serialization failed: {error}\"}}")
         });
-        let _ = self.tx.send(line);
+        let urgent = matches!(record.level.as_str(), "ERROR" | "CRITICAL");
+        match self.tx.try_send(WriterMessage::Record(line, urgent)) {
+            Ok(()) => {}
+            Err(TrySendError::Full(WriterMessage::Record(line, urgent))) => {
+                if urgent {
+                    self.write_fallback(&line);
+                } else {
+                    self.dropped.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            Err(TrySendError::Disconnected(WriterMessage::Record(line, _))) => {
+                self.write_fallback(&line)
+            }
+            Err(_) => {}
+        }
+    }
+
+    fn write_fallback(&self, line: &str) {
+        use std::io::Write;
+        // Windows release builds have no console: preserve errors in a separate
+        // file when the bounded queue is full. This rare path never enqueues logs.
+        let result = self.fallback.lock().ok().and_then(|path| {
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&*path)
+                .ok()
+                .and_then(|mut output| writeln!(output, "{line}").ok())
+        });
+        if result.is_none() {
+            eprintln!("{line}");
+        }
     }
 
     pub fn operation(&self, target: impl Into<String>, operation: impl Into<String>) -> LogSpan {
@@ -219,8 +314,7 @@ impl Logger {
             format!("开始操作: {}", operation),
             Some("operation_start"),
             Some(&request_id),
-            None,
-            None,
+            EventDetails::default(),
         );
 
         LogSpan {
@@ -240,16 +334,12 @@ impl Logger {
             &error.message,
             Some("error"),
             error.request_id.as_deref(),
-            None,
-            Some(serde_json::json!({ "code": error.code, "origin": error.origin, "technical": error.technical, "backtrace": error.backtrace })),
+            EventDetails::new(None, Some(serde_json::json!({ "code": error.code, "origin": error.diagnostics.origin, "technical": error.diagnostics.technical, "backtrace": error.diagnostics.backtrace }))),
         );
     }
 
     pub fn directory(&self) -> &Path {
         &self.directory
-    }
-    pub fn current_file(&self) -> PathBuf {
-        self.directory.join(&self.current)
     }
 }
 
@@ -298,10 +388,6 @@ pub struct LogSpan {
 }
 
 impl LogSpan {
-    pub fn request_id(&self) -> &str {
-        &self.request_id
-    }
-
     /// 记录操作成功完成，可选附加结构化字段
     pub fn finish_ok(&mut self, fields: Option<serde_json::Value>) {
         if self.finished {
@@ -315,8 +401,7 @@ impl LogSpan {
             format!("操作完成: {}", self.operation),
             Some("operation_complete"),
             Some(&self.request_id),
-            Some(duration_ms),
-            fields,
+            EventDetails::new(Some(duration_ms), fields),
         );
     }
 
@@ -333,13 +418,15 @@ impl LogSpan {
             format!("操作失败: {} - {}", self.operation, error.message),
             Some("operation_error"),
             error.request_id.as_deref().or(Some(&self.request_id)),
-            Some(duration_ms),
-            Some(serde_json::json!({
-                "operation": self.operation,
-                "code": error.code,
-                "origin": error.origin,
-                "technical": error.technical,
-            })),
+            EventDetails::new(
+                Some(duration_ms),
+                Some(serde_json::json!({
+                    "operation": self.operation,
+                    "code": error.code,
+                    "origin": error.diagnostics.origin,
+                    "technical": error.diagnostics.technical,
+                })),
+            ),
         );
     }
 
@@ -352,8 +439,7 @@ impl LogSpan {
             message,
             Some("step"),
             Some(&self.request_id),
-            Some(duration_ms),
-            fields,
+            EventDetails::new(Some(duration_ms), fields),
         );
     }
 
@@ -366,8 +452,7 @@ impl LogSpan {
             message,
             Some("warning"),
             Some(&self.request_id),
-            Some(duration_ms),
-            fields,
+            EventDetails::new(Some(duration_ms), fields),
         );
     }
 
@@ -385,8 +470,10 @@ impl LogSpan {
                     format!("IO 操作成功: {}", action),
                     Some("io_success"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({ "action": action })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({ "action": action })),
+                    ),
                 );
             }
             Err(e) => {
@@ -396,8 +483,10 @@ impl LogSpan {
                     format!("IO 操作失败: {} - {}", action, e),
                     Some("io_error"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({ "action": action, "error": e.to_string() })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({ "action": action, "error": e.to_string() })),
+                    ),
                 );
             }
         }
@@ -419,8 +508,10 @@ impl LogSpan {
                     format!("文件操作成功: {} - {}", operation, path_str),
                     Some("fs_success"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({ "operation": operation, "path": path_str })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({ "operation": operation, "path": path_str })),
+                    ),
                 );
             }
             Err(e) => {
@@ -430,12 +521,14 @@ impl LogSpan {
                     format!("文件操作失败: {} - {} - {}", operation, path_str, e),
                     Some("fs_error"),
                     Some(&self.request_id),
-                    Some(duration_ms),
-                    Some(serde_json::json!({
-                        "operation": operation,
-                        "path": path_str,
-                        "error": e.to_string()
-                    })),
+                    EventDetails::new(
+                        Some(duration_ms),
+                        Some(serde_json::json!({
+                            "operation": operation,
+                            "path": path_str,
+                            "error": e.to_string()
+                        })),
+                    ),
                 );
             }
         }
@@ -456,12 +549,14 @@ impl LogSpan {
             format!("{} {} - {:?}", method, url, status),
             Some("http_request"),
             Some(&self.request_id),
-            Some(duration_ms),
-            Some(serde_json::json!({
-                "method": method,
-                "url": url,
-                "status": status,
-            })),
+            EventDetails::new(
+                Some(duration_ms),
+                Some(serde_json::json!({
+                    "method": method,
+                    "url": url,
+                    "status": status,
+                })),
+            ),
         );
     }
 }
@@ -477,8 +572,7 @@ impl Drop for LogSpan {
                 format!("操作未显式完成: {}", self.operation),
                 Some("operation_drop"),
                 Some(&self.request_id),
-                Some(duration_ms),
-                None,
+                EventDetails::new(Some(duration_ms), None),
             );
         }
     }
@@ -592,34 +686,6 @@ pub fn write_client_log(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn redacts_credentials() {
-        let value = sanitize("token=secret password=hunter2&ok=1");
-        assert!(!value.contains("secret"));
-        assert!(!value.contains("hunter2"));
-        assert!(value.contains("<redacted>"));
-    }
-
-    #[test]
-    fn redacts_nested_fields_but_keeps_diagnostic_codes() {
-        let value = sanitize_json(serde_json::json!({
-            "code": "NETWORK_ERROR",
-            "access_token": "secret",
-            "nested": { "password": "hunter2" },
-        }));
-        assert_eq!(value["code"], "NETWORK_ERROR");
-        assert_eq!(value["access_token"], "<redacted>");
-        assert_eq!(value["nested"]["password"], "<redacted>");
-    }
-}
-
-/// 日志宏和辅助函数
-///
-/// 这些宏简化了常见的日志场景，自动处理 span 的创建和完成。
-
 /// 记录简单的信息日志
 #[macro_export]
 macro_rules! log_info {
@@ -693,64 +759,12 @@ macro_rules! log_result {
     }};
 }
 
-/// 辅助函数：包装 Result 并记录 IO 操作
-pub fn log_io_result<T, E>(
-    span: &Option<LogSpan>,
-    action: &str,
-    result: Result<T, E>,
-) -> Result<T, E>
-where
-    E: std::fmt::Display,
-{
-    if let Some(s) = span {
-        s.io(action, &result);
-    }
-    result
-}
-
-/// 辅助函数：包装 Result 并记录文件系统操作
-pub fn log_fs_result<T, E>(
-    span: &Option<LogSpan>,
-    operation: &str,
-    path: &Path,
-    result: Result<T, E>,
-) -> Result<T, E>
-where
-    E: std::fmt::Display,
-{
-    if let Some(s) = span {
-        s.fs_op(operation, path, &result);
-    }
-    result
-}
-
 /// 用于简化 span 完成的辅助函数
 pub fn finish_span_ok<T>(mut span: Option<LogSpan>, result: T) -> T {
     if let Some(s) = span.as_mut() {
         s.finish_ok(None);
     }
     result
-}
-
-pub fn finish_span_ok_with_fields<T>(
-    mut span: Option<LogSpan>,
-    result: T,
-    fields: serde_json::Value,
-) -> T {
-    if let Some(s) = span.as_mut() {
-        s.finish_ok(Some(fields));
-    }
-    result
-}
-
-pub fn finish_span_err<T>(
-    mut span: Option<LogSpan>,
-    error: CommandError,
-) -> Result<T, CommandError> {
-    if let Some(s) = span.as_mut() {
-        s.finish_error(&error);
-    }
-    Err(error)
 }
 
 pub fn finish_span<T>(
@@ -770,5 +784,96 @@ pub fn finish_span<T>(
             }
             Err(error)
         }
+    }
+}
+
+/// Called after business workers finish their shutdown logging. FIFO drains all queued records.
+pub(crate) fn shutdown() {
+    if let Some(logger) = global() {
+        let (done, wait) = mpsc::channel();
+        if logger.tx.send(WriterMessage::Shutdown(done)).is_ok() {
+            let _ = wait.recv();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redacts_credentials() {
+        let value = sanitize("token=secret password=hunter2&ok=1");
+        assert!(!value.contains("secret"));
+        assert!(!value.contains("hunter2"));
+        assert!(value.contains("<redacted>"));
+    }
+
+    #[test]
+    fn redacts_nested_fields_but_keeps_diagnostic_codes() {
+        let value = sanitize_json(serde_json::json!({
+            "code": "NETWORK_ERROR",
+            "access_token": "secret",
+            "nested": { "password": "hunter2" },
+        }));
+        assert_eq!(value["code"], "NETWORK_ERROR");
+        assert_eq!(value["access_token"], "<redacted>");
+        assert_eq!(value["nested"]["password"], "<redacted>");
+    }
+}
+
+#[cfg(test)]
+mod writer_tests {
+    use super::*;
+    #[test]
+    fn overloaded_error_logs_have_a_sanitized_file_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("emergency.jsonl");
+        let (tx, _rx) = mpsc::sync_channel(1);
+        let logger = Logger {
+            tx,
+            directory: dir.path().to_path_buf(),
+            dropped: Arc::new(AtomicU64::new(0)),
+            fallback: Arc::new(Mutex::new(path.clone())),
+        };
+        logger.log("INFO", "test", "fills queue");
+        logger.log("INFO", "test", "aggregated");
+        logger.log("ERROR", "test", "token=private-value");
+        assert_eq!(logger.dropped.load(Ordering::Relaxed), 1);
+        let content = fs::read_to_string(path).unwrap();
+        assert!(!content.contains("private-value"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(content.trim()).unwrap()["level"],
+            "ERROR"
+        );
+    }
+
+    #[test]
+    fn shutdown_drains_records_and_reports_aggregated_overflow() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let output = path.clone();
+        let (tx, rx) = mpsc::sync_channel(8);
+        let lost = Arc::new(AtomicU64::new(17));
+        let worker = thread::spawn(move || write_records(output, rx, lost));
+        for index in 0..100 {
+            tx.send(WriterMessage::Record(
+                serde_json::json!({"index": index}).to_string(),
+                false,
+            ))
+            .unwrap();
+        }
+        let (done, wait) = mpsc::channel();
+        tx.send(WriterMessage::Shutdown(done)).unwrap();
+        wait.recv().unwrap();
+        worker.join().unwrap();
+        let text = fs::read_to_string(path).unwrap();
+        let records = text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 101);
+        assert_eq!(records[0]["fields"]["dropped_records"], 17);
+        assert_eq!(records.last().unwrap()["index"], 99);
     }
 }

@@ -28,7 +28,7 @@ export function OnlineStageToolbar({ query, ruleset, items, text, onTextChange, 
       <button type="button" aria-label="清空搜索" title="清空搜索" disabled={!text && !query.query} onClick={() => { dismissSuggestions(); onClear(); }}><X /></button>
       <Dialog.Trigger asChild><button type="button" aria-label={`筛选 ${chips.length}`} data-page-guide-online-filter-trigger="true"><SlidersHorizontal /><span>筛选</span>{chips.length ? <small>{chips.length}</small> : null}</button></Dialog.Trigger>
     </form>
-    <Dialog.Portal><Dialog.Overlay className="online-dialog-overlay" /><Dialog.Content className="online-dialog online-filter-dialog">
+    <Dialog.Portal><Dialog.Overlay className="online-dialog-overlay" /><Dialog.Content data-dialog-layout="filters" className="online-dialog online-filter-dialog">
       <Dialog.Title>筛选在线谱面</Dialog.Title><Dialog.Description>调整关键词与筛选条件后统一搜索；关闭时舍弃未应用的修改。</Dialog.Description><Dialog.Close className="online-dialog-close" aria-label="关闭筛选"><X /></Dialog.Close>
       <FilterEditor query={{ ...query, query: text }} ruleset={ruleset} onApply={(next) => { setFiltersOpen(false); dismissSuggestions(); onApply(next); }} />
     </Dialog.Content></Dialog.Portal>

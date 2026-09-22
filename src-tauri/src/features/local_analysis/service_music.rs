@@ -1,6 +1,7 @@
 use super::*;
 use crate::domain::Ruleset;
 use crate::features::local_analysis::{MusicAsset, MusicCandidate};
+use std::collections::HashMap;
 
 // The index already describes the file layout. Playback and artwork loading
 // validate the resolved path before reading it, so queue construction need not
@@ -48,6 +49,51 @@ fn indexed_music_path(
 }
 
 impl LocalAnalysisService {
+    /// Deduplicate actual background references, not sets: difficulties can use different art.
+    pub(crate) fn collection_background_keys(
+        &self,
+    ) -> CommandResult<HashMap<(LocalClient, String), String>> {
+        let mut keys = HashMap::new();
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            let Some(index) = self.current_index(client)? else {
+                continue;
+            };
+            for entry in &index.entries {
+                let IndexedData::Beatmap { summary, .. } = &entry.data else {
+                    continue;
+                };
+                if let Some(key) = super::service_artwork::background_key(client, entry) {
+                    keys.insert((client, summary.resource.resource_id.clone()), key);
+                }
+            }
+        }
+        Ok(keys)
+    }
+    /// Lightweight collection joins; no .osu reads or difficulty calculations.
+    pub(crate) fn collection_resources(
+        &self,
+    ) -> CommandResult<Vec<crate::features::local_analysis::CollectionResource>> {
+        let mut resources = Vec::new();
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            let Some(index) = self.current_index(client)? else {
+                continue;
+            };
+            if !source_matches(&self.sources.resolve(client)?, &index.source_root) {
+                continue;
+            }
+            for entry in &index.entries {
+                if let IndexedData::Beatmap { summary, detail } = &entry.data {
+                    resources.push((
+                        entry.beatmap_md5.clone(),
+                        summary.clone(),
+                        detail.tags.clone(),
+                        detail.source.clone(),
+                    ));
+                }
+            }
+        }
+        Ok(resources)
+    }
     pub(crate) fn music_location(
         &self,
         client: LocalClient,

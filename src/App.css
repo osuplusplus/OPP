@@ -512,7 +512,7 @@ main .opp-section.overflow-hidden:not(.opp-interactive-surface):not(.opp-beatmap
 /* Dialogs are always a single, compact foreground layer. Their dimmed and
    blurred backdrop makes the current task clear without turning the page into
    another stack of panels. Radix exposes the dialog role on every Content. */
-[role="dialog"] {
+[role="dialog"]:not([data-dialog-layout]) {
   width: min(720px, calc(100vw - 2rem));
   max-height: min(720px, calc(100vh - 2rem));
   border: 1px solid var(--line-strong);
@@ -564,19 +564,10 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   color: inherit;
 }
 
-.theme-content-frame > * {
-  animation: opp-content-enter var(--motion-base) ease-out both;
-}
-
 /* BeatmapHub now presents the active pack in a detail dialog. Keep the
    legacy inline surface out of the document flow until it can be removed. */
 .beatmaphub-page > .opp-section.overflow-hidden {
   display: none;
-}
-
-@keyframes opp-content-enter {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 :root[data-theme-mode="light"] .opp-section { border-color: var(--line-subtle); }

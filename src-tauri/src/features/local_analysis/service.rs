@@ -1,3 +1,5 @@
+#[path = "service_artwork.rs"]
+mod service_artwork;
 #[path = "service_data.rs"]
 mod service_data;
 #[path = "service_music.rs"]
@@ -6,6 +8,10 @@ mod service_music;
 mod service_query;
 #[path = "service_stage.rs"]
 mod service_stage;
+
+#[cfg(test)]
+#[path = "lazer_acceptance.rs"]
+mod lazer_acceptance;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -39,7 +45,7 @@ use crate::infrastructure::logging::global;
 use super::{
     lazer_realm,
     models::{
-        BeatmapQuery, Completeness, LocalBeatmapDetail, LocalBeatmapSetSummary,
+        BeatmapQuery, Completeness, LocalArtwork, LocalBeatmapDetail, LocalBeatmapSetSummary,
         LocalBeatmapSummary, LocalClient, LocalIndexClientStatus, LocalIndexLoadPhase,
         LocalIndexLoadStatus, LocalLibrarySummary, LocalScanProgress, LocalSkinAssetPayload,
         LocalSkinAssetSummary, LocalSkinDetail, LocalSkinPreview, LocalSkinSummary,
@@ -58,8 +64,8 @@ use service_data::{
 };
 use service_query::{
     apply_direction, audio_mime, beatmap_matches, compare_beatmap_sets,
-    enumerate_lazer_skin_assets, enumerate_skin_assets, find_skin_entry, insert_bounded,
-    option_f64_order, skin_root, text_order,
+    enumerate_lazer_skin_assets, enumerate_skin_assets, find_skin_entry, option_f64_order,
+    skin_root, text_order,
 };
 #[cfg(test)]
 use service_query::{compare_beatmaps, page};
@@ -130,7 +136,14 @@ impl ProgressReporter {
 ///
 /// 维护按客户端隔离的索引、皮肤资源定位表和可取消的扫描任务；CPU 密集的
 /// 解析工作由专用 Rayon 线程池完成，避免阻塞 Tauri 运行时。
+type BackgroundRequests = crate::infrastructure::flights::Flights<
+    (LocalClient, String, bool, String),
+    CommandResult<Option<String>>,
+>;
+
 pub struct LocalAnalysisService {
+    artwork_sample: Mutex<Option<Vec<LocalArtwork>>>,
+    pub(super) background_requests: BackgroundRequests,
     cache_dir: PathBuf,
     sources: SourceResolver,
     indexes: RwLock<BTreeMap<LocalClient, Arc<LocalIndex>>>,
@@ -151,6 +164,8 @@ impl LocalAnalysisService {
         let sources = SourceResolver::load(&cache_dir)?;
         let pool = crate::infrastructure::tasks::background_pool()?;
         Ok(Self {
+            artwork_sample: Mutex::new(None),
+            background_requests: BackgroundRequests::default(),
             cache_dir,
             sources,
             indexes: RwLock::new(BTreeMap::new()),
@@ -185,6 +200,13 @@ impl LocalAnalysisService {
                 .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "本地索引状态已损坏"))?;
             for (client, index) in loaded {
                 indexes.entry(client).or_insert(index);
+            }
+            // Publish the restored revision as well as the ready phase. A page can
+            // miss the loading phase while its summary request still sees no index.
+            for (client, index) in indexes.iter() {
+                self.update_client_status(*client, |status| {
+                    status.last_scan_at = Some(index.summary.scanned_at.clone());
+                });
             }
             drop(indexes);
             self.trim_thumbnail_cache()?;
@@ -357,10 +379,10 @@ impl LocalAnalysisService {
                 if let Some(root) = source.beatmap_root.filter(|path| path.is_dir()) {
                     roots.push(root);
                 }
-                if let Some(root) = source.skin_root.filter(|path| path.is_dir()) {
-                    if !roots.iter().any(|existing| existing == &root) {
-                        roots.push(root);
-                    }
+                if let Some(root) = source.skin_root.filter(|path| path.is_dir())
+                    && !roots.iter().any(|existing| existing == &root)
+                {
+                    roots.push(root);
                 }
             }
             LocalClient::Lazer => {
@@ -665,6 +687,10 @@ impl LocalAnalysisService {
             summary: summary.clone(),
             diagnostics,
             entries,
+            search_fields: Vec::new(),
+            resource_lookup: BTreeMap::new(),
+            beatmap_id_lookup: BTreeMap::new(),
+            set_id_lookup: BTreeSet::new(),
             beatmap_md5_lookup: BTreeMap::new(),
             beatmap_sets: BTreeMap::new(),
             beatmap_orders: BTreeMap::new(),
@@ -699,13 +725,13 @@ impl LocalAnalysisService {
         let mut items = Vec::with_capacity(limit);
         for position in positions {
             let Some(IndexedEntry {
-                data: IndexedData::Beatmap { summary, detail },
+                data: IndexedData::Beatmap { summary, .. },
                 ..
             }) = index.entries.get(*position)
             else {
                 continue;
             };
-            if beatmap_matches(summary, detail, &query, &search) {
+            if index.matches(*position, &query, &search) {
                 if total >= query.offset && items.len() < limit {
                     items.push(summary.clone());
                 }
@@ -728,13 +754,10 @@ impl LocalAnalysisService {
         beatmap_id: i32,
     ) -> CommandResult<Option<(String, String)>> {
         let index = self.require_current_index(client)?;
-        let entry = index.entries.iter().find(|entry| {
-            matches!(
-                &entry.data,
-                IndexedData::Beatmap { summary, .. }
-                    if summary.beatmap_id == Some(beatmap_id)
-            )
-        });
+        let entry = index
+            .beatmap_id_lookup
+            .get(&beatmap_id)
+            .and_then(|position| index.entries.get(*position));
         let Some(entry) = entry else {
             return Ok(None);
         };
@@ -757,15 +780,7 @@ impl LocalAnalysisService {
         [LocalClient::Stable, LocalClient::Lazer]
             .into_iter()
             .filter_map(|client| self.require_current_index(client).ok())
-            .any(|index| {
-                index.entries.iter().any(|entry| {
-                    matches!(
-                        &entry.data,
-                        IndexedData::Beatmap { summary, .. }
-                            if summary.beatmap_set_id == Some(beatmapset_id)
-                    )
-                })
-            })
+            .any(|index| index.set_id_lookup.contains(&beatmapset_id))
     }
 
     pub fn query_beatmap_sets(
@@ -775,36 +790,63 @@ impl LocalAnalysisService {
         let index = self.require_current_index(query.client)?;
         let search = query.search.trim().to_lowercase();
         let limit = query.limit.clamp(1, service_query::MAX_QUERY_LIMIT);
-        let capacity = query
-            .offset
-            .saturating_add(limit)
-            .min(index.beatmap_sets.len());
-        let mut sets = Vec::with_capacity(capacity);
+        let mut sets = Vec::new();
         let mut total = 0usize;
         for (set_key, positions) in &index.beatmap_sets {
             let maps = positions
                 .iter()
                 .filter_map(|position| match &index.entries.get(*position)?.data {
                     IndexedData::Beatmap { summary, detail }
-                        if beatmap_matches(summary, detail, &query, &search) =>
+                        if index.matches(*position, &query, &search) =>
                     {
                         Some((summary, detail.as_ref()))
                     }
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            let Some(set) = service_stage::summarize_set(set_key, maps) else {
+            let Some(set) = service_stage::summarize_set_header(set_key, maps) else {
                 continue;
             };
             total += 1;
-            insert_bounded(&mut sets, set, capacity, |left, right| {
+            sets.push(set);
+        }
+        let capacity = query.offset.saturating_add(limit).min(sets.len());
+        if capacity > 0 && capacity < sets.len() {
+            sets.select_nth_unstable_by(capacity, |left, right| {
                 apply_direction(
                     compare_beatmap_sets(left, right, query.sort),
                     query.direction,
                 )
             });
+            sets.truncate(capacity);
         }
-        let items = sets.into_iter().skip(query.offset).take(limit).collect();
+        sets.sort_unstable_by(|left, right| {
+            apply_direction(
+                compare_beatmap_sets(left, right, query.sort),
+                query.direction,
+            )
+        });
+        let items = sets
+            .into_iter()
+            .skip(query.offset)
+            .take(limit)
+            .map(|mut set| {
+                let maps = index.beatmap_sets[&set.set_key]
+                    .iter()
+                    .filter(|position| index.matches(**position, &query, &search))
+                    .filter_map(|position| match &index.entries[*position].data {
+                        IndexedData::Beatmap { summary, detail } => {
+                            Some((summary, detail.as_ref()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                set.difficulties = service_stage::summarize_set(&set.set_key, maps)
+                    .expect("matching set")
+                    .difficulties;
+                set
+            })
+            .collect();
         Ok(Page {
             items,
             total,
@@ -820,15 +862,8 @@ impl LocalAnalysisService {
     ) -> CommandResult<LocalBeatmapDetail> {
         let index = self.require_current_index(client)?;
         let entry = index
-            .entries
-            .iter()
-            .find(|entry| {
-                matches!(
-                    &entry.data,
-                    IndexedData::Beatmap { summary, .. }
-                        if summary.resource.resource_id == resource_id
-                )
-            })
+            .resource(resource_id)
+            .filter(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
             .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面资源"))?;
         let mut detail = match &entry.data {
             IndexedData::Beatmap { detail, .. } => detail.as_ref().clone(),
@@ -854,15 +889,8 @@ impl LocalAnalysisService {
     ) -> CommandResult<String> {
         let index = self.require_current_index(client)?;
         let entry = index
-            .entries
-            .iter()
-            .find(|entry| {
-                matches!(
-                    &entry.data,
-                    IndexedData::Beatmap { summary, .. }
-                        if summary.resource.resource_id == resource_id
-                )
-            })
+            .resource(resource_id)
+            .filter(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
             .ok_or_else(|| {
                 CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "Local beatmap was not found")
             })?;
@@ -934,6 +962,12 @@ impl LocalAnalysisService {
                 format!("皮肤名「{name}」无法用作目录名"),
             ));
         }
+        // Different Realm skins can share the same display name. Keep their
+        // staged files separate so selecting one cannot overwrite another.
+        let safe_name = format!(
+            "{safe_name}-{}",
+            &sha256(detail.summary.resource.resource_id.as_bytes())[..12]
+        );
         let directory = self.staged_skins_root().join(&safe_name);
         fs::create_dir_all(&directory)?;
         let files = entry.lazer_files.as_ref().ok_or_else(|| {
@@ -1229,15 +1263,8 @@ impl LocalAnalysisService {
         let result = (|| {
             let index = self.require_current_index(client)?;
             let entry = index
-                .entries
-                .iter()
-                .find(|entry| {
-                    matches!(
-                        &entry.data,
-                        IndexedData::Beatmap { summary, .. }
-                            if summary.resource.resource_id == resource_id
-                    )
-                })
+                .resource(resource_id)
+                .filter(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
                 .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面资源"))?;
             let detail = match &entry.data {
                 IndexedData::Beatmap { detail, .. } => detail,
@@ -1925,6 +1952,13 @@ impl LocalAnalysisService {
         Ok(locations)
     }
 
+    pub(super) fn background_revision(&self, client: LocalClient) -> CommandResult<String> {
+        Ok(self
+            .current_index(client)?
+            .map(|index| index.summary.scanned_at.clone())
+            .unwrap_or_default())
+    }
+
     fn current_index(&self, client: LocalClient) -> CommandResult<Option<Arc<LocalIndex>>> {
         self.indexes
             .read()
@@ -2202,6 +2236,10 @@ fn scan_changes(
 }
 
 fn watch_event_relevant(client: LocalClient, roots: &[PathBuf], event: &notify::Event) -> bool {
+    // Reading a Realm snapshot, cover or audio file must not schedule another scan.
+    if matches!(event.kind, notify::EventKind::Access(_)) {
+        return false;
+    }
     match client {
         LocalClient::Stable => !event.paths.is_empty(),
         LocalClient::Lazer => {
@@ -3084,7 +3122,17 @@ SliderTickRate:1
             .status
             .data_root
             .expect("data root");
-        index.entries = vec![entry];
+        let mut other = entry.clone();
+        let other_id = format!("{resource_id}-other");
+        if let IndexedData::Skin { detail } = &mut other.data {
+            detail.summary.resource.resource_id = other_id.clone();
+        }
+        let other_hash = "ff33000000000000000000000000000000000000000000000000000000000000";
+        let other_blob = files_root.join(lazer_realm::blob_relative_path(other_hash));
+        fs::create_dir_all(other_blob.parent().unwrap()).unwrap();
+        fs::write(other_blob, b"different cursor").unwrap();
+        other.lazer_files.as_mut().unwrap()[1].hash = other_hash.into();
+        index.entries = vec![entry, other];
         index.rebuild_runtime_indexes();
         service
             .indexes
@@ -3096,9 +3144,19 @@ SliderTickRate:1
             .materialize_lazer_skin(&resource_id)
             .expect("staged skin directory");
         assert!(directory.starts_with(cache.path().join("local-analysis").join("staged-skins")));
+        assert!(
+            directory
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("测试皮肤-")
+        );
+        let other_directory = service.materialize_lazer_skin(&other_id).unwrap();
+        assert_ne!(directory, other_directory);
         assert_eq!(
-            directory.file_name().and_then(|name| name.to_str()),
-            Some("测试皮肤")
+            fs::read(other_directory.join("cursor.png")).unwrap(),
+            b"different cursor"
         );
         assert_eq!(
             fs::read(directory.join("skin.ini")).expect("skin.ini"),
@@ -3132,6 +3190,10 @@ SliderTickRate:1
             },
             diagnostics: Vec::new(),
             entries: Vec::new(),
+            search_fields: Vec::new(),
+            resource_lookup: BTreeMap::new(),
+            beatmap_id_lookup: BTreeMap::new(),
+            set_id_lookup: BTreeSet::new(),
             beatmap_md5_lookup: BTreeMap::new(),
             beatmap_sets: BTreeMap::new(),
             beatmap_orders: BTreeMap::new(),
@@ -3160,6 +3222,278 @@ SliderTickRate:1
         )
         .expect("old backup");
         assert!(load_index(directory.path(), LocalClient::Stable).is_none());
+    }
+
+    #[test]
+    fn indexed_queries_match_reference_for_filters_sorting_and_deep_pages() {
+        use super::super::models::SortDirection;
+        let (_app, _source, service, _) = fixture_service();
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let original = service.require_current_index(LocalClient::Stable).unwrap();
+        let template = original
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
+            .unwrap();
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = original.source_root.clone();
+        for id in 0..40 {
+            let mut entry = template.clone();
+            if let IndexedData::Beatmap { summary, detail } = &mut entry.data {
+                summary.resource.resource_id = format!("resource-{id}");
+                summary.beatmap_id = Some(id);
+                summary.beatmap_set_id = Some(id / 4);
+                summary.set_key = format!("set-{}", id / 4);
+                summary.title = format!("Årtist {}", id % 7);
+                summary.creator = format!("Creator {}", id % 3);
+                summary.stars = (id % 5 != 0).then_some(f64::from(id % 8));
+                detail.tags = format!("测试 tag{}", id % 3);
+            }
+            index.entries.push(entry);
+        }
+        index.rebuild_runtime_indexes();
+        assert!(
+            matches!(&index.resource("resource-12").unwrap().data, IndexedData::Beatmap { summary, .. } if summary.beatmap_id == Some(12))
+        );
+        service
+            .indexes
+            .write()
+            .unwrap()
+            .insert(LocalClient::Stable, Arc::new(index));
+        let index = service.require_current_index(LocalClient::Stable).unwrap();
+        for sort in BeatmapSort::ALL {
+            for direction in [SortDirection::Asc, SortDirection::Desc] {
+                for search in [
+                    "",
+                    "ÅRTIST 测试",
+                    "tag1",
+                    "12",
+                    "no matches",
+                    "  测试  tag2 ",
+                ] {
+                    for offset in [0, 3, 900] {
+                        let query = BeatmapQuery {
+                            search: search.into(),
+                            sort,
+                            direction,
+                            offset,
+                            limit: 2,
+                            ..Default::default()
+                        };
+                        let normalized = search.trim().to_lowercase();
+                        let mut expected = index
+                            .beatmap_sets
+                            .iter()
+                            .filter_map(|(key, positions)| {
+                                let maps = positions
+                                    .iter()
+                                    .filter_map(|position| match &index.entries[*position].data {
+                                        IndexedData::Beatmap { summary, detail }
+                                            if beatmap_matches(
+                                                summary,
+                                                detail,
+                                                &query,
+                                                &normalized,
+                                            ) =>
+                                        {
+                                            Some((summary, detail.as_ref()))
+                                        }
+                                        _ => None,
+                                    })
+                                    .collect();
+                                service_stage::summarize_set(key, maps)
+                            })
+                            .collect::<Vec<_>>();
+                        expected.sort_by(|left, right| {
+                            apply_direction(compare_beatmap_sets(left, right, sort), direction)
+                        });
+                        let actual = service.query_beatmap_sets(query).unwrap();
+                        assert_eq!(actual.total, expected.len());
+                        let expected = expected
+                            .into_iter()
+                            .skip(offset)
+                            .take(2)
+                            .collect::<Vec<_>>();
+                        assert_eq!(
+                            serde_json::to_value(&actual.items).unwrap(),
+                            serde_json::to_value(expected).unwrap()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn reference_set_query(
+        service: &LocalAnalysisService,
+        query: BeatmapQuery,
+    ) -> CommandResult<Page<LocalBeatmapSetSummary>> {
+        let index = service.require_current_index(query.client)?;
+        let search = query.search.trim().to_lowercase();
+        let limit = query.limit.clamp(1, service_query::MAX_QUERY_LIMIT);
+        let capacity = query
+            .offset
+            .saturating_add(limit)
+            .min(index.beatmap_sets.len());
+        let mut sets = Vec::with_capacity(capacity);
+        let mut total = 0usize;
+        for (set_key, positions) in &index.beatmap_sets {
+            let maps = positions
+                .iter()
+                .filter_map(|position| match &index.entries.get(*position)?.data {
+                    IndexedData::Beatmap { summary, detail }
+                        if beatmap_matches(summary, detail, &query, &search) =>
+                    {
+                        Some((summary, detail.as_ref()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let Some(set) = service_stage::summarize_set(set_key, maps) else {
+                continue;
+            };
+            total += 1;
+            reference_insert_bounded(&mut sets, set, capacity, |left, right| {
+                apply_direction(
+                    compare_beatmap_sets(left, right, query.sort),
+                    query.direction,
+                )
+            });
+        }
+        let items = sets.into_iter().skip(query.offset).take(limit).collect();
+        Ok(Page {
+            items,
+            total,
+            offset: query.offset,
+            limit,
+        })
+    }
+
+    fn reference_insert_bounded<T>(
+        items: &mut Vec<T>,
+        item: T,
+        capacity: usize,
+        compare: impl Fn(&T, &T) -> Ordering,
+    ) {
+        if capacity == 0 {
+            return;
+        }
+        let position = items
+            .binary_search_by(|current| compare(current, &item))
+            .unwrap_or_else(|position| position);
+        if position < capacity {
+            items.insert(position, item);
+            if items.len() > capacity {
+                items.pop();
+            }
+        }
+    }
+
+    /// Synthetic query benchmark; never reads the user's library.
+    #[test]
+    #[ignore = "release performance measurement"]
+    fn performance_query_matrix() {
+        let (_app, _source, service, _) = fixture_service();
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let original = service.require_current_index(LocalClient::Stable).unwrap();
+        let template = original
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
+            .unwrap();
+        let lazer = tempfile::tempdir().unwrap();
+        fs::create_dir_all(lazer.path().join("files")).unwrap();
+        fs::write(lazer.path().join("client.realm"), []).unwrap();
+        service
+            .set_source(LocalClient::Lazer, lazer.path())
+            .unwrap();
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            for size in [0, 1_000, 10_000] {
+                let mut index = empty_index(DIFFICULTY_ALGORITHM);
+                index.summary.client = client;
+                index.source_root = source_root(&service.sources.resolve(client).unwrap()).unwrap();
+                for id in 0..size {
+                    let mut entry = template.clone();
+                    if let IndexedData::Beatmap { summary, detail } = &mut entry.data {
+                        summary.resource.resource_id = format!("fixture-{id}");
+                        summary.set_key = format!("set-{}", id / 4);
+                        summary.beatmap_id = Some(id);
+                        summary.beatmap_set_id = Some(id / 4);
+                        summary.title = format!("Fixture {}", id / 4);
+                        detail.tags = format!("unicode 测试 group{}", id % 10);
+                    }
+                    index.entries.push(entry);
+                }
+                index.rebuild_runtime_indexes();
+                service
+                    .indexes
+                    .write()
+                    .unwrap()
+                    .insert(client, Arc::new(index));
+                for (name, search, offset) in [
+                    ("browse", "", 0),
+                    ("search", "测试 group3", 0),
+                    ("deep_page", "", 2000),
+                ] {
+                    let query = BeatmapQuery {
+                        client,
+                        search: search.into(),
+                        offset,
+                        limit: 12,
+                        ..Default::default()
+                    };
+                    for _ in 0..5 {
+                        std::hint::black_box(service.query_beatmap_sets(query.clone()).unwrap());
+                        std::hint::black_box(reference_set_query(&service, query.clone()).unwrap());
+                    }
+                    let mut samples = Vec::new();
+                    let mut reference_samples = Vec::new();
+                    for iteration in 0..30 {
+                        for optimized in if iteration % 2 == 0 {
+                            [false, true]
+                        } else {
+                            [true, false]
+                        } {
+                            let started = Instant::now();
+                            let page = if optimized {
+                                service.query_beatmap_sets(query.clone())
+                            } else {
+                                reference_set_query(&service, query.clone())
+                            }
+                            .unwrap();
+                            std::hint::black_box(page);
+                            let elapsed = started.elapsed().as_micros();
+                            if optimized {
+                                samples.push(elapsed);
+                            } else {
+                                reference_samples.push(elapsed);
+                            }
+                        }
+                    }
+                    samples.sort_unstable();
+                    reference_samples.sort_unstable();
+                    println!(
+                        "PERF {}",
+                        serde_json::json!({"client": client, "size": size, "scenario": name, "samples": 30,
+                        "median_us": samples[15], "p95_us": samples[28], "reference_median_us": reference_samples[15], "reference_p95_us": reference_samples[28]})
+                    );
+                }
+            }
+        }
     }
 
     fn fixture_service() -> (
@@ -3576,6 +3910,53 @@ SliderTickRate:1
     }
 
     #[test]
+    fn collection_artwork_keeps_distinct_backgrounds_within_one_set() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        fs::write(
+            beatmap.with_file_name("same-background.osu"),
+            OSU_FIXTURE.replace("Version:Normal", "Version:Hard"),
+        )
+        .unwrap();
+        fs::write(
+            beatmap.with_file_name("other-background.osu"),
+            OSU_FIXTURE
+                .replace("Version:Normal", "Version:Insane")
+                .replace("bg.jpg", "other.jpg"),
+        )
+        .unwrap();
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let keys = service.collection_background_keys().unwrap();
+        assert_eq!(keys.len(), 3);
+        let sample = service.artwork_sample().unwrap();
+        assert_eq!(sample.len(), 2);
+        assert_eq!(
+            sample
+                .iter()
+                .map(|item| &item.resource_id)
+                .collect::<Vec<_>>(),
+            service
+                .artwork_sample()
+                .unwrap()
+                .iter()
+                .map(|item| &item.resource_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            keys.values()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
     fn incremental_scan_tracks_additions_and_deletions() {
         let (_app_data, _stable, service, beatmap) = fixture_service();
         let cancel = AtomicBool::new(false);
@@ -3641,6 +4022,53 @@ SliderTickRate:1
         assert_eq!(changes.modified, 1);
         assert_eq!(changes.removed, 1);
         assert_eq!(changes.reused, previous.len().saturating_sub(2));
+    }
+
+    #[test]
+    fn watcher_ignores_reads_but_keeps_library_changes() {
+        use notify::{
+            Event, EventKind,
+            event::{AccessKind, DataChange, ModifyKind},
+        };
+        let root = PathBuf::from("library");
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            let path = root.join("client.realm");
+            let roots = [root.clone()];
+            assert!(!watch_event_relevant(
+                client,
+                &roots,
+                &Event::new(EventKind::Access(AccessKind::Read)).add_path(path.clone())
+            ));
+            assert!(watch_event_relevant(
+                client,
+                &roots,
+                &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+                    .add_path(path)
+            ));
+        }
+    }
+
+    #[test]
+    fn restored_lazer_cache_publishes_its_revision_without_rescanning() {
+        let app_data = tempfile::tempdir().expect("cache");
+        let service = LocalAnalysisService::new(app_data.path()).expect("service");
+        let index = empty_index(DIFFICULTY_ALGORITHM);
+        let revision = index.summary.scanned_at.clone();
+        persist_index(&service.cache_dir, LocalClient::Lazer, &index).expect("save");
+        let restored = LocalAnalysisService::new(app_data.path()).expect("restart");
+        restored.load_cached_indexes();
+        assert!(
+            restored
+                .current_index(LocalClient::Lazer)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            restored.index_load_status().unwrap().clients[&LocalClient::Lazer]
+                .last_scan_at
+                .as_deref(),
+            Some(revision.as_str())
+        );
     }
 
     #[test]

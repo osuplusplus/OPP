@@ -22,6 +22,36 @@ function cacheLibrary(queryClient: QueryClient, client: OsuClient) {
 }
 
 describe("local index cache", () => {
+  it("keeps a populated startup mosaic sample while allowing an empty library to recover", async () => {
+    const queries = new QueryClient();
+    const key = ["local-artwork-sample"];
+    queries.setQueryData(key, [{ client: "stable", resource_id: "cover" }]);
+    await invalidateLocalClient(queries, "stable");
+    expect(queries.getQueryState(key)?.isInvalidated).toBe(false);
+    queries.setQueryData(key, []);
+    await invalidateLocalClient(queries, "stable");
+    expect(queries.getQueryState(key)?.isInvalidated).toBe(true);
+    queries.clear();
+  });
+  it("invalidates collection joins and artwork when a local scan changes", async () => {
+    const queries = new QueryClient();
+    const keys = [["collections", "browser", { folder_id: "f" }], ["collections", "artwork", "f"], ["collection-background-image", "stable", "art"]];
+    keys.forEach((key) => queries.setQueryData(key, []));
+    await invalidateLocalClient(queries, "stable");
+    keys.forEach((key) => expect(queries.getQueryState(key)?.isInvalidated).toBe(true));
+    queries.clear();
+  });
+  it("refreshes a startup cache miss even if the first observed status is already ready", () => {
+    const queries = new QueryClient();
+    const key = ["local-summary", "lazer"];
+    queries.setQueryData(key, null);
+    observeLocalIndex(queries, status(null, null));
+    expect(queries.getQueryState(key)?.isInvalidated).toBe(true);
+    queries.setQueryData(key, { scanned_at: "saved-revision" });
+    observeLocalIndex(queries, status(null, null));
+    expect(queries.getQueryState(key)?.isInvalidated).toBe(false);
+    queries.clear();
+  });
   it("reuses resources across page remounts and mode/client switches", () => {
     const queries = new QueryClient();
     observeLocalIndex(queries, status("revision-1", "revision-2"));

@@ -44,23 +44,29 @@ pub struct BeatmapCalculationResult {
 #[tauri::command]
 /// 下载谱面并计算指定 Mod 与成绩假设下的星数、PP 和最大 PP。
 ///
-/// 下载源按 Catboy、Nerinyan 的顺序回退，避免单一提供方不可用导致功能失效。
+/// 优先读取官方 .osu，失败后按 Catboy、Nerinyan 回退。
 pub async fn calculate_beatmap_pp(
     request: BeatmapCalculationRequest,
     state: State<'_, AppState>,
 ) -> CommandResult<BeatmapCalculationResult> {
-    let download = match state.providers.catboy_osu(request.beatmap_id).await {
+    let download = match state.providers.official_osu(request.beatmap_id).await {
         Ok(download) => download,
-        Err(catboy) => state
-            .providers
-            .nerinyan_osu(request.beatmap_id)
-            .await
-            .map_err(|nerinyan| {
-                CommandError::new(
-                    "BEATMAP_CALCULATION_SOURCE_FAILED",
-                    format!("Catboy: {}; Nerinyan: {}", catboy.message, nerinyan.message),
-                )
-            })?,
+        Err(official) => match state.providers.catboy_osu(request.beatmap_id).await {
+            Ok(download) => download,
+            Err(catboy) => state
+                .providers
+                .nerinyan_osu(request.beatmap_id)
+                .await
+                .map_err(|nerinyan| {
+                    CommandError::new(
+                        "BEATMAP_CALCULATION_SOURCE_FAILED",
+                        format!(
+                            "osu!: {}; Catboy: {}; Nerinyan: {}",
+                            official.message, catboy.message, nerinyan.message
+                        ),
+                    )
+                })?,
+        },
     };
     crate::infrastructure::tasks::interactive("calculate_beatmap_pp", move || {
         let bytes = download.bytes;

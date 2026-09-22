@@ -1452,8 +1452,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 let slots = sb_parsed
                     .as_ref()
                     .map(|p| osu_replay_render::StoryboardSlots {
-                        width: RENDER_W.min(1920).max(1) & !1,
-                        height: RENDER_H.min(1080).max(1) & !1,
+                        width: RENDER_W.clamp(1, 1920) & !1,
+                        height: RENDER_H.clamp(1, 1080) & !1,
                         foreground: p.has_foreground(),
                     });
                 let (atlas, fonts) = build_atlas(
@@ -1778,8 +1778,8 @@ fn active_sb_slots(
 ) -> Option<osu_replay_render::StoryboardSlots> {
     let layer = sb_layer.filter(|l| l.elements_enabled() || l.video_enabled())?;
     Some(osu_replay_render::StoryboardSlots {
-        width: RENDER_W.min(1920).max(1) & !1,
-        height: RENDER_H.min(1080).max(1) & !1,
+        width: RENDER_W.clamp(1, 1920) & !1,
+        height: RENDER_H.clamp(1, 1080) & !1,
         foreground: layer.has_foreground(),
     })
 }
@@ -1840,8 +1840,8 @@ fn open_session(
     let storyboard_slots = sb_parsed
         .as_ref()
         .map(|p| osu_replay_render::StoryboardSlots {
-            width: RENDER_W.min(1920).max(1) & !1,
-            height: RENDER_H.min(1080).max(1) & !1,
+            width: RENDER_W.clamp(1, 1920) & !1,
+            height: RENDER_H.clamp(1, 1080) & !1,
             foreground: p.has_foreground(),
         });
     let (atlas, fonts) = build_atlas(
@@ -2452,12 +2452,29 @@ pub struct ExportProgress {
 static EXPORT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static EXPORT_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+struct ExportPermit<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl<'a> ExportPermit<'a> {
+    fn acquire(running: &'a std::sync::atomic::AtomicBool) -> CommandResult<Self> {
+        if running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(CommandError::new("LIVE_RENDER", "已有导出任务在进行中"));
+        }
+        Ok(Self(running))
+    }
+}
+
+impl Drop for ExportPermit<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// FFmpeg 解析:设置中手动路径 > PATH 自动检测 > danser 发行包自带。
 fn ffmpeg_path(state: &tauri::State<'_, crate::state::AppState>) -> Option<std::path::PathBuf> {
-    let saved = state.store.snapshot().ok().map(|snapshot| {
+    let saved = state.store.settings_snapshot().ok().map(|snapshot| {
         (
-            snapshot.settings.ffmpeg_executable_path.clone(),
-            snapshot.settings.danser_executable_path.clone(),
+            snapshot.ffmpeg_executable_path.clone(),
+            snapshot.danser_executable_path.clone(),
         )
     });
     let (ffmpeg, danser) = saved.unzip();
@@ -2502,10 +2519,10 @@ pub async fn live_render_get_ffmpeg_status(app: AppHandle) -> CommandResult<Ffmp
 fn live_render_get_ffmpeg_status_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> FfmpegStatus {
-    let settings = state.store.snapshot().ok().map(|s| {
+    let settings = state.store.settings_snapshot().ok().map(|s| {
         (
-            s.settings.ffmpeg_executable_path.clone(),
-            s.settings.danser_executable_path.clone(),
+            s.ffmpeg_executable_path.clone(),
+            s.danser_executable_path.clone(),
         )
     });
     let (manual, danser) = settings.unzip();
@@ -2634,9 +2651,7 @@ pub fn live_render_export(
     use std::sync::atomic::Ordering;
     let ffmpeg = ffmpeg_path(&state)
         .ok_or_else(|| CommandError::new("LIVE_RENDER", "未找到 FFmpeg(已尝试设置路径、PATH 与 danser 发行包),请在设置页配置或安装 FFmpeg 后重试"))?;
-    if EXPORT_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err(CommandError::new("LIVE_RENDER", "已有导出任务在进行中"));
-    }
+    let permit = ExportPermit::acquire(&EXPORT_RUNNING)?;
     EXPORT_CANCEL.store(false, Ordering::SeqCst);
     // 导出是实际消费点:lazer 皮肤引用在这里物化。
     let options = resolve_lazer_skin(&state, options)?;
@@ -2661,7 +2676,7 @@ pub fn live_render_export(
                 eprintln!("live_render: 导出 panic: {msg}");
                 Err(format!("导出过程崩溃: {msg}"))
             });
-            EXPORT_RUNNING.store(false, Ordering::SeqCst);
+            drop(permit);
             let _ = tx.send(result);
         })
         .map_err(|e| CommandError::new("LIVE_RENDER", format!("无法启动导出线程: {e}")))?;
@@ -2826,8 +2841,8 @@ fn run_export(
         None
     };
     let sb_slot = (
-        params.width.min(1920).max(1) & !1,
-        params.height.min(1080).max(1) & !1,
+        params.width.clamp(1, 1920) & !1,
+        params.height.clamp(1, 1080) & !1,
     );
     let storyboard_slots = sb_parsed
         .as_ref()
@@ -3188,6 +3203,21 @@ fn probe_sample_rate(ffmpeg: &std::path::Path, media: &std::path::Path) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn export_permit_releases_after_preparation_failure() {
+        let running = std::sync::atomic::AtomicBool::new(false);
+        let prepare = || -> crate::error::CommandResult<()> {
+            let _permit = super::ExportPermit::acquire(&running)?;
+            assert!(super::ExportPermit::acquire(&running).is_err());
+            Err(crate::error::CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "missing skin",
+            ))
+        };
+        assert!(prepare().is_err());
+        assert!(super::ExportPermit::acquire(&running).is_ok());
+        assert!(!running.load(std::sync::atomic::Ordering::SeqCst));
+    }
     use super::ffmpeg_encoder_args;
 
     fn joined(args: &[String]) -> String {

@@ -3,19 +3,28 @@ import { emptyMusicState, musicDesktop } from "../../shared/lib/musicTauri";
 import type { MusicState } from "../../shared/types/music";
 
 let state = emptyMusicState;
+let controls = emptyMusicState;
 const subscribers = new Set<() => void>();
 let stop: (() => void) | undefined;
 export function acceptMusicState(next: MusicState) {
   if (next.version < state.version) return;
+  const changed = (Object.keys(next) as (keyof MusicState)[]).some((key) => {
+    if (key === "version" || key === "position") return false;
+    if (key === "current") return JSON.stringify(next.current) !== JSON.stringify(controls.current);
+    return next[key] !== controls[key];
+  });
+  if (changed) controls = next;
   state = next;
-  subscribers.forEach((listener) => listener());
+  if (document.visibilityState !== "hidden") subscribers.forEach((listener) => listener());
 }
 function subscribe(listener: () => void) {
   subscribers.add(listener);
   if (subscribers.size === 1) {
     let active = true;
     let dispose: (() => void) | undefined;
-    stop = () => { active = false; dispose?.(); };
+    const visible = () => { if (document.visibilityState !== "hidden") subscribers.forEach((listener) => listener()); };
+    document.addEventListener("visibilitychange", visible);
+    stop = () => { active = false; dispose?.(); document.removeEventListener("visibilitychange", visible); };
     void musicDesktop.subscribe((next) => { if (active) acceptMusicState(next); }).then(async (unlisten) => {
       if (!active) { unlisten(); return; }
       dispose = unlisten;
@@ -35,3 +44,5 @@ export function musicTime(seconds: number) {
   const value = Number.isFinite(seconds) ? Math.floor(Math.max(0, seconds)) : 0;
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
 }
+
+export function useMusicControls() { return useSyncExternalStore(subscribe, () => controls, () => emptyMusicState); }

@@ -39,7 +39,6 @@ pub async fn get_similarity_index_status(
         return Ok(SimilarityIndexStatus::unsupported(ruleset));
     }
     let directory = configured_directory(&state, ruleset)?;
-    state.similarity.clear(ruleset);
     inspect(state.similarity.clone(), ruleset, directory).await
 }
 
@@ -56,8 +55,8 @@ pub async fn configure_similarity_index(
     let directory = directory
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    state.store.update(|persisted| {
-        set_configured_directory(&mut persisted.settings, ruleset, directory.clone())
+    state.store.update_settings(|settings| {
+        set_configured_directory(settings, ruleset, directory.clone())
     })??;
     state.similarity.clear(ruleset);
     inspect(state.similarity.clone(), ruleset, directory).await
@@ -82,11 +81,11 @@ pub async fn query_similar_beatmaps(
 
 async fn query_standard(
     request: SimilarityQueryRequest,
-    directory: String,
+    directory: ConfiguredDataset,
     state: &AppState,
 ) -> CommandResult<SimilarityQueryResponse> {
     let options = options_from_request(&request)?;
-    let dataset = load_standard_dataset(state.similarity.clone(), directory).await?;
+    let dataset = load_standard_dataset(directory.runtime, directory.path).await?;
     let (indexed_id, bytes, source_label) =
         resolve_standard_source(request.source(), state, &dataset).await?;
 
@@ -108,7 +107,7 @@ async fn query_standard(
 
 async fn query_mania(
     request: SimilarityQueryRequest,
-    directory: String,
+    directory: ConfiguredDataset,
     state: &AppState,
 ) -> CommandResult<SimilarityQueryResponse> {
     let options = mania_options_from_request(&request)?;
@@ -116,7 +115,7 @@ async fn query_mania(
         unreachable!("routed Mania request")
     };
     let target_mod = *target_mod;
-    let dataset = load_mania_dataset(state.similarity.clone(), directory).await?;
+    let dataset = load_mania_dataset(directory.runtime, directory.path).await?;
     let (indexed_id, bytes, source_beatmap_id, source_label) =
         resolve_mania_source(request.source(), state, &dataset, target_mod).await?;
 
@@ -228,10 +227,10 @@ pub async fn recommend_similar_beatmaps(
 async fn recommend_standard(
     request: SimilarityRecommendationRequest,
     seed_ids: Vec<u64>,
-    directory: String,
+    directory: ConfiguredDataset,
     state: &AppState,
 ) -> CommandResult<SimilarityRecommendationResponse> {
-    let dataset = load_standard_dataset(state.similarity.clone(), directory).await?;
+    let dataset = load_standard_dataset(directory.runtime, directory.path).await?;
     let options = options_from_recommendation_request(&request)?;
     let mut targets = Vec::with_capacity(seed_ids.len());
     let mut skipped_seed_count = 0;
@@ -287,10 +286,10 @@ async fn recommend_mania(
     request: SimilarityRecommendationRequest,
     seeds: Vec<ManiaSeed>,
     initially_skipped_seed_count: usize,
-    directory: String,
+    directory: ConfiguredDataset,
     state: &AppState,
 ) -> CommandResult<SimilarityRecommendationResponse> {
-    let dataset = load_mania_dataset(state.similarity.clone(), directory).await?;
+    let dataset = load_mania_dataset(directory.runtime, directory.path).await?;
     let options = mania_options_from_recommendation_request(&request)?;
     let mut targets = Vec::with_capacity(seeds.len());
     let mut skipped_seed_count = initially_skipped_seed_count;
@@ -475,6 +474,7 @@ async fn inspect(
     ruleset: Ruleset,
     directory: Option<String>,
 ) -> CommandResult<SimilarityIndexStatus> {
+    let runtime = runtime.prepared(ruleset, directory.as_deref());
     crate::infrastructure::tasks::background("similarity", move || {
         runtime.inspect(ruleset, directory.as_deref())
     })
@@ -482,20 +482,34 @@ async fn inspect(
     .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "本地索引校验任务意外停止"))
 }
 
-fn required_directory(state: &AppState, ruleset: Ruleset) -> CommandResult<String> {
-    configured_directory(state, ruleset)?.ok_or_else(|| {
-        CommandError::new(
-            "SIMILARITY_INDEX_NOT_CONFIGURED",
-            match ruleset {
-                Ruleset::Mania => "请先选择 osu!mania 本地相似谱面索引目录",
-                _ => "请先选择本地相似谱面索引目录",
-            },
-        )
-    })
+struct ConfiguredDataset {
+    path: String,
+    runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
+}
+
+impl ConfiguredDataset {
+    fn new(state: &AppState, ruleset: Ruleset, path: String) -> Self {
+        let runtime = Arc::new(state.similarity.prepared(ruleset, Some(&path)));
+        Self { path, runtime }
+    }
+}
+
+fn required_directory(state: &AppState, ruleset: Ruleset) -> CommandResult<ConfiguredDataset> {
+    configured_directory(state, ruleset)?
+        .map(|path| ConfiguredDataset::new(state, ruleset, path))
+        .ok_or_else(|| {
+            CommandError::new(
+                "SIMILARITY_INDEX_NOT_CONFIGURED",
+                match ruleset {
+                    Ruleset::Mania => "请先选择 osu!mania 本地相似谱面索引目录",
+                    _ => "请先选择本地相似谱面索引目录",
+                },
+            )
+        })
 }
 
 fn configured_directory(state: &AppState, ruleset: Ruleset) -> CommandResult<Option<String>> {
-    directory_from_settings(&state.store.snapshot()?.settings, ruleset)
+    directory_from_settings(&state.store.settings_snapshot()?, ruleset)
 }
 
 fn directory_from_settings(
@@ -593,7 +607,7 @@ mod compatibility_tests {
                     },
                     seeds,
                     0,
-                    root.clone(),
+                    ConfiguredDataset::new(&state, Ruleset::Mania, root.clone()),
                     &state,
                 )
                 .await
@@ -692,7 +706,7 @@ mod compatibility_tests {
                     },
                     seeds,
                     0,
-                    root.clone(),
+                    ConfiguredDataset::new(&state, Ruleset::Mania, root.clone()),
                     &state,
                 )
                 .await

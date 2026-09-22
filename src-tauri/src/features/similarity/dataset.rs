@@ -12,7 +12,7 @@ use crate::{
 
 struct CachedDataset<T> {
     directory: PathBuf,
-    dataset: Arc<T>,
+    dataset: Arc<Mutex<Option<Arc<T>>>>,
 }
 
 #[derive(Default)]
@@ -22,6 +22,26 @@ pub struct SimilarityRuntime {
 }
 
 impl SimilarityRuntime {
+    /// Reserve a generation before async waits or worker admission. This view
+    /// shares its load slot, but cannot change the application's registry.
+    pub fn prepared(&self, ruleset: Ruleset, directory: Option<&str>) -> Self {
+        let view = Self::default();
+        if let Some(directory) = directory {
+            match ruleset {
+                Ruleset::Osu => {
+                    *view.standard.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(reserve_dataset(&self.standard, directory));
+                }
+                Ruleset::Mania => {
+                    *view.mania.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(reserve_dataset(&self.mania, directory));
+                }
+                Ruleset::Taiko | Ruleset::Fruits => {}
+            }
+        }
+        view
+    }
+
     pub fn clear(&self, ruleset: Ruleset) {
         match ruleset {
             Ruleset::Osu => clear_cache(&self.standard),
@@ -111,22 +131,44 @@ fn cached_dataset<T>(
     directory: &str,
     open: impl FnOnce(&Path) -> Result<T, RuntimeError>,
 ) -> Result<Arc<T>, RuntimeError> {
+    let reservation = reserve_dataset(cache, directory);
+    let mut loaded = reservation
+        .dataset
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some(dataset) = loaded.as_ref() {
+        return Ok(dataset.clone());
+    }
+    let dataset = Arc::new(open(&reservation.directory)?);
+    *loaded = Some(dataset.clone());
+    Ok(dataset)
+}
+
+fn reserve_dataset<T>(
+    cache: &Mutex<Option<CachedDataset<T>>>,
+    directory: &str,
+) -> CachedDataset<T> {
     // Standard 与 Mania 各自以目录为键缓存只读实例，永不共享格式或状态。
     let path = PathBuf::from(directory);
-    if let Ok(cached) = cache.lock()
-        && let Some(cached) = cached.as_ref()
-        && cached.directory == path
-    {
-        return Ok(cached.dataset.clone());
+    // Each directory/configuration generation owns a load slot. Clearing the
+    // registry detaches in-flight work; it can no longer republish stale data.
+    let slot = {
+        let mut cached = cache.lock().unwrap_or_else(|error| error.into_inner());
+        if cached
+            .as_ref()
+            .is_none_or(|current| current.directory != path)
+        {
+            *cached = Some(CachedDataset {
+                directory: path.clone(),
+                dataset: Arc::new(Mutex::new(None)),
+            });
+        }
+        cached.as_ref().expect("slot initialized").dataset.clone()
+    };
+    CachedDataset {
+        directory: path,
+        dataset: slot,
     }
-    let dataset = Arc::new(open(&path)?);
-    if let Ok(mut cached) = cache.lock() {
-        *cached = Some(CachedDataset {
-            directory: path,
-            dataset: dataset.clone(),
-        });
-    }
-    Ok(dataset)
 }
 
 fn unavailable_status(
@@ -175,6 +217,75 @@ fn status_copy_for_error(kind: RuntimeErrorKind) -> (SimilarityIndexState, &'sta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_generation_cannot_replace_new_configuration() {
+        let runtime = SimilarityRuntime::default();
+        let queued = runtime.prepared(Ruleset::Osu, Some("old"));
+        let old_slot = queued
+            .standard
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .dataset
+            .clone();
+        runtime.clear(Ruleset::Osu);
+        let current = runtime.prepared(Ruleset::Osu, Some("new"));
+        // A worker entering after clear still uses its reserved, detached slot.
+        let reservation = reserve_dataset(&queued.standard, "old");
+        assert!(Arc::ptr_eq(&reservation.dataset, &old_slot));
+        let registry = runtime.standard.lock().unwrap();
+        let latest = current.standard.lock().unwrap();
+        assert_eq!(registry.as_ref().unwrap().directory, PathBuf::from("new"));
+        assert!(Arc::ptr_eq(
+            &registry.as_ref().unwrap().dataset,
+            &latest.as_ref().unwrap().dataset
+        ));
+        assert!(!Arc::ptr_eq(&registry.as_ref().unwrap().dataset, &old_slot));
+    }
+
+    #[test]
+    fn concurrent_loads_share_a_slot_and_clear_detaches_old_work() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let cache = Mutex::new(None);
+        let opens = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    let value = cached_dataset(&cache, "fixture", |_| {
+                        opens.fetch_add(1, Ordering::SeqCst);
+                        Ok(42)
+                    })
+                    .unwrap();
+                    assert_eq!(*value, 42);
+                });
+            }
+        });
+        assert_eq!(opens.load(Ordering::SeqCst), 1);
+        clear_cache(&cache);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let old = scope.spawn(|| {
+                cached_dataset(&cache, "fixture", move |_| {
+                    started_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    Ok(1)
+                })
+                .unwrap()
+            });
+            started_rx.recv().unwrap();
+            clear_cache(&cache);
+            assert_eq!(*cached_dataset(&cache, "fixture", |_| Ok(2)).unwrap(), 2);
+            release_tx.send(()).unwrap();
+            assert_eq!(*old.join().unwrap(), 1);
+        });
+        assert_eq!(
+            *cached_dataset(&cache, "fixture", |_| panic!("must reuse new generation")).unwrap(),
+            2
+        );
+    }
 
     #[test]
     fn unconfigured_is_a_normal_per_ruleset_status() {

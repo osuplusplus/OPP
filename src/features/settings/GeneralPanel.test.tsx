@@ -10,6 +10,7 @@ import { ModeProvider } from "../../app/ModeContext";
 const mocks = vi.hoisted(() => ({
   getLocalSources: vi.fn(),
   getLocalSummary: vi.fn(),
+  getLocalIndexStatus: vi.fn(async () => ({ phase: "ready", clients: {} })),
   scanLocalSource: vi.fn(),
   onLocalScanProgress: vi.fn(async () => () => undefined),
   getGameStatus: vi.fn(async () => ({ clients: [] })),

@@ -303,8 +303,7 @@
   }
 
   .opp-map-card__details {
-    top: 22%;
-    padding: 0.75rem;
+    padding: 0.5rem 0.25rem;
   }
 
   .opp-map-card__metrics {
@@ -313,6 +312,6 @@
   }
 
   .opp-map-card__checksum {
-    grid-column: 1 / -1;
+    display: none;
   }
 }

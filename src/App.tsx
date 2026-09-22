@@ -54,12 +54,14 @@ function ShutdownChoice() {
       event.preventDefault();
       requestChoice();
     };
+    let disposed = false;
     let unlisten: (() => void) | undefined;
     void appWindow.onCloseRequested(onCloseRequested).then((dispose) => {
-      unlisten = dispose;
+      if (disposed) dispose(); else unlisten = dispose;
     });
     window.addEventListener("opp:request-close", requestChoice);
     return () => {
+      disposed = true;
       unlisten?.();
       window.removeEventListener("opp:request-close", requestChoice);
     };

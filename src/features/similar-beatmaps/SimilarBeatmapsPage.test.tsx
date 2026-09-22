@@ -31,6 +31,16 @@ function renderPage() {
 afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); resetStandardSimilaritySessionForTests(); });
 
 describe("standard similarity workspace", () => {
+  it("reserves a fresh dataset generation only for explicit revalidation", async () => {
+    vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue(ready);
+    const configure = vi.spyOn(desktopApi, "configureSimilarityIndex").mockResolvedValue(ready);
+    renderPage();
+    const button = await screen.findByRole("button", { name: "重新校验" });
+    expect(configure).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    await waitFor(() => expect(configure).toHaveBeenCalledWith("osu", "D:/index"));
+  });
+
   it("resolves an ID from the unified search and shows one candidate at a time", async () => {
     const user = userEvent.setup();
     vi.spyOn(desktopApi, "getSimilarityIndexStatus").mockResolvedValue(ready);

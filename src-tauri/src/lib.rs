@@ -56,11 +56,18 @@ pub fn run_portable_update_helper_if_requested() -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(features::tournament_pools::uri::TournamentLinks::default())
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // Deep-link forwarding has already run. Its handler restores the main window.
+            if !argv.iter().any(|arg| arg.starts_with("opp:"))
+                && app.try_state::<AppState>().is_some()
+            {
+                features::music_player::windows::show_active(app);
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            features::music_player::windows::show_active(app);
-        }))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let logger = logging::init(&app_data_dir);
@@ -71,6 +78,7 @@ pub fn run() {
             );
             app.manage(AppState::new(&app_data_dir)?);
             app.manage(logger);
+            features::tournament_pools::uri::initialize(app.handle());
             let state = app.state::<AppState>();
             #[cfg(windows)]
             let media_hwnd = {
@@ -111,10 +119,6 @@ pub fn run() {
                     .await;
             });
             state.local_analysis.start_watchers(app.handle().clone());
-            let beatmaphub = state.beatmaphub.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = beatmaphub.recommendations(20, true).await;
-            });
             start_game_monitor(
                 state.local_analysis.clone(),
                 state.game_monitor.clone(),
@@ -165,6 +169,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 app.state::<AppState>().music.shutdown();
                 features::tosu::cleanup_on_exit(&app.state::<AppState>().tosu);
+                logging::shutdown();
             }
         });
 }

@@ -1,9 +1,11 @@
+import { measureCommand } from "./performance";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
+  TournamentPoolRef, TournamentPool, TournamentLink, TournamentPoolSyncResult,
   AppSettings,
   FfmpegStatusInfo,
   AuthStatus,
@@ -23,12 +25,13 @@ import type {
   BeatmapPreviewRequest,
   BeatmapPreviewResult,
   CollectionCandidate,
+  CollectionBrowseQuery, CollectionBrowsePage, CollectionPersonalRecord, CollectionArtwork, LocalArtwork, LocalScoreRecord, LocalScoreStatus,
   CollectionDownloadItem,
   CollectionFolder,
   CollectionInstallResult,
   CollectionOpenResult,
   CollectionSharePreview,
-  CollectionSnapshot,
+  CollectionSnapshot, CollectionSummaries, CollectionEntryPage,
   CollectionSyncStatus,
   CollectionTaskProgress,
   CollectionWriteResult,
@@ -178,10 +181,13 @@ async function call<T>(
     } satisfies CommandError;
   }
   const id = requestId();
+  const finish = measureCommand(command);
   try {
     const result = await invoke<T>(command, args);
+    finish(result);
     return result;
   } catch (error) {
+    finish();
     const normalized = normalizeError(error);
     void writeLogRaw("error", "frontend.command.return_err", JSON.stringify({ event: "return_err", command, request_id: id, code: normalized.code, message: normalized.message, backend_request_id: normalized.request_id }));
     throw normalized;
@@ -189,10 +195,17 @@ async function call<T>(
 }
 
 function browserPreviewValue<T>(command: string, args?: Record<string, unknown>): T | undefined {
+  if (command === "query_collection_browser") return { items: [], total: 0, offset: 0, limit: 50, matching_folders: [], pool: null } as T;
+  if (command === "get_collection_artwork" || command === "get_collection_entry_scores") return [] as T;
+  if (command === "refresh_local_scores") return { players: [], default_player: null, errors: [], count: 0 } as T;
+  if (command === "save_collection_record") return { ...(args?.record as object), revision: Number((args?.record as CollectionPersonalRecord).revision) + 1 } as T;
+  if (command === "get_collection_record") return { revision: 0, tags: [], note: "", slot_override: null, scores: [], representative: null } as T;
+  if (command === "get_local_artwork_sample") return [] as T;
+  if (command === "get_pending_tournament_link" || command === "acknowledge_tournament_link") return null as T;
   if (command === "get_capabilities") return { os: "windows", display_gamma: true, file_association: true } as T;
   if (command === "get_beatmaphub_auth_status") return { has_identity: false, connected: false, public_key: null, user_id: null, device_id: null, display_name: null, device_name: "Preview PC", expires_at: null } as T;
   if (command === "get_beatmaphub_recommendations") return [] as T;
-  if (command === "list_collections") return { folders: [], sources: [] } as T;
+  if (command === "list_collections" || command === "list_collection_summaries") return { folders: [], sources: [] } as T;
   if (command === "get_lazer_disk_usage") return { path: "C:\\osu!", total_size: 1610612736, unique_size: 536870912, file_count: 4096 } as T;
   if (command === "export_local_beatmap_set") return `${args?.outDir ?? "C:\\Export"}/export.osz` as T;
   if (command === "export_local_skin") return `${args?.outDir ?? "C:\\Export"}/export.osk` as T;
@@ -328,6 +341,14 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
 }
 
 export const desktopApi = {
+  getTournamentPool: (reference: TournamentPoolRef) => call<TournamentPool>("get_tournament_pool", { reference }),
+  syncTournamentPoolCollection: (reference: TournamentPoolRef) => call<TournamentPoolSyncResult>("sync_tournament_pool_collection", { reference }),
+  getPendingTournamentLink: () => call<TournamentLink | null>("get_pending_tournament_link"),
+  acknowledgeTournamentLink: (id: number) => call<void>("acknowledge_tournament_link", { id }),
+  onTournamentPoolOpen: async (handler: (link: TournamentLink) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<TournamentLink>("tournament-pool-open", (event) => handler(event.payload));
+  },
   getLogDirectory: () => call<string>("get_log_directory"),
   listLogFiles: () => call<import("../types/osu").LogFileInfo[]>("list_log_files"),
   openLogDirectory: () => call<void>("open_log_directory"),
@@ -427,6 +448,15 @@ export const desktopApi = {
     call<BeatmapDownloadResult>("download_online_beatmapsets", { request }),
   cancelOnlineBeatmapDownload: () =>
     call<void>("cancel_online_beatmap_download"),
+  refreshCollectionSummaries: (client: OsuClient) => call<CollectionSummaries>("refresh_collection_summaries", { client }),
+  listCollectionSummaries: () => call<CollectionSummaries>("list_collection_summaries"),
+  queryCollectionBrowser: (query: CollectionBrowseQuery) => call<CollectionBrowsePage>("query_collection_browser", { query }),
+  saveCollectionRecord: (folderId: string, entryId: string, record: CollectionPersonalRecord) => call<CollectionPersonalRecord>("save_collection_record", { folderId, entryId, record }),
+  getCollectionRecord: (folderId: string, entryId: string) => call<CollectionPersonalRecord>("get_collection_record", { folderId, entryId }),
+  getCollectionEntryScores: (folderId: string, entryId: string, player: string | null) => call<LocalScoreRecord[]>("get_collection_entry_scores", { folderId, entryId, player }),
+  getCollectionArtwork: (folderId: string | null, offset = 0) => call<CollectionArtwork[]>("get_collection_artwork", { folderId, offset }),
+  refreshLocalScores: (force = false) => call<LocalScoreStatus>("refresh_local_scores", { force }),
+  queryCollectionEntries: (folderId: string, offset: number, limit: number, revision: number) => call<CollectionEntryPage>("query_collection_entries", { folderId, offset, limit, revision }),
   listCollections: () => call<CollectionSnapshot>("list_collections"),
   getCollectionSyncStatus: () => call<CollectionSyncStatus>("get_collection_sync_status"),
   refreshCollections: (client: OsuClient) => call<CollectionSnapshot>("refresh_collections", { client }),
@@ -573,6 +603,7 @@ export const desktopApi = {
     }),
   getLocalBeatmapPath: (client: OsuClient, resourceId: string) =>
     call<string>("get_local_beatmap_path", { client, resourceId }),
+  getLocalArtworkSample: () => call<LocalArtwork[]>("get_local_artwork_sample"),
   getLocalBeatmapBackground: (client: OsuClient, resourceId: string, size: "thumbnail" | "stage" = "thumbnail") =>
     call<string | null>("get_local_beatmap_background", {
       client,

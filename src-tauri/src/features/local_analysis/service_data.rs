@@ -4,7 +4,7 @@
 //! the service focused on orchestration rather than serialization details.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -66,6 +66,14 @@ pub(super) struct IndexedEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct LocalIndex {
+    #[serde(skip)]
+    pub(super) search_fields: Vec<Option<SearchText>>,
+    #[serde(skip)]
+    pub(super) resource_lookup: BTreeMap<String, usize>,
+    #[serde(skip)]
+    pub(super) beatmap_id_lookup: BTreeMap<i32, usize>,
+    #[serde(skip)]
+    pub(super) set_id_lookup: BTreeSet<i32>,
     pub(super) schema: u32,
     pub(super) difficulty_algorithm: String,
     pub(super) source_root: String,
@@ -82,9 +90,89 @@ pub(super) struct LocalIndex {
     pub(super) skin_orders: BTreeMap<SkinSort, Vec<usize>>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct SearchText {
+    fields: [String; 8],
+    ids: [Option<String>; 2],
+}
+
 impl LocalIndex {
+    pub(super) fn matches(
+        &self,
+        position: usize,
+        query: &super::super::models::BeatmapQuery,
+        search: &str,
+    ) -> bool {
+        let IndexedData::Beatmap { summary, detail } = &self.entries[position].data else {
+            return false;
+        };
+        if !super::service_query::beatmap_matches(summary, detail, query, "") {
+            return false;
+        }
+        if search.trim().is_empty() {
+            return true;
+        }
+        let Some(text) = self.search_fields.get(position).and_then(Option::as_ref) else {
+            return super::service_query::beatmap_matches(summary, detail, query, search);
+        };
+        search.split_whitespace().all(|term| {
+            text.fields.iter().any(|field| field.contains(term))
+                || text.ids.iter().flatten().any(|id| id == term)
+        })
+    }
+
+    pub(super) fn resource(&self, id: &str) -> Option<&IndexedEntry> {
+        self.resource_lookup
+            .get(id)
+            .and_then(|position| self.entries.get(*position))
+    }
+
     pub(super) fn rebuild_runtime_indexes(&mut self) {
         // 持久化数据只存稳定字段；派生查询索引在载入后重建以兼顾兼容性和查询速度。
+        self.search_fields = Vec::with_capacity(self.entries.len());
+        self.resource_lookup.clear();
+        self.beatmap_id_lookup.clear();
+        self.set_id_lookup.clear();
+        for (position, entry) in self.entries.iter().enumerate() {
+            let text = match &entry.data {
+                IndexedData::Beatmap { summary, detail } => {
+                    self.resource_lookup
+                        .entry(summary.resource.resource_id.clone())
+                        .or_insert(position);
+                    if let Some(id) = summary.beatmap_id {
+                        self.beatmap_id_lookup.entry(id).or_insert(position);
+                    }
+                    if let Some(id) = summary.beatmap_set_id {
+                        self.set_id_lookup.insert(id);
+                    }
+                    Some(SearchText {
+                        fields: [
+                            &summary.title,
+                            &summary.title_unicode,
+                            &summary.artist,
+                            &summary.artist_unicode,
+                            &summary.creator,
+                            &summary.difficulty_name,
+                            &detail.source,
+                            &detail.tags,
+                        ]
+                        .map(|text| text.to_lowercase()),
+                        ids: [
+                            summary.beatmap_id.map(|id| id.to_string()),
+                            summary.beatmap_set_id.map(|id| id.to_string()),
+                        ],
+                    })
+                }
+                IndexedData::Skin { detail } => {
+                    self.resource_lookup
+                        .entry(detail.summary.resource.resource_id.clone())
+                        .or_insert(position);
+                    None
+                }
+                _ => None,
+            };
+            self.search_fields.push(text);
+        }
         self.beatmap_md5_lookup.clear();
         self.beatmap_sets.clear();
         self.beatmap_orders.clear();

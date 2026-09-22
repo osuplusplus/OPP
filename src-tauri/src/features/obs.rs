@@ -207,13 +207,13 @@ async fn request(
 }
 
 async fn open(state: &AppState) -> CommandResult<ObsSocket> {
-    let settings = state.store.snapshot()?.settings;
+    let settings = state.store.settings_snapshot()?;
     let password = state.credentials.get_obs_websocket_password()?;
     connect(&settings.obs_websocket_url, password.as_deref()).await
 }
 
 fn status(state: &AppState, connected: bool, error: Option<String>) -> CommandResult<ObsStatus> {
-    let settings = state.store.snapshot()?.settings;
+    let settings = state.store.settings_snapshot()?;
     Ok(ObsStatus {
         running: process_running(),
         websocket_url: settings.obs_websocket_url,
@@ -333,7 +333,7 @@ async fn collect_sources(
 }
 
 pub async fn refresh_selected(state: &AppState) -> CommandResult<ObsRefreshResult> {
-    let settings = state.store.snapshot()?.settings;
+    let settings = state.store.settings_snapshot()?;
     let Some(scene) = settings.obs_selected_scene else {
         return Ok(ObsRefreshResult {
             refreshed_sources: vec![],
@@ -408,8 +408,8 @@ pub fn start_obs_monitor(app: AppHandle) {
                     }
                     if state
                         .store
-                        .snapshot()
-                        .map(|saved| saved.settings.launch_tosu_on_obs_detect)
+                        .settings_snapshot()
+                        .map(|saved| saved.launch_tosu_on_obs_detect)
                         .unwrap_or(false)
                     {
                         let _ = start_managed_tosu(&state, app.clone());

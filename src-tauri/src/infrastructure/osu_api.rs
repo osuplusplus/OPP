@@ -189,6 +189,11 @@ impl OsuApi {
         self.authorized_get(&url, access_token).await
     }
 
+    pub async fn get_beatmap(&self, access_token: &str, beatmap_id: u64) -> CommandResult<Value> {
+        let url = format!("{}/beatmaps/{beatmap_id}", self.api_base_url);
+        self.authorized_get(&url, access_token).await
+    }
+
     pub async fn lookup_beatmap_by_checksum(
         &self,
         access_token: &str,
