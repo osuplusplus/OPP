@@ -6,6 +6,7 @@ import type {
 
 const STORAGE_KEY = "opp.similarity-recommendation-history.v2";
 const LEGACY_STORAGE_KEY = "opp.similarity-recommendation-history.v1";
+const FILTER_STORAGE_KEY = "opp.similarity-filter-today.v1";
 
 export interface RecommendationHistoryEntry {
   displayed_at: string;
@@ -99,6 +100,24 @@ export function getTodayRecommendationHistory(ruleset: SimilarityRuleset = "osu"
 
 export function getTodayRecommendedBeatmapIds(ruleset: SimilarityRuleset = "osu") {
   return new Set(getTodayRecommendationHistory(ruleset).map((entry) => entry.result.beatmap_id));
+}
+
+export function getFilterTodayRecommended(ruleset: SimilarityRuleset) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) ?? "null") as Partial<Record<SimilarityRuleset, boolean>> | null;
+    return stored?.[ruleset] ?? true;
+  } catch {
+    return true;
+  }
+}
+
+export function setFilterTodayRecommended(ruleset: SimilarityRuleset, enabled: boolean) {
+  try {
+    const current = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) ?? "{}") as Partial<Record<SimilarityRuleset, boolean>>;
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ ...current, [ruleset]: enabled }));
+  } catch {
+    // Preference persistence is best-effort; the active page state still applies.
+  }
 }
 
 export function excludeTodayRecommendedResults<T extends AnySimilarityResult>(

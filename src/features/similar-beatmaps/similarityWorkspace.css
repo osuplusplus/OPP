@@ -35,9 +35,15 @@
 .similarity-recommendations > button { backdrop-filter: blur(12px); }
 .similarity-history-link { display: flex; gap: 7px; align-items: center; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; }
 .similarity-history-link svg { width: 14px; }
+.similarity-history-controls { display: flex; align-items: center; gap: 14px; color: var(--text-muted); font-size: 11px; }
+.similarity-history-controls label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
+.similarity-history-controls input { accent-color: var(--theme-primary); }
+.similarity-history-controls.is-compact { flex: 0 0 auto; gap: 8px; padding: 0 3px; }
+.similarity-history-controls.is-compact .similarity-history-link { min-height: 34px; padding: 6px 8px; }
 .similarity-index-status { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 11px; }
 .similarity-index-status button { border: 0; background: transparent; color: var(--text-muted); }
 .similarity-workspace { --similarity-line: #ffffff14; position: relative; min-height: calc(100vh - var(--titlebar-height) - 40px); margin: -20px -24px -24px; overflow: hidden; background: transparent; isolation: isolate; }
+.similarity-page:has(.similarity-workspace) > .artwork-mosaic-backdrop { display: none; }
 .similarity-workspace-toolbar { position: relative; z-index: 15; display: flex; align-items: center; gap: 12px; padding: 18px 25px 13px; border-bottom: 1px solid var(--similarity-line); background: linear-gradient(#080d16bd, #080d1633); }
 .similarity-workspace-toolbar .similarity-search { flex: 1; width: auto; }
 .similarity-home-button { display: inline-grid; flex: 0 0 40px; width: 40px; height: 40px; padding: 0; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--text-muted); transition: color .18s ease, background .18s ease; }

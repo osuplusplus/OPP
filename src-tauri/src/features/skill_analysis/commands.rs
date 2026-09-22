@@ -1,4 +1,7 @@
-use std::{collections::HashSet, fs};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+};
 
 use chrono::{Duration, Utc};
 use serde_json::Value;
@@ -23,9 +26,9 @@ use super::{
     },
 };
 
-const CACHE_SECONDS: i64 = 600;
-// Invalidate results that skipped Classic scores before CL support was added.
-const CACHE_REVISION: &str = "2";
+const CACHE_SECONDS: i64 = 3_600;
+// Invalidate prior full-recalculation records before enabling incremental reuse.
+const CACHE_REVISION: &str = "3";
 const MAX_LIMIT: usize = 200;
 
 fn skill_cache_key(request: &SkillAnalysisRequest) -> String {
@@ -103,6 +106,9 @@ async fn analyze_player_skills_inner(
         store.read_cached(|saved| saved.cache.get(&key).cloned())
     })
     .await??;
+    let cached_result = cached.as_ref().and_then(|record| {
+        serde_json::from_value::<SkillAnalysisResult>(record.value.clone()).ok()
+    });
     if !request.force_refresh
         && let Some(record) = cached.as_ref()
         && Utc::now() - record.fetched_at < Duration::seconds(CACHE_SECONDS)
@@ -142,7 +148,15 @@ async fn analyze_player_skills_inner(
     }
     scores.truncate(MAX_LIMIT);
 
-    let result = analyze_scores(&state, &profile, &scores, &request, span).await?;
+    let result = analyze_scores(
+        &state,
+        &profile,
+        &scores,
+        &request,
+        cached_result.as_ref(),
+        span,
+    )
+    .await?;
     let value = serde_json::to_value(&result)?;
     let store = state.store.clone();
     crate::infrastructure::tasks::blocking_io("write_skill_cache", move || {
@@ -164,6 +178,7 @@ async fn analyze_scores(
     profile: &OwnProfile,
     scores: &[Score],
     request: &SkillAnalysisRequest,
+    cached_result: Option<&SkillAnalysisResult>,
     span: Option<&crate::infrastructure::logging::LogSpan>,
 ) -> CommandResult<SkillAnalysisResult> {
     let mut contributions = Vec::with_capacity(scores.len());
@@ -171,11 +186,21 @@ async fn analyze_scores(
     let mut coverage = SkillCoverage {
         requested_scores: scores.len(),
         analyzed_scores: 0,
+        reused_scores: 0,
         local_scores: 0,
         online_scores: 0,
         skipped_scores: 0,
         skipped_reasons: Vec::new(),
     };
+    let cached_contributions = cached_result
+        .map(|result| {
+            result
+                .contributions
+                .iter()
+                .map(|contribution| (contribution.beatmap_id, contribution))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
 
     for (index, score) in scores.iter().enumerate() {
         let Some(beatmap_id) = score
@@ -198,6 +223,44 @@ async fn analyze_scores(
             continue;
         }
         let mods = score_mods(score);
+        let misses = score
+            .statistics
+            .get("count_miss")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
+        let weight = score
+            .weight
+            .as_ref()
+            .and_then(|value| value.get("percentage"))
+            .and_then(Value::as_f64)
+            .unwrap_or_else(|| 0.95_f64.powi(index as i32))
+            .max(0.0001);
+        if let Some(cached) = cached_contributions
+            .get(&beatmap_id)
+            .filter(|cached| cached.mods == mods)
+            .filter(|cached| cached.source == "local" || request.include_online)
+        {
+            let mut contribution = (*cached).clone();
+            let factor = algorithm::score_factor(misses, score.max_combo, contribution.max_combo);
+            let mut weighted = contribution.skills.clone();
+            weighted.scale_score_factor(factor);
+            contribution.pp = score.pp;
+            contribution.accuracy = score.accuracy;
+            contribution.combo = score.max_combo;
+            contribution.misses = misses;
+            contribution.weight = weight;
+            contribution.weighted_skills = weighted;
+            contribution.error = None;
+            if contribution.source == "local" {
+                coverage.local_scores += 1;
+            } else {
+                coverage.online_scores += 1;
+            }
+            coverage.analyzed_scores += 1;
+            coverage.reused_scores += 1;
+            contributions.push(contribution);
+            continue;
+        }
         let mut source = "local";
         let mut resource_id = None;
         let bytes = match state
@@ -299,23 +362,16 @@ async fn analyze_scores(
                 continue;
             }
         };
-        let misses = score
-            .statistics
-            .get("count_miss")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as u32;
-        let max_combo = score.max_combo.or_else(|| {
-            let pp_map = rosu_pp::Beatmap::from_bytes(&bytes).ok()?;
-            Some(rosu_pp::Difficulty::new().calculate(&pp_map).max_combo() as u64)
-        });
-        let factor = algorithm::score_factor(misses, score.max_combo, max_combo);
-        let weight = score
-            .weight
+        let max_combo = score
+            .beatmap
             .as_ref()
-            .and_then(|value| value.get("percentage"))
-            .and_then(Value::as_f64)
-            .unwrap_or_else(|| 0.95_f64.powi(index as i32))
-            .max(0.0001);
+            .and_then(|map| map.get("max_combo"))
+            .and_then(Value::as_u64)
+            .or_else(|| {
+                let pp_map = rosu_pp::Beatmap::from_bytes(&bytes).ok()?;
+                Some(rosu_pp::Difficulty::new().calculate(&pp_map).max_combo() as u64)
+            });
+        let factor = algorithm::score_factor(misses, score.max_combo, max_combo);
         let mut weighted = skills.clone();
         weighted.scale_score_factor(factor);
         let meta = score.beatmap.as_ref();
@@ -379,6 +435,7 @@ async fn analyze_scores(
             Some(serde_json::json!({
                 "requested_scores": coverage.requested_scores,
                 "analyzed_scores": coverage.analyzed_scores,
+                "reused_scores": coverage.reused_scores,
                 "local_scores": coverage.local_scores,
                 "online_scores": coverage.online_scores,
                 "skipped_scores": coverage.skipped_scores,

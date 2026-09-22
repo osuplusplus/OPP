@@ -232,7 +232,7 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     contributions: [1, 2, 3].map((id, index) => ({
       beatmap_id: 1000 + id, title: ["Signal Garden", "Night Circuit", "Blue Window"][index], artist: "Preview Artist", version: "Insane", creator: "Preview Mapper", mods: index === 1 ? ["HD", "DT"] : [], pp: 320 - index * 24, accuracy: 98.4 - index * 0.4, combo: 850 - index * 60, max_combo: 902, misses: index, source: index === 2 ? "online" : "local", resource_id: index === 2 ? null : `stable:beatmap:preview-${id}`, skills: { stamina: 260 + index * 8, tenacity: 220 + index * 12, agility: 310 - index * 14, accuracy: 280, precision: 300 - index * 9, reaction: 215 + index * 8, memory: index * 12, reading: 330 - index * 10 }, weighted_skills: { stamina: 250 + index * 5, tenacity: 210 + index * 10, agility: 295 - index * 12, accuracy: 280, precision: 288 - index * 8, reaction: 205 + index * 8, memory: index * 10, reading: 315 - index * 9 }, error: null,
     })),
-    coverage: { requested_scores: 200, analyzed_scores: 184, local_scores: 156, online_scores: 28, skipped_scores: 16, skipped_reasons: ["部分谱面暂时不可用"] },
+    coverage: { requested_scores: 200, analyzed_scores: 184, reused_scores: 176, local_scores: 156, online_scores: 28, skipped_scores: 16, skipped_reasons: ["部分谱面暂时不可用"] },
     fetched_at: new Date().toISOString(), stale: false,
   } as T;
   if (command === "get_game_status") return { clients: [{ client: "stable", running: false, executable: null, detected_at: new Date().toISOString() }, { client: "lazer", running: false, executable: null, detected_at: new Date().toISOString() }] } as T;

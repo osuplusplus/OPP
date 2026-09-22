@@ -12,7 +12,10 @@ import { Sidebar } from "./Sidebar";
 import { desktopApi } from "../shared/lib/tauri";
 import type { GameSessionSummary } from "../shared/types/osu";
 import { compactNumber, dateTime, percent } from "../shared/lib/format";
-import { Badge, Button, Card, DataLine } from "../shared/components/ui";
+import { Badge, Button, DataLine } from "../shared/components/ui";
+import { NotificationCard } from "../shared/components/notifications";
+import { AppDialog } from "../shared/components/AppDialog";
+import { displayFileName } from "../shared/lib/displayText";
 import { CollectionAddDialog } from "../features/collections/CollectionAddDialog";
 import { requestCollectionTaskCancellation, subscribeCollectionTask, updateCollectionTask, type CollectionTaskStatus } from "../features/collections/taskStatus";
 import { settingsQueryKey, useSettings } from "../features/settings/api";
@@ -88,10 +91,7 @@ function DownloadToast() {
   const completed = progress.phase === "finished" || progress.phase === "cancelled";
   const percent = downloadProgressPercent(progress);
   if (progress.phase === "cancelled") return (
-    <div aria-live="polite" className="fixed bottom-6 right-6 z-[180] w-[340px] rounded-2xl border border-amber-300/20 bg-[#0b101b]/95 p-4 shadow-2xl backdrop-blur">
-      <p className="text-sm font-semibold text-white">下载已取消</p>
-      <p className="mt-1 text-xs text-slate-400">{progress.message ?? "未完成的谱面不会继续下载。"}</p>
-    </div>
+    <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={progress.message ?? "未完成的谱面不会继续下载。"} title="下载已取消" tone="warning" />
   );
   const cancelDownload = async () => {
     setCancelling(true);
@@ -102,23 +102,18 @@ function DownloadToast() {
     }
   };
   if (!completed) return (
-    <div aria-live="polite" className="fixed bottom-6 right-6 z-[180] w-[340px] rounded-2xl border border-cyan-300/20 bg-[#0b101b]/95 p-4 shadow-2xl backdrop-blur">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-white">{cancelling ? "正在取消下载" : "正在下载谱面"}</p>
-          <p className="mt-1 truncate text-xs text-slate-400">{progress.current_title ?? progress.message ?? "准备下载"}</p>
-        </div>
-        <span className="shrink-0 font-mono text-xs text-cyan-200">{progress.processed}/{progress.total}</span>
-      </div>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]"><div className="h-full rounded-full bg-[var(--theme-primary)] transition-[width]" style={{ width: `${percent}%` }} /></div>
+    <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={progress.current_title ?? progress.message ?? "准备下载"} icon={<Loader2 className="size-5 animate-spin" />} title={cancelling ? "正在取消下载" : "正在下载谱面"} tone="info">
+      <div className="flex items-center justify-between gap-3 text-xs"><span className="text-slate-500">下载进度</span><span className="shrink-0 font-mono text-cyan-200">{progress.processed}/{progress.total}</span></div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.08]"><div className="h-full rounded-full bg-[var(--theme-primary)] transition-[width]" style={{ width: `${percent}%` }} /></div>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs">
         <span className="min-w-0 flex-1 truncate text-slate-500">{formatDownloadedBytes(progress)}</span>
         <strong className="shrink-0 font-mono text-emerald-200">{formatTransfer(displaySpeed ?? progress.bytes_per_second ?? 0)}</strong>
         <Button disabled={cancelling} onClick={() => void cancelDownload()} size="sm" variant="ghost"><X className="size-3.5" />{cancelling ? "取消中" : "取消下载"}</Button>
       </div>
-    </div>
+    </NotificationCard>
   );
-  return <div aria-live="polite" className="fixed bottom-6 right-6 z-[180] w-[340px] rounded-2xl border border-cyan-300/20 bg-[#0b101b]/95 p-4 shadow-2xl backdrop-blur"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-white">{completed ? "下载完成" : "正在下载谱面"}</p><p className="mt-1 truncate text-xs text-slate-400">{progress.current_title ?? progress.message ?? "准备下载"}</p></div><span className="shrink-0 font-mono text-xs text-cyan-200">{progress.processed}/{progress.total}</span></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]"><div className="h-full rounded-full bg-[var(--theme-primary)] transition-[width]" style={{ width: `${percent}%` }} /></div><div className="mt-2 flex justify-between gap-3 text-xs"><span className="truncate text-slate-500">{formatDownloadedBytes(progress)}</span><strong className="shrink-0 font-mono text-emerald-200">{formatTransfer(progress.bytes_per_second ?? 0)}</strong></div></div>;
+  if (progress.completed_paths?.length) return null;
+  return <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={progress.current_title ?? progress.message ?? "下载任务已结束"} title="下载完成" tone="success"><div className="flex justify-between gap-3 text-xs"><span className="truncate text-slate-500">{formatDownloadedBytes(progress)}</span><strong className="shrink-0 font-mono text-emerald-200">{progress.processed}/{progress.total}</strong></div></NotificationCard>;
 }
 
 function CollectionTaskToast() {
@@ -188,13 +183,29 @@ function CollectionTaskToast() {
 
   if (collapsed) return <button className="fixed right-6 top-[calc(var(--titlebar-height)+16px)] z-[210] flex items-center gap-2 rounded-xl border border-cyan-300/20 bg-[#0b101b]/95 px-4 py-3 text-sm text-cyan-100 shadow-2xl backdrop-blur" onClick={() => setCollapsed(false)} type="button">{terminal ? status.phase === "completed" ? <CheckCircle2 className="size-4 text-emerald-300" /> : <AlertTriangle className="size-4 text-amber-300" /> : <Loader2 className="size-4 animate-spin" />}<span>{labels[status.phase]}</span><ChevronDown className="size-4 text-slate-500" /></button>;
 
-  return <section aria-live="polite" className="fixed right-6 top-[calc(var(--titlebar-height)+16px)] z-[210] w-[390px] overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#0b101b]/95 shadow-2xl backdrop-blur"><div className="flex items-start gap-3 border-b border-white/[0.08] p-4"><span className="mt-0.5">{terminal ? status.phase === "completed" ? <CheckCircle2 className="size-5 text-emerald-300" /> : <AlertTriangle className="size-5 text-amber-300" /> : <Loader2 className="size-5 animate-spin text-cyan-300" />}</span><div className="min-w-0 flex-1"><h2 className="text-sm font-semibold text-white">{labels[status.phase]}</h2><p className="mt-1 text-xs text-slate-500">后台执行中，可以自由切换到其他页面</p></div><button aria-label="最小化同步进度" className="text-slate-500 hover:text-white" onClick={() => setCollapsed(true)} type="button"><ChevronUp className="size-4" /></button>{terminal ? <button aria-label="关闭同步进度" className="text-slate-500 hover:text-white" onClick={() => setStatus(null)} type="button"><X className="size-4" /></button> : null}</div><div className="space-y-3 p-4"><p className="text-sm leading-5 text-slate-300">{status.message}</p>{status.total ? <><div className="h-2 overflow-hidden rounded-full bg-white/[0.08]"><div className={`h-full rounded-full transition-[width] ${status.phase === "failed" ? "bg-rose-400" : "bg-[var(--theme-primary)]"}`} style={{ width: `${percent}%` }} /></div><div className="flex justify-between font-mono text-xs text-slate-500"><span>{status.processed}/{status.total}</span><span>{percent.toFixed(0)}%</span></div></> : null}{status.errors.length ? <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-300/15 bg-rose-300/[0.05] p-3"><p className="mb-2 text-xs font-semibold text-rose-200">错误信息</p>{status.errors.map((error, index) => <p className="mt-1 text-xs leading-5 text-rose-100/80" key={`${error}-${index}`}>{error}</p>)}</div> : null}{!terminal ? <Button disabled={cancelling} onClick={() => void cancelTask()} size="sm" variant="ghost"><X className="size-3.5" />{cancelling ? "正在取消…" : "取消任务"}</Button> : null}</div></section>;
+  return (
+    <NotificationCard
+      className="fixed right-6 top-[calc(var(--titlebar-height)+16px)] z-[210]"
+      description="后台执行中，可以自由切换到其他页面"
+      headerActions={<button aria-label="最小化同步进度" className="grid size-7 place-items-center rounded-md text-slate-500 hover:bg-[var(--surface-interactive-hover)] hover:text-white" onClick={() => setCollapsed(true)} type="button"><ChevronUp className="size-4" /></button>}
+      icon={terminal ? status.phase === "completed" ? <CheckCircle2 className="size-5" /> : <AlertTriangle className="size-5" /> : <Loader2 className="size-5 animate-spin" />}
+      onClose={terminal ? () => setStatus(null) : undefined}
+      title={labels[status.phase]}
+      tone={status.phase === "failed" ? "error" : status.phase === "cancelled" ? "warning" : status.phase === "completed" ? "success" : "info"}
+    >
+      <div className="space-y-3">
+        <p className="text-sm leading-5 text-slate-300">{status.message}</p>
+        {status.total ? <><div className="h-2 overflow-hidden rounded-full bg-white/[0.08]"><div className={`h-full rounded-full transition-[width] ${status.phase === "failed" ? "bg-rose-400" : "bg-[var(--theme-primary)]"}`} style={{ width: `${percent}%` }} /></div><div className="flex justify-between font-mono text-xs text-slate-500"><span>{status.processed}/{status.total}</span><span>{percent.toFixed(0)}%</span></div></> : null}
+        {status.errors.length ? <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-300/15 bg-rose-300/[0.05] p-3"><p className="mb-2 text-xs font-semibold text-rose-200">错误信息</p>{status.errors.map((error, index) => <p className="mt-1 text-xs leading-5 text-rose-100/80" key={`${error}-${index}`}>{error}</p>)}</div> : null}
+        {!terminal ? <Button disabled={cancelling} onClick={() => void cancelTask()} size="sm" variant="ghost"><X className="size-3.5" />{cancelling ? "正在取消…" : "取消任务"}</Button> : null}
+      </div>
+    </NotificationCard>
+  );
 }
 
 function DownloadCompletedPlaylist() {
   const [files, setFiles] = useState<string[]>([]);
   const [destination, setDestination] = useState<string | null>(null);
-  const [noticeVisible, setNoticeVisible] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -206,36 +217,26 @@ function DownloadCompletedPlaylist() {
       window.clearTimeout(timer);
       setFiles(next.completed_paths);
       setDestination(next.destination ?? null);
-      setNoticeVisible(true);
       timer = window.setTimeout(() => {
-        setNoticeVisible(false);
         setFiles([]);
         setDestination(null);
-      }, 5_000);
+      }, 10_000);
     }).then((unlisten) => { if (disposed) unlisten(); else dispose = unlisten; });
     return () => { disposed = true; window.clearTimeout(timer); dispose?.(); };
   }, []);
 
   if (!files.length) return null;
-  const openFirst = () => void desktopApi.openDownloadedPath(files[0]);
-  return <>
-    {noticeVisible ? <button aria-label="打开已下载谱面" className="fixed right-6 top-6 z-[185] w-[320px] rounded-lg border border-emerald-300/25 bg-[var(--surface-panel)] p-4 text-left shadow-xl" onDoubleClick={openFirst} type="button">
-      <p className="text-sm font-semibold text-emerald-300">下载完成</p>
-      <p className="mt-1 truncate text-xs text-slate-400">双击打开第一个已下载文件</p>
-    </button> : null}
-    <section aria-label="已下载文件" className="fixed bottom-6 right-6 z-[181] w-[340px] overflow-hidden rounded-lg border border-white/10 bg-[var(--surface-panel)] shadow-xl">
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.08] px-4 py-3">
-        <p className="text-sm font-semibold text-white">已下载文件</p>
-        {destination ? <Button aria-label="打开下载位置" onClick={() => void desktopApi.openDownloadedPath(destination)} size="icon" title="打开下载位置" variant="ghost"><FolderOpen className="size-4" /></Button> : null}
-      </div>
-      <div className="max-h-44 overflow-y-auto p-2">
-        {files.map((file) => <button className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-slate-300 hover:bg-white/[0.06]" key={file} onDoubleClick={() => void desktopApi.openDownloadedPath(file)} title={file} type="button">
+  return (
+    <NotificationCard className="fixed bottom-6 right-6 z-[181]" description={`已保存 ${files.length} 个谱面文件，点击文件即可打开。`} onClose={() => { setFiles([]); setDestination(null); }} title="下载完成" tone="success">
+      <div className="max-h-44 space-y-1 overflow-y-auto">
+        {files.map((file) => <button className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-slate-300 hover:bg-white/[0.06]" key={file} onClick={() => void desktopApi.openDownloadedPath(file)} title={displayFileName(file)} type="button">
           <Play className="size-3.5 shrink-0 text-[var(--theme-primary)]" />
-          <span className="truncate">{file.split(/[\\/]/).pop()}</span>
+          <span className="truncate">{displayFileName(file)}</span>
         </button>)}
       </div>
-    </section>
-  </>;
+      {destination ? <Button className="mt-2" onClick={() => void desktopApi.openDownloadedPath(destination)} size="sm" variant="ghost"><FolderOpen className="size-4" />打开下载位置</Button> : null}
+    </NotificationCard>
+  );
 }
 
 export function GameCompletionOverlay({ session, discovery, settings, onClose, onNavigate }: { session: GameSessionSummary | null; discovery: NewReplaysDetected | null; settings: AppSettings | undefined; onClose: () => void; onNavigate: (path: string) => void }) {
@@ -258,10 +259,10 @@ export function GameCompletionOverlay({ session, discovery, settings, onClose, o
     catch (error) { setRenderError((error as { message?: string }).message ?? String(error)); }
     finally { setBusy(false); }
   };
-  return <div className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-black/65 p-6 backdrop-blur-sm"><Card className="my-6 w-full max-w-2xl p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><Badge tone="success">游戏已结束</Badge><h2 className="mt-3 text-2xl font-semibold text-white">本次游戏总结</h2><p className="mt-1 text-sm text-slate-500">{dateTime(session?.started_at ?? discovery?.started_at ?? null)} → {dateTime(session?.ended_at ?? discovery?.detected_at ?? null)}</p></div><Button onClick={onClose} size="sm">关闭</Button></div>
-    {end && session ? <div className="mt-5"><DataLine label="PP" value={`${end.pp?.toFixed(2) ?? "—"} (${change(session.start.pp, end.pp)})`} /><DataLine label="计分成绩" value={`${compactNumber(end.ranked_score)} (${integerChange(session.start.ranked_score, end.ranked_score)})`} /><DataLine label="准确率" value={`${percent(end.hit_accuracy)} (${change(session.start.hit_accuracy, end.hit_accuracy)}%)`} /><DataLine label="总命中次数" value={`${compactNumber(end.total_hits)} (${integerChange(session.start.total_hits, end.total_hits)})`} /><DataLine label="总分" value={`${compactNumber(end.total_score)} (${integerChange(session.start.total_score, end.total_score)})`} /></div> : null}
+  return <AppDialog description={`${dateTime(session?.started_at ?? discovery?.started_at ?? null)} → ${dateTime(session?.ended_at ?? discovery?.detected_at ?? null)}`} onOpenChange={(open) => { if (!open) onClose(); }} open size="lg" title={<span className="flex items-center gap-3"><Badge tone="success">游戏已结束</Badge><span>本次游戏总结</span></span>}>
+    {end && session ? <div><DataLine label="PP" value={`${end.pp?.toFixed(2) ?? "—"} (${change(session.start.pp, end.pp)})`} /><DataLine label="计分成绩" value={`${compactNumber(end.ranked_score)} (${integerChange(session.start.ranked_score, end.ranked_score)})`} /><DataLine label="准确率" value={`${percent(end.hit_accuracy)} (${change(session.start.hit_accuracy, end.hit_accuracy)}%)`} /><DataLine label="总命中次数" value={`${compactNumber(end.total_hits)} (${integerChange(session.start.total_hits, end.total_hits)})`} /><DataLine label="总分" value={`${compactNumber(end.total_score)} (${integerChange(session.start.total_score, end.total_score)})`} /></div> : null}
     {discovery ? <section className="mt-6 border-t border-white/[0.08] pt-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">发现 {discovery.replays.length} 个新回放</h3><p className="mt-1 text-xs text-slate-500">勾选本次要处理的回放并加入 Danser 队列；任务不会立即开始渲染。</p></div><Badge tone="cyan">{discovery.client}</Badge></div><div className="mt-3 flex items-center justify-between gap-3"><span className="text-xs text-slate-500">已选 {selected.length} / {renderablePaths.length}</span><div className="flex gap-2"><Button disabled={busy || !renderablePaths.length} onClick={() => setSelected(renderablePaths)} size="sm" variant="ghost">全选可渲染</Button><Button disabled={busy || !selected.length} onClick={() => setSelected([])} size="sm" variant="ghost">清空</Button></div></div><div className="mt-3 max-h-64 space-y-2 overflow-y-auto">{discovery.replays.map((item) => <label className={`flex items-start gap-3 rounded-xl border p-3 ${item.renderable ? "border-white/[0.08] bg-black/15" : "border-amber-300/15 bg-amber-300/[0.04]"}`} key={item.path}><input aria-label={`选择 ${item.beatmap_title ?? item.file_name}`} checked={selected.includes(item.path)} className="mt-1 accent-cyan-300" disabled={!item.renderable || busy} onChange={(event) => setSelected((current) => event.target.checked ? [...current, item.path] : current.filter((path) => path !== item.path))} type="checkbox" /><span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-200">{item.beatmap_title ?? item.file_name}</span><span className="mt-1 block text-xs text-slate-500">{item.renderable ? item.username ?? "可使用 Danser 渲染" : item.reason}</span></span></label>)}</div>{renderError ? <p className="mt-3 text-sm text-rose-200">{renderError}</p> : null}<div className="mt-4 flex justify-end gap-2">{!danserReady || !settings?.replay_export_directory || !settings.danser_render_preferences ? <Button onClick={() => { onClose(); onNavigate("/settings"); }}><Settings2 className="size-4" />配置 Danser</Button> : <Button disabled={!selected.length} loading={busy} onClick={() => void enqueueSelected()} variant="primary"><Play className="size-4" />加入渲染队列</Button>}</div></section> : null}
-  </Card></div>;
+  </AppDialog>;
 }
 
 function TosuLaunchPrompt({ settings, onClose }: { settings: AppSettings; onClose: () => void }) {
@@ -269,7 +270,20 @@ function TosuLaunchPrompt({ settings, onClose }: { settings: AppSettings; onClos
   const [dontAsk, setDontAsk] = useState(settings.suppress_tosu_launch_prompt ?? false);
   const [busy, setBusy] = useState(false);
   const start = async () => { setBusy(true); try { await desktopApi.updateSettings({ ...settings, launch_tosu_on_obs_detect: autoLaunch, suppress_tosu_launch_prompt: dontAsk }); await desktopApi.startTosu(); onClose(); } finally { setBusy(false); } };
-  return <div className="fixed inset-0 z-[220] grid place-items-center bg-black/60 p-6 backdrop-blur-sm"><Card className="w-full max-w-md p-6 shadow-2xl"><h2 className="text-lg font-semibold text-white">启动 tosu</h2><p className="mt-2 text-sm leading-6 text-slate-400">检测到 OBS 已启动。Tosu 就绪后会刷新所选场景中的浏览器源。</p><label className="mt-5 flex items-center gap-3 text-sm text-slate-200"><input checked={autoLaunch} onChange={(event) => setAutoLaunch(event.target.checked)} type="checkbox" />每次检测到 OBS 启动时自动打开 tosu</label><label className="mt-3 flex items-center gap-3 text-sm text-slate-200"><input checked={dontAsk} onChange={(event) => setDontAsk(event.target.checked)} type="checkbox" />不再提示</label><div className="mt-6 flex justify-end gap-2"><Button disabled={busy} onClick={onClose} variant="ghost">取消</Button><Button loading={busy} onClick={() => void start()}>启动 tosu</Button></div></Card></div>;
+  return (
+    <AppDialog
+      closeDisabled={busy}
+      description="检测到 OBS 已启动。Tosu 就绪后会刷新所选场景中的浏览器源。"
+      footer={<><Button disabled={busy} onClick={onClose} variant="ghost">取消</Button><Button loading={busy} onClick={() => void start()}>启动 tosu</Button></>}
+      onOpenChange={(open) => { if (!open && !busy) onClose(); }}
+      open
+      size="sm"
+      title="启动 tosu"
+    >
+      <label className="flex items-center gap-3 text-sm text-slate-200"><input checked={autoLaunch} onChange={(event) => setAutoLaunch(event.target.checked)} type="checkbox" />每次检测到 OBS 启动时自动打开 tosu</label>
+      <label className="mt-3 flex items-center gap-3 text-sm text-slate-200"><input checked={dontAsk} onChange={(event) => setDontAsk(event.target.checked)} type="checkbox" />不再提示</label>
+    </AppDialog>
+  );
 }
 
 export function AppShell() {
@@ -454,7 +468,7 @@ export function AppShell() {
           <ArrowUp className="size-5" />
         </button>
       ) : null}
-      {completedSession || newReplays ? <><GameCompletionOverlay key={newReplays?.detected_at ?? completedSession?.started_at} session={completedSession} discovery={newReplays} settings={settingsQuery.data} onNavigate={(path) => navigate(path)} onClose={() => { if (completedSession) setDismissedSession(completedSession.started_at); setCompletedSession(null); setNewReplays(null); }} /><div className="fixed bottom-8 left-1/2 z-[110] -translate-x-1/2 rounded-xl border border-cyan-300/15 bg-[#0b101b]/95 px-4 py-2 text-xs text-slate-400 shadow-xl">Tips：嘛，如果拘泥于数据就会让游戏本来的乐趣消失哦</div></> : null}
+      {completedSession || newReplays ? <><GameCompletionOverlay key={newReplays?.detected_at ?? completedSession?.started_at} session={completedSession} discovery={newReplays} settings={settingsQuery.data} onNavigate={(path) => navigate(path)} onClose={() => { if (completedSession) setDismissedSession(completedSession.started_at); setCompletedSession(null); setNewReplays(null); }} /><NotificationCard className="fixed bottom-6 left-1/2 z-[280] -translate-x-1/2" description="嘛，如果拘泥于数据就会让游戏本来的乐趣消失哦。" title="小提示" tone="info" /></> : null}
       {tosuPromptSettings ? <TosuLaunchPrompt settings={tosuPromptSettings} onClose={() => setTosuPromptSettings(null)} /> : null}
       <Suspense fallback={null}>
       {onboardingOpen ? (

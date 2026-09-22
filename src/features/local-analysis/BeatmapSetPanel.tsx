@@ -17,8 +17,8 @@ import { readStageSession, writeStageSession } from "./stageSession";
 
 type Selection = { set: LocalBeatmapSetSummary; matched: Set<string>; difficultyId: string; focus: number };
 
-export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libraryRevision, followTarget }: {
-  client: OsuClient; ruleset: Ruleset; onOpen: (resourceId: string) => void; libraryControl?: ReactNode; libraryRevision?: string; followTarget?: MusicLocation | null;
+export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libraryRevision, followTarget, returnControl }: {
+  client: OsuClient; ruleset: Ruleset; onOpen: (resourceId: string) => void; libraryControl?: ReactNode; libraryRevision?: string; followTarget?: MusicLocation | null; returnControl?: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const [saved] = useState(() => readStageSession(client,ruleset));
@@ -123,6 +123,7 @@ export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libra
   return <section className="local-stage" style={artwork.style} aria-label="本地谱面工作区" aria-busy={busy}>
     <StageBackground source={artwork.source} reduceMotion={settings.data?.reduce_motion} />
     <header className="local-stage-toolbar">
+      {returnControl}
       <div className="local-stage-label"><span>LOCAL</span><strong>BEATMAPS</strong></div>
       <LocalSetSearch query={query} onQuery={setQuery} onChoose={(candidate) => void choose(candidate)} />
       <button type="button" className="local-stage-button local-stage-random" disabled={busy} onClick={() => void random()} title="从当前搜索与筛选结果随机选择"><Shuffle />随机一首</button>

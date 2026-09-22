@@ -16,11 +16,11 @@ import {
   Settings2,
   ShieldAlert,
   WandSparkles,
-  X,
 } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
+import { AppDialog } from "../../shared/components/AppDialog";
 import { Badge, Button, Card, EmptyState, Skeleton } from "../../shared/components/ui";
 import { cn } from "../../shared/lib/cn";
 import { desktopApi } from "../../shared/lib/tauri";
@@ -105,20 +105,20 @@ function WriteModeDialog({ copyName, imported, skinName, onCancel, onChangeName,
   onOverwrite: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[1300] grid place-items-center bg-black/60 p-6 backdrop-blur-sm">
-      <Card className="w-full max-w-lg overflow-hidden border-white/15 shadow-[0_28px_100px_rgba(0,0,0,.65)]">
-        <div className="flex items-start gap-4 border-b border-white/[0.08] p-6">
-          <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[var(--theme-primary-muted)] text-[var(--theme-primary-light)]"><ShieldAlert className="size-5" /></span>
-          <div className="min-w-0 flex-1"><h2 className="text-xl font-semibold text-white">保存 Skin 修改</h2><p className="mt-2 text-sm leading-6 text-slate-400">选择复制为新 Skin，或直接替换“{skinName}”。所有操作都会在完整校验后一次性写入。</p></div>
-          <button aria-label="取消保存" className="grid size-9 place-items-center rounded-xl text-slate-500 hover:bg-white/[0.06] hover:text-white" onClick={onCancel} type="button"><X className="size-4" /></button>
-        </div>
-        <div className="space-y-5 p-6">
-          <label className="block"><span className="mb-2 block text-sm font-semibold text-slate-200">新 Skin 名称</span><input autoFocus className="w-full rounded-xl border border-white/[0.1] bg-black/25 px-4 py-3 text-base text-white outline-none focus:border-[var(--theme-primary)]" onChange={(event) => onChangeName(event.target.value)} value={copyName} /></label>
-          {imported ? <p className="rounded-xl border border-amber-300/15 bg-amber-300/[0.07] px-4 py-3 text-sm text-amber-100">临时打开的 OSK 只能新建副本，不能直接覆盖安装包。</p> : null}
-          <div className="grid gap-3 sm:grid-cols-2"><Button className="min-h-11 justify-center" disabled={imported} onClick={onOverwrite} variant="danger">直接替换当前 Skin</Button><Button className="min-h-11 justify-center" disabled={!copyName.trim()} onClick={onCreateCopy} variant="primary"><Copy className="size-4" />新建副本并保存</Button></div>
-        </div>
-      </Card>
-    </div>
+    <AppDialog
+      closeLabel="取消保存"
+      description={`选择复制为新 Skin，或直接替换“${skinName}”。所有操作都会在完整校验后一次性写入。`}
+      footer={<><Button disabled={imported} onClick={onOverwrite} variant="danger">直接替换当前 Skin</Button><Button disabled={!copyName.trim()} onClick={onCreateCopy} variant="primary"><Copy className="size-4" />新建副本并保存</Button></>}
+      icon={<ShieldAlert className="size-5" />}
+      onOpenChange={(open) => { if (!open) onCancel(); }}
+      open
+      overlayProps={{ className: "z-[1290]" }}
+      title="保存 Skin 修改"
+      contentClassName="z-[1300]"
+    >
+      <label className="block"><span className="mb-2 block text-sm font-semibold text-slate-200">新 Skin 名称</span><input autoFocus className="w-full rounded-xl border border-white/[0.1] bg-black/25 px-4 py-3 text-base text-white outline-none focus:border-[var(--theme-primary)]" onChange={(event) => onChangeName(event.target.value)} value={copyName} /></label>
+      {imported ? <p className="mt-5 rounded-xl border border-amber-300/15 bg-amber-300/[0.07] px-4 py-3 text-sm text-amber-100">临时打开的 OSK 只能新建副本，不能直接覆盖安装包。</p> : null}
+    </AppDialog>
   );
 }
 

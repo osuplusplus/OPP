@@ -68,8 +68,6 @@ export function SettingsPageNew() {
         return <ComingSoonPanel title="回放渲染" />;
       case "tools":
         return <ComingSoonPanel title="工具与缓存" />;
-      case "similarity":
-        return <ComingSoonPanel title="相似谱面" />;
       case "about":
         return <AboutPanel />;
       default:

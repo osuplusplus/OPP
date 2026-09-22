@@ -982,6 +982,7 @@ export interface SkillContribution {
 export interface SkillCoverage {
   requested_scores: number;
   analyzed_scores: number;
+  reused_scores: number;
   local_scores: number;
   online_scores: number;
   skipped_scores: number;

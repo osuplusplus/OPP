@@ -540,13 +540,48 @@ fn filename(response: &Response) -> Option<String> {
         .headers()
         .get(CONTENT_DISPOSITION)
         .and_then(|v| v.to_str().ok())
-        .and_then(|value| {
-            value.split(';').find_map(|part| {
-                let (key, value) = part.trim().split_once('=')?;
-                key.eq_ignore_ascii_case("filename")
-                    .then(|| value.trim_matches('"').to_string())
-            })
-        })
+        .and_then(content_disposition_filename)
+}
+
+fn content_disposition_filename(value: &str) -> Option<String> {
+    let mut regular = None;
+    let mut encoded = None;
+
+    for part in value.split(';') {
+        let Some((key, raw_value)) = part.trim().split_once('=') else {
+            continue;
+        };
+        let raw_value = raw_value.trim().trim_matches('"');
+        if key.eq_ignore_ascii_case("filename*") {
+            let payload = raw_value
+                .split_once("''")
+                .map(|(_, payload)| payload)
+                .unwrap_or(raw_value);
+            encoded = percent_decode_utf8(payload);
+        } else if key.eq_ignore_ascii_case("filename") {
+            regular = percent_decode_utf8(raw_value).or_else(|| Some(raw_value.to_string()));
+        }
+    }
+
+    encoded.or(regular).filter(|name| !name.trim().is_empty())
+}
+
+fn percent_decode_utf8(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let high = (bytes[index + 1] as char).to_digit(16)?;
+            let low = (bytes[index + 2] as char).to_digit(16)?;
+            decoded.push(((high << 4) | low) as u8);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
 }
 
 fn finish_span<T>(span: Option<LogSpan>, result: CommandResult<T>) -> CommandResult<T> {
@@ -557,4 +592,37 @@ fn finish_span<T>(span: Option<LogSpan>, result: CommandResult<T>) -> CommandRes
         }
     }
     result
+}
+
+#[cfg(test)]
+mod content_disposition_tests {
+    use super::content_disposition_filename;
+
+    #[test]
+    fn decodes_percent_encoded_regular_filename() {
+        assert_eq!(
+            content_disposition_filename(
+                r#"attachment; filename="2069950%20Vivid%20Lila%20feat%20KANA.osz""#
+            ),
+            Some("2069950 Vivid Lila feat KANA.osz".to_string())
+        );
+    }
+
+    #[test]
+    fn prefers_utf8_extended_filename() {
+        assert_eq!(
+            content_disposition_filename(
+                r#"attachment; filename="fallback.osz"; filename*=UTF-8''%E6%B5%8B%E8%AF%95%20%E8%B0%B1%E9%9D%A2.osz"#
+            ),
+            Some("测试 谱面.osz".to_string())
+        );
+    }
+
+    #[test]
+    fn keeps_a_malformed_regular_filename_usable() {
+        assert_eq!(
+            content_disposition_filename(r#"attachment; filename="100%broken.osz""#),
+            Some("100%broken.osz".to_string())
+        );
+    }
 }

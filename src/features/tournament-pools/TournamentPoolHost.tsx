@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { TournamentLink } from "../../shared/types/osu";
+import { NotificationCard } from "../../shared/components/notifications";
 
 const TournamentPoolDialog = lazy(() => import("./TournamentPoolDialog"));
 
@@ -26,7 +27,7 @@ export function TournamentPoolHost() {
     }).catch(report);
     return () => { disposed = true; unlisten?.(); };
   }, []);
-  return link ? <Suspense fallback={<p role="status" className="fixed bottom-6 right-6 z-[250] rounded-xl bg-slate-900 p-4 text-white">正在打开比赛图池…</p>}>
+  return link ? <Suspense fallback={<NotificationCard className="fixed bottom-6 right-6 z-[250]" title="正在打开比赛图池…" tone="info" />}>
     <TournamentPoolDialog key={link.id} reference={link.reference} onClose={() => setLink(null)} />
   </Suspense> : null;
 }

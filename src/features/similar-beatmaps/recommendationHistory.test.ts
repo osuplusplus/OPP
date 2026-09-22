@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { ManiaSimilarityResult, SimilarityResult } from "../../shared/types/osu";
 import {
+  getFilterTodayRecommended,
   getTodayRecommendationHistory,
   getTodayRecommendedBeatmapIds,
   recordDisplayedRecommendation,
+  setFilterTodayRecommended,
 } from "./recommendationHistory";
 
 function today() {
@@ -85,5 +87,13 @@ describe("recommendation history", () => {
     recordDisplayedRecommendation(maniaResult, "mania");
     expect(getTodayRecommendationHistory("mania")[0]).toMatchObject({ ruleset: "mania", key_count: 6 });
     expect(localStorage.getItem("opp.similarity-recommendation-history.v2")).toContain('"key_count":6');
+  });
+
+  it("remembers the daily filter independently for each ruleset", () => {
+    expect(getFilterTodayRecommended("osu")).toBe(true);
+    expect(getFilterTodayRecommended("mania")).toBe(true);
+    setFilterTodayRecommended("osu", false);
+    expect(getFilterTodayRecommended("osu")).toBe(false);
+    expect(getFilterTodayRecommended("mania")).toBe(true);
   });
 });

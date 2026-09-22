@@ -158,7 +158,24 @@ html:has(.collection-explorer), body:has(.collection-explorer) { min-width: 0; }
 @media (max-width: 1100px) { .collection-explorer { padding: 22px 15px; } .collection-search > span { display: none; } .collection-header h1 { font-size: 27px; } .collection-folder-grid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { .collection-folder-preview { animation: none !important; } .collection-folder-tile { transition: none; } }
 
-/* Light surfaces use the same neutral glass, with dark ink and no inner input strip. */
+/* Collection content stays readable over artwork without a frosted-glass layer. */
+.collection-search,
+.collection-browser-toolbar nav,
+.collection-browser-toolbar select,
+.collection-browser-toolbar > div > button,
+.collection-folder-heading,
+.collection-folder-tile,
+.collection-rows,
+.collection-folder-preview {
+  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
+  backdrop-filter: none;
+}
+.collection-folder-tile:hover,
+.collection-folder-tile:focus-visible { background: var(--surface-panel-strong); }
+.collection-rows { background: color-mix(in srgb, var(--surface-panel) 97%, transparent); }
+.collection-folder-preview { background: var(--surface-float); }
+
+/* Light surfaces keep the same neutral hierarchy, with dark ink and no inner input strip. */
 :root[data-theme-mode="light"] .collection-explorer { --collection-muted: #4b5563; --collection-line: #17203329; color: var(--text); }
 :root[data-theme-mode="light"] .collection-header { text-shadow: none; }
 :root[data-theme-mode="light"] :is(.collection-header p, .collection-motion-toggle, .collection-folder-tile > span:not(.collection-folder-icon), .collection-folder-tile > small, .collection-map-id) { color: var(--text-muted); }
@@ -193,3 +210,7 @@ html:has(.collection-explorer), body:has(.collection-explorer) { min-width: 0; }
 :root[data-theme-mode="light"] :is(.collection-section-title button, .collection-score button, .collection-text-button) { color: var(--theme-primary); }
 :root[data-theme-mode="light"] .collection-save-status { color: #286e58; }
 :root[data-theme-mode="light"] .collection-save-status button { color: #98540b; }
+
+/* Keep light and dark themes on the same opaque surface system. */
+:root[data-theme-mode="light"] :is(.collection-search, .collection-browser-toolbar nav, .collection-browser-toolbar select, .collection-browser-toolbar > div > button, .collection-folder-heading, .collection-folder-tile, .collection-rows) { background: var(--surface-panel); }
+:root[data-theme-mode="light"] .collection-folder-tile:hover { background: var(--surface-panel-strong); }
