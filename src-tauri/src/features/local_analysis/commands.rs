@@ -1,5 +1,6 @@
 use std::{path::Path, sync::Arc};
 
+use super::models::LocalArtwork;
 use super::models::{BackgroundSize, LocalBeatmapAudioPayload};
 use super::models::{
     BeatmapQuery, LocalBeatmapDetail, LocalBeatmapSetSummary, LocalBeatmapSummary, LocalClient,
@@ -21,6 +22,19 @@ pub async fn get_local_sources(
     let service = Arc::clone(&state.local_analysis);
     crate::infrastructure::tasks::interactive("get_local_sources", move || {
         service.source_statuses()
+    })
+    .await?
+}
+
+#[tauri::command]
+pub async fn get_local_artwork_sample(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<LocalArtwork>> {
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::blocking_io("get_local_artwork_sample", move || {
+        let span = crate::infrastructure::logging::global()
+            .map(|log| log.operation("local_analysis", "get_local_artwork_sample"));
+        crate::infrastructure::logging::finish_span(span, service.artwork_sample())
     })
     .await?
 }

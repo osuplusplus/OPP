@@ -19,6 +19,15 @@ export function pickLocalSet(query: BeatmapQuery, excludeSetKey: string | null =
 
 export const localSourcesKey = ["local-sources"] as const;
 export const localIndexStatusKey = ["local-index-status"] as const;
+export const localArtworkSampleKey = ["local-artwork-sample"] as const;
+
+/** One small sample per application session; image data is loaded only when displayed. */
+export function useLocalArtworkSample() {
+  const index = useLocalIndexStatus();
+  return useQuery({ queryKey: localArtworkSampleKey, queryFn: desktopApi.getLocalArtworkSample,
+    enabled: index.data?.phase === "ready", staleTime: Infinity, gcTime: Infinity,
+    refetchOnWindowFocus: false, refetchOnReconnect: false, retry: false });
+}
 export const localSummaryKey = (client: OsuClient) =>
   ["local-summary", client] as const;
 export const localBeatmapsKey = (query: BeatmapQuery) =>

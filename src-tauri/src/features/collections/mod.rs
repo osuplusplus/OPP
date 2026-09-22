@@ -2,12 +2,15 @@
 
 mod adapter;
 mod archive;
+mod browser;
 mod downloads;
 mod models;
+pub(crate) mod notebook;
 mod service;
 mod share;
 mod stable;
 mod task;
+pub use browser::*;
 
 #[cfg(test)]
 mod tests;

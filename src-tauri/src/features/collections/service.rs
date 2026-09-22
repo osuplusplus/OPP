@@ -74,6 +74,7 @@ pub(super) fn cached_local_presence(
 }
 
 pub struct CollectionService {
+    pub(crate) notebooks: super::notebook::NotebookStore,
     path: PathBuf,
     cache_path: PathBuf,
     folders_path: PathBuf,
@@ -85,6 +86,7 @@ impl CollectionService {
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
         let root = app_data_dir.to_path_buf();
         Ok(Self {
+            notebooks: super::notebook::NotebookStore::new(app_data_dir),
             path: root.join("collections.json"),
             cache_path: root.join("collections-cache.json"),
             folders_path: root.join("collections-data"),
@@ -315,7 +317,8 @@ impl CollectionService {
             ensure_writable(&file.folders[index])?;
             file.folders.remove(index);
             Ok(())
-        })
+        })?;
+        self.notebooks.delete(folder_id)
     }
 
     pub(crate) fn add_entries(
@@ -338,6 +341,86 @@ impl CollectionService {
             touch(folder);
             Ok(())
         })
+    }
+
+    /// Replace one linked OPP folder in a single collection update, keyed by source rather than name.
+    pub(crate) fn replace_tournament_pool(
+        &self,
+        source_id: &str,
+        name: &str,
+        candidates: Vec<CollectionCandidate>,
+    ) -> CommandResult<CollectionFolder> {
+        let span = crate::infrastructure::logging::global()
+            .map(|logger| logger.operation("collections", "replace_tournament_pool"));
+        let result = (|| {
+            let name = validate_name(name)?;
+            if candidates.is_empty()
+                || candidates
+                    .iter()
+                    .any(|entry| entry.beatmap_id.is_none_or(|id| id <= 0))
+            {
+                return Err(CommandError::new(
+                    "EMPTY_OR_INVALID_TOURNAMENT_POOL",
+                    "空图池或无效谱面不会覆盖收藏夹",
+                ));
+            }
+            let mut ids = HashSet::new();
+            let entries: Vec<_> = candidates
+                .into_iter()
+                .filter(|entry| ids.insert(entry.beatmap_id))
+                .map(candidate_to_entry)
+                .collect();
+            self.update(|file| {
+                if let Some(folder) = file.folders.iter_mut().find(|folder| {
+                    folder.source == CollectionSource::Opp
+                        && folder.external_id.as_deref() == Some(source_id)
+                }) {
+                    ensure_writable(folder)?;
+                    let mut entries = entries;
+                    for entry in &mut entries {
+                        if let Some(old) = folder.entries.iter().find(|old| same_entry(old, entry))
+                        {
+                            entry.id.clone_from(&old.id);
+                            // An unresolved refresh must not discard previously resolved local metadata.
+                            if entry.beatmapset_id.is_none() {
+                                let id = entry.id.clone();
+                                *entry = old.clone();
+                                entry.id = id;
+                            } else if entry.checksum == old.checksum {
+                                entry.resolved = old.resolved;
+                            }
+                        }
+                    }
+                    folder.entries = entries;
+                    touch(folder);
+                    return Ok(folder.clone());
+                }
+                let now = Utc::now().to_rfc3339();
+                let folder = CollectionFolder {
+                    id: Uuid::new_v4().to_string(),
+                    name,
+                    creator: "Rino".into(),
+                    created_at: now.clone(),
+                    updated_at: now,
+                    source: CollectionSource::Opp,
+                    read_only: false,
+                    pending_write: true,
+                    entries,
+                    external_id: Some(source_id.into()),
+                    external_fingerprint: None,
+                    last_read_at: None,
+                    backup_path: None,
+                    backup_fingerprint: None,
+                    backup_confirmed_at: None,
+                };
+                file.folders.push(folder.clone());
+                Ok(folder)
+            })
+        })();
+        if let Some(span) = &span {
+            span.fs_op("sync_tournament_folder", &self.folders_path, &result);
+        }
+        crate::infrastructure::logging::finish_span(span, result)
     }
 
     pub(super) fn remove_entry(&self, folder_id: &str, entry_id: &str) -> CommandResult<()> {
@@ -456,7 +539,7 @@ fn same_entry(left: &CollectionEntry, right: &CollectionEntry) -> bool {
     }
 }
 
-fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
+pub(super) fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
     // 先用临时文件完整落盘，再替换目标，防止意外退出破坏收藏夹分片。
     if target.exists() {
         let backup = target.with_extension("bak");

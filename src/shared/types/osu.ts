@@ -1288,6 +1288,87 @@ export interface OnlineBeatmap {
 
 export type CollectionSource = "opp" | "stable" | "lazer";
 
+export interface LocalScoreRecord {
+  id: string; source: "stable" | "lazer" | "manual"; player: string; ruleset: string;
+  scoring: string; beatmap_hash: string; score: number; accuracy: number | null;
+  combo: number | null; mods: string; played_at: string | null; note: string;
+}
+export interface CollectionPersonalRecord {
+  revision: number; tags: { name: string; color: string }[]; note: string;
+  slot_override: string | null; scores: LocalScoreRecord[]; representative: LocalScoreRecord | null;
+}
+export interface CollectionPoolSnapshot {
+  reference: TournamentPoolRef;
+  slots: { beatmap_id: number; label: string; selected_by: string; comment: string }[];
+}
+export interface CollectionBrowseQuery {
+  folder_id: string | null; search: string; sort: string; offset: number; limit: number; player: string | null;
+}
+export interface CollectionBrowseRow {
+  key: string; folder_id: string; folder_name: string; read_only: boolean;
+  entry: CollectionEntry; local: LocalBeatmapSummary | null;
+  slot: string; source_slot: string; selected_by: string; pool_comment: string;
+  record: CollectionPersonalRecord; latest_score: LocalScoreRecord | null;
+  representative_available: boolean; matches: { field: string; text: string }[];
+}
+export interface CollectionBrowsePage {
+  items: CollectionBrowseRow[]; total: number; offset: number; limit: number;
+  matching_folders: string[]; pool: CollectionPoolSnapshot | null;
+  overview?: CollectionOverview;
+}
+export interface CollectionOverview {
+  local_count: number; marked_count: number; noted_count: number;
+  stars: [number, number] | null; bpm: [number, number] | null;
+  total_length_ms: number; slots: [string, number][];
+}
+export interface LocalArtwork { client: OsuClient; resource_id: string }
+export type CollectionArtwork = LocalArtwork;
+export interface LocalScoreStatus { players: string[]; default_player: string | null; errors: string[]; count: number }
+
+export interface TournamentPoolRef {
+  provider: "rino";
+  season: "s1" | "s2";
+  category: "qualification" | "ro16" | "quarterfinals" | "semifinals" | "finals" | "grandfinals";
+}
+
+export interface TournamentPoolEntry {
+  beatmap_id: number;
+  selection_type: string;
+  position: number;
+  selected_by: string | null;
+  selected_by_name: string | null;
+  comment: string;
+  is_custom: boolean;
+  is_original: boolean;
+  beatmap: {
+    beatmapset_id: number;
+    title: string;
+    artist: string;
+    creator: string;
+    difficulty_name: string;
+    checksum: string | null;
+    download_disabled: boolean;
+  } | null;
+  resolution_error: string | null;
+}
+
+export interface TournamentPool {
+  reference: TournamentPoolRef;
+  title: string;
+  entries: TournamentPoolEntry[];
+}
+
+export interface TournamentLink {
+  id: number;
+  reference: TournamentPoolRef;
+}
+
+export interface TournamentPoolSyncResult {
+  folder_id: string;
+  entry_count: number;
+  pool: TournamentPool;
+}
+
 export interface CollectionEntry {
   id: string;
   beatmap_id: number | null;
@@ -1553,6 +1634,7 @@ export interface BeatmapDownloadItem {
   artist: string;
   title: string;
   expected_beatmap_ids?: number[];
+  allow_extra_difficulties?: boolean;
 }
 
 export interface BeatmapDownloadRequest {

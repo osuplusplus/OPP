@@ -1,5 +1,7 @@
 import { invalidateLocalClient } from "./indexCache";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { explicitLocalTarget } from "./navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -487,13 +489,23 @@ export function LocalAnalysisPage({
 }) {
   const { client, ruleset, setClient, setRuleset } = useMode();
   const musicResourceId = useMusicResourceId();
+  const [params] = useSearchParams();
+  const explicitTarget = useMemo(() => section === "maps" ? explicitLocalTarget(params) : null, [params, section]);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const collectionReturn = (location.state as { collectionReturn?: string } | null)?.collectionReturn;
   const [followTarget, setFollowTarget] = useState<MusicLocation | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const mode = useRef({ client, ruleset });
   useEffect(() => { mode.current = { client, ruleset }; }, [client, ruleset]);
   useEffect(() => {
+    if (!explicitTarget) return;
+    if (client !== explicitTarget.client) setClient(explicitTarget.client);
+    if (ruleset !== explicitTarget.ruleset) setRuleset(explicitTarget.ruleset);
+  }, [explicitTarget, client, ruleset, setClient, setRuleset]);
+  useEffect(() => {
     const resourceId = musicResourceId;
-    if (section !== "maps" || !resourceId || !musicApi.available()) return;
+    if (explicitTarget || section !== "maps" || !resourceId || !musicApi.available()) return;
     let active = true;
     let retry: number | undefined;
     let attempts = 0;
@@ -512,14 +524,17 @@ export function LocalAnalysisPage({
     };
     locate();
     return () => { active = false; window.clearTimeout(retry); };
-  }, [musicResourceId, section, setClient, setRuleset]);
+  }, [musicResourceId, section, setClient, setRuleset, explicitTarget]);
   return (
+    <>
+    {collectionReturn?.startsWith("/collections") && <button className="absolute left-6 top-3 z-30 rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-cyan-100" onClick={() => navigate(-1)}>← 返回收藏夹</button>}
     <LocalAnalysisClientPage
       key={`${client}:${ruleset}:${section}`}
-      followTarget={followTarget?.resource_id === musicResourceId ? followTarget : null}
+      followTarget={explicitTarget ?? (followTarget?.resource_id === musicResourceId ? followTarget : null)}
       section={section}
       libraryOpen={libraryOpen}
       setLibraryOpen={setLibraryOpen}
     />
+    </>
   );
 }

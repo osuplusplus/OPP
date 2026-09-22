@@ -11,6 +11,7 @@ import { errorMessage } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { AnySimilarityResult, OsuSimilarityQueryRequest, OsuSimilarityQueryResponse, OsuSimilarityRecommendationResponse, Ruleset, SimilarityIndexStatus, SimilarityRecommendationKind, SimilarityResult, SimilaritySource } from "../../shared/types/osu";
 import { openCollectionDialog } from "../collections/events";
+import { LocalLibraryBackdrop } from "../local-analysis/LocalLibraryBackdrop";
 import { normalizePreviewUrl } from "../online-beatmaps/filters";
 import { resolveDefaultDownloadProvider } from "../online-beatmaps/downloadProvider";
 import { settingsQueryKey, useSettings } from "../settings/api";
@@ -176,7 +177,6 @@ function StandardSimilarBeatmapsPage() {
     <SimilarityMessage message={downloadNotice} tone="status" onClose={() => setDownloadNotice(null)} />
     {showHome ? <SimilarityHome busy={busy} ruleset="osu" searchValue={searchText} onSearchValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} onRecommend={recommend} onHistory={() => { setHistory(getTodayRecommendationHistory("osu")); setHistoryOpen(true); }} status={<><span>索引已就绪 · {status.record_count?.toLocaleString() ?? "已校验"} 条记录</span><button type="button" disabled={statusQuery.isFetching} onClick={() => statusQuery.revalidate()}>重新校验</button><button type="button" onClick={() => void chooseIndex()}>更换目录</button></>} /> : stageResult && source ? <SimilarityStage
       result={stageResult} source={source} index={selectedIndex} total={results.length || allResults.length} emptyMessage={results.length ? null : "请重新打开筛选调整条件；来源谱面和当前舞台会保持不变。"} recommendation={Boolean(recommendation)} playing={playingId === stageResult.beatmap_id} previewLoading={previewLoadingId === stageResult.beatmap_id} downloading={downloadId === stageResult.beatmap_id} completing={recommendationCompleting}
-      adjacentBeatmapsetIds={[results[selectedIndex - 1]?.beatmapset_id ?? 0, results[selectedIndex + 1]?.beatmapset_id ?? 0]}
       onHome={resetResultState}
       onDisplayed={() => { if (recommendation && selected) recordDisplayedRecommendation(selected, "osu"); }}
       onPrevious={() => setSelectedId(results[selectedIndex - 1]?.beatmap_id ?? null)} onNext={() => setSelectedId(results[selectedIndex + 1]?.beatmap_id ?? null)} onPreview={() => void togglePreview(stageResult)} onDownload={() => void download(stageResult)}
@@ -197,7 +197,5 @@ export function SimilarBeatmapsPage() {
   const pageRuleset = pendingRuleset ?? ruleset;
   useEffect(() => { if (launchKey === null) { observed.current = null; return; } if (observed.current === launchKey) return; observed.current = launchKey; setPendingRuleset(launch?.ruleset ?? "osu"); }, [launch?.ruleset, launchKey]);
   useEffect(() => { if (pendingRuleset === null) return; const frame = requestAnimationFrame(() => { if (pendingRuleset !== ruleset) setRuleset(pendingRuleset); setPendingRuleset(null); }); return () => cancelAnimationFrame(frame); }, [pendingRuleset, ruleset, setRuleset]);
-  if (pageRuleset === "mania") return <ManiaSimilarBeatmapsPage />;
-  if (pageRuleset === "osu") return <StandardSimilarBeatmapsPage />;
-  return <><PageHeader title="相似谱面" description="相似谱面目前支持 osu!standard 与 osu!mania。" /><EmptyState title={`${pageRuleset === "taiko" ? "osu!taiko" : "osu!catch"} 暂不支持相似谱面`} description="请在顶部全局模式中切换到 osu!standard 或 osu!mania。" /></>;
+  return <section className="similarity-page"><LocalLibraryBackdrop />{pageRuleset === "mania" ? <ManiaSimilarBeatmapsPage /> : pageRuleset === "osu" ? <StandardSimilarBeatmapsPage /> : <><PageHeader title="相似谱面" description="相似谱面目前支持 osu!standard 与 osu!mania。" /><EmptyState title={`${pageRuleset === "taiko" ? "osu!taiko" : "osu!catch"} 暂不支持相似谱面`} description="请在顶部全局模式中切换到 osu!standard 或 osu!mania。" /></>}</section>;
 }

@@ -30,7 +30,7 @@ export function MmaCoverageTooltip({
   series: Array<{ name: string; value: MmaAxisValue }>;
 }) {
   return (
-    <div className="rounded-lg border border-white/15 bg-slate-950/95 p-3 text-xs text-slate-200 shadow-xl">
+    <div className="rounded-lg border border-[var(--line-strong)] bg-[var(--surface-float)] p-3 text-xs text-[var(--text)] shadow-xl">
       <p className="mb-2 font-semibold">{label}</p>
       {series.map(({ name, value }) => (
         <div className="mb-2 last:mb-0" key={name}>
@@ -81,10 +81,10 @@ export function SimilarityRadar({
       {mania && (!patternView || !patternViewComparison) ? <p className="absolute inset-x-0 top-0 text-center text-[10px] text-slate-400">{patternView ? "候选谱面" : "参考谱面"}暂无 MMA 数据</p> : null}
       <ResponsiveContainer height="100%" width="100%">
         <RadarChart data={data} outerRadius={compact ? "68%" : "72%"}>
-          <PolarGrid gridType="polygon" radialLines stroke="rgba(0,0,0,.72)" strokeWidth={1.35} />
+          <PolarGrid gridType="polygon" radialLines stroke="var(--line-strong)" strokeWidth={1.35} />
           <PolarAngleAxis
             dataKey="dimension"
-            tick={{ fill: "#94a3b8", fontSize: 11 }}
+            tick={{ fill: "var(--text-muted)", fontSize: 11 }}
           />
           <PolarRadiusAxis
             axisLine={false}
@@ -132,7 +132,7 @@ export function SimilarityRadar({
           {showsComparison ? (
             <Legend
               iconSize={8}
-              wrapperStyle={{ color: "#94a3b8", fontSize: 11 }}
+              wrapperStyle={{ color: "var(--text-muted)", fontSize: 11 }}
             />
           ) : null}
         </RadarChart>

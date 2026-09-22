@@ -16,3 +16,4 @@ pub use models::{
 };
 pub(crate) use music::{MusicAsset, MusicCandidate};
 pub use service::LocalAnalysisService;
+pub(crate) type CollectionResource = (Option<String>, LocalBeatmapSummary, String, String);

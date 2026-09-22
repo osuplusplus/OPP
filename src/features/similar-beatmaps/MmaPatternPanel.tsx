@@ -11,7 +11,7 @@ export function MmaNoteShare({ view }: { view: ManiaPatternView }) {
   const ln = sharePercent(view.ln_note_ratio);
   return (
     <div aria-label="RC 与 LN 音符占比" className="space-y-1.5">
-      <div className="flex justify-between text-xs font-medium"><span className="text-cyan-300">RC {ln === null ? "—" : `${(100 - ln).toFixed(1)}%`}</span><span className="text-pink-300">LN {ln === null ? "—" : `${ln.toFixed(1)}%`}</span></div>
+      <div className="mma-note-share flex justify-between text-xs font-medium"><span>RC {ln === null ? "—" : `${(100 - ln).toFixed(1)}%`}</span><span>LN {ln === null ? "—" : `${ln.toFixed(1)}%`}</span></div>
       {ln === null ? null : <div className="flex h-2 overflow-hidden rounded bg-white/10"><div className="bg-cyan-400" style={{ width: `${100 - ln}%` }} /><div className="bg-pink-400" style={{ width: `${ln}%` }} /></div>}
     </div>
   );

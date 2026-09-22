@@ -1,40 +1,28 @@
 import { PaginatedList } from "../../shared/components/PaginatedList";
 import * as Dialog from "@radix-ui/react-dialog";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBeforeUnload, useNavigate } from "react-router-dom";
 import {
-  ChevronDown,
-  ChevronUp,
-  Download,
   FileInput,
-  FileOutput,
   FolderPlus,
-  Heart,
   RefreshCw,
   Save,
-  Trash2,
   X,
 } from "lucide-react";
-import { Button, Card, EmptyState } from "../../shared/components/ui";
+import { Button, Card } from "../../shared/components/ui";
 import { APP_TIME_ZONE } from "../../shared/lib/format";
-import { PageHeader } from "../../shared/components/PageHeader";
+import { CollectionExplorer } from "./CollectionExplorer";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
-  CollectionFolderSummary,
   CollectionSharePreview,
   BeatmapDownloadProgress,
   CommandError,
 } from "../../shared/types/osu";
 import { resolveDefaultDownloadProvider } from "../online-beatmaps/downloadProvider";
-import { collectionsQueryKey, collectionSummariesKey, collectionEntriesKey, useCollectionSummaries, useCollectionEntries, useRefreshCollections } from "./api";
-import { MapCard } from "./MapCard";
+import { collectionsQueryKey, collectionSummariesKey, collectionEntriesKey, useCollectionSummaries, useRefreshCollections } from "./api";
 import { beginCollectionTask, throwIfCollectionTaskCancelled, updateCollectionTask } from "./taskStatus";
-
-async function copy(value: string) {
-  if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
-}
 
 function ImportPreviewDialog({
   preview,
@@ -94,84 +82,11 @@ function ImportPreviewDialog({
   );
 }
 
-export function FolderCard({ folder, onChanged, onDownload }: { folder: CollectionFolderSummary; onChanged: (folderId: string, entryId?: string) => Promise<void>; onDownload: (folderId: string) => Promise<void> }) {
-  const [exported, setExported] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
-  const contentId = useId();
-
-  const remove = async (entryId?: string) => {
-    setBusy(true);
-    try {
-      await onChanged(folder.id, entryId);
-    } catch (caught) { setError((caught as CommandError).message ?? String(caught)); }
-    finally { setBusy(false); }
-  };
-  const exportShare = async () => {
-    setBusy(true);
-    try {
-      const code = await desktopApi.exportCollectionShare(folder.id, folder.creator);
-      setExported(code);
-      await copy(code);
-    } catch (caught) { setError((caught as CommandError).message ?? String(caught)); }
-    finally { setBusy(false); }
-  };
-  const download = async () => {
-    setBusy(true);
-    try {
-      await onDownload(folder.id);
-    } catch (caught) { setError((caught as CommandError).message ?? String(caught)); }
-    finally { setBusy(false); }
-  };
-  const missingSets = folder.missing_count;
-
-  return (
-    <Card className="collection-folder opp-collection-folder overflow-hidden">
-      <div className={`flex items-center justify-between gap-4 transition-[padding] duration-[var(--motion-fast)] ${expanded ? "border-b border-white/[0.07] p-5" : "px-5 py-3.5"}`}>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-base font-semibold text-white">{folder.name}</h2>
-            {folder.read_only ? <span className="rounded bg-amber-300/10 px-2 py-0.5 text-xs text-amber-200">只读</span> : null}
-            {folder.pending_write ? <span className="rounded bg-cyan-300/10 px-2 py-0.5 text-xs text-cyan-100">待写回</span> : null}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">{folder.creator || "未署名"} · {folder.entry_count} 个难度{missingSets ? ` · 缺失 ${missingSets} 项` : ""}</p>
-        </div>
-        <div className="flex gap-1">
-          <Button
-            aria-controls={contentId}
-            aria-expanded={expanded}
-            aria-label={`${expanded ? "收起" : "展开"}收藏夹 ${folder.name}`}
-            onClick={() => setExpanded((value) => !value)}
-            size="icon"
-            title={expanded ? "收起收藏夹" : "展开收藏夹"}
-            variant="ghost"
-          >
-            {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-          </Button>
-          <Button disabled={busy} onClick={() => void exportShare()} size="icon" title="导出分享码" variant="ghost"><FileOutput className="size-4" /></Button>
-          <Button disabled={busy || folder.read_only} onClick={() => void download()} size="icon" title={missingSets ? `解析并补齐 ${missingSets} 个缺失项` : "检查是否有缺失谱面"} variant="ghost"><Download className="size-4" /></Button>
-          <Button disabled={busy || folder.read_only} onClick={() => void remove()} size="icon" title="删除收藏夹" variant="ghost"><Trash2 className="size-4" /></Button>
-        </div>
-      </div>
-      {expanded ? (
-        // 折叠时不渲染卡片网格，既缩短页面，也避免隐藏内容继续占用布局和交互焦点。
-        <div id={contentId}>
-          <div className="max-h-[min(34rem,60vh)] overflow-y-auto p-3.5">
-            <FolderEntries folder={folder} busy={busy} onRemove={remove} />
-          </div>
-        </div>
-      ) : null}
-      {exported ? <div className="border-t border-white/[0.07] p-4"><p className="mb-2 text-xs text-emerald-200">分享码已复制。OPPC2 会紧凑保存在线谱面 ID。</p><textarea className="h-20 w-full rounded-lg border border-white/10 bg-black/20 p-2 font-mono text-[10px] text-slate-400" readOnly value={exported} /></div> : null}
-      {error ? <p className="p-4 text-sm text-rose-200">{error}</p> : null}
-    </Card>
-  );
-}
-
 export function CollectionsPage() {
   const queryClient = useQueryClient();
   const collections = useCollectionSummaries();
   const refreshCollections = useRefreshCollections();
+  const [manageOpen, setManageOpen] = useState(false);
   const [name, setName] = useState("");
   const [shareCode, setShareCode] = useState("");
   const [preview, setPreview] = useState<CollectionSharePreview | null>(null);
@@ -246,7 +161,7 @@ export function CollectionsPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: collectionSummariesKey }),
         queryClient.invalidateQueries({ queryKey: collectionEntriesKey(folderId) }),
-        queryClient.invalidateQueries({ queryKey: collectionsQueryKey, exact: true }),
+        queryClient.invalidateQueries({ queryKey: collectionsQueryKey }),
       ]);
     }
   }, [queryClient]);
@@ -399,24 +314,22 @@ export function CollectionsPage() {
   const discardAndLeave = completeLeave;
   const stay = () => { setLeavePrompt(false); setPendingNavigation(null); };
 
-  return <><PageHeader title="谱面收藏夹" description="统一管理游戏收藏夹与 OPP 分享图包；补齐并写回仅用于 Stable，读取 lazer 收藏需要 CollectionManager。" actions={<div className="flex gap-2"><Button disabled={busy} onClick={() => void importArchive()} size="sm" variant="secondary"><FileInput className="size-3.5" />导入压缩包</Button><Button disabled={busy} onClick={() => void refresh("stable")} size="sm" variant="secondary"><RefreshCw className="size-3.5" />读取 Stable</Button><Button disabled={busy} onClick={() => void refresh("lazer")} size="sm" variant="secondary"><RefreshCw className="size-3.5" />读取 lazer</Button><Button loading={busy} onClick={() => void writeWithAutoDownload()} size="sm"><Save className="size-3.5" />补齐并写回 Stable</Button></div>} /><div className="grid grid-cols-[minmax(0,1fr)_clamp(14rem,20vw,17rem)] gap-5"><section className="space-y-4">{collections.isError ? <Button onClick={() => void collections.refetch()} variant="secondary">读取收藏夹失败，点击重试</Button> : collections.isLoading ? <p className="text-sm text-slate-500">正在读取收藏夹…</p> : collections.data?.folders.length ? <PaginatedList items={collections.data.folders} pageSize={6} label="收藏夹">{(folders) => folders.map((folder) => <FolderCard folder={folder} key={folder.id} onChanged={changed} onDownload={downloadOneFolder} />)}</PaginatedList> : <EmptyState icon={<Heart className="size-6" />} title="还没有收藏夹" description="从在线、本地或相似谱面页将难度加入收藏夹，或导入 .osz/.zip。" />}</section><aside className="space-y-4"><Card className="p-5"><h2 className="text-sm font-semibold text-white">新建收藏夹</h2><input className="opp-input mt-3" onChange={(event) => setName(event.target.value)} placeholder="收藏夹名称" value={name} /><Button className="mt-3 w-full" disabled={busy || !name.trim()} onClick={() => void create()}><FolderPlus className="size-4" />创建</Button></Card><Card className="p-5"><h2 className="flex items-center gap-2 text-sm font-semibold text-white"><FileInput className="size-4 text-cyan-200" />导入分享码</h2><textarea className="mt-3 h-28 w-full rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs text-slate-300" onChange={(event) => { setShareCode(event.target.value); setPreview(null); }} placeholder="粘贴 OPPC2.… 分享码" value={shareCode} /><Button className="mt-3 w-full" disabled={busy || !shareCode.trim()} onClick={() => void importShare()} variant="secondary">解析分享码</Button></Card><Card className="p-5"><h2 className="text-sm font-semibold text-white">从谱面包导入</h2><p className="mt-2 text-xs leading-5 text-slate-500">选择 `.osz` 或包含 `.osu` 文件的 `.zip`，自动创建同名收藏夹。</p><Button className="mt-3 w-full" disabled={busy} onClick={() => void importArchive()} variant="secondary"><FileInput className="size-4" />选择压缩包</Button></Card><Card className="p-5"><h2 className="text-sm font-semibold text-white">游戏来源</h2>{collections.data?.sources.map((source) => <div className="mt-3 border-t border-white/[0.06] pt-3" key={source.client}><p className="text-sm text-slate-200">osu! {source.client}{source.read_only ? " · 只读" : ""}</p><p className="mt-1 text-xs leading-5 text-slate-500">{source.message}</p></div>)}</Card>{notice ? <p aria-live="polite" className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.06] p-4 text-sm text-cyan-100">{notice}</p> : null}</aside></div><ImportPreviewDialog busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmImport()} preview={preview} />{leavePrompt ? <div className="fixed inset-0 z-[280] grid place-items-center bg-black/70 p-5 backdrop-blur-sm"><Card className="w-full max-w-md p-6 shadow-2xl"><h2 className="text-lg font-semibold text-white">收藏夹尚未写回游戏</h2><p className="mt-2 text-sm leading-6 text-slate-400">你对收藏夹做了修改。离开前是否保存到 osu!stable？</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button disabled={busy} onClick={stay} variant="ghost">留在此页</Button><Button disabled={busy} onClick={discardAndLeave} variant="secondary">不保存并离开</Button><Button loading={busy} onClick={() => void saveAndLeave()}><Save className="size-4" />保存并离开</Button></div></Card></div> : null}</>;
-}
-
-function FolderEntries({ folder, busy, onRemove }: { folder: CollectionFolderSummary; busy: boolean; onRemove: (id: string) => Promise<void> }) {
-  const [requestedPage, setPage] = useState(0);
-  const pages = Math.max(1, Math.ceil(folder.entry_count / 12));
-  const page = Math.min(requestedPage, pages - 1);
-  const entries = useCollectionEntries(folder.id, page * 12, folder.revision);
-  const client = useQueryClient();
-  const stale = (entries.error as CommandError | null)?.code === "COLLECTION_REVISION_CHANGED";
-  useEffect(() => { if (stale) void client.invalidateQueries({ queryKey: collectionSummariesKey }); }, [stale, client]);
-  if (entries.isError) return <Button onClick={() => { void client.invalidateQueries({ queryKey: collectionSummariesKey }); void entries.refetch(); }} variant="ghost">读取失败，点击重试</Button>;
-  if (!entries.data || entries.data.revision !== folder.revision) return <p className="p-5 text-sm text-slate-500">正在读取谱面…</p>;
   return <>
-    {entries.data.total ? <div className="opp-map-grid">{entries.data.items.map((entry) => <MapCard key={entry.id} entry={entry} busy={busy} readOnly={folder.read_only} onRemove={() => void onRemove(entry.id)} />)}</div> : <p className="px-5 py-8 text-center text-sm text-slate-600">还没有谱面</p>}
-    {pages > 1 && <nav aria-label={`${folder.name}分页`} className="flex items-center justify-between gap-3 px-3 py-3 text-xs text-slate-400">
-      <span>{page * 12 + 1}–{Math.min((page + 1) * 12, folder.entry_count)} / {folder.entry_count}</span>
-      <span className="flex items-center gap-2"><Button aria-label={`${folder.name}上一页`} disabled={page === 0} onClick={() => setPage(page - 1)} size="sm" variant="ghost">上一页</Button><span>{page + 1} / {pages}</span><Button aria-label={`${folder.name}下一页`} disabled={page === pages - 1} onClick={() => setPage(page + 1)} size="sm" variant="ghost">下一页</Button></span>
-    </nav>}
+    <CollectionExplorer folders={collections.data?.folders ?? []} loading={collections.isLoading} failed={collections.isError} onRetry={() => void collections.refetch()} onChanged={changed} onDownload={downloadOneFolder} onNotice={setNotice} toolbar={<>
+      <Button onClick={() => setManageOpen(true)} size="sm"><FolderPlus className="size-4" />新建 / 导入</Button>
+      <Button disabled={busy} onClick={() => void refresh("stable")} size="sm" variant="secondary"><RefreshCw className="size-3.5" />读取 Stable</Button>
+      <Button disabled={busy} onClick={() => void refresh("lazer")} size="sm" variant="secondary"><RefreshCw className="size-3.5" />读取 lazer</Button>
+      <Button loading={busy} onClick={() => void writeWithAutoDownload()} size="sm"><Save className="size-3.5" />补齐并写回 Stable</Button>
+    </>} />
+    {notice && <div role="status" className="fixed bottom-5 left-1/2 z-[100] flex max-w-[80vw] -translate-x-1/2 items-center gap-4 rounded-xl border border-cyan-200/20 bg-[#142030] px-5 py-3 text-sm text-cyan-100 shadow-xl">{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><X size={16} /></button></div>}
+    <Dialog.Root open={manageOpen} onOpenChange={setManageOpen}><Dialog.Portal><Dialog.Overlay className="collection-dialog-overlay" /><Dialog.Content className="collection-modal"><Dialog.Title>新建与导入</Dialog.Title><Dialog.Description>创建自己的收藏夹，或导入分享码和谱面压缩包。</Dialog.Description>
+      <form onSubmit={(event) => { event.preventDefault(); void create().catch((error) => setNotice(String(error))); }}><label className="text-sm">收藏夹名称<input className="mt-2" value={name} onChange={(e) => setName(e.target.value)} placeholder="我的练习曲包" maxLength={120} /></label><Button className="mt-3" disabled={busy || !name.trim()} type="submit">创建收藏夹</Button></form>
+      <div className="mt-6 border-t border-white/10 pt-5"><h3 className="text-sm">导入分享码</h3><textarea className="mt-3 h-24 w-full rounded-lg bg-black/20 p-3 text-xs" value={shareCode} onChange={(e) => { setShareCode(e.target.value); setPreview(null); }} placeholder="粘贴 OPPC2.… 分享码" /><Button disabled={busy || !shareCode.trim()} onClick={() => void importShare()} className="mt-2" variant="secondary">解析分享码</Button></div>
+      <div className="mt-6 border-t border-white/10 pt-5"><Button disabled={busy} onClick={() => void importArchive()} variant="secondary"><FileInput className="size-4" />导入压缩包</Button><p className="mt-2 text-xs text-slate-400">支持 .osz 和含 .osu 的 .zip 文件。</p></div>
+      <div className="mt-5 text-xs text-slate-400">{collections.data?.sources.map((source) => <p className="mt-2" key={source.client}>{source.client}: {source.message}</p>)}</div>
+      <div className="collection-modal-actions"><Dialog.Close>完成</Dialog.Close></div>
+    </Dialog.Content></Dialog.Portal></Dialog.Root>
+    <ImportPreviewDialog busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmImport()} preview={preview} />
+    {leavePrompt && <div className="fixed inset-0 z-[280] grid place-items-center bg-black/70 p-5 backdrop-blur-sm"><Card className="w-full max-w-md p-6 shadow-2xl"><h2 className="text-lg font-semibold text-white">收藏夹尚未写回游戏</h2><p className="mt-2 text-sm leading-6 text-slate-400">收藏夹修改已保存在 OPP。离开前是否写回 osu!stable？</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button disabled={busy} onClick={stay} variant="ghost">留在此页</Button><Button disabled={busy} onClick={discardAndLeave} variant="secondary">暂不写回</Button><Button loading={busy} onClick={() => void saveAndLeave()}><Save className="size-4" />写回并离开</Button></div></Card></div>}
   </>;
 }

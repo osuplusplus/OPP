@@ -21,10 +21,8 @@ import {
 } from "lucide-react";
 
 import { useMode } from "../../app/ModeContext";
-import { StageBackground } from "../../shared/components/StageBackground";
 import { Button } from "../../shared/components/ui";
 import { errorMessage } from "../../shared/lib/format";
-import { useArtworkPalette } from "../../shared/lib/stageArtwork";
 import { desktopApi } from "../../shared/lib/tauri";
 import { useDebouncedValue } from "../../shared/lib/useDebouncedValue";
 import type {
@@ -352,16 +350,7 @@ function useBeatmapArtwork(beatmapsetId: number | null) {
     staleTime: Infinity,
     retry: false,
   });
-  const background = useQuery({
-    queryKey: ["online-beatmap-background", beatmapsetId],
-    queryFn: () => desktopApi.getOnlineBeatmapBackground(beatmapsetId!),
-    enabled: beatmapsetId !== null && beatmapsetId > 0,
-    staleTime: Infinity,
-    gcTime: 5 * 60_000,
-    retry: false,
-  });
-  const fallback = set.data?.covers?.["cover@2x"] ?? set.data?.covers?.cover ?? null;
-  return { set: set.data, artwork: useArtworkPalette(background.data ?? fallback) };
+  return set.data;
 }
 
 function EvidenceRail({ source, result, cover, recommendation, details }: { source: AnySimilarityBeatmap; result: AnySimilarityResult; cover: string | null; recommendation: boolean; details: ReactNode }) {
@@ -417,7 +406,6 @@ export function SimilarityStage({
   onCollect,
   onHome,
   onDisplayed,
-  adjacentBeatmapsetIds = [],
 }: {
   result: AnySimilarityResult;
   source: AnySimilarityBeatmap;
@@ -438,31 +426,15 @@ export function SimilarityStage({
   onCollect: () => void;
   onHome: () => void;
   onDisplayed?: () => void;
-  adjacentBeatmapsetIds?: number[];
 }) {
   const reduced = useReducedMotion();
   const [visualPreview, setVisualPreview] = useState(false);
   const online = result.ruleset !== "mania" || Boolean(result.online_url);
-  const candidate = useBeatmapArtwork(online ? result.beatmapset_id : null);
   const reference = useBeatmapArtwork(source.ruleset !== "mania" || source.online_url ? source.beatmapset_id : null);
-  const referenceCover = reference.set?.covers?.["card@2x"] ?? reference.set?.covers?.card ?? reference.set?.covers?.["cover@2x"] ?? reference.artwork.source;
-  const adjacentKey = adjacentBeatmapsetIds.join(",");
+  const referenceCover = reference?.covers?.["card@2x"] ?? reference?.covers?.card ?? reference?.covers?.["cover@2x"] ?? reference?.covers?.cover ?? null;
   const resultAnimationKey = `${result.ruleset}:${result.beatmap_id}:${result.ruleset === "mania" ? result.game_mod : "NM"}`;
   const onDisplayedRef = useRef(onDisplayed);
   useEffect(() => { onDisplayedRef.current = onDisplayed; }, [onDisplayed]);
-
-  useEffect(() => {
-    let active = true;
-    const ids = adjacentKey.split(",").map(Number).filter((id) => id > 0);
-    void Promise.allSettled(ids.map(async (id) => {
-      const source = await desktopApi.getOnlineBeatmapBackground(id);
-      if (!active || !source) return;
-      const image = new Image();
-      image.src = source;
-      try { await image.decode(); } catch { /* the browser cache can still retain a failed decode source */ }
-    }));
-    return () => { active = false; };
-  }, [adjacentKey]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => onDisplayedRef.current?.(), reduced ? 0 : 230);
@@ -482,8 +454,7 @@ export function SimilarityStage({
     return () => window.removeEventListener("keydown", handle);
   }, [emptyMessage, index, onNext, onPrevious, total]);
 
-  return <section className="similarity-workspace" style={candidate.artwork.style}>
-    <StageBackground source={candidate.artwork.source} reduceMotion={Boolean(reduced)} />
+  return <section className="similarity-workspace">
     <header className="similarity-workspace-toolbar"><button className="similarity-home-button" type="button" onClick={onHome} aria-label="返回搜索首页" title="返回搜索首页"><ArrowLeft /></button>{toolbar}</header>
     <div className="similarity-workspace-grid">
       <EvidenceRail key={`${source.ruleset}:${source.beatmap_id}:${source.version}`} source={source} result={result} cover={referenceCover} recommendation={recommendation} details={details} />

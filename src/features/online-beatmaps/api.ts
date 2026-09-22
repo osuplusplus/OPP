@@ -3,6 +3,9 @@ import { desktopApi } from "../../shared/lib/tauri";
 import type { OnlineBeatmapSearchQuery, Ruleset } from "../../shared/types/osu";
 import { trendingQuery } from "./stageModel";
 
+export { useOnlineDownload as useBeatmapDownloads } from "./useOnlineDownload";
+export type { BeatmapDownloadSelection } from "./downloadSession";
+
 export function useTrendingBeatmapsets(ruleset: Ruleset) {
   return useQuery({
     queryKey: ["online-trending", ruleset],

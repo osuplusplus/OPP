@@ -3,6 +3,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ModeProvider } from "../../app/ModeContext";
+import { MemoryRouter } from "react-router-dom";
+import { stageSet } from "./stageFixtures.test-data";
 import type {
   LocalBeatmapSetSummary,
   LocalLibrarySummary,
@@ -26,7 +28,15 @@ const mocks = vi.hoisted(() => ({
   getLocalSkinPreview: vi.fn(),
   getLocalSkinAsset: vi.fn(),
   onLocalScanProgress: vi.fn(async () => () => undefined),
+  musicResourceId: vi.fn(),
+  musicAvailable: vi.fn(),
+  musicLocation: vi.fn(),
 }));
+
+vi.mock("../music-player/api", async (original) => {
+  const actual = await original<typeof import("../music-player/api")>();
+  return { ...actual, useMusicResourceId: mocks.musicResourceId, musicApi: { ...actual.musicApi, available: mocks.musicAvailable, location: mocks.musicLocation } };
+});
 
 vi.mock("../settings/api", () => ({ useSettings: () => ({ data: { preview_volume: 65 } }) }));
 
@@ -97,15 +107,15 @@ function summary(client: "stable" | "lazer"): LocalLibrarySummary {
   };
 }
 
-function renderPage(section: LocalSection = "maps") {
+function renderPage(section: LocalSection = "maps", route = "/local/maps") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <ModeProvider>
+      <MemoryRouter initialEntries={[route]}><ModeProvider>
         <LocalAnalysisPage section={section} />
-      </ModeProvider>
+      </ModeProvider></MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -114,6 +124,8 @@ describe("LocalAnalysisPage", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mocks.musicResourceId.mockReturnValue(null);
+    mocks.musicAvailable.mockReturnValue(false);
     mocks.getLocalSources.mockResolvedValue([source("stable"), source("lazer")]);
     mocks.getLocalIndexStatus.mockResolvedValue({ phase: "ready", clients: {} });
     mocks.pickRandomLocalBeatmapSet.mockImplementation(async (query) => (await mocks.queryLocalBeatmapSets(query)).items[0] ?? null);
@@ -138,6 +150,20 @@ describe("LocalAnalysisPage", () => {
 
     expect(await screen.findByText("还没有本地索引")).toBeInTheDocument();
     expect(screen.getAllByText(/扫描/).length).toBeGreaterThan(0);
+  });
+
+  it("prioritizes an exact collection difficulty over the saved client and playing song", async () => {
+    localStorage.setItem("opp.global-client", "lazer");
+    mocks.musicResourceId.mockReturnValue("another-playing-resource");
+    mocks.musicAvailable.mockReturnValue(true);
+    mocks.getLocalSummary.mockImplementation(async (client) => summary(client));
+    mocks.getLocalBeatmapSet.mockResolvedValue(stageSet);
+    mocks.queryLocalBeatmapSets.mockResolvedValue({ items: [stageSet], total: 1, offset: 0, limit: 20 });
+    renderPage("maps", "/local/maps?client=stable&ruleset=osu&set=set-1&resource=501");
+    await screen.findByRole("heading", { name: "Local Song" });
+    expect(screen.getByRole("tab", { name: /Easy/ })).toHaveAttribute("aria-selected", "true");
+    expect(localStorage.getItem("opp.global-client")).toBe("stable");
+    expect(mocks.musicLocation).not.toHaveBeenCalled();
   });
 
   it("switches both library management and beatmap queries to lazer without closing management", async () => {

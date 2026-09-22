@@ -6,11 +6,15 @@ import { AppLoading } from "./AppLoading";
 import { AuthSetup } from "../features/auth/AuthSetup";
 import { useAuthStatus } from "../features/auth/api";
 import { ErrorPanel } from "../shared/components/ErrorPanel";
+import { TournamentPoolHost } from "../features/tournament-pools/TournamentPoolHost";
+import { useLocalArtworkSample } from "../features/local-analysis/api";
 
 function ConnectedApplication() {
+  useLocalArtworkSample();
   return (
     <ModeProvider>
       <AppRoutes />
+      <TournamentPoolHost />
     </ModeProvider>
   );
 }

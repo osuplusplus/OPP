@@ -6,12 +6,15 @@ const resourceKeys = new Set([
   "local-beatmaps", "local-beatmap-sets", "local-complete-set", "local-skins",
   "local-beatmap-background", "local-beatmap-detail", "local-skin-detail",
   "local-skin-preview", "local-skin-asset", "local-beatmap-audio",
+  "collection-background-image", "local-mosaic-image",
 ]);
 
 export async function invalidateLocalClient(queryClient: QueryClient, client: OsuClient) {
   await queryClient.invalidateQueries({
-    predicate: ({ queryKey }) => {
+    predicate: ({ queryKey, state }) => {
+      if (queryKey[0] === "local-artwork-sample") return !Array.isArray(state.data) || state.data.length === 0;
       if (queryKey[0] === "local-sources") return true;
+      if (queryKey[0] === "collections" && ["browser", "artwork"].includes(String(queryKey[1]))) return true;
       if (queryKey[0] !== "local-summary" && !resourceKeys.has(String(queryKey[0]))) return false;
       const scope = queryKey[1];
       return scope === client || (typeof scope === "object" && scope !== null && "client" in scope && scope.client === client);

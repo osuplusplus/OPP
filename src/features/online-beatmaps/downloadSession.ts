@@ -4,8 +4,10 @@ import { errorMessage } from "../../shared/lib/format";
 import type { BeatmapDownloadProgress, BeatmapDownloadRequest, BeatmapDownloadResult, OnlineBeatmapset } from "../../shared/types/osu";
 
 export const beatmapDownloadDirectoryKey = "opp:beatmap-download-directory";
+/** Download callers need set metadata and the exact expected difficulty IDs, not full statistics. */
+export type BeatmapDownloadSelection = Omit<OnlineBeatmapset, "beatmaps"> & { beatmaps?: { id: number }[]; allow_extra_difficulties?: boolean };
 type Snapshot = {
-  queue: OnlineBeatmapset[];
+  queue: BeatmapDownloadSelection[];
   activeIds: number[];
   busy: boolean;
   progress: BeatmapDownloadProgress | null;
@@ -24,7 +26,7 @@ export function createDownloadSession(api: DownloadApi) {
   return {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    add(items: OnlineBeatmapset[]) {
+    add(items: BeatmapDownloadSelection[]) {
       const queue = new Map(state.queue.map((item) => [item.id, item]));
       let added = 0; let blocked = 0;
       for (const item of items) {
@@ -43,7 +45,7 @@ export function createDownloadSession(api: DownloadApi) {
       try { await api.cancelOnlineBeatmapDownload(); }
       catch (error) { update({ error: errorMessage(error) }); }
     },
-    async start(items: OnlineBeatmapset[], prepare: () => Promise<Omit<BeatmapDownloadRequest, "items"> | null>) {
+    async start(items: BeatmapDownloadSelection[], prepare: () => Promise<Omit<BeatmapDownloadRequest, "items"> | null>) {
       if (state.busy) return;
       const batch = [...new Map(items.filter((item) => !item.availability?.download_disabled).map((item) => [item.id, item])).values()];
       if (!batch.length) return;
@@ -63,7 +65,7 @@ export function createDownloadSession(api: DownloadApi) {
         });
         if (cancellationRequested) return;
         invoked = true;
-        const result = await api.downloadOnlineBeatmapsets({ ...options, items: batch.map((item) => ({ beatmapset_id: item.id, artist: item.artist, title: item.title, ...(item.beatmaps?.length ? { expected_beatmap_ids: item.beatmaps.map((beatmap) => beatmap.id) } : {}) })) });
+        const result = await api.downloadOnlineBeatmapsets({ ...options, items: batch.map((item) => ({ beatmapset_id: item.id, artist: item.artist, title: item.title, ...(item.beatmaps?.length ? { expected_beatmap_ids: item.beatmaps.map((beatmap) => beatmap.id) } : {}), ...(item.allow_extra_difficulties ? { allow_extra_difficulties: true } : {}) })) });
         // The existing backend processes the request in order, stopping at cancellation.
         // Reconcile the processed prefix too, in case a progress event was lost.
         const failed = new Set(result.failures.map((item) => item.beatmapset_id));

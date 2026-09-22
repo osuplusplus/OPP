@@ -68,6 +68,9 @@ pub struct BeatmapDownloadItem {
     pub title: String,
     #[serde(default)]
     pub expected_beatmap_ids: Vec<u64>,
+    /// Tournament pools select a subset of a set; ordinary searches still require an exact match.
+    #[serde(default)]
+    pub allow_extra_difficulties: bool,
 }
 
 #[derive(Debug, Deserialize)]

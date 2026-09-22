@@ -1,3 +1,5 @@
+#[path = "service_artwork.rs"]
+mod service_artwork;
 #[path = "service_data.rs"]
 mod service_data;
 #[path = "service_music.rs"]
@@ -43,7 +45,7 @@ use crate::infrastructure::logging::global;
 use super::{
     lazer_realm,
     models::{
-        BeatmapQuery, Completeness, LocalBeatmapDetail, LocalBeatmapSetSummary,
+        BeatmapQuery, Completeness, LocalArtwork, LocalBeatmapDetail, LocalBeatmapSetSummary,
         LocalBeatmapSummary, LocalClient, LocalIndexClientStatus, LocalIndexLoadPhase,
         LocalIndexLoadStatus, LocalLibrarySummary, LocalScanProgress, LocalSkinAssetPayload,
         LocalSkinAssetSummary, LocalSkinDetail, LocalSkinPreview, LocalSkinSummary,
@@ -140,6 +142,7 @@ type BackgroundRequests = crate::infrastructure::flights::Flights<
 >;
 
 pub struct LocalAnalysisService {
+    artwork_sample: Mutex<Option<Vec<LocalArtwork>>>,
     pub(super) background_requests: BackgroundRequests,
     cache_dir: PathBuf,
     sources: SourceResolver,
@@ -161,6 +164,7 @@ impl LocalAnalysisService {
         let sources = SourceResolver::load(&cache_dir)?;
         let pool = crate::infrastructure::tasks::background_pool()?;
         Ok(Self {
+            artwork_sample: Mutex::new(None),
             background_requests: BackgroundRequests::default(),
             cache_dir,
             sources,
@@ -3903,6 +3907,53 @@ SliderTickRate:1
             .expect("image");
         assert_eq!(read_size(thumbnail), (900, 540));
         assert_eq!(read_size(stage), (1500, 900));
+    }
+
+    #[test]
+    fn collection_artwork_keeps_distinct_backgrounds_within_one_set() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        fs::write(
+            beatmap.with_file_name("same-background.osu"),
+            OSU_FIXTURE.replace("Version:Normal", "Version:Hard"),
+        )
+        .unwrap();
+        fs::write(
+            beatmap.with_file_name("other-background.osu"),
+            OSU_FIXTURE
+                .replace("Version:Normal", "Version:Insane")
+                .replace("bg.jpg", "other.jpg"),
+        )
+        .unwrap();
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let keys = service.collection_background_keys().unwrap();
+        assert_eq!(keys.len(), 3);
+        let sample = service.artwork_sample().unwrap();
+        assert_eq!(sample.len(), 2);
+        assert_eq!(
+            sample
+                .iter()
+                .map(|item| &item.resource_id)
+                .collect::<Vec<_>>(),
+            service
+                .artwork_sample()
+                .unwrap()
+                .iter()
+                .map(|item| &item.resource_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            keys.values()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            2
+        );
     }
 
     #[test]
