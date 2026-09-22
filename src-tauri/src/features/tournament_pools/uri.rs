@@ -57,7 +57,7 @@ pub(super) fn parse(raw: &str) -> CommandResult<TournamentPoolRef> {
     let url = Url::parse(raw).map_err(|_| invalid())?;
     if url.scheme() != "opp"
         || url.host_str() != Some("mappool")
-        || url.path() != "/rino"
+        || !matches!(url.path(), "/rino" | "/import")
         || !url.username().is_empty()
         || url.password().is_some()
         || url.port().is_some()
@@ -67,15 +67,28 @@ pub(super) fn parse(raw: &str) -> CommandResult<TournamentPoolRef> {
     }
     let mut params = HashMap::new();
     for (key, value) in url.query_pairs() {
-        if !matches!(key.as_ref(), "season" | "category")
-            || params
-                .insert(key.into_owned(), value.into_owned())
-                .is_some()
+        if !(if url.path() == "/import" {
+            key == "url"
+        } else {
+            matches!(key.as_ref(), "season" | "category")
+        }) || params
+            .insert(key.into_owned(), value.into_owned())
+            .is_some()
         {
             return Err(invalid());
         }
     }
+    if url.path() == "/import" {
+        let source = super::standard::source_url(&params.remove("url").ok_or_else(invalid)?)?;
+        return Ok(TournamentPoolRef {
+            provider: "opp".into(),
+            season: String::new(),
+            category: String::new(),
+            url: Some(source.to_string()),
+        });
+    }
     let reference = TournamentPoolRef {
+        url: None,
         provider: "rino".into(),
         season: params.remove("season").ok_or_else(invalid)?,
         category: params.remove("category").ok_or_else(invalid)?,

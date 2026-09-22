@@ -15,6 +15,7 @@ vi.mock("../../shared/lib/tauri", async (original) => {
   const actual = await original<typeof import("../../shared/lib/tauri")>();
   return { ...actual, desktopApi: { ...actual.desktopApi,
     getCollectionArtwork: vi.fn().mockResolvedValue([]),
+    openLazerBeatmap: vi.fn().mockResolvedValue(undefined),
     refreshLocalScores: vi.fn().mockResolvedValue({ players: ["Player"], default_player: "Player", count: 1, errors: [] }),
     queryCollectionBrowser: vi.fn(), getCollectionEntryScores: vi.fn().mockResolvedValue([]),
     saveCollectionRecord: vi.fn(), getCollectionRecord: vi.fn(), getLocalBeatmapBackground: vi.fn().mockResolvedValue(null),
@@ -39,14 +40,35 @@ function explorer(initial = "/collections") {
 it("opens a folder, pages on the backend, and returns to the same page after exact navigation", async () => {
   const user = userEvent.setup(); const client = explorer();
   expect(desktopApi.queryCollectionBrowser).not.toHaveBeenCalled();
+  expect(screen.getByRole("heading", { name: "谱面收藏夹" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "打开收藏夹 练习收藏" }));
   await screen.findByRole("button", { name: "打开谱面 Song Insane" });
+  expect(screen.queryByRole("heading", { name: "谱面收藏夹" })).not.toBeInTheDocument();
+  expect(document.querySelector(".collection-toolbar")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "下一页" }));
   await waitFor(() => expect(desktopApi.queryCollectionBrowser).toHaveBeenLastCalledWith(expect.objectContaining({ folder_id: "folder", offset: 50 })));
   await user.click(screen.getByRole("button", { name: "打开谱面 Song Insane" }));
   expect(await screen.findByText(/resource=502/)).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "返回收藏" }));
   expect(await screen.findByText("51–100 / 2000")).toBeInTheDocument(); client.clear();
+});
+
+it("shows saved online parameters and a single missing-download badge without requiring local files", () => {
+  const client = createClient();
+  render(<QueryClientProvider client={client}><CollectionBeatmapRow row={{ ...row, local: null, metadata: {
+    id: 502, beatmapset_id: 456, mode: "osu", status: "ranked", version: "Insane", difficulty_rating: 6.25,
+    bpm: 175, total_length: 164, ar: 9.5, accuracy: 9, cs: 3.8, drain: 5, max_combo: 1000,
+    count_circles: 300, count_sliders: 150, count_spinners: 1,
+  } }} search="" onOpen={vi.fn()} onRecord={vi.fn()} onDetail={vi.fn()} onNavigate={vi.fn()} onChanged={vi.fn()} onDownload={vi.fn()} onNotice={vi.fn()} /></QueryClientProvider>);
+  const stats = screen.getByLabelText("谱面 NM 参数");
+  expect(stats).toHaveTextContent("6.25 ★"); expect(stats).toHaveTextContent("175 BPM");
+  expect(stats).toHaveTextContent("2:44"); expect(stats).toHaveTextContent("AR9.5");
+  expect(stats).toHaveTextContent("451 物件"); expect(stats).toHaveTextContent("FC 1,000x");
+  expect(screen.getAllByText("未下载")).toHaveLength(1);
+  expect(screen.queryByText(/参数暂不可用/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText("图位 NM2").querySelector("strong")).toHaveTextContent("NM2");
+  expect(document.querySelector(".collection-thumbnail img")).toHaveAttribute("src", "https://assets.ppy.sh/beatmaps/456/covers/list.jpg");
+  client.clear();
 });
 it("searches globally inside a folder, shows comment hits and restores browsing on clear", async () => {
   const user = userEvent.setup(); const client = explorer("/collections?folder=folder&page=2");
@@ -117,4 +139,14 @@ it("resolves a record conflict by explicitly discarding the draft and loading th
   await screen.findByText("已保存到 OPP");
   expect(desktopApi.saveCollectionRecord).toHaveBeenLastCalledWith("folder", "entry", expect.objectContaining({ revision: 7, note: "基于新版本继续编辑" }));
   client.clear();
+});
+
+it("opens the exact BID in lazer even without a local map and reports launch errors", async () => {
+  const client = createClient(); const notice = vi.fn(); const open = vi.fn();
+  render(<QueryClientProvider client={client}><CollectionBeatmapRow row={{ ...row, local: null, is_custom: true, is_original: true }} search="" onOpen={open} onRecord={vi.fn()} onDetail={vi.fn()} onNavigate={vi.fn()} onChanged={vi.fn()} onDownload={vi.fn()} onNotice={notice} /></QueryClientProvider>);
+  expect(screen.getByText("比赛定制 · 原创")).toBeInTheDocument();
+  vi.mocked(desktopApi.openLazerBeatmap).mockRejectedValueOnce({ message: "未找到 lazer" });
+  await userEvent.click(screen.getByRole("button", { name: "在 lazer 中打开" }));
+  expect(desktopApi.openLazerBeatmap).toHaveBeenCalledWith(502);
+  expect(notice).toHaveBeenCalledWith("未找到 lazer"); expect(open).not.toHaveBeenCalled(); client.clear();
 });

@@ -18,6 +18,7 @@
 .local-stage-label strong { font-size: 16px; letter-spacing: -.04em; }
 .local-stage-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 13px; min-height: 38px; border: 1px solid var(--stage-line); border-radius: 3px; background: transparent; color: var(--stage-ink); font-size: 12px !important; white-space: nowrap; transition: background .16s, border-color .16s; }
 .local-stage-button:hover:not(:disabled) { border-color: var(--stage-accent); background: hsla(var(--stage-hue), 40%, 65%, .12); }
+.local-stage-back { flex: 0 0 auto; border-color: var(--stage-line); background: var(--surface-panel); box-shadow: 0 5px 18px #0003; }
 .local-stage-button.is-primary { background: var(--stage-accent); color: #111820; border-color: transparent; font-weight: 700; }
 .local-stage-button.is-primary:hover:not(:disabled) { background: var(--stage-accent); filter: brightness(1.08); }
 .local-stage-space { flex: 1; min-height: 36px; }

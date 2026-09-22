@@ -564,12 +564,6 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   color: inherit;
 }
 
-/* BeatmapHub now presents the active pack in a detail dialog. Keep the
-   legacy inline surface out of the document flow until it can be removed. */
-.beatmaphub-page > .opp-section.overflow-hidden {
-  display: none;
-}
-
 :root[data-theme-mode="light"] .opp-section { border-color: var(--line-subtle); }
 :root[data-theme-mode="light"] .opp-floating { box-shadow: 0 20px 60px rgba(24, 32, 54, 0.14); }
 
@@ -799,3 +793,10 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Shared actions in download results and collection pools. */
+.download-result-actions { display: grid; gap: 8px; min-width: 0; }
+.download-result-actions > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.download-result-actions button { border: 1px solid var(--border-subtle, #64748b55); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface-interactive, #64748b15); text-align: left; overflow-wrap: anywhere; }
+.download-result-actions button:disabled { opacity: .6; }
+.download-result-actions p { width: 100%; font-size: 12px; overflow-wrap: anywhere; }

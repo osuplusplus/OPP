@@ -17,10 +17,7 @@
 .online-stage-label { display: grid; line-height: 1.1; min-width: 100px; }
 .online-stage-label span { font-size: 9px; letter-spacing: .25em; color: var(--stage-accent); margin-bottom: 5px; }
 .online-stage-label strong { font-size: 16px; letter-spacing: -.04em; }
-.online-search { display: flex; align-items: center; flex: 1; min-width: 0; border: 1px solid var(--online-line); border-radius: 6px; padding-left: 12px; background: #0d142340; }
-.online-search input { width: 100%; min-width: 0; background: transparent; color: inherit; border: none; outline: none; padding: 10px; font-size: 13px; }
-.online-search input::placeholder { color: var(--online-muted); }
-.online-search button { border: none; white-space: nowrap; }
+.online-search { flex: 1; }
 .online-filter-chips { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 2px; scrollbar-width: thin; }
 .online-filter-chips button { white-space: nowrap; font-size: 10px; min-height: 25px; padding: 3px 8px; border-radius: 4px; color: var(--online-muted); }
 .online-filter-chips svg { width: 11px; height: 11px; }
@@ -177,7 +174,6 @@
 :root[data-theme-mode="light"] .online-stage .local-stage-art-shade { background: linear-gradient(180deg, #f2f0e9b3, #f2f0e908 30%, #f2f0e9cf); }
 :root[data-theme-mode="light"] .online-stage-song { text-shadow: 0 1px 12px #ffffffe0; }
 :root[data-theme-mode="light"] .online-song-metrics > div strong { color: color-mix(in srgb, var(--metric-color) 45%, #17212b); }
-:root[data-theme-mode="light"] .online-stage .online-search input { background: transparent; color: var(--online-ink); }
 :root[data-theme-mode="light"] .online-stage.results-expanded .online-results { background: #f2f3eebd; }
 @container (max-width: 959px) {
   .online-stage-body, .online-stage.results-expanded .online-stage-body { grid-template-columns: minmax(0, 1fr); }
@@ -204,17 +200,8 @@
 .online-engine-nav { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; min-height: 56px; padding: 12px 24px 0; z-index: 15; }
 .online-engine-nav > div { display: flex; gap: 8px; }
 .online-search-engine .online-stage-toolbar { flex-shrink: 0; width: 100%; margin-inline: auto; padding: 14px 24px 10px; border: 0; background: none; transition: width .26s ease, padding .26s ease; }
-.online-search-engine[data-view="home"] .online-stage-toolbar { width: min(760px, 100%); margin: 0 auto; padding-top: clamp(24px, 7vh, 95px); padding-bottom: 28px; }
-.online-home-title { text-align: center; margin-bottom: 25px; color: var(--stage-title); }
-.online-home-title > svg { width: 38px; height: 38px; margin: 0 auto 12px; color: var(--stage-accent); }
-.online-home-title h1 { margin: 0; font-size: clamp(32px, 4cqw, 48px); font-weight: 800; letter-spacing: -.045em; }
-.online-home-title p { font-size: 13px; color: var(--online-muted); margin: 9px 0 0; }
-.online-search-engine .online-search { min-height: 48px; width: 100%; background: color-mix(in srgb, var(--online-panel) 85%, transparent); backdrop-filter: blur(18px); border-radius: 12px; box-shadow: 0 12px 36px #0002; }
-.online-search-engine[data-view="home"] .online-search { min-height: 58px; }
-.online-search-engine .online-search input { padding-block: 14px; }
-.online-search-engine .online-search button { min-width: 34px; padding-inline: 10px; }
-.online-search-engine .online-search button:last-child { border-left: 1px solid var(--online-line); border-radius: 0 11px 11px 0; margin-left: 4px; padding-inline: 14px; }
-.online-search-engine .online-search small { font-size: 10px; opacity: .7; }
+.online-search-engine[data-view="home"] .online-stage-toolbar { width: min(760px, 100%); margin: 0 auto; padding-inline: 24px; padding-top: clamp(24px, 7vh, 95px); padding-bottom: 28px; }
+.online-home-intro .beatmap-search-heading { margin-bottom: 24px; }
 .online-search-engine[data-view="home"] .local-stage-art-shade { background: linear-gradient(#0a1019ad, #0a101987 50%, #0a1019db); backdrop-filter: blur(5px); }
 :root[data-theme-mode="light"] .online-search-engine[data-view="home"] .local-stage-art-shade { background: linear-gradient(#f2f0e9b8, #f2f0e990 50%, #f2f0e9eb); }
 .online-home-scene { flex: 1; min-height: 0; display: flex; flex-direction: column; }

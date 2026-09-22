@@ -50,7 +50,7 @@ export function OnlinePanel({ settings, save, busy }: OnlinePanelProps) {
             value={settings.default_beatmap_download_provider}
           >
             <option value="sayobot">小夜（Sayobot，推荐）</option>
-            <option value="hinai">Hinai Mirror（多源回退）</option>
+            <option value="hinai">Hinai Mirror（仅手动选择）</option>
             <option value="catboy">Catboy</option>
             <option value="nerinyan">Nerinyan</option>
           </select>

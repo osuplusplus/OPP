@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -7,11 +6,11 @@ import {
   ExternalLink,
   RefreshCw,
   Rocket,
-  X,
 } from "lucide-react";
 
 import { settingsQueryKey } from "../settings/api";
 import { Badge, Button } from "../../shared/components/ui";
+import { AppDialog } from "../../shared/components/AppDialog";
 import { APP_TIME_ZONE } from "../../shared/lib/format";
 import {
   desktopApi,
@@ -88,35 +87,47 @@ function UpdateAnnouncementDialog({
     onClose();
   };
 
-  return (
-    <Dialog.Root open onOpenChange={(open) => { if (!open && !installing) onClose(); }}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[270] bg-black/65 backdrop-blur-sm" data-testid="update-dialog-overlay" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[280] max-h-[82vh] w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-white/10 bg-[var(--surface-panel)] shadow-2xl focus:outline-none">
-          <div className="flex items-start gap-4 border-b border-white/[0.08] px-6 py-5">
-            <span className={`grid size-11 shrink-0 place-items-center rounded-xl ${error ? "bg-rose-400/10 text-rose-300" : hasUpdate ? "bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]" : "bg-emerald-400/10 text-emerald-300"}`}>
-              {error ? <AlertTriangle className="size-5" /> : hasUpdate ? <Rocket className="size-5" /> : <CheckCircle2 className="size-5" />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-xl font-semibold text-white">
-                {error ? "检查更新失败" : hasUpdate ? "发现 OPP 新版本" : "已是最新版本"}
-              </Dialog.Title>
-              <Dialog.Description className="mt-1.5 text-sm leading-6 text-slate-400">
-                {error
-                  ? "暂时无法获取 GitHub Release 信息，你可以重试或稍后再检查。"
-                  : hasUpdate
-                    ? `${result?.release_name ?? result?.latest_tag} 已经发布。`
-                    : `当前使用的 OPP v${result?.current_version} 已是最新版。`}
-              </Dialog.Description>
-            </div>
-            <Dialog.Close asChild>
-              <button aria-label="下次再说" className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40" disabled={installing} type="button">
-                <X className="size-5" />
-              </button>
-            </Dialog.Close>
-          </div>
+  const title = error ? "检查更新失败" : hasUpdate ? "发现 OPP 新版本" : "已是最新版本";
+  const description = error
+    ? "暂时无法获取 GitHub Release 信息，你可以重试或稍后再检查。"
+    : hasUpdate
+      ? `${result?.release_name ?? result?.latest_tag} 已经发布。`
+      : `当前使用的 OPP v${result?.current_version} 已是最新版。`;
+  const footer = error ? (
+    <>
+      <Button onClick={onClose} variant="ghost">关闭</Button>
+      <Button loading={checking} onClick={onRetry} variant="primary"><RefreshCw className="size-4" />重试</Button>
+    </>
+  ) : hasUpdate ? (
+    <>
+      <Button disabled={ignoring || installing} onClick={onClose} variant="ghost">下次再说</Button>
+      <Button disabled={installing} loading={ignoring} onClick={onIgnore} variant="secondary">忽略此版本</Button>
+      {result?.can_auto_update ? (
+        <Button loading={installing} onClick={onInstall} variant="primary">{installing ? null : <Rocket className="size-4" />}{installing ? "正在更新" : "立即更新"}</Button>
+      ) : (
+        <Button disabled={installing} onClick={openRelease} variant="primary"><ExternalLink className="size-4" />前往更新</Button>
+      )}
+    </>
+  ) : (
+    <Button onClick={onClose} variant="primary">知道了</Button>
+  );
 
-          <div className="max-h-[52vh] overflow-y-auto px-6 py-5">
+  return (
+    <AppDialog
+      bodyClassName="max-h-[52vh]"
+      closeDisabled={installing}
+      closeLabel="下次再说"
+      contentClassName="z-[280] w-[min(680px,calc(100vw-2rem))]"
+      description={description}
+      footer={footer}
+      icon={error ? <AlertTriangle className="size-5" /> : hasUpdate ? <Rocket className="size-5" /> : <CheckCircle2 className="size-5" />}
+      iconClassName={error ? "bg-rose-400/10 text-rose-300" : hasUpdate ? "bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]" : "bg-emerald-400/10 text-emerald-300"}
+      onOpenChange={(open) => { if (!open && !installing) onClose(); }}
+      open
+      overlayProps={{ className: "z-[270]" }}
+      overlayTestId="update-dialog-overlay"
+      title={title}
+    >
             {error ? (
               <div className="rounded-xl border border-rose-300/15 bg-rose-300/[0.06] p-4 text-sm leading-6 text-rose-100">
                 {error}
@@ -172,31 +183,7 @@ function UpdateAnnouncementDialog({
             ) : null}
             {ignoreError ? <p className="mt-3 text-sm text-rose-200">{ignoreError}</p> : null}
             {updateError ? <p className="mt-3 text-sm text-rose-200">{updateError}</p> : null}
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2 border-t border-white/[0.08] px-6 py-4">
-            {error ? (
-              <>
-                <Button onClick={onClose} variant="ghost">关闭</Button>
-                <Button loading={checking} onClick={onRetry} variant="primary"><RefreshCw className="size-4" />重试</Button>
-              </>
-            ) : hasUpdate ? (
-              <>
-                <Button disabled={ignoring || installing} onClick={onClose} variant="ghost">下次再说</Button>
-                <Button disabled={installing} loading={ignoring} onClick={onIgnore} variant="secondary">忽略此版本</Button>
-                {result?.can_auto_update ? (
-                  <Button loading={installing} onClick={onInstall} variant="primary">{installing ? null : <Rocket className="size-4" />}{installing ? "正在更新" : "立即更新"}</Button>
-                ) : (
-                  <Button disabled={installing} onClick={openRelease} variant="primary"><ExternalLink className="size-4" />前往更新</Button>
-                )}
-              </>
-            ) : (
-              <Button onClick={onClose} variant="primary">知道了</Button>
-            )}
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </AppDialog>
   );
 }
 

@@ -5,6 +5,7 @@ import { explicitLocalTarget } from "./navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowLeft,
   Ban,
   X,
   ChevronDown,
@@ -290,7 +291,7 @@ function SourceBar({
   );
 }
 
-function LocalAnalysisClientPage({ section, followTarget, libraryOpen, setLibraryOpen }: { section: LocalSection; followTarget: MusicLocation | null; libraryOpen: boolean; setLibraryOpen: (open: boolean) => void }) {
+function LocalAnalysisClientPage({ section, followTarget, libraryOpen, setLibraryOpen, returnControl }: { section: LocalSection; followTarget: MusicLocation | null; libraryOpen: boolean; setLibraryOpen: (open: boolean) => void; returnControl?: React.ReactNode }) {
   const { client, ruleset, setClient } = useMode();
   const queryClient = useQueryClient();
   const sourcesQuery = useLocalSources();
@@ -406,7 +407,7 @@ function LocalAnalysisClientPage({ section, followTarget, libraryOpen, setLibrar
 
   return (
     <Dialog.Root open={libraryOpen} onOpenChange={setLibraryOpen}>
-      {section !== "maps" || !summary ? <div className="mb-4 flex items-center gap-3">{libraryControl}</div> : null}
+      {section !== "maps" || !summary ? <div className="mb-4 flex items-center gap-3">{returnControl}{libraryControl}</div> : null}
       {section !== "maps" ? <PageHeader
         description="浏览 Skin 配置、图像与音效资源"
         eyebrow="Local library"
@@ -451,6 +452,7 @@ function LocalAnalysisClientPage({ section, followTarget, libraryOpen, setLibrar
         <BeatmapSetPanel
           client={client}
           followTarget={followTarget?.client === client && followTarget.ruleset === ruleset ? followTarget : null}
+          returnControl={returnControl}
           libraryControl={libraryControl}
           libraryRevision={summary.scanned_at}
           onOpen={setSelectedBeatmap}
@@ -526,15 +528,13 @@ export function LocalAnalysisPage({
     return () => { active = false; window.clearTimeout(retry); };
   }, [musicResourceId, section, setClient, setRuleset, explicitTarget]);
   return (
-    <>
-    {collectionReturn?.startsWith("/collections") && <button className="absolute left-6 top-3 z-30 rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-cyan-100" onClick={() => navigate(-1)}>← 返回收藏夹</button>}
     <LocalAnalysisClientPage
       key={`${client}:${ruleset}:${section}`}
       followTarget={explicitTarget ?? (followTarget?.resource_id === musicResourceId ? followTarget : null)}
       section={section}
       libraryOpen={libraryOpen}
       setLibraryOpen={setLibraryOpen}
+      returnControl={collectionReturn?.startsWith("/collections") ? <button className="local-stage-button local-stage-back" onClick={() => navigate(collectionReturn)} type="button"><ArrowLeft />返回收藏夹</button> : undefined}
     />
-    </>
   );
 }

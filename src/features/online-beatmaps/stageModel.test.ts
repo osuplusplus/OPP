@@ -2,9 +2,9 @@ import { expect, it } from "vitest";
 import { createDefaultSearchQuery } from "./filters";
 import { onlineResultsTitle, searchSameTitle, trendingQuery } from "./stageModel";
 
-it("keeps trends restricted to the current mode and the last thirty days in application time", () => {
+it("keeps trends restricted to the current mode and the last seven days in application time", () => {
   expect(trendingQuery("mania", new Date("2026-09-15T20:00:00Z"))).toMatchObject({
-    ruleset: "mania", query: "", status: "ranked", ranked_from: "2026-08-17",
+    ruleset: "mania", query: "", status: "ranked", ranked_from: "2026-09-09",
     sort: "favourites_desc", include_nsfw: false, cursor_string: null,
   });
 });

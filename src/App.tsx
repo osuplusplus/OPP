@@ -5,7 +5,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AppConnectionGate } from "./app/AppConnectionGate";
 import { TitleBar } from "./shared/components/TitleBar";
 import { useSettings } from "./features/settings/api";
-import { Button, Card } from "./shared/components/ui";
+import { Button } from "./shared/components/ui";
+import { AppDialog } from "./shared/components/AppDialog";
+import { NotificationViewport } from "./shared/components/notifications";
 import { desktopApi, isTauri } from "./shared/lib/tauri";
 import { musicApi } from "./features/music-player/api";
 
@@ -77,21 +79,25 @@ function ShutdownChoice() {
     await desktopApi.exitApp();
   };
 
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[300] grid place-items-center bg-black/55 p-6 backdrop-blur-sm">
-      <Card aria-describedby="shutdown-choice-description" aria-labelledby="shutdown-choice-title" className="w-full max-w-md p-6 shadow-2xl" role="dialog">
-        <h2 className="text-lg font-semibold text-white" id="shutdown-choice-title">关闭 OPP？</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-400" id="shutdown-choice-description">
-          你可以直接退出程序，或将窗口最小化到系统托盘；点击托盘图标即可重新打开。
-        </p>
-        <div className="mt-6 flex justify-end gap-2">
+    <AppDialog
+      footer={(
+        <>
           <Button onClick={() => setOpen(false)} variant="ghost">取消</Button>
           <Button onClick={() => void minimizeToTray()} variant="secondary">最小化到托盘</Button>
           <Button onClick={() => void closeApp()} variant="primary">直接关闭</Button>
-        </div>
-      </Card>
-    </div>
+        </>
+      )}
+      onOpenChange={setOpen}
+      open={open}
+      overlayProps={{ className: "z-[300]" }}
+      size="sm"
+      title="关闭 OPP？"
+      description="你可以直接退出程序，或将窗口最小化到系统托盘；点击托盘图标即可重新打开。"
+      contentClassName="z-[310]"
+    >
+      <p className="text-sm leading-6 text-slate-300">后台下载与分析任务会在直接关闭后停止。</p>
+    </AppDialog>
   );
 }
 
@@ -105,6 +111,7 @@ export default function App() {
       <WebContextMenuBlocker />
       <ClientErrorLogging />
       <ShutdownChoice />
+      <NotificationViewport />
       <HashRouter>
         <TitleBar />
         <AppConnectionGate />

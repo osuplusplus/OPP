@@ -17,6 +17,7 @@ pub struct CollectionFolderSummary {
     pub source: CollectionSource,
     pub read_only: bool,
     pub pending_write: bool,
+    pub stable_sync: bool,
     pub entry_count: usize,
     pub missing_count: usize,
     pub beatmapset_count: usize,
@@ -54,7 +55,8 @@ fn summary(folder: &CollectionFolder, revision: u64) -> CollectionFolderSummary 
         creator: folder.creator.clone(),
         source: folder.source.clone(),
         read_only: folder.read_only,
-        pending_write: folder.pending_write,
+        pending_write: folder.pending_write && folder.participates_in_stable(),
+        stable_sync: folder.stable_sync,
         entry_count: folder.entries.len(),
         missing_count,
         beatmapset_count: folder

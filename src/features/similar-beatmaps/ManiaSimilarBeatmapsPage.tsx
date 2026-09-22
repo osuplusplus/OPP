@@ -17,8 +17,8 @@ import { similarityIndexStatusKey, similarityRecommendationKey, useSimilarityInd
 import { createManiaSimilarityRequest } from "./defaults";
 import { defaultManiaCandidateFilters, ManiaCandidateFilters, matchesManiaCandidate, type ManiaCandidateFilterValue } from "./ManiaCandidateFilters";
 import { onlineBeatmapRouteForSimilarityResult, parseSimilarityLaunch } from "./navigation";
-import { excludeTodayRecommendedResults, getTodayRecommendationHistory, getTodayRecommendedBeatmapIds, recordDisplayedRecommendation, type RecommendationHistoryEntry } from "./recommendationHistory";
-import { SimilarityHistoryDialog, SimilarityHome, SimilarityMessage, SimilaritySearch, SimilarityStage } from "./SimilarityWorkspace";
+import { excludeTodayRecommendedResults, getFilterTodayRecommended, getTodayRecommendationHistory, getTodayRecommendedBeatmapIds, recordDisplayedRecommendation, setFilterTodayRecommended, type RecommendationHistoryEntry } from "./recommendationHistory";
+import { RecommendationHistoryControls, SimilarityHistoryDialog, SimilarityHome, SimilarityMessage, SimilaritySearch, SimilarityStage } from "./SimilarityWorkspace";
 import { similarityIndexStateCopy } from "./viewModel";
 
 const KEY_COUNTS = [4, 6, 7] as const;
@@ -65,6 +65,7 @@ export function ManiaSimilarBeatmapsPage() {
   const [filters, setFilters] = useState<ManiaCandidateFilterValue>({ ...defaultManiaCandidateFilters });
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<RecommendationHistoryEntry[]>(() => getTodayRecommendationHistory("mania"));
+  const [filterToday, setFilterToday] = useState(() => getFilterTodayRecommended("mania"));
   const [configuring, setConfiguring] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
@@ -125,8 +126,8 @@ export function ManiaSimilarBeatmapsPage() {
   function recommend(kind: SimilarityRecommendationKind) {
     const run = recommendationRun.current + 1;
     resetResultState(); recommendationRun.current = run;
-    const clean = (value: ManiaSimilarityRecommendationResponse): ManiaSimilarityRecommendationResponse => ({ ...value, groups: value.groups.map((group) => ({ ...group, results: excludeTodayRecommendedResults(group.results, "mania") })) });
-    const fullRequest = { ruleset: "mania" as const, kind, result_limit: request.result_limit, excluded_beatmap_ids: [...getTodayRecommendedBeatmapIds("mania")], candidate_mods: request.candidate_mods };
+    const clean = (value: ManiaSimilarityRecommendationResponse): ManiaSimilarityRecommendationResponse => filterToday ? ({ ...value, groups: value.groups.map((group) => ({ ...group, results: excludeTodayRecommendedResults(group.results, "mania") })) }) : value;
+    const fullRequest = { ruleset: "mania" as const, kind, result_limit: request.result_limit, excluded_beatmap_ids: filterToday ? [...getTodayRecommendedBeatmapIds("mania")] : [], candidate_mods: request.candidate_mods };
     const fullKey = similarityRecommendationKey(fullRequest);
     const complete = (value: ManiaSimilarityRecommendationResponse) => { if (recommendationRun.current !== run) return; queryClient.setQueryData(fullKey, value); const cleaned = clean(value); setRecommendation((current) => mergeRecommendation(current, cleaned)); setActiveKeyCount((current) => cleaned.groups.some((group) => group.key_count === current && group.results.length) ? current : cleaned.groups.find((group) => group.results.length)?.key_count ?? 4); setRecommendationCompleting(false); };
     const cached = queryClient.getQueryData<ManiaSimilarityRecommendationResponse>(fullKey);
@@ -174,13 +175,13 @@ export function ManiaSimilarBeatmapsPage() {
     <SimilarityHistoryDialog open={historyOpen} title="今日 Mania 推荐历史" entries={history} onClose={() => setHistoryOpen(false)} onChoose={(result: AnySimilarityResult) => { if (result.ruleset === "mania" && result.online_url) { setHistoryOpen(false); openOnline(result); } }} />
     <SimilarityMessage message={notice ?? (similarityQuery.error || similarityRecommendation.error ? errorMessage(similarityQuery.error ?? similarityRecommendation.error) : null)} onClose={() => { setNotice(null); similarityQuery.reset(); similarityRecommendation.reset(); }} />
     <SimilarityMessage message={downloadNotice} tone="status" onClose={() => setDownloadNotice(null)} />
-    {showHome ? <><SimilarityHome busy={busy} ruleset="mania" searchValue={searchText} onSearchValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} onRecommend={recommend} onHistory={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }} status={<><span>Mania 索引已就绪 · {status.record_count?.toLocaleString() ?? "已校验"} 条记录</span><button type="button" disabled={statusQuery.isFetching} onClick={() => statusQuery.revalidate()}>重新校验</button><button type="button" onClick={() => void chooseIndex()}>更换目录</button></>} /><div className="mx-auto -mt-16 flex max-w-[820px] justify-center">{modControls}</div></> : stageResult && source ? <SimilarityStage
+    {showHome ? <><SimilarityHome busy={busy} ruleset="mania" searchValue={searchText} onSearchValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} onRecommend={recommend} onHistory={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }} filterToday={filterToday} onFilterTodayChange={(enabled) => { setFilterToday(enabled); setFilterTodayRecommended("mania", enabled); }} status={<><span>Mania 索引已就绪 · {status.record_count?.toLocaleString() ?? "已校验"} 条记录</span><button type="button" disabled={statusQuery.isFetching} onClick={() => statusQuery.revalidate()}>重新校验</button><button type="button" onClick={() => void chooseIndex()}>更换目录</button></>} /><div className="mx-auto -mt-16 flex max-w-[820px] justify-center">{modControls}</div></> : stageResult && source ? <SimilarityStage
       result={stageResult} source={source} index={selectedIndex} total={results.length || unfilteredResults.length} emptyMessage={results.length ? null : "请重新打开筛选调整条件；来源谱面和当前舞台会保持不变。"} recommendation={Boolean(recommendation)} playing={playingId === stageResult.beatmap_id} previewLoading={previewLoadingId === stageResult.beatmap_id} downloading={downloadId === stageResult.beatmap_id} completing={recommendationCompleting}
       onHome={resetResultState}
       onDisplayed={() => { if (recommendation && selected) recordDisplayedRecommendation(selected, "mania"); }}
       onPrevious={() => setSelectedKey(results[selectedIndex - 1] ? resultKey(results[selectedIndex - 1]) : null)} onNext={() => setSelectedKey(results[selectedIndex + 1] ? resultKey(results[selectedIndex + 1]) : null)} onPreview={() => void togglePreview(stageResult)} onDownload={() => void download(stageResult)}
       onCollect={() => { if (!stageResult.online_url) return; openCollectionDialog([{ beatmap_id: stageResult.beatmap_id, beatmapset_id: stageResult.beatmapset_id, checksum: null, ruleset: stageResult.ruleset, difficulty_name: `${stageResult.version} +${stageResult.game_mod}`, title: stageResult.title, artist: stageResult.artist, creator: stageResult.creator }]); }}
-      toolbar={<><SimilaritySearch compact busy={busy} ruleset="mania" value={searchText} onValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} /><ManiaCandidateFilters value={filters} onChange={setFilters} total={unfilteredResults.length} visible={results.length} />{keyTabs}<Button size="sm" variant="ghost" onClick={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }}>历史</Button></>}
+      toolbar={<><SimilaritySearch compact busy={busy} ruleset="mania" value={searchText} onValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} /><ManiaCandidateFilters value={filters} onChange={setFilters} total={unfilteredResults.length} visible={results.length} />{keyTabs}<RecommendationHistoryControls compact filterToday={filterToday} onFilterTodayChange={(enabled) => { setFilterToday(enabled); setFilterTodayRecommended("mania", enabled); }} onHistory={() => { setHistory(getTodayRecommendationHistory("mania")); setHistoryOpen(true); }} /></>}
       details={<div className="flex flex-wrap items-center gap-2">{modControls}</div>}
     /> : <div className="p-8"><div className="mb-4 flex flex-wrap items-center justify-center gap-3"><SimilaritySearch compact busy={busy} ruleset="mania" onChoose={runSource} onChooseFile={() => void chooseFile()} /><ManiaCandidateFilters value={filters} onChange={setFilters} total={unfilteredResults.length} visible={results.length} />{keyTabs}</div><EmptyState title={`没有符合条件的 ${activeKeyCount}K 候选`} description="可清除候选过滤条件、切换键数，或换一张参考谱面。" /></div>}
   </>;

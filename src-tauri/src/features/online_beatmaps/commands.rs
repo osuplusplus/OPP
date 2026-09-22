@@ -5,7 +5,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crate::{
@@ -15,20 +15,18 @@ use crate::{
     state::AppState,
 };
 
-use super::download::{download_file_name, download_with_adapters, validate_osz};
 use super::models::{
-    BeatmapDownloadFailure, BeatmapDownloadProgress, BeatmapDownloadRequest, BeatmapDownloadResult,
-    CollectedBeatmapsets, DownloadProgressCounts, OnlineBeatmapSearchQuery,
+    BeatmapDownloadProgress, BeatmapDownloadRequest, BeatmapDownloadResult, CollectedBeatmapsets,
+    OnlineBeatmapSearchQuery,
 };
 use super::providers;
 use super::tools::{
-    MAX_BATCH_ITEMS, MAX_COLLECT_RESULTS, annotate_source, emit_progress, find_existing_beatmapset,
-    prepare_destination, progress_for_item, search_with_adapters,
+    MAX_BATCH_ITEMS, MAX_COLLECT_RESULTS, annotate_source, emit_progress, prepare_destination,
+    search_with_adapters,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
-use uuid::Uuid;
 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：搜索远程资源。
@@ -207,8 +205,9 @@ pub async fn download_online_beatmapsets(
     let mut unique_ids = HashSet::new();
     let items = request
         .items
-        .into_iter()
+        .iter()
         .filter(|item| unique_ids.insert(item.beatmapset_id))
+        .cloned()
         .collect::<Vec<_>>();
     let cancel = Arc::new(AtomicBool::new(false));
     {
@@ -226,18 +225,14 @@ pub async fn download_online_beatmapsets(
     }
 
     let total = items.len();
-    let mut completed = 0;
-    let mut completed_paths = Vec::<PathBuf>::new();
-    let mut skipped = 0;
-    let mut failures = Vec::new();
     emit_progress(
         &app,
         BeatmapDownloadProgress {
             phase: "started".into(),
             total,
             processed: 0,
-            completed,
-            skipped,
+            completed: 0,
+            skipped: 0,
             failed: 0,
             current_beatmapset_id: None,
             current_title: None,
@@ -250,263 +245,10 @@ pub async fn download_online_beatmapsets(
         },
     );
 
-    for (index, item) in items.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            break;
-        }
-        let processed = index;
-        let existing = (!request.overwrite)
-            .then(|| find_existing_beatmapset(&destination, item.beatmapset_id))
-            .flatten();
-        let stale_existing = existing
-            .as_ref()
-            .filter(|path| {
-                std::fs::File::open(path)
-                    .ok()
-                    .is_none_or(|file| validate_osz(file, item).is_err())
-            })
-            .cloned();
-        if let Some(existing) = existing.filter(|_| stale_existing.is_none()) {
-            skipped += 1;
-            // Callers that post-process archives (for example collection
-            // completion) also need paths for files that were already present.
-            completed_paths.push(existing);
-            emit_progress(
-                &app,
-                progress_for_item(
-                    "skipped",
-                    DownloadProgressCounts {
-                        total,
-                        processed: processed + 1,
-                        completed,
-                        skipped,
-                        failed: failures.len(),
-                    },
-                    item,
-                    Some("目标目录中已存在该谱面集".into()),
-                ),
-            );
-            continue;
-        }
-
-        emit_progress(
-            &app,
-            progress_for_item(
-                "downloading",
-                DownloadProgressCounts {
-                    total,
-                    processed,
-                    completed,
-                    skipped,
-                    failed: failures.len(),
-                },
-                item,
-                None,
-            ),
-        );
-
-        let started_at = Instant::now();
-        let mut last_progress_emit = started_at - Duration::from_secs(1);
-        let mut last_speed_at = started_at;
-        let mut last_speed_bytes = 0;
-        let mut smoothed_speed: Option<f64> = None;
-        match download_with_adapters(
-            &state,
-            item,
-            &request.provider,
-            request.include_video,
-            cancel.as_ref(),
-            |downloaded_bytes, total_bytes| {
-                let now = Instant::now();
-                if now.duration_since(last_progress_emit) < Duration::from_millis(100)
-                    && total_bytes != Some(downloaded_bytes)
-                {
-                    return;
-                }
-                last_progress_emit = now;
-                let interval_seconds = now.duration_since(last_speed_at).as_secs_f64().max(0.001);
-                let interval_bytes = if downloaded_bytes >= last_speed_bytes {
-                    downloaded_bytes - last_speed_bytes
-                } else {
-                    downloaded_bytes
-                };
-                last_speed_at = now;
-                last_speed_bytes = downloaded_bytes;
-                let mut byte_progress = progress_for_item(
-                    "downloading",
-                    DownloadProgressCounts {
-                        total,
-                        processed,
-                        completed,
-                        skipped,
-                        failed: failures.len(),
-                    },
-                    item,
-                    Some("正在接收下载数据".into()),
-                );
-                byte_progress.downloaded_bytes = downloaded_bytes;
-                byte_progress.total_bytes = total_bytes;
-                let instantaneous_speed = interval_bytes as f64 / interval_seconds;
-                let speed = smoothed_speed
-                    .map(|previous| previous * 0.72 + instantaneous_speed * 0.28)
-                    .unwrap_or(instantaneous_speed);
-                smoothed_speed = Some(speed);
-                byte_progress.bytes_per_second = speed;
-                emit_progress(&app, byte_progress);
-            },
-        )
-        .await
-        {
-            Ok(download) if cancel.load(Ordering::Relaxed) => {
-                let _ = download;
-                break;
-            }
-            Ok(download) => {
-                let downloaded_bytes = download.bytes.len() as u64;
-                let mut byte_progress = progress_for_item(
-                    "downloading",
-                    DownloadProgressCounts {
-                        total,
-                        processed,
-                        completed,
-                        skipped,
-                        failed: failures.len(),
-                    },
-                    item,
-                    Some("正在写入下载文件".into()),
-                );
-                byte_progress.downloaded_bytes = downloaded_bytes;
-                byte_progress.total_bytes = Some(downloaded_bytes);
-                byte_progress.bytes_per_second = smoothed_speed.unwrap_or_else(|| {
-                    downloaded_bytes as f64 / started_at.elapsed().as_secs_f64().max(0.001)
-                });
-                emit_progress(&app, byte_progress);
-                let file_name = download_file_name(item, download.suggested_filename.as_deref());
-                let target = destination.join(file_name);
-                let temporary = destination.join(format!(
-                    ".opp-{}-{}.part",
-                    item.beatmapset_id,
-                    Uuid::new_v4().simple()
-                ));
-                let write_result = async {
-                    tokio::fs::write(&temporary, download.bytes).await?;
-                    if request.overwrite && target.exists() {
-                        tokio::fs::remove_file(&target).await?;
-                    }
-                    let backup = stale_existing.as_ref().map(|_| {
-                        destination.join(format!(
-                            ".opp-{}-{}.osz.stale",
-                            item.beatmapset_id,
-                            Uuid::new_v4().simple()
-                        ))
-                    });
-                    if let (Some(old), Some(backup)) = (&stale_existing, &backup) {
-                        tokio::fs::rename(old, backup).await?;
-                    }
-                    match tokio::fs::rename(&temporary, &target).await {
-                        Ok(()) => Ok(()),
-                        Err(error) => {
-                            if let (Some(old), Some(backup)) = (&stale_existing, &backup) {
-                                let _ = tokio::fs::rename(backup, old).await;
-                            }
-                            Err(error)
-                        }
-                    }
-                }
-                .await;
-
-                match write_result {
-                    Ok(()) => {
-                        completed += 1;
-                        completed_paths.push(target.clone());
-                        emit_progress(
-                            &app,
-                            progress_for_item(
-                                "completed",
-                                DownloadProgressCounts {
-                                    total,
-                                    processed: processed + 1,
-                                    completed,
-                                    skipped,
-                                    failed: failures.len(),
-                                },
-                                item,
-                                Some(target.to_string_lossy().into_owned()),
-                            ),
-                        );
-                    }
-                    Err(error) => {
-                        let _ = tokio::fs::remove_file(&temporary).await;
-                        failures.push(BeatmapDownloadFailure {
-                            beatmapset_id: item.beatmapset_id,
-                            title: item.title.clone(),
-                            message: error.to_string(),
-                        });
-                        emit_progress(
-                            &app,
-                            progress_for_item(
-                                "failed",
-                                DownloadProgressCounts {
-                                    total,
-                                    processed: processed + 1,
-                                    completed,
-                                    skipped,
-                                    failed: failures.len(),
-                                },
-                                item,
-                                Some(error.to_string()),
-                            ),
-                        );
-                    }
-                }
-            }
-            Err(error) => {
-                let terminal_error = matches!(error.code.as_str(), "PERMISSION_DENIED");
-                failures.push(BeatmapDownloadFailure {
-                    beatmapset_id: item.beatmapset_id,
-                    title: item.title.clone(),
-                    message: error.message.clone(),
-                });
-                emit_progress(
-                    &app,
-                    progress_for_item(
-                        "failed",
-                        DownloadProgressCounts {
-                            total,
-                            processed: processed + 1,
-                            completed,
-                            skipped,
-                            failed: failures.len(),
-                        },
-                        item,
-                        Some(error.message),
-                    ),
-                );
-                if terminal_error {
-                    break;
-                }
-            }
-        }
-
-        if index + 1 < total && !cancel.load(Ordering::Relaxed) {
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
-    }
-
-    let cancelled = cancel.load(Ordering::Relaxed);
-    let result = BeatmapDownloadResult {
-        destination: destination.to_string_lossy().into_owned(),
-        total,
-        completed,
-        skipped,
-        failed: failures.len(),
-        cancelled,
-        failures,
-        completed_paths: completed_paths
-            .iter()
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect(),
-    };
+    let result = super::batch::run(&app, &state, &items, &request, &destination, &cancel).await;
+    let completed = result.completed;
+    let skipped = result.skipped;
+    let cancelled = result.cancelled;
     emit_progress(
         &app,
         BeatmapDownloadProgress {
@@ -529,12 +271,7 @@ pub async fn download_online_beatmapsets(
             downloaded_bytes: 0,
             total_bytes: None,
             bytes_per_second: 0.0,
-            completed_paths: Some(
-                completed_paths
-                    .iter()
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .collect(),
-            ),
+            completed_paths: Some(result.completed_paths.clone()),
             destination: Some(result.destination.clone()),
         },
     );
@@ -547,8 +284,8 @@ pub async fn download_online_beatmapsets(
     });
     if open_after_download {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        for path in completed_paths {
-            let _ = app.opener().open_path(path.to_string_lossy(), None::<&str>);
+        for path in &result.completed_paths {
+            let _ = open_downloaded_path(app.clone(), path.clone());
         }
     }
 
@@ -577,16 +314,22 @@ pub async fn download_online_beatmapsets(
 /// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
 pub fn open_downloaded_path(app: AppHandle, path: String) -> CommandResult<()> {
+    let span = global().map(|logger| logger.operation("online_beatmaps", "open_downloaded_path"));
     let path = PathBuf::from(path);
     if !path.exists() {
-        return Err(CommandError::new(
-            "DOWNLOAD_PATH_MISSING",
-            "Downloaded file is no longer available",
-        ));
+        return finish_span(
+            span,
+            Err(CommandError::new(
+                "DOWNLOAD_PATH_MISSING",
+                "下载文件已被移动或删除，请重新下载或检查保存目录",
+            )),
+        );
     }
-    app.opener()
+    let result = app
+        .opener()
         .open_path(path.to_string_lossy(), None::<&str>)
-        .map_err(|error| CommandError::new("OPEN_DOWNLOAD_FAILED", error.to_string()))
+        .map_err(|error| CommandError::new("OPEN_DOWNLOAD_FAILED", error.to_string()));
+    finish_span(span, result)
 }
 
 #[tauri::command]

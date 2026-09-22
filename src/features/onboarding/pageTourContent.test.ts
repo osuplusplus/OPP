@@ -6,6 +6,7 @@ import {
 } from "./pageTourContent";
 
 const guidedRoutes = [
+  "/beatmaphub",
   "/online/beatmaps",
   "/collections",
   "/online/similar",

@@ -31,17 +31,29 @@ pub struct PersonalRecord {
     pub representative: Option<LocalScore>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoolSlot {
     pub beatmap_id: i32,
     pub label: String,
     pub selected_by: String,
     pub comment: String,
+    #[serde(default)]
+    pub is_custom: bool,
+    #[serde(default)]
+    pub is_original: bool,
+    #[serde(default)]
+    pub download_disabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoolSnapshot {
     pub reference: crate::features::tournament_pools::TournamentPoolRef,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default, flatten)]
+    pub info: crate::features::tournament_pools::TournamentInfo,
     pub slots: Vec<PoolSlot>,
 }
 
@@ -224,6 +236,7 @@ impl NotebookStore {
         })?;
         Ok(record)
     }
+    #[cfg(test)]
     pub fn save_pool(&self, folder: &str, pool: PoolSnapshot) -> CommandResult<()> {
         let span = global().map(|log| log.operation("collections", "save_pool_snapshot"));
         let result = (|| {
@@ -374,12 +387,19 @@ mod tests {
             .save_pool(
                 "a",
                 PoolSnapshot {
+                    title: String::new(),
+                    info: Default::default(),
                     reference: crate::features::tournament_pools::TournamentPoolRef {
+                        url: None,
                         provider: "rino".into(),
                         season: "s1".into(),
                         category: "finals".into(),
                     },
                     slots: vec![PoolSlot {
+                        metadata: None,
+                        is_custom: false,
+                        is_original: false,
+                        download_disabled: false,
                         beatmap_id: 42,
                         label: "NM2".into(),
                         selected_by: "Player".into(),

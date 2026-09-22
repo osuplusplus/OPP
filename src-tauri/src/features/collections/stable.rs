@@ -270,14 +270,14 @@ pub async fn get_collection_sync_status(app: AppHandle) -> CommandResult<Collect
         let pending_changes = file
             .folders
             .iter()
-            .any(|folder| folder.source != CollectionSource::Lazer && folder.pending_write);
+            .any(|folder| folder.participates_in_stable() && folder.pending_write);
         let game_changed = file.stable_fingerprint.as_deref().unwrap_or("") != current_fingerprint;
         let mut downloadable_sets = HashSet::new();
         let mut missing_unresolved_count = 0;
         for entry in file
             .folders
             .iter()
-            .filter(|folder| folder.source != CollectionSource::Lazer)
+            .filter(|folder| folder.participates_in_stable())
             .flat_map(|folder| &folder.entries)
             .filter(|entry| !entry.resolved)
         {
@@ -383,7 +383,7 @@ fn refresh_stable_collections(
                 .iter()
                 .enumerate()
                 .find(|(index, folder)| {
-                    folder.source != CollectionSource::Lazer
+                    folder.participates_in_stable()
                         && folder.name == item.name
                         && !matched.contains(index)
                 })
@@ -421,6 +421,8 @@ fn refresh_stable_collections(
                     source: CollectionSource::Stable,
                     read_only: false,
                     pending_write: false,
+                    stable_sync: true,
+                    pool: None,
                     entries,
                     external_id: None,
                     external_fingerprint: None,
@@ -716,39 +718,7 @@ pub fn write_stable_collections(
                 "游戏收藏夹已在 OPP 外被修改，请先刷新后再写回",
             ));
         }
-        let mut skipped_entries = 0usize;
-        let folders = file
-            .folders
-            .iter()
-            .filter(|folder| folder.source != CollectionSource::Lazer)
-            .map(|folder| {
-                let checksums = folder
-                    .entries
-                    .iter()
-                    .filter_map(|entry| {
-                        match entry
-                            .checksum
-                            .as_deref()
-                            .filter(|checksum| !checksum.is_empty())
-                        {
-                            Some(value) => Some(value.to_string()),
-                            None => {
-                                skipped_entries += 1;
-                                None
-                            }
-                        }
-                    })
-                    .collect();
-                StableCollection {
-                    name: folder.name.clone(),
-                    checksums,
-                }
-            })
-            .collect::<Vec<_>>();
-        let db = StableDb {
-            version: file.stable_version.unwrap_or(20200101),
-            folders,
-        };
+        let (db, skipped_entries) = stable_db_for_write(file);
         let bytes = encode_stable_db(&db)?;
         let temporary = path.with_extension("db.tmp");
         fs::write(&temporary, bytes)?;
@@ -771,7 +741,7 @@ pub fn write_stable_collections(
         file.stable_fingerprint = Some(file_fingerprint(&path)?);
         file.refreshed_at = Some(Utc::now().to_rfc3339());
         for folder in &mut file.folders {
-            if folder.source != CollectionSource::Lazer {
+            if folder.participates_in_stable() {
                 folder.pending_write = false;
             }
         }
@@ -781,4 +751,50 @@ pub fn write_stable_collections(
             backup_path: backup.map(|value| value.display().to_string()),
         })
     })
+}
+
+#[tauri::command]
+pub async fn enable_collection_stable_sync(folder_id: String, app: AppHandle) -> CommandResult<()> {
+    crate::infrastructure::tasks::blocking_io("enable_collection_stable_sync", move || {
+        let state = app.state::<AppState>();
+        state.collections.enable_stable_sync(&folder_id)
+    })
+    .await?
+}
+
+pub(super) fn stable_db_for_write(file: &super::service::CollectionFile) -> (StableDb, usize) {
+    let mut skipped_entries = 0usize;
+    let folders = file
+        .folders
+        .iter()
+        .filter(|folder| folder.participates_in_stable())
+        .map(|folder| {
+            let checksums = folder
+                .entries
+                .iter()
+                .filter_map(|entry| {
+                    match entry
+                        .checksum
+                        .as_deref()
+                        .filter(|checksum| !checksum.is_empty())
+                    {
+                        Some(value) => Some(value.to_string()),
+                        None => {
+                            skipped_entries += 1;
+                            None
+                        }
+                    }
+                })
+                .collect();
+            StableCollection {
+                name: folder.name.clone(),
+                checksums,
+            }
+        })
+        .collect::<Vec<_>>();
+    let db = StableDb {
+        version: file.stable_version.unwrap_or(20200101),
+        folders,
+    };
+    (db, skipped_entries)
 }

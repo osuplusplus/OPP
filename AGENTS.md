@@ -129,8 +129,8 @@ See `docs/similarity-dataset.md` for details.
 
 ### Platform Boundaries
 - **Windows**: Registry + user directory detection, Credential Manager, native subwindows for live render
-- **Linux**: XDG data directories, PATH commands (`osu-wine`, `osu-lazer`), Secret Service (D-Bus), `/proc` for process detection, `pkexec` for tosu Wine process reading
-- **Danser integration**: Windows-only (requires `danser-cli.exe`, `ffmpeg.exe`, Explorer)
+- **Linux**: XDG data directories, PATH commands (`osu-wine`, `osu-lazer`), Secret Service (D-Bus), `/proc` for process detection, `pkexec` for tosu Wine process reading, X11 native windows for live render
+- **Danser integration**: Windows uses `danser-cli.exe`; Linux uses PATH `danser` and XDG settings. Both require FFmpeg.
 - File association and display gamma: Windows-only (via Windows API)
 
 Platform-specific business should go into `infrastructure/platform.rs` or capability switches, avoiding scattered OS checks in pages and domain modules.
@@ -232,7 +232,7 @@ log_error!("module", "Failed to connect: {}", error);
 log_debug!("module", "State: {:?}", state);
 ```
 
-See `docs/日志系统使用指南.md` for comprehensive examples and `src-tauri/src/infrastructure/logging_examples.rs` for refactoring patterns.
+See `docs/架构与开发.md` for logging and task boundaries, and `src-tauri/src/infrastructure/logging_examples.rs` for refactoring patterns.
 
 ### Viewing Logs
 
@@ -273,8 +273,8 @@ Windows clients check `https://github.com/osuplusplus/OPP/releases/latest/downlo
 
 ```json
 {
-  "version": "0.4.5",
-  "url": "https://github.com/osuplusplus/OPP/releases/download/v0.4.5/OPP_0.4.5_windows_x64_portable.exe"
+  "version": "0.5.0",
+  "url": "https://github.com/osuplusplus/OPP/releases/download/v0.5.0/OPP_0.5.0_windows_x64_portable.exe"
 }
 ```
 

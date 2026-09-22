@@ -9,7 +9,6 @@ import {
   FolderOpen,
   Film,
   Wrench,
-  Sparkles,
   Info,
 } from "lucide-react";
 import { Button } from "../../shared/components/ui";
@@ -24,7 +23,6 @@ const categories = [
   { id: "directories", label: "游戏目录", icon: FolderOpen },
   { id: "replay", label: "回放渲染", icon: Film },
   { id: "tools", label: "工具与缓存", icon: Wrench },
-  { id: "similarity", label: "相似谱面", icon: Sparkles },
   { id: "about", label: "关于", icon: Info },
 ] as const;
 
@@ -42,10 +40,7 @@ export function SettingsLayout({ children, activeCategory, onCategoryChange }: S
       {/* 左侧导航栏 */}
       <aside className="flex w-56 shrink-0 flex-col border-r border-white/[0.08] bg-black/20">
         <div className="border-b border-white/[0.06] p-6">
-          <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[var(--theme-primary)]">
-            Application
-          </p>
-          <h1 className="mt-1 text-xl font-bold text-white">设置</h1>
+          <h1 className="text-xl font-bold text-white">设置</h1>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3">

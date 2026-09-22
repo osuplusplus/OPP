@@ -15,13 +15,21 @@ pub const CATEGORIES: [(&str, &str); 6] = [
 #[serde(deny_unknown_fields)]
 pub struct TournamentPoolRef {
     pub provider: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub season: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub category: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 impl TournamentPoolRef {
     pub fn validate(&self) -> CommandResult<()> {
+        if self.provider == "opp" && self.season.is_empty() && self.category.is_empty() {
+            return super::standard::source_url(self.url.as_deref().unwrap_or("")).map(|_| ());
+        }
         if self.provider != "rino"
+            || self.url.is_some()
             || !matches!(self.season.as_str(), "s1" | "s2")
             || !CATEGORIES.iter().any(|(id, _)| *id == self.category)
         {
@@ -34,6 +42,13 @@ impl TournamentPoolRef {
     }
 
     pub fn source_id(&self) -> String {
+        if self.provider == "opp" {
+            let url = super::standard::source_url(self.url.as_deref().unwrap_or(""));
+            return format!(
+                "tournament:opp:{}",
+                url.map(|u| u.to_string()).unwrap_or_default()
+            );
+        }
         format!(
             "tournament:{}:{}:{}",
             self.provider, self.season, self.category
@@ -46,7 +61,7 @@ impl TournamentPoolRef {
             .find(|(id, _)| *id == self.category)
             .map(|(_, label)| *label)
             .unwrap_or(&self.category);
-        format!("Rino {} {category}", self.season.to_uppercase())
+        format!("ASC 星域杯 {} {category}", self.season.to_uppercase())
     }
 }
 
@@ -59,6 +74,7 @@ pub struct TournamentBeatmap {
     pub difficulty_name: String,
     pub checksum: Option<String>,
     pub download_disabled: bool,
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,7 +95,19 @@ pub struct TournamentPoolEntry {
 pub struct TournamentPool {
     pub reference: TournamentPoolRef,
     pub title: String,
+    #[serde(flatten)]
+    pub info: TournamentInfo,
     pub entries: Vec<TournamentPoolEntry>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TournamentInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tournament: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,4 +115,10 @@ pub struct TournamentPoolSyncResult {
     pub folder_id: String,
     pub entry_count: usize,
     pub pool: TournamentPool,
+}
+
+#[derive(Serialize)]
+pub struct PoolOpenResult {
+    pub folder_id: String,
+    pub existing: bool,
 }

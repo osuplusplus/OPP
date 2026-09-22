@@ -19,7 +19,8 @@ export function useSkillAnalysis(client: OsuClient) {
   const query = useQuery({
     queryKey: skillAnalysisQueryKey(client),
     queryFn: () => desktopApi.analyzePlayerSkills(request()),
-    staleTime: 10 * 60_000,
+    staleTime: 60 * 60_000,
+    gcTime: Infinity,
     retry: false,
   });
   const refresh = async () => {

@@ -11,7 +11,9 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { Button, Card } from "../../shared/components/ui";
+import { Button } from "../../shared/components/ui";
+import { NotificationCard } from "../../shared/components/notifications";
+import { AppDialog } from "../../shared/components/AppDialog";
 import { APP_TIME_ZONE } from "../../shared/lib/format";
 import { CollectionExplorer } from "./CollectionExplorer";
 import { desktopApi } from "../../shared/lib/tauri";
@@ -108,7 +110,7 @@ export function CollectionsPage() {
   const [leavePrompt, setLeavePrompt] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
   const navigate = useNavigate();
-  const hasUnsavedChanges = collections.data?.folders.some((folder) => folder.pending_write) ?? false;
+  const hasUnsavedChanges = collections.data?.folders.some((folder) => folder.pending_write && folder.stable_sync !== false) ?? false;
 
   useEffect(() => {
     const interceptNavigation = (event: MouseEvent) => {
@@ -151,7 +153,8 @@ export function CollectionsPage() {
 
   const changed = useCallback(async (folderId?: string, entryId?: string) => {
     if (!folderId) {
-      void queryClient.invalidateQueries({ queryKey: collectionsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: collectionsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: ["collection-entries"] });
       return;
     }
     try {
@@ -218,7 +221,7 @@ export function CollectionsPage() {
       collectionDownloadActive.current = false;
     }
   }, [changed]);
-  const downloadMissingBeatmapsToGame = useCallback(() => downloadFoldersToGame((collections.data?.folders ?? []).filter((folder) => folder.source !== "lazer").map((folder) => folder.id)), [collections.data?.folders, downloadFoldersToGame]);
+  const downloadMissingBeatmapsToGame = useCallback(() => downloadFoldersToGame((collections.data?.folders ?? []).filter((folder) => folder.source !== "lazer" && folder.stable_sync !== false).map((folder) => folder.id)), [collections.data?.folders, downloadFoldersToGame]);
   const finalizeCollections = useCallback(async (completed: Awaited<ReturnType<typeof downloadFoldersToGame>>) => {
     setBusy(true);
     try {
@@ -258,6 +261,10 @@ export function CollectionsPage() {
   }, [changed]);
   const downloadOneFolder = async (folderId: string) => {
     try {
+      if (collections.data?.folders.find((folder) => folder.id === folderId)?.stable_sync === false) {
+        await desktopApi.enableCollectionStableSync(folderId);
+        await changed();
+      }
       const result = await downloadFoldersToGame([folderId]);
       await finalizeCollections(result);
     } catch (caught) {
@@ -321,7 +328,7 @@ export function CollectionsPage() {
       <Button disabled={busy} onClick={() => void refresh("lazer")} size="sm" variant="secondary"><RefreshCw className="size-3.5" />读取 lazer</Button>
       <Button loading={busy} onClick={() => void writeWithAutoDownload()} size="sm"><Save className="size-3.5" />补齐并写回 Stable</Button>
     </>} />
-    {notice && <div role="status" className="fixed bottom-5 left-1/2 z-[100] flex max-w-[80vw] -translate-x-1/2 items-center gap-4 rounded-xl border border-cyan-200/20 bg-[#142030] px-5 py-3 text-sm text-cyan-100 shadow-xl">{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><X size={16} /></button></div>}
+    {notice ? <NotificationCard className="fixed bottom-5 left-1/2 z-[100] -translate-x-1/2" description={notice} onClose={() => setNotice(null)} title="收藏夹提示" tone="info" /> : null}
     <Dialog.Root open={manageOpen} onOpenChange={setManageOpen}><Dialog.Portal><Dialog.Overlay className="collection-dialog-overlay" /><Dialog.Content className="collection-modal"><Dialog.Title>新建与导入</Dialog.Title><Dialog.Description>创建自己的收藏夹，或导入分享码和谱面压缩包。</Dialog.Description>
       <form onSubmit={(event) => { event.preventDefault(); void create().catch((error) => setNotice(String(error))); }}><label className="text-sm">收藏夹名称<input className="mt-2" value={name} onChange={(e) => setName(e.target.value)} placeholder="我的练习曲包" maxLength={120} /></label><Button className="mt-3" disabled={busy || !name.trim()} type="submit">创建收藏夹</Button></form>
       <div className="mt-6 border-t border-white/10 pt-5"><h3 className="text-sm">导入分享码</h3><textarea className="mt-3 h-24 w-full rounded-lg bg-black/20 p-3 text-xs" value={shareCode} onChange={(e) => { setShareCode(e.target.value); setPreview(null); }} placeholder="粘贴 OPPC2.… 分享码" /><Button disabled={busy || !shareCode.trim()} onClick={() => void importShare()} className="mt-2" variant="secondary">解析分享码</Button></div>
@@ -330,6 +337,6 @@ export function CollectionsPage() {
       <div className="collection-modal-actions"><Dialog.Close>完成</Dialog.Close></div>
     </Dialog.Content></Dialog.Portal></Dialog.Root>
     <ImportPreviewDialog busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmImport()} preview={preview} />
-    {leavePrompt && <div className="fixed inset-0 z-[280] grid place-items-center bg-black/70 p-5 backdrop-blur-sm"><Card className="w-full max-w-md p-6 shadow-2xl"><h2 className="text-lg font-semibold text-white">收藏夹尚未写回游戏</h2><p className="mt-2 text-sm leading-6 text-slate-400">收藏夹修改已保存在 OPP。离开前是否写回 osu!stable？</p><div className="mt-6 flex flex-wrap justify-end gap-2"><Button disabled={busy} onClick={stay} variant="ghost">留在此页</Button><Button disabled={busy} onClick={discardAndLeave} variant="secondary">暂不写回</Button><Button loading={busy} onClick={() => void saveAndLeave()}><Save className="size-4" />写回并离开</Button></div></Card></div>}
+    <AppDialog closeDisabled={busy} description="收藏夹修改已保存在 OPP。离开前是否写回 osu!stable？" footer={<><Button disabled={busy} onClick={stay} variant="ghost">留在此页</Button><Button disabled={busy} onClick={discardAndLeave} variant="secondary">暂不写回</Button><Button loading={busy} onClick={() => void saveAndLeave()}><Save className="size-4" />写回并离开</Button></>} onOpenChange={(open) => { if (!open && !busy) stay(); }} open={leavePrompt} size="sm" title="收藏夹尚未写回游戏"><p className="text-sm leading-6 text-slate-300">选择暂不写回只会离开当前页面，不会丢失 OPP 中的修改。</p></AppDialog>
   </>;
 }

@@ -15,6 +15,8 @@ import { CollectionRecordDrawer } from "./CollectionRecordDrawer";
 import { CollectionBackdrop } from "./CollectionBackdrop";
 import { localCollectionRoute, readSession, saveSession } from "./browserModel";
 import "./collections.css";
+import { PoolImportStatus } from "../tournament-pools/PoolImportStatus";
+import { CollectionPoolActions } from "../tournament-pools/CollectionPoolActions";
 
 export function CollectionExplorer({ folders, loading, failed, toolbar, onRetry, onChanged, onDownload, onNotice }: {
   folders: CollectionFolderSummary[]; loading: boolean; failed: boolean; toolbar: ReactNode;
@@ -81,9 +83,10 @@ export function CollectionExplorer({ folders, loading, failed, toolbar, onRetry,
   const inResults = !!search.trim();
   return <section className="collection-explorer">
     <CollectionBackdrop key={folderId ?? "all"} folderId={folderId} animated={animated} />
-    <header className="collection-header"><div><small>YOUR BEATMAP LIBRARY</small><h1>谱面收藏夹</h1><p>整理曲包，记录每一次练习。</p></div><label className="collection-motion-toggle"><input type="checkbox" checked={animated} onChange={(e) => { setAnimated(e.target.checked); saveSession("opp:collection-motion", e.target.checked); }} />动态背景</label></header>
-    <div className="collection-toolbar">{toolbar}</div>
+    {!folderId && <><header className="collection-header"><div><small>YOUR BEATMAP LIBRARY</small><h1>谱面收藏夹</h1><p>整理曲包，记录每一次练习。</p></div><label className="collection-motion-toggle"><input type="checkbox" checked={animated} onChange={(e) => { setAnimated(e.target.checked); saveSession("opp:collection-motion", e.target.checked); }} />动态背景</label></header>
+    <div className="collection-toolbar">{toolbar}</div></>}
     <div className="collection-search"><Search size={20} /><input aria-label="搜索全部收藏" placeholder="搜索全部收藏 · 曲名、图位、标签、评论中的只言片语…" value={search} onChange={(e) => update((next) => { if (e.target.value) next.set("q", e.target.value); else next.delete("q"); next.delete("resultsPage"); }, true)} />{search && <button aria-label="清空搜索" onClick={() => update((next) => { next.delete("q"); next.delete("resultsPage"); }, true)}><X size={18} /></button>}<span>全部收藏</span></div>
+    <PoolImportStatus />
     <div className="collection-browser-toolbar"><nav aria-label="收藏夹路径"><button onClick={() => openFolder(null)}><Grid2X2 size={16} />全部收藏</button>{folderId && <><ChevronRight size={15} /><button onClick={() => openFolder(folderId)}>{folder?.name ?? "收藏夹"}</button></>}{inResults && <><ChevronRight size={15} /><span>搜索结果</span></>}</nav><div>
       <select aria-label="成绩玩家" value={player ?? ""} onChange={(e) => { setPlayerChoice(e.target.value); saveSession("opp:collection-player", e.target.value); }}><option value="">选择成绩玩家</option>{status.data?.players.map((name) => <option key={name} value={name}>{name || "未命名玩家"}</option>)}</select>
       <button disabled={status.isFetching || busy} onClick={() => void refreshScores()}>{status.isFetching ? "读取成绩…" : "刷新成绩"}</button>
@@ -92,16 +95,16 @@ export function CollectionExplorer({ folders, loading, failed, toolbar, onRetry,
     {status.data?.errors.map((error) => <p className="collection-inline-notice" key={error}>{error}；已保留上次读取结果。</p>)}
     {status.isError && <p className="collection-inline-notice">本地成绩读取失败，可点击刷新成绩重试。</p>}
     {folder && !inResults && <div className="collection-folder-heading"><div><button aria-label="返回全部收藏" onClick={() => openFolder(null)}><ArrowLeft size={18} /></button><FolderOpen size={25} /><h2>{folder.name}</h2><small>{folder.entry_count} 个难度</small></div><div>
-      {query.data?.pool && <button disabled={busy} onClick={() => void run(async () => { await desktopApi.syncTournamentPoolCollection(query.data!.pool!.reference); await onChanged(); })}>同步比赛图池</button>}
       <button disabled={busy} onClick={() => void run(async () => { const code = await desktopApi.exportCollectionShare(folder.id, folder.creator); await navigator.clipboard.writeText(code); onNotice("分享码已复制"); })}>导出分享码</button>
       <button disabled={busy || folder.read_only} onClick={() => setRename(folder.name)}>重命名</button>
-      <button disabled={busy || folder.read_only} onClick={() => void run(() => onDownload(folder.id))}>补齐谱面</button>
+      {!query.data?.pool && <button disabled={busy || folder.read_only} onClick={() => void run(() => onDownload(folder.id))}>补齐谱面</button>}
       <button disabled={busy || folder.read_only} className="is-danger" onClick={() => setDeleting(true)}>删除</button>
     </div></div>}
+    {folder && !inResults && query.data?.pool && <CollectionPoolActions key={folder.id} folder={folder} pool={query.data.pool} onImportStable={() => onDownload(folder.id)} />}
     {loading ? <p className="collection-empty" role="status">正在读取收藏夹…</p> : failed ? <button onClick={onRetry}>读取收藏夹失败，点击重试</button> : !folderId && !inResults && !folders.length ? <div className="collection-empty"><FolderOpen size={42} /><h2>还没有收藏夹</h2><p>新建收藏夹，或从游戏和分享码导入你的曲包。</p></div> : null}
     {(!folderId || inResults) && shownFolders.length > 0 && <div className="collection-folder-grid">{shownFolders.map((f) => <CollectionFolderTile folder={f} key={f.id} onOpen={() => openFolder(f.id)} />)}</div>}
     {(folderId || inResults) && <>
-      {query.isError ? <button onClick={() => void query.refetch()}>读取谱面失败，点击重试</button> : query.isLoading || search !== debounced ? <p className="collection-empty" role="status">正在查找谱面…</p> : query.data?.items.length ? <div className="collection-rows">{query.data.items.map((row) => <CollectionBeatmapRow key={row.key} row={row} search={search} onOpen={() => { const path = localCollectionRoute(row); if (path) go(path, row); else { onNotice("该难度尚未在本地找到，可通过更多操作补齐谱面。"); setRecord(row); } }} onRecord={() => setRecord(row)} onDetail={() => setDetail(row)} onNavigate={(path) => go(path, row)} onChanged={onChanged} onDownload={onDownload} onNotice={onNotice} />)}</div> : <p className="collection-empty">{inResults ? "没有匹配内容，试试更短的词句。" : "收藏夹中还没有谱面。"}</p>}
+      {query.isError ? <button onClick={() => void query.refetch()}>读取谱面失败，点击重试</button> : query.isLoading || search !== debounced ? <p className="collection-empty" role="status">正在查找谱面…</p> : query.data?.items.length ? <div className="collection-rows">{query.data.items.map((row) => <CollectionBeatmapRow key={row.key} row={row} search={search} onOpen={() => { const path = localCollectionRoute(row); if (path) go(path, row); else if (row.entry.beatmap_id) go(`/online/beatmaps?beatmap=${row.entry.beatmap_id}`, row); else { setRecord(row); } }} onRecord={() => setRecord(row)} onDetail={() => setDetail(row)} onNavigate={(path) => go(path, row)} onChanged={onChanged} onDownload={onDownload} onNotice={onNotice} />)}</div> : <p className="collection-empty">{inResults ? "没有匹配内容，试试更短的词句。" : "收藏夹中还没有谱面。"}</p>}
       {!!query.data?.total && <nav className="collection-pagination" aria-label="谱面分页"><span>{query.data.offset + 1}–{Math.min(query.data.offset + 50, query.data.total)} / {query.data.total}</span><div><button disabled={query.data.offset === 0} onClick={() => update((next) => next.set(pageParam, String(Math.max(0, query.data!.offset / 50 - 1))))}>上一页</button><button disabled={query.data.offset + 50 >= query.data.total} onClick={() => update((next) => next.set(pageParam, String(query.data!.offset / 50 + 1)))}>下一页</button></div></nav>}
     </>}
     {record && <CollectionRecordDrawer key={`${record.folder_id}:${record.entry.id}`} row={record} player={player || null} onClose={() => setRecord(null)} />}

@@ -19,10 +19,10 @@ import { similarityIndexStatusKey, similarityRecommendationKey, useSimilarityInd
 import { createSimilarityRequest, defaultSimilarityPreferences } from "./defaults";
 import { ManiaSimilarBeatmapsPage } from "./ManiaSimilarBeatmapsPage";
 import { onlineBeatmapRouteForSimilarityResult, parseSimilarityLaunch } from "./navigation";
-import { excludeTodayRecommendedResults, getTodayRecommendationHistory, getTodayRecommendedBeatmapIds, recordDisplayedRecommendation, type RecommendationHistoryEntry } from "./recommendationHistory";
+import { excludeTodayRecommendedResults, getFilterTodayRecommended, getTodayRecommendationHistory, getTodayRecommendedBeatmapIds, recordDisplayedRecommendation, setFilterTodayRecommended, type RecommendationHistoryEntry } from "./recommendationHistory";
 import { SimilarityAdvancedPanel } from "./SimilarityAdvancedPanel";
 import { SimilarityFilterSliders } from "./SimilarityFilterSliders";
-import { SimilarityHistoryDialog, SimilarityHome, SimilarityMessage, SimilaritySearch, SimilarityStage } from "./SimilarityWorkspace";
+import { RecommendationHistoryControls, SimilarityHistoryDialog, SimilarityHome, SimilarityMessage, SimilaritySearch, SimilarityStage } from "./SimilarityWorkspace";
 import { matchesCandidateFilters, resolveSimilarityWeighting, similarityIndexStateCopy } from "./viewModel";
 
 interface StandardSession { request: OsuSimilarityQueryRequest; response: OsuSimilarityQueryResponse | null; recommendation: OsuSimilarityRecommendationResponse | null; selectedId: number | null; }
@@ -57,6 +57,7 @@ function StandardSimilarBeatmapsPage() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<RecommendationHistoryEntry[]>(() => getTodayRecommendationHistory("osu"));
+  const [filterToday, setFilterToday] = useState(() => getFilterTodayRecommended("osu"));
   const [configuring, setConfiguring] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
@@ -72,7 +73,7 @@ function StandardSimilarBeatmapsPage() {
   const recommendationRun = useRef(0);
   const preferenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewVolume = settings.data?.preview_volume ?? 65;
-  const preferences = useMemo(() => ({ ...defaultSimilarityPreferences, ...settings.data?.similarity_preferences, manual_weights: { ...defaultSimilarityPreferences.manual_weights, ...settings.data?.similarity_preferences?.manual_weights } }), [settings.data?.similarity_preferences]);
+  const preferences = useMemo(() => ({ ...defaultSimilarityPreferences, ...settings.data?.similarity_preferences, advanced_enabled: true, manual_weights: { ...defaultSimilarityPreferences.manual_weights, ...settings.data?.similarity_preferences?.manual_weights } }), [settings.data?.similarity_preferences]);
   const effectiveWeighting = resolveSimilarityWeighting(request, preferences);
   const status = statusQuery.data ?? ({ ruleset: "osu", state: "unconfigured", directory: null, record_count: null, analyzer_version: null, normalization_version: null, algorithm_id: null, data_cutoff_at: null, supports_dynamic_weighting: false, records_by_key_count: null, message: statusQuery.error ? errorMessage(statusQuery.error) : "" } satisfies SimilarityIndexStatus);
   const allResults = useMemo(() => recommendation?.results ?? response?.results ?? [], [recommendation, response]);
@@ -105,7 +106,7 @@ function StandardSimilarBeatmapsPage() {
 
   function changeAdvancedRequest(next: OsuSimilarityQueryRequest) {
     setRequest(next);
-    if (!settings.data || !preferences.advanced_enabled) return;
+    if (!settings.data) return;
     const nextPreferences = next.weighting.mode === "dynamic" ? { ...preferences, mode: "dynamic" as const, lower_sections: next.weighting.lower_sections, upper_sections: next.weighting.upper_sections } : { ...preferences, mode: "manual" as const, manual_weights: { ...next.weighting.difficulty_weights, parameters: next.weighting.parameter_weight } };
     const nextSettings = { ...settings.data, similarity_preferences: nextPreferences };
     queryClient.setQueryData(settingsQueryKey, nextSettings);
@@ -129,8 +130,8 @@ function StandardSimilarBeatmapsPage() {
   function recommend(kind: SimilarityRecommendationKind) {
     const run = recommendationRun.current + 1;
     resetResultState(); recommendationRun.current = run;
-    const clean = (value: OsuSimilarityRecommendationResponse): OsuSimilarityRecommendationResponse => ({ ...value, results: excludeTodayRecommendedResults(value.results, "osu") });
-    const fullRequest = { ruleset: "osu" as const, kind, weighting: effectiveWeighting, filters: { ...request.filters }, result_limit: request.result_limit, excluded_beatmap_ids: [...getTodayRecommendedBeatmapIds("osu")] };
+    const clean = (value: OsuSimilarityRecommendationResponse): OsuSimilarityRecommendationResponse => filterToday ? ({ ...value, results: excludeTodayRecommendedResults(value.results, "osu") }) : value;
+    const fullRequest = { ruleset: "osu" as const, kind, weighting: effectiveWeighting, filters: { ...request.filters }, result_limit: request.result_limit, excluded_beatmap_ids: filterToday ? [...getTodayRecommendedBeatmapIds("osu")] : [] };
     const fullKey = similarityRecommendationKey(fullRequest);
     const complete = (value: OsuSimilarityRecommendationResponse) => { if (recommendationRun.current !== run) return; queryClient.setQueryData(fullKey, value); setRecommendation((current) => mergeRecommendation(current, clean(value))); setRecommendationCompleting(false); };
     const cached = queryClient.getQueryData<OsuSimilarityRecommendationResponse>(fullKey);
@@ -175,20 +176,21 @@ function StandardSimilarBeatmapsPage() {
     <SimilarityHistoryDialog open={historyOpen} title="今日推荐历史" entries={history} onClose={() => setHistoryOpen(false)} onChoose={(result: AnySimilarityResult) => { setHistoryOpen(false); if (result.ruleset === "osu") openOnline(result); }} />
     <SimilarityMessage message={notice ?? (similarityQuery.error || similarityRecommendation.error ? errorMessage(similarityQuery.error ?? similarityRecommendation.error) : null)} onClose={() => { setNotice(null); similarityQuery.reset(); similarityRecommendation.reset(); }} />
     <SimilarityMessage message={downloadNotice} tone="status" onClose={() => setDownloadNotice(null)} />
-    {showHome ? <SimilarityHome busy={busy} ruleset="osu" searchValue={searchText} onSearchValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} onRecommend={recommend} onHistory={() => { setHistory(getTodayRecommendationHistory("osu")); setHistoryOpen(true); }} status={<><span>索引已就绪 · {status.record_count?.toLocaleString() ?? "已校验"} 条记录</span><button type="button" disabled={statusQuery.isFetching} onClick={() => statusQuery.revalidate()}>重新校验</button><button type="button" onClick={() => void chooseIndex()}>更换目录</button></>} /> : stageResult && source ? <SimilarityStage
+    {showHome ? <SimilarityHome busy={busy} ruleset="osu" searchValue={searchText} onSearchValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} onRecommend={recommend} onHistory={() => { setHistory(getTodayRecommendationHistory("osu")); setHistoryOpen(true); }} filterToday={filterToday} onFilterTodayChange={(enabled) => { setFilterToday(enabled); setFilterTodayRecommended("osu", enabled); }} status={<><span>索引已就绪 · {status.record_count?.toLocaleString() ?? "已校验"} 条记录</span><button type="button" disabled={statusQuery.isFetching} onClick={() => statusQuery.revalidate()}>重新校验</button><button type="button" onClick={() => void chooseIndex()}>更换目录</button></>} /> : stageResult && source ? <SimilarityStage
       result={stageResult} source={source} index={selectedIndex} total={results.length || allResults.length} emptyMessage={results.length ? null : "请重新打开筛选调整条件；来源谱面和当前舞台会保持不变。"} recommendation={Boolean(recommendation)} playing={playingId === stageResult.beatmap_id} previewLoading={previewLoadingId === stageResult.beatmap_id} downloading={downloadId === stageResult.beatmap_id} completing={recommendationCompleting}
       onHome={resetResultState}
       onDisplayed={() => { if (recommendation && selected) recordDisplayedRecommendation(selected, "osu"); }}
       onPrevious={() => setSelectedId(results[selectedIndex - 1]?.beatmap_id ?? null)} onNext={() => setSelectedId(results[selectedIndex + 1]?.beatmap_id ?? null)} onPreview={() => void togglePreview(stageResult)} onDownload={() => void download(stageResult)}
       onCollect={() => openCollectionDialog([{ beatmap_id: stageResult.beatmap_id, beatmapset_id: stageResult.beatmapset_id, checksum: null, ruleset: stageResult.ruleset, difficulty_name: stageResult.version, title: stageResult.title, artist: stageResult.artist, creator: stageResult.creator }])}
-      toolbar={<><SimilaritySearch compact busy={busy} ruleset="osu" value={searchText} onValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} /><SimilarityFilterSliders request={request} onChange={setRequest} /><Button size="sm" variant="ghost" onClick={() => { setHistory(getTodayRecommendationHistory("osu")); setHistoryOpen(true); }}>历史</Button></>}
-      details={preferences.advanced_enabled || focusSkill ? <div className="space-y-2">{preferences.advanced_enabled ? <Button size="sm" variant="ghost" onClick={() => setAdvancedOpen(!advancedOpen)}>{advancedOpen ? "收起高级参数" : "高级参数"}</Button> : null}{advancedOpen ? <SimilarityAdvancedPanel request={{ ...request, weighting: effectiveWeighting }} preferences={preferences} onChange={changeAdvancedRequest} /> : null}{focusSkill ? <p>技能训练目标：{focusSkill}</p> : null}</div> : null}
+      toolbar={<><SimilaritySearch compact busy={busy} ruleset="osu" value={searchText} onValueChange={setSearchText} onChoose={runSource} onChooseFile={() => void chooseFile()} /><SimilarityFilterSliders request={request} onChange={setRequest} /><RecommendationHistoryControls compact filterToday={filterToday} onFilterTodayChange={(enabled) => { setFilterToday(enabled); setFilterTodayRecommended("osu", enabled); }} onHistory={() => { setHistory(getTodayRecommendationHistory("osu")); setHistoryOpen(true); }} /></>}
+      details={<div className="space-y-2"><Button size="sm" variant="ghost" onClick={() => setAdvancedOpen(!advancedOpen)}>{advancedOpen ? "收起高级参数" : "高级参数"}</Button>{advancedOpen ? <SimilarityAdvancedPanel request={{ ...request, weighting: effectiveWeighting }} preferences={preferences} onChange={changeAdvancedRequest} /> : null}{focusSkill ? <p>技能训练目标：{focusSkill}</p> : null}</div>}
     /> : <div className="p-8"><SimilaritySearch compact busy={busy} ruleset="osu" onChoose={runSource} onChooseFile={() => void chooseFile()} /><EmptyState title="没有符合条件的候选谱面" description="可清除候选过滤条件，或换一张参考谱面。" /></div>}
   </>;
 }
 
 export function SimilarBeatmapsPage() {
   const { ruleset, setRuleset } = useMode();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const launch = parseSimilarityLaunch(searchParams);
   const launchKey = launch ? searchParams.toString() : null;
@@ -197,5 +199,5 @@ export function SimilarBeatmapsPage() {
   const pageRuleset = pendingRuleset ?? ruleset;
   useEffect(() => { if (launchKey === null) { observed.current = null; return; } if (observed.current === launchKey) return; observed.current = launchKey; setPendingRuleset(launch?.ruleset ?? "osu"); }, [launch?.ruleset, launchKey]);
   useEffect(() => { if (pendingRuleset === null) return; const frame = requestAnimationFrame(() => { if (pendingRuleset !== ruleset) setRuleset(pendingRuleset); setPendingRuleset(null); }); return () => cancelAnimationFrame(frame); }, [pendingRuleset, ruleset, setRuleset]);
-  return <section className="similarity-page"><LocalLibraryBackdrop />{pageRuleset === "mania" ? <ManiaSimilarBeatmapsPage /> : pageRuleset === "osu" ? <StandardSimilarBeatmapsPage /> : <><PageHeader title="相似谱面" description="相似谱面目前支持 osu!standard 与 osu!mania。" /><EmptyState title={`${pageRuleset === "taiko" ? "osu!taiko" : "osu!catch"} 暂不支持相似谱面`} description="请在顶部全局模式中切换到 osu!standard 或 osu!mania。" /></>}</section>;
+  return <section className="similarity-page"><LocalLibraryBackdrop />{pageRuleset === "mania" ? <ManiaSimilarBeatmapsPage /> : pageRuleset === "osu" ? <StandardSimilarBeatmapsPage /> : <><PageHeader title="相似谱面" description="相似谱面目前支持 osu!standard 与 osu!mania。" /><EmptyState title={`${pageRuleset === "taiko" ? "osu!taiko" : "osu!catch"} 暂不支持相似谱面`} description="请前往“设置 → 常规 → 游戏模式”，切换到 osu!standard 或 osu!mania。" action={<Button onClick={() => navigate("/settings")} variant="primary">打开设置</Button>} /></>}</section>;
 }

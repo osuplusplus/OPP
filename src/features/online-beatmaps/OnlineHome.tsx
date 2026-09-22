@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import type { OnlineBeatmapset } from "../../shared/types/osu";
 import { OnlineResultCard } from "./OnlineResultCard";
+import { TREND_WINDOW_DAYS } from "./stageModel";
 
 const ignoreHeight = () => undefined;
 export function OnlineHome({ items, loading, error, busy, playingId, queuedIds, onChoose, onPreview, onDownload, onRetry, scrollPositionRef }: {
@@ -11,7 +12,7 @@ export function OnlineHome({ items, loading, error, busy, playingId, queuedIds, 
   const root = useRef<HTMLElement>(null);
   useLayoutEffect(() => { if (root.current) root.current.scrollTop = scrollPositionRef.current; }, [scrollPositionRef]);
   return <section ref={root} onScroll={(event) => { scrollPositionRef.current = event.currentTarget.scrollTop; }} className="online-home-scroll" aria-label="近期热门谱面">
-    <header><h2>TREND <span>· 近期热门</span></h2><p>近 30 天上架 · 按收藏量</p></header>
+    <header><h2>TREND <span>· 近期热门</span></h2><p>近 {TREND_WINDOW_DAYS} 天上架 · 按收藏量</p></header>
     <div className="online-trend-list" role="list" aria-label="近期热门">
       {items.map((item, index) => <OnlineResultCard key={item.id} item={item} index={index} total={items.length} selected={false} queued={queuedIds.has(item.id)} busy={busy} playing={playingId === item.id} multi={false} checked={false} style={{ position: "relative", width: "100%" }} onHeight={ignoreHeight} onChoose={() => onChoose(item)} onPreview={() => onPreview(item)} onDownload={() => onDownload(item)} onToggle={() => undefined} onNavigate={(event) => {
         const direction = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;

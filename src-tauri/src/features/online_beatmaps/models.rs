@@ -112,6 +112,7 @@ pub struct BeatmapDownloadResult {
     pub cancelled: bool,
     pub failures: Vec<BeatmapDownloadFailure>,
     pub completed_paths: Vec<String>,
+    pub succeeded_beatmapset_ids: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,6 +135,7 @@ pub struct BeatmapDownloadProgress {
     pub destination: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct DownloadProgressCounts {
     pub total: usize,
     pub processed: usize,

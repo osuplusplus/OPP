@@ -40,10 +40,13 @@ pub struct CollectionBrowseRow {
     pub read_only: bool,
     pub entry: CollectionEntry,
     pub local: Option<LocalBeatmapSummary>,
+    pub metadata: Option<serde_json::Value>,
     pub slot: String,
     pub source_slot: String,
     pub selected_by: String,
     pub pool_comment: String,
+    pub is_custom: bool,
+    pub is_original: bool,
     pub record: PersonalRecord,
     pub latest_score: Option<LocalScore>,
     pub representative_available: bool,
@@ -103,6 +106,19 @@ fn collection_overview(rows: &[CollectionBrowseRow]) -> CollectionOverview {
             value.total_length_ms = value
                 .total_length_ms
                 .saturating_add(map.length_ms.max(0.0) as u64);
+        } else if let Some(map) = &row.metadata {
+            if let Some(stars) = map["difficulty_rating"].as_f64() {
+                range(&mut value.stars, stars);
+            }
+            if let Some(bpm) = map["bpm"].as_f64().filter(|v| *v > 0.0) {
+                range(&mut value.bpm, bpm);
+            }
+            value.total_length_ms = value.total_length_ms.saturating_add(
+                map["total_length"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .saturating_mul(1000),
+            );
         }
     }
     value.slots = groups.into_iter().collect();
@@ -267,7 +283,10 @@ fn browse_folders(
         .iter()
         .filter(|f| !tokens.is_empty() || query.folder_id.as_ref().is_none_or(|id| id == &f.id))
     {
-        let notebook = collections.notebooks.get(&folder.id)?;
+        let mut notebook = collections.notebooks.get(&folder.id)?;
+        if folder.pool.is_some() {
+            notebook.pool = folder.pool.clone();
+        }
         if query.folder_id.as_ref() == Some(&folder.id) {
             pool = notebook.pool.clone();
             // Collections linked before notebooks existed can still explicitly resync.
@@ -280,12 +299,15 @@ fn browse_folders(
                     .collect();
                 if let ["tournament", provider, season, category] = parts.as_slice() {
                     let reference = crate::features::tournament_pools::TournamentPoolRef {
+                        url: None,
                         provider: (*provider).into(),
                         season: (*season).into(),
                         category: (*category).into(),
                     };
                     if reference.validate().is_ok() {
                         pool = Some(PoolSnapshot {
+                            title: String::new(),
+                            info: Default::default(),
                             reference,
                             slots: Vec::new(),
                         });
@@ -415,11 +437,14 @@ fn browse_folders(
                     folder_name: folder.name.clone(),
                     read_only: folder.read_only,
                     entry: entry.clone(),
+                    metadata: slot.and_then(|s| s.metadata.clone()),
                     local: local.map(|(_, m, _, _)| m.clone()),
                     slot: label,
                     source_slot,
                     selected_by,
                     pool_comment,
+                    is_custom: slot.is_some_and(|s| s.is_custom),
+                    is_original: slot.is_some_and(|s| s.is_original),
                     record: record.clone(),
                     latest_score: latest_score.clone(),
                     representative_available,
@@ -434,11 +459,21 @@ fn browse_folders(
             a.local
                 .as_ref()
                 .and_then(|l| l.stars)
+                .or_else(|| {
+                    a.metadata
+                        .as_ref()
+                        .and_then(|m| m["difficulty_rating"].as_f64())
+                })
                 .unwrap_or(f64::INFINITY)
                 .total_cmp(
                     &b.local
                         .as_ref()
                         .and_then(|l| l.stars)
+                        .or_else(|| {
+                            b.metadata
+                                .as_ref()
+                                .and_then(|m| m["difficulty_rating"].as_f64())
+                        })
                         .unwrap_or(f64::INFINITY),
                 )
         }),
@@ -644,6 +679,7 @@ mod tests {
             )
             .unwrap();
         let reference = crate::features::tournament_pools::TournamentPoolRef {
+            url: None,
             provider: "rino".into(),
             season: "s2".into(),
             category: "finals".into(),
@@ -653,10 +689,16 @@ mod tests {
             .save_pool(
                 &second.id,
                 PoolSnapshot {
+                    title: String::new(),
+                    info: Default::default(),
                     reference,
                     slots: vec!["NM10", "NM2"]
                         .into_iter()
                         .map(|label| super::super::notebook::PoolSlot {
+                            metadata: None,
+                            is_custom: false,
+                            is_original: false,
+                            download_disabled: false,
                             beatmap_id: 10_000,
                             label: label.into(),
                             selected_by: "选图人".into(),

@@ -66,10 +66,11 @@ export function createDownloadSession(api: DownloadApi) {
         if (cancellationRequested) return;
         invoked = true;
         const result = await api.downloadOnlineBeatmapsets({ ...options, items: batch.map((item) => ({ beatmapset_id: item.id, artist: item.artist, title: item.title, ...(item.beatmaps?.length ? { expected_beatmap_ids: item.beatmaps.map((beatmap) => beatmap.id) } : {}), ...(item.allow_extra_difficulties ? { allow_extra_difficulties: true } : {}) })) });
-        // The existing backend processes the request in order, stopping at cancellation.
-        // Reconcile the processed prefix too, in case a progress event was lost.
+        // Parallel jobs finish out of order; explicit IDs also recover lost progress events.
+        // Retain the prefix fallback for responses from older sequential backends.
         const failed = new Set(result.failures.map((item) => item.beatmapset_id));
-        batch.slice(0, result.completed + result.skipped + result.failed).forEach((item) => { if (!failed.has(item.id)) succeeded.add(item.id); });
+        const completedIds = result.succeeded_beatmapset_ids ?? batch.slice(0, result.completed + result.skipped + result.failed).map((item) => item.id);
+        completedIds.forEach((id) => { if (ids.has(id) && !failed.has(id)) succeeded.add(id); });
         update({ result });
       } catch (error) {
         update({ error: errorMessage(error) });

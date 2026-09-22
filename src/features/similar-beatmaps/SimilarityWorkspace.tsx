@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { BeatmapSearchHeading } from "../../shared/components/BeatmapSearchHeading";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
@@ -13,6 +14,7 @@ import {
   History,
   ImageIcon,
   LoaderCircle,
+  Layers3,
   AlertTriangle,
   Pause,
   Search,
@@ -22,6 +24,7 @@ import {
 
 import { useMode } from "../../app/ModeContext";
 import { Button } from "../../shared/components/ui";
+import { StageBackground } from "../../shared/components/StageBackground";
 import { errorMessage } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import { useDebouncedValue } from "../../shared/lib/useDebouncedValue";
@@ -36,6 +39,7 @@ import type {
   SimilaritySource,
 } from "../../shared/types/osu";
 import { BeatmapPreviewCard } from "../tools/ToolsPage";
+import { useOnlineStageArtwork } from "../online-beatmaps/useOnlineStageArtwork";
 import type { RecommendationHistoryEntry } from "./recommendationHistory";
 import { SimilarityRadar } from "./SimilarityRadar";
 import { MmaPatternPanel } from "./MmaPatternPanel";
@@ -211,7 +215,7 @@ export function SimilaritySearch({
   };
 
   return <div className={`similarity-search ${compact ? "is-compact" : ""}`} ref={root}>
-    <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <form className="beatmap-search-field" data-compact={compact} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <Search aria-hidden="true" />
       <input
         ref={input}
@@ -273,6 +277,8 @@ export function SimilarityHome({
   onChooseFile,
   onRecommend,
   onHistory,
+  filterToday,
+  onFilterTodayChange,
   searchValue,
   onSearchValueChange,
   status,
@@ -283,21 +289,35 @@ export function SimilarityHome({
   onChooseFile: () => void;
   onRecommend: (kind: "recent" | "best") => void;
   onHistory: () => void;
+  filterToday: boolean;
+  onFilterTodayChange: (enabled: boolean) => void;
   searchValue?: string;
   onSearchValueChange?: (value: string) => void;
   status?: ReactNode;
 }) {
   const reduced = useReducedMotion();
   return <motion.section className="similarity-home" initial={{ opacity: 0, y: reduced ? 0 : 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : .28 }}>
-    <div className="similarity-home-title"><span>OPP SIMILARITY</span><h1>找到下一张想玩的谱面</h1><p>优先搜索你的本地谱面，也可以直接粘贴 Beatmap ID 或官方链接。</p></div>
+    <BeatmapSearchHeading icon={<Layers3 />} title="OPP Similarity" description="搜索本地谱面，或粘贴 Beatmap ID / 官方链接，找到相似的下一首" />
     <SimilaritySearch compact={false} busy={busy} ruleset={ruleset} value={searchValue} onValueChange={onSearchValueChange} onChoose={onChoose} onChooseFile={onChooseFile} />
     <div className="similarity-recommendations">
       <button type="button" disabled={busy} onClick={() => onRecommend("recent")}><History /><span><strong>根据最近游玩推荐</strong><small>从最近通过的谱面寻找相似候选</small></span><ArrowRight /></button>
       <button type="button" disabled={busy} onClick={() => onRecommend("best")}><Trophy /><span><strong>根据你的 BP 推荐</strong><small>从最佳成绩偏好生成候选</small></span><ArrowRight /></button>
     </div>
-    <button className="similarity-history-link" type="button" onClick={onHistory}><History />今日推荐历史</button>
+    <RecommendationHistoryControls filterToday={filterToday} onFilterTodayChange={onFilterTodayChange} onHistory={onHistory} />
     {status ? <div className="similarity-index-status">{status}</div> : null}
   </motion.section>;
+}
+
+export function RecommendationHistoryControls({ filterToday, onFilterTodayChange, onHistory, compact = false }: {
+  filterToday: boolean;
+  onFilterTodayChange: (enabled: boolean) => void;
+  onHistory: () => void;
+  compact?: boolean;
+}) {
+  return <div className={`similarity-history-controls ${compact ? "is-compact" : ""}`}>
+    <button className="similarity-history-link" type="button" onClick={onHistory}><History />{compact ? "历史" : "今日推荐历史"}</button>
+    <label title="开启后，生成今日推荐时会跳过今天已经浏览过的谱面"><input checked={filterToday} onChange={(event) => onFilterTodayChange(event.target.checked)} type="checkbox" />过滤今日已推荐</label>
+  </div>;
 }
 
 export function SimilarityHistoryDialog({
@@ -432,6 +452,8 @@ export function SimilarityStage({
   const online = result.ruleset !== "mania" || Boolean(result.online_url);
   const reference = useBeatmapArtwork(source.ruleset !== "mania" || source.online_url ? source.beatmapset_id : null);
   const referenceCover = reference?.covers?.["card@2x"] ?? reference?.covers?.card ?? reference?.covers?.["cover@2x"] ?? reference?.covers?.cover ?? null;
+  const candidate = useBeatmapArtwork(online && result.beatmapset_id > 0 ? result.beatmapset_id : null);
+  const candidateArtwork = useOnlineStageArtwork(candidate, online);
   const resultAnimationKey = `${result.ruleset}:${result.beatmap_id}:${result.ruleset === "mania" ? result.game_mod : "NM"}`;
   const onDisplayedRef = useRef(onDisplayed);
   useEffect(() => { onDisplayedRef.current = onDisplayed; }, [onDisplayed]);
@@ -454,7 +476,8 @@ export function SimilarityStage({
     return () => window.removeEventListener("keydown", handle);
   }, [emptyMessage, index, onNext, onPrevious, total]);
 
-  return <section className="similarity-workspace">
+  return <section className="similarity-workspace" style={candidateArtwork.style}>
+    <StageBackground source={candidateArtwork.source} />
     <header className="similarity-workspace-toolbar"><button className="similarity-home-button" type="button" onClick={onHome} aria-label="返回搜索首页" title="返回搜索首页"><ArrowLeft /></button>{toolbar}</header>
     <div className="similarity-workspace-grid">
       <EvidenceRail key={`${source.ruleset}:${source.beatmap_id}:${source.version}`} source={source} result={result} cover={referenceCover} recommendation={recommendation} details={details} />

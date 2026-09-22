@@ -81,6 +81,8 @@ pub struct SkillContribution {
 pub struct SkillCoverage {
     pub requested_scores: usize,
     pub analyzed_scores: usize,
+    #[serde(default)]
+    pub reused_scores: usize,
     pub local_scores: usize,
     pub online_scores: usize,
     pub skipped_scores: usize,

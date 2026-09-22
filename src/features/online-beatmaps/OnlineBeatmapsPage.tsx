@@ -16,6 +16,7 @@ import { openCollectionDialog } from "../collections/events";
 import { useSettings } from "../settings/api";
 import { BeatmapPreviewCard } from "../tools/ToolsPage";
 import { StageBackground } from "../../shared/components/StageBackground";
+import { BeatmapSearchHeading } from "../../shared/components/BeatmapSearchHeading";
 import { OnlineStageToolbar } from "./OnlineStageToolbar";
 import { OnlineStageSong } from "./OnlineStageSong";
 import { OnlineHome } from "./OnlineHome";
@@ -155,8 +156,8 @@ function OnlineBeatmapsClient({ ruleset, linkedQuery }: { ruleset: Ruleset; link
         <DownloadDrawer />
       </nav>
       <header className="online-stage-toolbar">
-        <div className="online-home-intro" aria-hidden={view !== "home"} inert={view !== "home"}><div><div className="online-home-title"><Music2 /><h1>OPP Beatmaps</h1><p>寻找下一首想玩的谱面</p></div></div></div>
-        <OnlineStageToolbar query={query} ruleset={ruleset} items={view === "home" ? trending : pool} text={text} onTextChange={setText} onApply={apply} onClear={() => {
+        <div className="online-home-intro" aria-hidden={view !== "home"} inert={view !== "home"}><div><BeatmapSearchHeading icon={<Music2 />} title="OPP Beatmaps" description="寻找下一首想玩的谱面" /></div></div>
+        <OnlineStageToolbar compact={view !== "home"} query={query} ruleset={ruleset} items={view === "home" ? trending : pool} text={text} onTextChange={setText} onApply={apply} onClear={() => {
           setText(""); const next = { ...query, query: "", sort: query.sort === "relevance_desc" ? "ranked_desc" : query.sort };
           if (view === "home") setQuery(next); else apply(next);
         }} />

@@ -30,6 +30,17 @@ interface PageGuideCopy {
 }
 
 const copies: Record<string, PageGuideCopy> = {
+  "/beatmaphub": {
+    id: "beatmaphub",
+    title: "BeatmapHub",
+    summary: "发现社区曲包，预览后导入本地收藏夹；浏览与导入无需创建 Hub 身份。",
+    modules: [
+      { title: "搜索或打开分享码", purpose: "同一个输入框支持标题、作者和 BPH 分享码，按回车提交；清空搜索即可返回社区推荐。", example: "输入 BPH-7K3N9A 打开曲包，或搜索 Tech 寻找练习清单。", target: '[data-page-guide-hub-search="true"]' },
+      { title: "预览后导入", purpose: "点击曲包卡片查看内容、本地已有数量和缺失数量。底部可导入收藏夹，并按需下载缺失谱面；下载失败可继续重试。", example: "打开曲包，核对缺失数量后点击“导入收藏夹”。", target: '[data-page-guide-hub-results="true"]' },
+      { title: "发布自己的曲包", purpose: "从本地收藏夹或压缩包选择内容，填写标题与可见性后发布。成功后复制分享码给朋友。", example: "选择练习收藏夹，保留自动填写的名称并发布到社区。", target: '[data-page-guide-hub-publish="true"]' },
+      { title: "按需连接身份", purpose: "发布、收藏、点赞、评分与评论需要 Hub 身份。设备管理和一次性链接码也在这里。", example: "在新电脑上选择“链接已有档案”，粘贴旧设备生成的链接码。", target: '[data-page-guide-hub-identity="true"]' },
+    ],
+  },
   "/online/beatmaps": {
     id: "online-beatmaps",
     title: "在线谱面",

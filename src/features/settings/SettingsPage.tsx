@@ -67,8 +67,7 @@ const categoryMeta: Record<SettingsCategory, { title: string; description: strin
   online: { title: "在线谱面", description: "设置谱面下载、保存位置和音频试听。" },
   directories: { title: "游戏目录", description: "管理 Stable 和 lazer 的本地资源目录。" },
   replay: { title: "回放渲染", description: "配置 Danser、FFmpeg 和回放导出。" },
-  tools: { title: "工具与缓存", description: "管理相似谱面偏好和本地缓存。" },
-  similarity: { title: "相似谱面", description: "管理相似谱面的排序和结果偏好。" },
+  tools: { title: "工具与缓存", description: "清理运行缓存并管理本地缩略图空间。" },
   about: { title: "关于", description: "查看版本、更新和社区信息。" },
 };
 
@@ -329,8 +328,7 @@ export function SettingsPage() {
     <SettingsLayout activeCategory={activeCategory} onCategoryChange={setActiveCategory}>
       <div className="space-y-5">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[var(--theme-primary)]">Application</p>
-          <h2 className="mt-1 text-2xl font-bold text-white">{activeMeta.title}</h2>
+          <h2 className="text-2xl font-bold text-white">{activeMeta.title}</h2>
           <p className="mt-1 text-sm text-slate-400">{activeMeta.description}</p>
         </div>
           {activeCategory === "general" ? <GeneralPanel onConfigure={() => setActiveCategory("directories")} /> : null}
@@ -462,40 +460,9 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <Card className={panelClass("tools", "similarity")}>
-            <SectionTitle title={activeCategory === "similarity" ? "相似谱面偏好" : "工具与缓存"} />
+          <Card className={panelClass("tools")}>
+            <SectionTitle title="工具与缓存" />
             <div className="mt-5 space-y-3">
-              <Toggle
-                checked={settings.similarity_preferences.advanced_enabled}
-                description="开启后可调整 osu!standard 的六组固定推荐权重；Mania 使用 Analyzer 分类优先排序与 NM / DT / HT Mod 池。"
-                label="相似谱面高级设置"
-                onChange={(value) => void save({
-                  ...settings,
-                  similarity_preferences: {
-                    ...settings.similarity_preferences,
-                    advanced_enabled: value,
-                  },
-                })}
-              />
-              <label className="block rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-                <span className="block text-sm font-semibold text-slate-100">相似谱面每页数量</span>
-                <span className="mt-1 block text-xs leading-5 text-slate-500">控制相似结果列表每一批展示的谱面数量，同时影响“下载本批”。</span>
-                <select
-                  aria-label="相似谱面每页数量"
-                  className="opp-input mt-3 w-36"
-                  disabled={busy}
-                  onChange={(event) => void save({
-                    ...settings,
-                    similarity_preferences: {
-                      ...settings.similarity_preferences,
-                      results_per_page: Number(event.target.value),
-                    },
-                  })}
-                  value={settings.similarity_preferences.results_per_page}
-                >
-                  {[5, 10, 15, 20].map((count) => <option key={count} value={count}>{count} 张 / 页</option>)}
-                </select>
-              </label>
               <div className="flex flex-wrap gap-3">
               <Button disabled={busy} onClick={() => void desktopApi.clearProfileCache()}>
                 <Trash2 className="size-4" />清除缓存
@@ -539,7 +506,7 @@ export function SettingsPage() {
                 value={settings.default_beatmap_download_provider}
               >
                 <option value="sayobot">小夜（Sayobot，推荐）</option>
-                <option value="hinai">Hinai Mirror（多源回退）</option>
+                <option value="hinai">Hinai Mirror（仅手动选择）</option>
                 <option value="catboy">Catboy</option>
                 <option value="nerinyan">Nerinyan</option>
               </select>

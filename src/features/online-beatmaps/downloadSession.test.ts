@@ -16,6 +16,17 @@ function setup() {
   return { session: createDownloadSession(api), api, dispose, finish: (result: Partial<BeatmapDownloadResult>) => finish({ destination: "C:/Maps", total: 3, completed: 0, skipped: 0, failed: 0, cancelled: false, failures: [], ...result }), emit: (progress: Partial<BeatmapDownloadProgress>) => emit({ phase: "downloading", total: 3, processed: 0, completed: 0, skipped: 0, failed: 0, current_beatmapset_id: null, current_title: null, message: null, ...progress }) };
 }
 describe("online download session", () => {
+  it("reconciles out-of-order results after cancellation without removing an unfinished earlier item", async () => {
+    const { session, api, finish } = setup();
+    session.add([set(1), set(2), set(3), set(4)]);
+    const run = session.start(session.getSnapshot().queue, options);
+    await vi.waitFor(() => expect(api.downloadOnlineBeatmapsets).toHaveBeenCalledOnce());
+    await session.cancel();
+    // No progress events delivered: only IDs 2 and 4 finished; ID 1 was still downloading.
+    finish({ total: 4, completed: 1, skipped: 1, failed: 0, cancelled: true, succeeded_beatmapset_ids: [2, 4] });
+    await run;
+    expect(session.getSnapshot().queue.map((item) => item.id)).toEqual([1, 3]);
+  });
   it("passes subset validation explicitly for tournament selections", async () => {
     const { session, api, finish } = setup();
     const run = session.start([{ ...set(20), beatmaps: [{ id: 10 }, { id: 11 }], allow_extra_difficulties: true }], options);

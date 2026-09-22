@@ -61,6 +61,27 @@ describe("GameCompletionOverlay", () => {
     expect(screen.queryByText("最大连击")).not.toBeInTheDocument();
   });
 
+  it("compacts large session totals instead of listing every digit", () => {
+    vi.spyOn(desktopApi, "getDanserStatus").mockRejectedValue(new Error("not configured"));
+    const start = {
+      captured_at: "2026-08-13T10:00:00Z", username: "Player",
+      pp: 7501.66, ranked_score: 89_581_114_458, hit_accuracy: 98.49,
+      total_hits: 19_122_026, total_score: 194_509_296_422,
+    };
+    const session: GameSessionSummary = {
+      started_at: start.captured_at, ended_at: "2026-08-13T10:05:00Z",
+      ruleset: "osu", client: "stable", executable: "C:\\osu!\\osu!.exe",
+      start: { ...start, ranked_score: 89_578_000_000, total_hits: 19_121_780, total_score: 194_506_160_000 },
+      end: { ...start, captured_at: "2026-08-13T10:05:00Z" },
+      running: false,
+    };
+
+    render(<GameCompletionOverlay discovery={null} onClose={vi.fn()} onNavigate={vi.fn()} session={session} settings={undefined} />);
+
+    expect(screen.getByText(/895\.81亿/)).toBeInTheDocument();
+    expect(screen.queryByText(/89,581,114,458/)).not.toBeInTheDocument();
+  });
+
   it("allows a replay to be selected and queued without starting rendering", async () => {
     const user = userEvent.setup();
     vi.spyOn(desktopApi, "getDanserStatus").mockResolvedValue({
