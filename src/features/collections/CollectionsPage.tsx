@@ -110,7 +110,7 @@ export function CollectionsPage() {
   const [leavePrompt, setLeavePrompt] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
   const navigate = useNavigate();
-  const hasUnsavedChanges = collections.data?.folders.some((folder) => folder.pending_write) ?? false;
+  const hasUnsavedChanges = collections.data?.folders.some((folder) => folder.pending_write && folder.stable_sync !== false) ?? false;
 
   useEffect(() => {
     const interceptNavigation = (event: MouseEvent) => {
@@ -153,7 +153,8 @@ export function CollectionsPage() {
 
   const changed = useCallback(async (folderId?: string, entryId?: string) => {
     if (!folderId) {
-      void queryClient.invalidateQueries({ queryKey: collectionsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: collectionsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: ["collection-entries"] });
       return;
     }
     try {
@@ -220,7 +221,7 @@ export function CollectionsPage() {
       collectionDownloadActive.current = false;
     }
   }, [changed]);
-  const downloadMissingBeatmapsToGame = useCallback(() => downloadFoldersToGame((collections.data?.folders ?? []).filter((folder) => folder.source !== "lazer").map((folder) => folder.id)), [collections.data?.folders, downloadFoldersToGame]);
+  const downloadMissingBeatmapsToGame = useCallback(() => downloadFoldersToGame((collections.data?.folders ?? []).filter((folder) => folder.source !== "lazer" && folder.stable_sync !== false).map((folder) => folder.id)), [collections.data?.folders, downloadFoldersToGame]);
   const finalizeCollections = useCallback(async (completed: Awaited<ReturnType<typeof downloadFoldersToGame>>) => {
     setBusy(true);
     try {
@@ -260,6 +261,10 @@ export function CollectionsPage() {
   }, [changed]);
   const downloadOneFolder = async (folderId: string) => {
     try {
+      if (collections.data?.folders.find((folder) => folder.id === folderId)?.stable_sync === false) {
+        await desktopApi.enableCollectionStableSync(folderId);
+        await changed();
+      }
       const result = await downloadFoldersToGame([folderId]);
       await finalizeCollections(result);
     } catch (caught) {

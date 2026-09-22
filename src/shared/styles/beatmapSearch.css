@@ -1,0 +1,25 @@
+.beatmap-search-heading { text-align: center; color: var(--text); }
+.beatmap-search-heading-icon { display: block; margin: 0 auto 12px; color: var(--theme-primary-light); }
+.beatmap-search-heading .beatmap-search-heading-icon svg { display: block; width: 38px; height: 38px; margin-inline: auto; }
+.beatmap-search-heading h1 { margin: 0; font-size: clamp(32px, 4cqw, 48px); font-weight: 800; line-height: 1.2; letter-spacing: -.045em; }
+.beatmap-search-heading p { margin: 9px 0 0; font-size: 13px; line-height: 1.7; color: var(--text-muted); }
+
+form.beatmap-search-field { display: flex; align-items: center; gap: 0; width: 100%; min-width: 0; min-height: 58px; padding: 0 0 0 12px; border: 1px solid var(--line-strong); border-radius: 12px; background: color-mix(in srgb, var(--surface-panel) 85%, transparent); box-shadow: 0 12px 36px #0002; backdrop-filter: blur(18px); color: var(--text); }
+form.beatmap-search-field[data-compact="true"] { min-height: 48px; }
+form.beatmap-search-field:focus-within { border-color: var(--theme-primary); box-shadow: 0 0 0 2px var(--theme-primary-muted), 0 12px 36px #0002; }
+form.beatmap-search-field > svg { flex-shrink: 0; width: 18px; height: 18px; color: var(--text-muted); }
+form.beatmap-search-field input { flex: 1; width: 100%; min-width: 0; padding: 14px 10px; border: 0; outline: none; background: transparent; color: var(--text); font-size: 14px; line-height: 20px; box-shadow: none; }
+form.beatmap-search-field input::placeholder { color: var(--text-muted); }
+form.beatmap-search-field[data-compact="true"] input { padding-block: 12px; }
+form.beatmap-search-field button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 7px; min-width: 34px; min-height: 36px; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; box-shadow: none; }
+form.beatmap-search-field button:last-child { align-self: stretch; margin-left: 4px; padding-inline: 14px; border-left: 1px solid var(--line-strong); border-radius: 0 11px 11px 0; }
+form.beatmap-search-field button:hover:not(:disabled) { background: var(--surface-interactive-hover); color: var(--text); }
+form.beatmap-search-field button:disabled { opacity: .45; cursor: not-allowed; }
+form.beatmap-search-field button:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: -3px; }
+form.beatmap-search-field input:focus-visible { outline: none; }
+form.beatmap-search-field button svg { width: 16px; height: 16px; }
+form.beatmap-search-field small { font-size: 10px; opacity: .7; }
+:root[data-theme-mode="light"] form.beatmap-search-field { background: color-mix(in srgb, var(--surface-panel) 85%, transparent); border-color: var(--line-strong); }
+:root[data-theme-mode="light"] form.beatmap-search-field:focus-within { border-color: var(--theme-primary); }
+:root[data-theme-mode="light"] form.beatmap-search-field input { background: transparent; color: var(--text); }
+:root[data-theme-mode="light"] form.beatmap-search-field button { color: var(--text); }

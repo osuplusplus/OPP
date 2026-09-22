@@ -13,7 +13,9 @@ The read-only osu!standard beatmap similarity runtime is derived from
 `osuplusplus/osu-difficulty-lab` commit
 `429352875ae4e0d7f44c45a64c4d604127b8c3b4`. The isolated osu!mania analyzer,
 normalizer, data contract, and bucket similarity algorithm are derived from
-commit `1fa21fa6a5144992df58efe7ce9d96019981fad3`.
+commit `1fa21fa6a5144992df58efe7ce9d96019981fad3`. The current Mania pattern
+runtime additionally links `mania-pattern` from the same upstream repository,
+pinned to `92b791c95ea4a6c552e89d5b711551f0f2fb83a1` in Cargo.toml.
 
 Copyright (c) 2026 osuplusplus.
 

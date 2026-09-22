@@ -1,6 +1,6 @@
 # OPP Linux 使用与构建
 
-OPP v0.4.5 支持 Linux 桌面环境。在线功能、本地资源、Stable/lazer 游戏会话、收藏夹、o!rdr、Danser 本地渲染、tosu/OBS 和常用工具均可直接使用；默认打开端设置和显示器伽马当前仅支持 Windows。
+OPP 支持 Linux 桌面环境。在线功能、本地资源、Stable/lazer 游戏会话、收藏夹、o!rdr、Danser 本地渲染、tosu/OBS 和常用工具均可直接使用；默认打开端设置和显示器伽马当前仅支持 Windows。
 
 ## 运行前准备
 
@@ -44,24 +44,19 @@ pnpm install
 pnpm tauri dev
 ```
 
-执行质量检查：
-
-```bash
-pnpm lint
-pnpm test
-pnpm build
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml --all-targets
-```
-
-生成发布构建：
+质量检查与通用发布步骤见[架构与开发](./架构与开发.md#质量门槛)。生成本地主程序：
 
 ```bash
 pnpm tauri build
 ```
 
-当前仓库默认关闭 Tauri bundle，生成的主程序位于 `src-tauri/target/release/opp`。制作 AppImage、deb 或 rpm 前，应在 `src-tauri/tauri.conf.json` 中启用 bundle 并选择目标格式，再在对应发行版环境中验证运行依赖。
+仓库默认关闭 Tauri bundle，主程序位于 `src-tauri/target/release/opp`。Release 工作流显式选择 AppImage 和 deb；本地生成相同格式可运行：
+
+```bash
+pnpm tauri build --bundles appimage,deb
+```
+
+打包后仍须在目标发行版验证运行依赖和桌面集成。图池 URI 注册依赖 `xdg-mime` 与 `update-desktop-database`；便携程序移动后需从新位置启动一次。
 
 ## tosu 与 OBS
 
@@ -99,4 +94,5 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 ./opp
 
 - `.osz` / `.osk` 默认打开端依赖 Windows 注册表，Linux 不显示该设置。
 - 显示器伽马依赖 Windows GDI，Linux 不显示该工具。
+- 实时回放预览使用 X11 原生窗口；Wayland 会话需有可用的 XWayland，须单独验证缩放和输入行为。
 - Stable 在 Linux 上通常运行于 Wine；收藏夹写回前仍需关闭游戏，避免覆盖游戏正在写入的数据。

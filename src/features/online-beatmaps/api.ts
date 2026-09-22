@@ -1,14 +1,15 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { OnlineBeatmapSearchQuery, Ruleset } from "../../shared/types/osu";
-import { trendingQuery } from "./stageModel";
+import { TREND_WINDOW_DAYS, trendingQuery } from "./stageModel";
 
 export { useOnlineDownload as useBeatmapDownloads } from "./useOnlineDownload";
+export { DownloadResultActions } from "./DownloadResultActions";
 export type { BeatmapDownloadSelection } from "./downloadSession";
 
 export function useTrendingBeatmapsets(ruleset: Ruleset) {
   return useQuery({
-    queryKey: ["online-trending", ruleset],
+    queryKey: ["online-trending", ruleset, TREND_WINDOW_DAYS],
     queryFn: async () => (await desktopApi.searchOnlineBeatmapsets(trendingQuery(ruleset))).beatmapsets.slice(0, 5),
     staleTime: 15 * 60_000,
     gcTime: 30 * 60_000,

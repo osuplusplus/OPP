@@ -3,26 +3,27 @@
 Read-only OPP runtime for datasets produced by
 [`osu-difficulty-lab`](https://github.com/osuplusplus/osu-difficulty-lab).
 
-This crate contains the compatible analyzer, normalizer and HNSW reader only.
-It intentionally contains no dataset, downloader, importer, training pipeline,
-or export tooling. Dataset directories are opened read-only and are never
-modified by this crate.
+This crate contains the compatible analyzers, normalizers and dataset readers.
+Dataset queries are read-only. It does not bundle a dataset or the upstream
+training/import pipeline; the explicit `build_mod_features` example is an
+offline maintenance tool that writes a separate mod-feature artifact.
 
-## osu!mania Analyzer v1
+## osu!mania datasets
 
-The isolated Mania runtime is pinned byte-for-byte and formula-for-formula to
-[`osu-difficulty-lab` commit `1fa21fa6`](https://github.com/osuplusplus/osu-difficulty-lab/commit/1fa21fa6a5144992df58efe7ce9d96019981fad3),
-Analyzer snapshot `1:mania-roxy-interlude-similarity-v1`. It supports NoMod
-4K, 6K, and 7K maps only. Its same-key-count ranked difficulty percentile is
-a corpus-relative normalization value, not the official osu! star rating.
+The legacy analyzer and bucket contracts derive from
+`osu-difficulty-lab@1fa21fa6`, with feature identifier
+`1:mania-roxy-interlude-similarity-v1`. Current v4 packages add precomputed
+NM/DT/HT features and `mania-mma-pattern-v2` records, using the `mania-pattern`
+dependency pinned to `92b791c95ea4a6c552e89d5b711551f0f2fb83a1` in Cargo.toml.
+Native 4K, 6K and 7K are supported. Difficulty percentile is corpus-relative,
+not the official osu! star rating.
 
-`ManiaDataset` requires exactly the v1 runtime artifacts
-`mania-metadata.sqlite`, `mania-features-v1.bin`,
-`normalizers/mania-v1.bin`, `indexes/mania-v1.buckets`, and its `.sha256`
-checksum. SQLite is opened with `mode=ro&immutable=1`; the crate does not ship
-or expose the upstream writable feature-store, importer, fitting, index-build,
-CLI, or export pipeline. The obsolete `mania-v1-pre-filename-id-fix`
-directory is never consulted.
+The canonical artifact list, compatibility limits and offline conversion
+instructions are maintained in [OPP dataset documentation](../../../docs/similarity-dataset.md).
+Complete v4 packages do not need source `.osu` files at query time. Legacy v1
+packages remain readable with their original feature and query capabilities;
+missing pattern records do not imply that full v4 comparisons are available.
+SQLite is opened read-only and immutable.
 
 The Mania analyzer is a clean-room implementation whose public design refers
 to the MIT-licensed `osumania_map_analyser` documentation at commit

@@ -1,5 +1,18 @@
 import type { CollectionBrowseRow, CollectionPersonalRecord } from "../../shared/types/osu";
 
+export function collectionMapStats(row: CollectionBrowseRow) {
+  if (row.local) return row.local;
+  const map = row.metadata;
+  return {
+    ruleset: map?.mode ?? row.entry.ruleset,
+    stars: map?.difficulty_rating, bpm: map?.bpm,
+    length_ms: map?.total_length == null ? undefined : map.total_length * 1000,
+    ar: map?.ar, od: map?.accuracy, cs: map?.cs, hp: map?.drain,
+    object_count: map?.count_circles == null || map.count_sliders == null || map.count_spinners == null ? undefined : map.count_circles + map.count_sliders + map.count_spinners,
+    max_combo: map?.max_combo,
+  };
+}
+
 export function collectionDuration(milliseconds: number | null | undefined) {
   if (milliseconds == null || !Number.isFinite(milliseconds)) return "—";
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));

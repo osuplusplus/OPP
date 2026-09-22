@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { BeatmapSearchHeading } from "../../shared/components/BeatmapSearchHeading";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
@@ -13,6 +14,7 @@ import {
   History,
   ImageIcon,
   LoaderCircle,
+  Layers3,
   AlertTriangle,
   Pause,
   Search,
@@ -213,7 +215,7 @@ export function SimilaritySearch({
   };
 
   return <div className={`similarity-search ${compact ? "is-compact" : ""}`} ref={root}>
-    <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <form className="beatmap-search-field" data-compact={compact} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <Search aria-hidden="true" />
       <input
         ref={input}
@@ -295,7 +297,7 @@ export function SimilarityHome({
 }) {
   const reduced = useReducedMotion();
   return <motion.section className="similarity-home" initial={{ opacity: 0, y: reduced ? 0 : 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : .28 }}>
-    <div className="similarity-home-title"><span>OPP SIMILARITY</span><h1>找到下一张想玩的谱面</h1><p>优先搜索你的本地谱面，也可以直接粘贴 Beatmap ID 或官方链接。</p></div>
+    <BeatmapSearchHeading icon={<Layers3 />} title="OPP Similarity" description="搜索本地谱面，或粘贴 Beatmap ID / 官方链接，找到相似的下一首" />
     <SimilaritySearch compact={false} busy={busy} ruleset={ruleset} value={searchValue} onValueChange={onSearchValueChange} onChoose={onChoose} onChooseFile={onChooseFile} />
     <div className="similarity-recommendations">
       <button type="button" disabled={busy} onClick={() => onRecommend("recent")}><History /><span><strong>根据最近游玩推荐</strong><small>从最近通过的谱面寻找相似候选</small></span><ArrowRight /></button>

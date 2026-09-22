@@ -8,7 +8,7 @@ import { similarityRouteForLocalResource } from "../similar-beatmaps/navigation"
 import { beatmapPreviewRoute } from "../tools/navigation";
 import { musicApi } from "../music-player/api";
 import { CollectionThumbnail } from "./CollectionThumbnail";
-import { collectionDuration, collectionMetric, collectionScoreSource, collectionSlotGroup, highlightParts, scoreLabel } from "./browserModel";
+import { collectionMapStats, collectionDuration, collectionMetric, collectionScoreSource, collectionSlotGroup, highlightParts, scoreLabel } from "./browserModel";
 
 export function CollectionBeatmapRow({ row, search, onOpen, onRecord, onDetail, onNavigate, onChanged, onDownload, onNotice }: {
   row: CollectionBrowseRow; search: string; onOpen: () => void; onRecord: () => void;
@@ -22,6 +22,7 @@ export function CollectionBeatmapRow({ row, search, onOpen, onRecord, onDetail, 
     return () => document.removeEventListener("pointerdown", close);
   }, []);
   const local = row.local;
+  const stats = collectionMapStats(row);
   const run = async (action: () => Promise<unknown> | void) => {
     if (menu.current) menu.current.open = false;
     try { await action(); } catch (error) { onNotice(errorMessage(error)); }
@@ -29,17 +30,22 @@ export function CollectionBeatmapRow({ row, search, onOpen, onRecord, onDetail, 
   const preview = beatmapPreviewRoute(row.entry.beatmap_id);
   const score = row.record.representative ?? row.latest_score;
   return <article className="collection-beatmap-row" data-row-key={row.key}>
-    <span className="collection-slot" data-group={collectionSlotGroup(row.slot)}>{row.slot || "—"}<small>{local?.ruleset === "mania" ? `${collectionMetric(local.cs, 0)}K` : (local?.ruleset ?? row.entry.ruleset ?? "osu").replace("fruits", "catch")}</small></span>
-    <button className="collection-map-main" onClick={onOpen} aria-label={`打开谱面 ${row.entry.title} ${row.entry.difficulty_name}`}>
-      <CollectionThumbnail item={local?.resource ?? null} /><span><strong title={row.entry.title}>{row.entry.title || `谱面 #${row.entry.beatmap_id ?? "未知"}`}</strong><small title={`${row.entry.artist} · ${row.entry.difficulty_name}`}>{row.entry.artist} · [{row.entry.difficulty_name || "未解析难度"}]</small><small title={row.entry.creator}>{row.entry.creator || "未知谱师"} <span className="collection-map-id">#{row.entry.beatmap_id ?? "本地"}</span>{search && ` · ${row.folder_name}`}</small></span>
+    <span className="collection-slot" data-group={collectionSlotGroup(row.slot)} aria-label={`图位 ${row.slot || "未分配"}`}><strong>{row.slot || "—"}</strong><small>{local?.ruleset === "mania" ? `${collectionMetric(local.cs, 0)}K` : (local?.ruleset ?? row.entry.ruleset ?? "osu").replace("fruits", "catch")}</small></span>
+    <div className="collection-map-cell"><button className="collection-map-main" onClick={onOpen} aria-label={`打开谱面 ${row.entry.title} ${row.entry.difficulty_name}`}>
+      <CollectionThumbnail item={local?.resource ?? null} beatmapsetId={row.entry.beatmapset_id} /><span><strong title={row.entry.title}>{row.entry.title || `谱面 #${row.entry.beatmap_id ?? "未知"}`}</strong><small title={`${row.entry.artist} · ${row.entry.difficulty_name}`}>{row.entry.artist} · [{row.entry.difficulty_name || "未解析难度"}]</small><small title={row.entry.creator}>{row.entry.creator || "未知谱师"} <span className="collection-map-id">#{row.entry.beatmap_id ?? "本地"}</span>{search && ` · ${row.folder_name}`}</small></span>
     </button>
+      <div className="collection-map-actions">{!local && <span className="collection-not-downloaded">未下载</span>}
+      {!!row.entry.beatmap_id && row.entry.beatmap_id > 0 && <button className="collection-lazer-button" onClick={() => void run(() => desktopApi.openLazerBeatmap(row.entry.beatmap_id!))}>在 lazer 中打开</button>}
+      </div>
+    </div>
     <div className="collection-map-metrics" aria-label="谱面 NM 参数">
-      <div className="collection-metric-primary"><strong>{local?.stars == null ? "—" : `${local.stars.toFixed(2)} ★`}</strong><span>{collectionMetric(local?.bpm, 0)} <small>BPM</small></span><span>{collectionDuration(local?.length_ms)}</span><small className="collection-base-mods" title="本地索引中的 NM 参数，未应用图位 Mods">NM</small></div>
-      <div className="collection-difficulty-stats">{(["ar", "od", "cs", "hp"] as const).map((key) => <span key={key} data-metric={key}><small>{key === "cs" && local?.ruleset === "mania" ? "KEY" : key.toUpperCase()}</small><b>{collectionMetric(local?.[key])}</b></span>)}</div>
-      <small className="collection-density">{local ? <>峰值 {collectionMetric(local.peak_nps)} NPS <span>·</span> {local.object_count.toLocaleString()} 物件 <span>·</span> FC {local.max_combo?.toLocaleString() ?? "—"}x</> : "本地待补齐 · 参数暂不可用"}</small>
+      <div className="collection-metric-primary"><strong>{stats.stars == null ? "—" : `${stats.stars.toFixed(2)} ★`}</strong><span>{collectionMetric(stats.bpm, 0)} <small>BPM</small></span><span>{collectionDuration(stats.length_ms)}</span><small className="collection-base-mods" title="谱面基础 NM 参数，未应用图位标签">NM</small></div>
+      <div className="collection-difficulty-stats">{(["ar", "od", "cs", "hp"] as const).map((key) => <span key={key} data-metric={key}><small>{key === "cs" && local?.ruleset === "mania" ? "KEY" : key.toUpperCase()}</small><b>{collectionMetric(stats[key])}</b></span>)}</div>
+      <small className="collection-density">{local && <>峰值 {collectionMetric(local.peak_nps)} NPS <span>·</span> </>}{stats.object_count != null && <>{stats.object_count.toLocaleString()} 物件</>}{stats.max_combo != null && <> <span>·</span> FC {stats.max_combo.toLocaleString()}x</>}</small>
     </div>
     <button className="collection-row-record" aria-label={`编辑 ${row.entry.title} 的标签和笔记`} onClick={onRecord}>
       <span className="collection-tags">{row.record.tags.length ? row.record.tags.slice(0, 3).map((tag, i) => <span style={{ color: tag.color, borderColor: tag.color }} key={i}>{tag.name}</span>) : <span className="collection-empty-tag"><Tags size={12} />添加标记</span>}{row.record.tags.length > 3 && <span>+{row.record.tags.length - 3}</span>}{row.selected_by && <span className="collection-picker" title={`选图人：${row.selected_by}`}>选图 · {row.selected_by}</span>}</span>
+      {(row.is_custom || row.is_original) && <small className="collection-pool-flags">{[row.is_custom && "比赛定制", row.is_original && "原创"].filter(Boolean).join(" · ")}</small>}
       {row.pool_comment && <small className="collection-pool-comment" title={row.pool_comment}><span>比赛</span><span>{row.pool_comment}</span></small>}
       <small title={row.record.note || undefined}><StickyNote size={12} /><span>{row.record.note || "记录打法、选图意向或练习目标…"}</span></small>
     </button>
@@ -60,7 +66,7 @@ export function CollectionBeatmapRow({ row, search, onOpen, onRecord, onDetail, 
         else { const directory = await desktopApi.chooseDirectory("选择 .osz 导出位置"); if (directory) onNotice(`已导出：${await desktopApi.exportLocalBeatmapSet(local.resource.client, local.set_key, directory)}`); }
       })}>{local?.resource.client === "lazer" ? "导出 .osz" : "打开本地文件"}</button>
       <button disabled={!row.entry.beatmap_id} onClick={() => void run(() => desktopApi.openExternal(`https://osu.ppy.sh/beatmaps/${row.entry.beatmap_id}`))}>谱面官网</button>
-      {!local && <button disabled={row.read_only} onClick={() => void run(() => onDownload(row.folder_id))}>补齐收藏夹谱面</button>}
+      {!local && <button disabled={row.read_only} onClick={() => void run(() => onDownload(row.folder_id))}>{row.is_custom || row.source_slot ? "导入收藏夹到 Stable" : "补齐收藏夹谱面"}</button>}
       <button onClick={() => void run(onRecord)}>编辑个人记录</button>
       <button className="is-danger" disabled={row.read_only} onClick={() => void run(() => onChanged(row.folder_id, row.entry.id))}>移出收藏夹</button>
     </div></details>

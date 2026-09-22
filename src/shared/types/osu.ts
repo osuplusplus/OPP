@@ -1264,6 +1264,8 @@ export interface OnlineBeatmapCover {
 export interface OnlineBeatmap {
   id: number;
   beatmapset_id: number;
+  max_combo?: number;
+  beatmapset?: OnlineBeatmapset;
   difficulty_rating: number;
   mode: Ruleset;
   mode_int?: number;
@@ -1298,17 +1300,19 @@ export interface CollectionPersonalRecord {
   revision: number; tags: { name: string; color: string }[]; note: string;
   slot_override: string | null; scores: LocalScoreRecord[]; representative: LocalScoreRecord | null;
 }
-export interface CollectionPoolSnapshot {
+export interface CollectionPoolSnapshot extends TournamentInfo {
+  title?: string;
   reference: TournamentPoolRef;
-  slots: { beatmap_id: number; label: string; selected_by: string; comment: string }[];
+  slots: { beatmap_id: number; label: string; selected_by: string; comment: string; is_custom?: boolean; is_original?: boolean; download_disabled?: boolean; metadata?: OnlineBeatmap | null }[];
 }
 export interface CollectionBrowseQuery {
   folder_id: string | null; search: string; sort: string; offset: number; limit: number; player: string | null;
 }
 export interface CollectionBrowseRow {
   key: string; folder_id: string; folder_name: string; read_only: boolean;
-  entry: CollectionEntry; local: LocalBeatmapSummary | null;
+  entry: CollectionEntry; local: LocalBeatmapSummary | null; metadata?: OnlineBeatmap | null;
   slot: string; source_slot: string; selected_by: string; pool_comment: string;
+  is_custom?: boolean; is_original?: boolean;
   record: CollectionPersonalRecord; latest_score: LocalScoreRecord | null;
   representative_available: boolean; matches: { field: string; text: string }[];
 }
@@ -1326,11 +1330,16 @@ export interface LocalArtwork { client: OsuClient; resource_id: string }
 export type CollectionArtwork = LocalArtwork;
 export interface LocalScoreStatus { players: string[]; default_player: string | null; errors: string[]; count: number }
 
-export interface TournamentPoolRef {
+export interface RinoPoolRef {
   provider: "rino";
   season: "s1" | "s2";
   category: "qualification" | "ro16" | "quarterfinals" | "semifinals" | "finals" | "grandfinals";
 }
+
+export type TournamentPoolRef = RinoPoolRef | { provider: "opp"; url: string };
+export interface TournamentInfo { tournament?: string; season?: string; category?: string }
+export type TournamentImportPhase = "fetching" | "enriching" | "saving";
+export interface TournamentImportProgress { request_id: number; phase: TournamentImportPhase }
 
 export interface TournamentPoolEntry {
   beatmap_id: number;
@@ -1353,7 +1362,7 @@ export interface TournamentPoolEntry {
   resolution_error: string | null;
 }
 
-export interface TournamentPool {
+export interface TournamentPool extends TournamentInfo {
   reference: TournamentPoolRef;
   title: string;
   entries: TournamentPoolEntry[];
@@ -1392,6 +1401,8 @@ export interface CollectionFolder {
   source: CollectionSource;
   read_only: boolean;
   pending_write: boolean;
+  stable_sync?: boolean;
+  pool?: CollectionPoolSnapshot | null;
   entries: CollectionEntry[];
   external_id?: string | null;
   external_fingerprint?: string | null;
@@ -1662,6 +1673,7 @@ export interface BeatmapDownloadResult {
   cancelled: boolean;
   failures: BeatmapDownloadFailure[];
   completed_paths?: string[];
+  succeeded_beatmapset_ids?: number[];
 }
 
 export interface BeatmapDownloadProgress {
@@ -1990,7 +2002,7 @@ export interface LocalScanProgress {
 
 export interface CollectionFolderSummary {
   id: string; name: string; creator: string; source: CollectionSource;
-  read_only: boolean; pending_write: boolean; entry_count: number; missing_count: number; beatmapset_count: number; revision: number;
+  read_only: boolean; pending_write: boolean; stable_sync?: boolean; entry_count: number; missing_count: number; beatmapset_count: number; revision: number;
 }
 export interface CollectionSummaries { folders: CollectionFolderSummary[]; sources: CollectionSourceStatus[] }
 export interface CollectionEntryPage { items: CollectionEntry[]; total: number; offset: number; limit: number; revision: number }

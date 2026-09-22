@@ -2,7 +2,7 @@
 
 ## 获取与使用
 
-OPP 不会在应用 EXE 中内置谱面索引。请取得由兼容版本的 [`osu-difficulty-lab`](https://github.com/osuplusplus/osu-difficulty-lab) 生成的数据集并完整解压，再在“相似谱面”页面为当前游戏模式选择对应的根目录。
+OPP 不会在应用 EXE 中内置谱面索引。请取得由兼容版本的 [`osu-difficulty-lab`](https://github.com/osuplusplus/osu-difficulty-lab) 生成的数据集并完整解压，再在“相似谱面”页面为当前游戏模式选择对应的根目录。游戏模式在“设置 → 常规”切换，两套目录分别保存。
 
 osu!standard 与 osu!mania 使用两套互相独立的目录和算法，不能混用或通过重命名文件互相转换。OPP 始终以只读方式访问所选目录，不会修改或上传索引内容。
 
@@ -46,11 +46,11 @@ cargo run --manifest-path src-tauri/crates/osu-difficulty-runtime/Cargo.toml --e
 
 该命令只写入目标目录中的 `mania-mod-features-v1.bin`，不会修改 SQLite、NoMod 特征或源谱面。
 
-Mania 会先按键数隔离，再按 Analyzer 输出的 family 与 dominant pattern 分层，最后在同层内按难度分位和特征距离排序。结果中的难度 percentile 表示该谱面在同键数 Ranked 语料中的相对位置，不是 osu! 官方星数，也不能跨键数直接比较。支持 NM、DT、HT 单池或混池；暂不支持 5K/8K+、Key Mod、Random、自定义倍速或基于 SV 滚速的相似度。
+Mania 按键数隔离候选，v4 键型排序见下文；旧 v1 数据继续采用原有分层查询。结果中的难度 percentile 表示该谱面在同键数 Ranked 语料中的相对位置，不是 osu! 官方星数，也不能跨键数直接比较。暂不支持 5K/8K+、Key Mod、Random、自定义倍速或基于 SV 滚速的相似度。
 
 ## 仓库与发布策略
 
-本地索引、特征文件、归一化文件和生成的检索文件会被刻意排除在版本控制之外。仅发布 NoMod 包时打包基础运行时文件；提供 DT/HT 功能的完整包还需额外打包 `mania-mod-features-v1.bin`。不要包含下载数据库、`mania-raw-features.bin` 或旧版修复前目录。
+本地索引、特征文件、归一化文件和生成的检索文件会被刻意排除在版本控制之外。发布 v4 完整运行包时应包含上文列出的全部文件；旧 v1 基础包仅提供其已有数据对应的能力，不等同于完整 v4 包。不要包含下载数据库、`mania-raw-features.bin` 或旧版修复前目录。
 
 ## 常见问题
 
@@ -61,7 +61,7 @@ Mania 会先按键数隔离，再按 Analyzer 输出的 family 与 dominant patt
 
 ## 键型数据
 
-键型数据保存在 `mania-mma-features.bin` 与 `mania_mma_analyses` 表中，是数据集格式里的可选部分：旧数据集没有这一块，OPP 也能正常打开。配套数据集包含六类覆盖率、细分键型、主模式和 RC/LN 音符占比，记录版本为 2。旧 Mania 数据集和 standard 数据不受影响，仍走原来的读取路径。
+完整 v4 包包含 `mania-mma-features.bin`；运行时也兼容 `mania_mma_analyses` 表及不带键型数据的旧 v1 包。缺少键型数据时仍可打开基础数据，但不会获得完整 v4 键型比较。配套数据集包含六类覆盖率、细分键型、主模式和 RC/LN 音符占比，记录版本为 2。Standard 使用独立的读取路径。
 
 OPP 不自己分析键型，只读取数据集里的记录。数据集没有键型记录，或者谱面内容与记录的校验值不一致时，该谱面就没有键型数据，继续按原来的 v1 规则读取和排序。
 

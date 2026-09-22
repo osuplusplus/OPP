@@ -4,9 +4,10 @@ import { APP_TIME_ZONE } from "../../shared/lib/format";
 
 export type OnlineView = "home" | "results" | "stage";
 export type StageOrigin = "home" | "results" | "external";
+export const TREND_WINDOW_DAYS = 7;
 
 export function trendingQuery(ruleset: Ruleset, now = new Date()): OnlineBeatmapSearchQuery {
-  const since = new Date(now.getTime() - 30 * 24 * 60 * 60_000);
+  const since = new Date(now.getTime() - TREND_WINDOW_DAYS * 24 * 60 * 60_000);
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: APP_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(since);
   const part = (type: string) => parts.find((value) => value.type === type)?.value;
   return { ...createDefaultSearchQuery(ruleset), ranked_from: `${part("year")}-${part("month")}-${part("day")}`, sort: "favourites_desc", include_nsfw: false };

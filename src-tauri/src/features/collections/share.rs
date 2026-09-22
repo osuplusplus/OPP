@@ -320,6 +320,8 @@ pub fn import_collection_share(
             source: CollectionSource::Opp,
             read_only: false,
             pending_write: true,
+            stable_sync: true,
+            pool: None,
             entries: payload.entries,
             external_id: None,
             external_fingerprint: None,

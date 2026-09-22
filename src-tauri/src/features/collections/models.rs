@@ -34,6 +34,11 @@ pub struct CollectionFolder {
     pub source: CollectionSource,
     pub read_only: bool,
     pub pending_write: bool,
+    #[serde(default = "default_stable_sync")]
+    pub stable_sync: bool,
+    /// Pool membership and its source metadata commit in the same atomic folder shard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<super::notebook::PoolSnapshot>,
     pub entries: Vec<CollectionEntry>,
     #[serde(default)]
     pub external_id: Option<String>,
@@ -47,6 +52,16 @@ pub struct CollectionFolder {
     pub backup_fingerprint: Option<String>,
     #[serde(default)]
     pub backup_confirmed_at: Option<String>,
+}
+
+fn default_stable_sync() -> bool {
+    true
+}
+
+impl CollectionFolder {
+    pub(crate) fn participates_in_stable(&self) -> bool {
+        self.source != CollectionSource::Lazer && self.stable_sync
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

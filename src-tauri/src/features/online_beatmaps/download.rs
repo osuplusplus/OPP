@@ -70,19 +70,23 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
                 in_metadata = line == "[Metadata]";
             } else if in_metadata {
                 if let Some(value) = line.strip_prefix("BeatmapID:") {
-                    beatmap_id = value.trim().parse::<u64>().ok();
+                    beatmap_id = value.trim().parse::<i64>().ok();
                 } else if let Some(value) = line.strip_prefix("BeatmapSetID:") {
                     set_id = value.trim().parse::<u64>().ok();
                 }
             }
         }
-        if set_id != Some(item.beatmapset_id) || beatmap_id.is_none_or(|id| id == 0) {
+        if set_id != Some(item.beatmapset_id) || beatmap_id.is_none_or(|id| id < -1) {
             return Err(CommandError::new(
                 "STALE_BEATMAP_ARCHIVE",
                 "镜像返回的谱面文件与所选谱面集不符",
             ));
         }
-        found.insert(beatmap_id.expect("checked above"));
+        // Published archives can also contain an unsubmitted guest difficulty (0/-1).
+        // It cannot satisfy a requested BID, but does not invalidate the submitted maps.
+        if let Some(id) = beatmap_id.filter(|id| *id > 0) {
+            found.insert(id as u64);
+        }
     }
     let matches = if item.allow_extra_difficulties {
         expected.is_subset(&found)
@@ -98,9 +102,23 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
     Ok(())
 }
 
-/// Downloads a beatmapset through the selected mirror, then tries the other registered mirrors.
-/// Sayobot is OPP's preferred mirror. Hinai itself implements a multi-source cascade; the remaining
-/// attempts are an additional OPP fallback if a public endpoint is unavailable.
+fn adapters(provider: &str) -> CommandResult<&'static [&'static str]> {
+    // Official .osz downloads require the lazer OAuth scope, unavailable to OPP.
+    // Offer the official website in the UI; never send ordinary OAuth tokens to mirrors.
+    // Hinai's own cascade can stall, so only use it when explicitly selected.
+    match provider {
+        "sayobot" => Ok(&["sayobot", "catboy", "nerinyan"]),
+        "hinai" => Ok(&["hinai", "sayobot", "catboy", "nerinyan"]),
+        "catboy" => Ok(&["catboy", "sayobot", "nerinyan"]),
+        "nerinyan" => Ok(&["nerinyan", "sayobot", "catboy"]),
+        _ => Err(CommandError::new(
+            "DOWNLOAD_ADAPTER_DISABLED",
+            "No download mirror is selected.",
+        )),
+    }
+}
+
+/// Downloads and validates each source before accepting it, with Sayobot preferred by default.
 pub async fn download_with_adapters<F>(
     state: &AppState,
     item: &BeatmapDownloadItem,
@@ -112,24 +130,14 @@ pub async fn download_with_adapters<F>(
 where
     F: FnMut(u64, Option<u64>),
 {
-    let adapters = match provider {
-        "sayobot" => ["sayobot", "hinai", "catboy", "nerinyan"],
-        "hinai" => ["hinai", "sayobot", "catboy", "nerinyan"],
-        "catboy" => ["catboy", "sayobot", "hinai", "nerinyan"],
-        "nerinyan" => ["nerinyan", "sayobot", "hinai", "catboy"],
-        _ => {
-            return Err(CommandError::new(
-                "DOWNLOAD_ADAPTER_DISABLED",
-                "No download mirror is selected.",
-            ));
-        }
-    };
+    let adapters = adapters(provider)?;
 
     let mut failures = Vec::new();
     for adapter in adapters {
         if cancel.load(Ordering::Relaxed) {
             return Err(CommandError::new("DOWNLOAD_CANCELLED", "下载已取消"));
         }
+        on_progress(0, None);
         match state
             .providers
             .osz_with_progress(
@@ -220,4 +228,106 @@ fn rejects_a_stale_mirror_archive_and_accepts_current_difficulties() {
     validate_osz(archive(&[5589234, 5589235, 5589236]), &pool_item).unwrap();
     assert!(validate_osz(archive(&[5589234, 5589236]), &pool_item).is_err());
     assert!(validate_osz(archive(&[]), &pool_item).is_err());
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+    use std::io::Write;
+    fn archive(entries: &[(i64, u64)]) -> Cursor<Vec<u8>> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (index, (bid, sid)) in entries.iter().enumerate() {
+            writer
+                .start_file(
+                    format!("{index}.osu"),
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+            write!(
+                writer,
+                "osu file format v14\r\n[Metadata]\r\nBeatmapID:{bid}\r\nBeatmapSetID:{sid}\r\n"
+            )
+            .unwrap();
+        }
+        writer.finish().unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "live Sayobot availability check; downloads the Aurora archive"]
+    async fn live_sayobot_aurora_archive() {
+        let registry = super::super::providers::ProviderRegistry::new().unwrap();
+        let download = registry
+            .osz_with_progress(
+                2007718,
+                "sayobot",
+                true,
+                &AtomicBool::new(false),
+                &mut |_, _| {},
+            )
+            .await
+            .unwrap();
+        let item = BeatmapDownloadItem {
+            beatmapset_id: 2007718,
+            artist: "Synthion".into(),
+            title: "Aurora".into(),
+            expected_beatmap_ids: vec![4176248],
+            allow_extra_difficulties: true,
+        };
+        validate_osz(Cursor::new(download.bytes), &item).unwrap();
+    }
+
+    #[test]
+    fn aurora_guest_difficulty_zero_does_not_reject_the_selected_radiance_map() {
+        // Metadata observed in both Sayobot and Nerinyan archives for SID 2007718.
+        let entries: Vec<_> = [
+            4737419, 4194938, 4186621, 4176247, 4177521, 4176248, 4938756, 5020543, 5020544,
+            5020545, 0,
+        ]
+        .into_iter()
+        .map(|id| (id, 2007718))
+        .collect();
+        let item = BeatmapDownloadItem {
+            beatmapset_id: 2007718,
+            artist: "Synthion".into(),
+            title: "Aurora".into(),
+            expected_beatmap_ids: vec![4176248],
+            allow_extra_difficulties: true,
+        };
+        validate_osz(archive(&entries), &item).unwrap();
+        let missing: Vec<_> = entries
+            .iter()
+            .copied()
+            .filter(|(id, _)| *id != 4176248)
+            .collect();
+        assert!(validate_osz(archive(&missing), &item).is_err());
+        assert!(validate_osz(archive(&[(4176248, 2007718), (0, 999)]), &item).is_err());
+        assert!(validate_osz(archive(&[(0, 2007718), (-1, 2007718)]), &item).is_err());
+        assert!(validate_osz(archive(&[(4176248, 2007718), (-2, 2007718)]), &item).is_err());
+        // The same official IDs must still match exactly for a normal search download.
+        let exact = BeatmapDownloadItem {
+            expected_beatmap_ids: entries
+                .iter()
+                .filter_map(|(id, _)| (*id > 0).then_some(*id as u64))
+                .collect(),
+            allow_extra_difficulties: false,
+            ..item
+        };
+        validate_osz(archive(&entries), &exact).unwrap();
+        assert!(validate_osz(archive(&missing), &exact).is_err());
+    }
+
+    #[test]
+    fn sayobot_is_preferred_and_hinai_is_only_explicit() {
+        assert_eq!(
+            adapters("sayobot").unwrap(),
+            ["sayobot", "catboy", "nerinyan"]
+        );
+        assert_eq!(adapters("hinai").unwrap()[0], "hinai");
+        for provider in ["catboy", "nerinyan"] {
+            let sources = adapters(provider).unwrap();
+            assert_eq!(sources[0], provider);
+            assert!(!sources.contains(&"hinai"));
+        }
+        assert!(adapters("none").is_err());
+    }
 }

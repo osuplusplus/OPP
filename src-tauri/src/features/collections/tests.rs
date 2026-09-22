@@ -215,3 +215,57 @@ fn collections_are_migrated_to_atomic_folder_shards() {
     let snapshot = reloaded.snapshot(Vec::new()).expect("snapshot");
     assert_eq!(snapshot.folders, vec![folder, second]);
 }
+
+#[test]
+fn opp_only_pools_are_excluded_from_stable_bytes_until_explicitly_enabled() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = CollectionService::new(directory.path()).unwrap();
+    let ordinary = service.create("Ordinary", "user").unwrap();
+    let pool = service
+        .replace_tournament_pool(
+            "tournament:opp:https://example.com/pool",
+            "Pool",
+            vec![CollectionCandidate {
+                beatmap_id: Some(10),
+                beatmapset_id: Some(20),
+                checksum: Some("abc".into()),
+                ruleset: Some("osu".into()),
+                difficulty_name: "Hard".into(),
+                title: "Song".into(),
+                artist: "Artist".into(),
+                creator: "Mapper".into(),
+                local_client: None,
+                local_resource_id: None,
+            }],
+            None,
+        )
+        .unwrap();
+    service.rename(&pool.id, "My pool").unwrap();
+    assert!(!service.folder(&pool.id).unwrap().pending_write);
+    let db = stable::stable_db_for_write(&service.value.lock().unwrap()).0;
+    let written = parse_stable_db(&encode_stable_db(&db).unwrap()).unwrap();
+    assert_eq!(written.folders.len(), 1);
+    assert_eq!(written.folders[0].name, ordinary.name);
+    service.enable_stable_sync(&pool.id).unwrap();
+    assert!(service.folder(&pool.id).unwrap().pending_write);
+    let db = stable::stable_db_for_write(&service.value.lock().unwrap()).0;
+    let written = parse_stable_db(&encode_stable_db(&db).unwrap()).unwrap();
+    assert_eq!(written.folders.len(), 2);
+    assert_eq!(written.folders[1].checksums, vec!["abc"]);
+    drop(service);
+    let reloaded = CollectionService::new(directory.path()).unwrap();
+    assert!(reloaded.folder(&pool.id).unwrap().stable_sync);
+}
+
+#[test]
+fn legacy_collections_default_to_existing_sync_behavior() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = CollectionService::new(directory.path()).unwrap();
+    let folder = service.create("Legacy", "user").unwrap();
+    let mut value = serde_json::to_value(folder).unwrap();
+    value.as_object_mut().unwrap().remove("stable_sync");
+    value.as_object_mut().unwrap().remove("pool");
+    let legacy: CollectionFolder = serde_json::from_value(value).unwrap();
+    assert!(legacy.participates_in_stable());
+    assert!(legacy.pool.is_none());
+}

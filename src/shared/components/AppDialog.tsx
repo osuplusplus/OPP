@@ -28,6 +28,7 @@ export interface AppDialogProps {
   bodyClassName?: string;
   overlayProps?: ComponentPropsWithoutRef<typeof Dialog.Overlay>;
   overlayTestId?: string;
+  onCloseAutoFocus?: ComponentPropsWithoutRef<typeof Dialog.Content>["onCloseAutoFocus"];
 }
 
 /** Standard modal contract for confirmation and focused application workflows. */
@@ -48,6 +49,7 @@ export function AppDialog({
   bodyClassName,
   overlayProps,
   overlayTestId,
+  onCloseAutoFocus,
 }: AppDialogProps) {
   const { className: overlayClassName, ...restOverlayProps } = overlayProps ?? {};
   return (
@@ -61,6 +63,7 @@ export function AppDialog({
         <Dialog.Content
           className={cn(appDialogStyles.content, widths[size], contentClassName)}
           data-dialog-layout="standard"
+          onCloseAutoFocus={onCloseAutoFocus}
         >
           <header className={appDialogStyles.header}>
             {icon ? <span className={cn("grid size-10 shrink-0 place-items-center rounded-lg bg-[var(--theme-primary-muted)] text-[var(--theme-primary-light)]", iconClassName)}>{icon}</span> : null}

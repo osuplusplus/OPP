@@ -31,7 +31,9 @@ struct Selection {
     selected_by: Option<String>,
     selected_by_username: Option<String>,
     comment: Option<String>,
+    #[serde(default)]
     is_custome: bool,
+    #[serde(default)]
     is_origin: bool,
 }
 
@@ -92,6 +94,11 @@ pub(super) fn decode(bytes: &[u8], reference: &TournamentPoolRef) -> CommandResu
     Ok(TournamentPool {
         reference: reference.clone(),
         title: reference.title(),
+        info: super::models::TournamentInfo {
+            tournament: Some("ASC 星域杯".into()),
+            season: Some(reference.season.clone()),
+            category: Some(reference.category.clone()),
+        },
         entries,
     })
 }

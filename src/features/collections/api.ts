@@ -28,7 +28,7 @@ export function removeFromCollectionsSnapshot(
       ? {
           ...folder,
           entries: folder.entries.filter((entry) => entry.id !== entryId),
-          pending_write: true,
+          pending_write: folder.stable_sync !== false,
           updated_at: new Date().toISOString(),
         }
       : folder),

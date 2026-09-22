@@ -7,6 +7,7 @@ import type { BeatmapDownloadProvider } from "../../shared/types/osu";
 import { downloadSession } from "./downloadSession";
 import { useOnlineDownload } from "./useOnlineDownload";
 import { useSettings } from "../settings/api";
+import { DownloadResultActions } from "./DownloadResultActions";
 
 function DownloadContents() {
   const { state, start, destination, defaultProvider, saveDestination } = useOnlineDownload();
@@ -34,13 +35,14 @@ function DownloadContents() {
     <div className="online-download-options"><span>保存到</span><p title={path}>{path || "开始下载时选择目录"}</p>
       <details><summary>更多选项</summary>
         <button disabled={state.busy || choosing} onClick={() => void choose()}><FolderOpen />更改保存目录</button>
-        <label>下载源<select disabled={state.busy} value={provider} onChange={(event) => setProvider(event.target.value as BeatmapDownloadProvider | "none")}><option value="sayobot">小夜 Sayobot</option><option value="hinai">Hinai Mirror</option><option value="catboy">Catboy</option><option value="nerinyan">Nerinyan</option><option value="none">不使用镜像</option></select></label>
+        <label>下载源<select disabled={state.busy} value={provider} onChange={(event) => setProvider(event.target.value as BeatmapDownloadProvider | "none")}><option value="sayobot">小夜 Sayobot</option><option value="hinai">Hinai（仅手动）</option><option value="catboy">Catboy</option><option value="nerinyan">Nerinyan</option><option value="none">不使用镜像</option></select></label>
         <label><input type="checkbox" disabled={state.busy} checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />覆盖同名 .osz 文件</label>
       </details>
     </div>
     {state.progress ? <div className="online-download-progress" role="status"><span>{state.progress.current_title || state.progress.message || "准备下载"}</span><strong>{state.progress.processed}/{state.progress.total}</strong><progress max={state.progress.total || 1} value={state.progress.processed} /><small>{state.busy ? "下载中，可关闭清单继续浏览" : state.result?.cancelled ? "已取消，未完成项已保留" : "本批次已结束"}</small></div> : null}
     {state.result ? <p role="status">完成 {state.result.completed} · 跳过 {state.result.skipped} · 失败 {state.result.failed}{state.result.cancelled ? " · 已取消" : ""}</p> : null}
     {state.result?.failures.map((failure) => <p className="online-notice" key={failure.beatmapset_id}>{failure.title}：{failure.message}</p>)}
+    {state.result && <DownloadResultActions result={state.result} />}
     {error || state.error ? <p className="online-notice" role="alert">{error || state.error}</p> : null}
     </div>
     <footer>{state.busy ? <button onClick={() => void downloadSession.cancel()}>取消本批下载</button> : <button className="is-primary" disabled={!state.queue.length || choosing || provider === "none"} onClick={() => void start(state.queue, { destination: path, provider, overwrite })}><Download />开始下载 · {state.queue.length}</button>}</footer>

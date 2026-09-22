@@ -1,12 +1,12 @@
-import type { TournamentPool, TournamentPoolRef } from "../../shared/types/osu";
+import type { CollectionEntry, CollectionPoolSnapshot, TournamentPool, TournamentPoolRef } from "../../shared/types/osu";
 import type { BeatmapDownloadSelection } from "../online-beatmaps/api";
 
-const stages: Record<TournamentPoolRef["category"], string> = {
+const stages: Record<string, string> = {
   qualification: "资格赛", ro16: "十六强", quarterfinals: "四分之一决赛",
   semifinals: "半决赛", finals: "决赛", grandfinals: "总决赛",
 };
 
-export const poolTitle = (reference: TournamentPoolRef) => `Rino ${reference.season.toUpperCase()} ${stages[reference.category]}`;
+export const poolTitle = (reference: TournamentPoolRef) => reference.provider === "opp" ? "OPP 图池" : `ASC 星域杯 ${reference.season.toUpperCase()} ${stages[reference.category]}`;
 
 export function poolDownloads(pool: TournamentPool | undefined) {
   const sets = new Map<number, BeatmapDownloadSelection>();
@@ -22,4 +22,15 @@ export function poolDownloads(pool: TournamentPool | undefined) {
     if (!set.beatmaps!.some((beatmap) => beatmap.id === entry.beatmap_id)) set.beatmaps!.push({ id: entry.beatmap_id });
   }
   return { items: [...sets.values()], unavailable: [...new Set(unavailable)] };
+}
+
+export function savedPoolDownloads(entries: CollectionEntry[], pool: CollectionPoolSnapshot) {
+  return poolDownloads({ reference: pool.reference, title: pool.title ?? "", entries: entries.filter((entry) => !!entry.beatmap_id).map((entry) => ({
+    beatmap_id: entry.beatmap_id!, selection_type: "", position: 0, selected_by: null, selected_by_name: null,
+    comment: "", is_custom: false, is_original: false, resolution_error: null,
+    beatmap: entry.beatmapset_id ? { beatmapset_id: entry.beatmapset_id, title: entry.title, artist: entry.artist,
+      creator: entry.creator, difficulty_name: entry.difficulty_name, checksum: entry.checksum,
+      download_disabled: pool.slots.some((slot) => slot.beatmap_id === entry.beatmap_id && slot.download_disabled),
+    } : null,
+  })) });
 }

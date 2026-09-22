@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (for example: v0.4.5)"
+        description: "Release tag (for example: v0.5.0)"
         required: true
         type: string
 
@@ -47,6 +47,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -58,6 +60,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Validate release version and prepare notes
+        id: release-notes
+        shell: bash
+        run: |
+          node scripts/prepare-release.mjs "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
+          {
+            echo 'body<<OPP_RELEASE_NOTES'
+            cat "$RUNNER_TEMP/release-notes.md"
+            echo 'OPP_RELEASE_NOTES'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -76,8 +89,11 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             libasound2-dev \
+            libdbus-1-dev \
+            libxdo-dev \
             patchelf \
-            xdg-utils
+            xdg-utils \
+            desktop-file-utils
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -89,11 +105,11 @@ jobs:
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "OPP ${{ env.RELEASE_TAG }}"
-          releaseBody: "Download AppImage or deb for Linux, or the NSIS installer / portable exe for Windows."
+          releaseBody: ${{ steps.release-notes.outputs.body }}
           # 所有平台和 latest.json 上传完成后再发布，避免固定地址指向半成品。
           releaseDraft: true
           prerelease: false
-          generateReleaseNotes: true
+          generateReleaseNotes: false
           args: ${{ matrix.args }}
           uploadPlainBinary: ${{ matrix.upload_plain_binary }}
           uploadWorkflowArtifacts: true
@@ -130,4 +146,4 @@ jobs:
       - name: Publish draft after every asset succeeds
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$RELEASE_TAG" --draft=false --latest
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

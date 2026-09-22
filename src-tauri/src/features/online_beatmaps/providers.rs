@@ -44,6 +44,7 @@ pub struct ProviderRegistry {
 impl ProviderRegistry {
     pub fn new() -> CommandResult<Self> {
         let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(120))
             .user_agent(concat!(
                 "OPP/",
@@ -86,86 +87,86 @@ impl ProviderRegistry {
         let span = global().map(|logger| {
             logger.operation("beatmap.provider", format!("download:{provider}:{id}"))
         });
-        let (url, code, fallback_name) = match provider {
-            "sayobot" => (
-                format!(
-                    "{SAYOBOT_BASE_URL}/beatmaps/download/{}/{id}",
-                    if include_video { "full" } else { "novideo" }
+        let result = async {
+            let (url, code, fallback_name) = match provider {
+                "sayobot" => (
+                    format!(
+                        "{SAYOBOT_BASE_URL}/beatmaps/download/{}/{id}",
+                        if include_video { "full" } else { "novideo" }
+                    ),
+                    "SAYOBOT_DOWNLOAD_FAILED",
+                    Some(format!("{id}.osz")),
                 ),
-                "SAYOBOT_DOWNLOAD_FAILED",
-                Some(format!("{id}.osz")),
-            ),
-            "hinai" => (
-                format!(
-                    "{HINAI_BASE_URL}/api/v1/hinai/d/{id}{}",
-                    if include_video { "" } else { "?novideo=true" }
+                "hinai" => (
+                    format!(
+                        "{HINAI_BASE_URL}/api/v1/hinai/d/{id}{}",
+                        if include_video { "" } else { "?novideo=true" }
+                    ),
+                    "HINAI_DOWNLOAD_FAILED",
+                    None,
                 ),
-                "HINAI_DOWNLOAD_FAILED",
-                None,
-            ),
-            "catboy" => (
-                format!(
-                    "{CATBOY_BASE_URL}/d/{id}{}",
-                    if include_video { "" } else { "?novideo=true" }
+                "catboy" => (
+                    format!(
+                        "{CATBOY_BASE_URL}/d/{id}{}",
+                        if include_video { "" } else { "?novideo=true" }
+                    ),
+                    "CATBOY_DOWNLOAD_FAILED",
+                    Some(format!("{id}.osz")),
                 ),
-                "CATBOY_DOWNLOAD_FAILED",
-                Some(format!("{id}.osz")),
-            ),
-            "nerinyan" => (
-                format!(
-                    "{NERINYAN_BASE_URL}/d/{id}{}",
-                    if include_video { "" } else { "?noVideo=true" }
+                "nerinyan" => (
+                    format!(
+                        "{NERINYAN_BASE_URL}/d/{id}{}",
+                        if include_video { "" } else { "?noVideo=true" }
+                    ),
+                    "NERINYAN_DOWNLOAD_FAILED",
+                    None,
                 ),
-                "NERINYAN_DOWNLOAD_FAILED",
-                None,
-            ),
-            _ => unreachable!("download adapter list only contains registered providers"),
-        };
-        let request = self.client.get(url).send();
-        tokio::pin!(request);
-        let response = loop {
-            tokio::select! {
-                result = &mut request => {
-                    break result.map_err(|error| CommandError::network(error.to_string()))?;
-                }
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                    if cancel.load(Ordering::Relaxed) {
-                        return finish_span(span, Err(CommandError::new("DOWNLOAD_CANCELLED", "下载已取消")));
+                _ => unreachable!("download adapter list only contains registered providers"),
+            };
+            let request = tokio::time::timeout(Duration::from_secs(20), self.client.get(&url).send());
+            tokio::pin!(request);
+            let response = loop {
+                tokio::select! {
+                    result = &mut request => {
+                        break result
+                            .map_err(|_| CommandError::new("DOWNLOAD_TIMEOUT", "下载源 20 秒内未返回响应，切换备用源"))?
+                            .map_err(|error| CommandError::network(error.to_string()))?;
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        if cancel.load(Ordering::Relaxed) {
+                            return Err(CommandError::new("DOWNLOAD_CANCELLED", "下载已取消"));
+                        }
                     }
                 }
-            }
-        };
-        let suggested_filename = filename(&response).or(fallback_name);
-        let content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let bytes =
-            parse_bytes_with_progress(response, code, provider, cancel, on_progress).await?;
-        let bytes = if content_type.contains("json") {
-            serde_json::from_slice::<Value>(&bytes)
-                .ok()
-                .and_then(|value| value.get("data").and_then(Value::as_array).cloned())
-                .map(|data| {
-                    data.iter()
-                        .filter_map(Value::as_u64)
-                        .map(|value| value as u8)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or(bytes)
-        } else {
-            bytes
-        };
-        finish_span(
-            span,
-            Ok(ProviderBytes {
-                bytes,
-                suggested_filename,
-                source: provider.into(),
-            }),
-        )
+            };
+            if let Some(ref span) = span { span.http_request("GET", &url, Some(response.status().as_u16())); }
+            let suggested_filename = filename(&response).or(fallback_name);
+            let content_type = response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            let bytes =
+                parse_bytes_with_progress(response, code, provider, cancel, on_progress).await?;
+            let bytes = if content_type.contains("json") {
+                serde_json::from_slice::<Value>(&bytes)
+                    .ok()
+                    .and_then(|value| value.get("data").and_then(Value::as_array).cloned())
+                    .map(|data| {
+                        data.iter()
+                            .filter_map(Value::as_u64)
+                            .map(|value| value as u8)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or(bytes)
+            } else {
+                bytes
+            };
+            Ok(ProviderBytes { bytes, suggested_filename, source: provider.into() })
+        }
+        .await;
+        finish_span(span, result)
     }
 
     pub async fn catboy_osu(&self, id: u64) -> CommandResult<ProviderBytes> {
@@ -490,11 +491,21 @@ where
         ));
     }
     let total = response.content_length();
-    let mut bytes = Vec::with_capacity(total.unwrap_or(0).min(usize::MAX as u64) as usize);
+    const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
+    if total.is_some_and(|size| size > MAX_ARCHIVE_BYTES) {
+        return Err(CommandError::new(
+            "DOWNLOAD_TOO_LARGE",
+            "曲包超过 256 MiB 下载限制",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(total.unwrap_or(0).min(8 * 1024 * 1024) as usize);
+    let started = tokio::time::Instant::now();
+    let mut watchdog = TransferWatchdog::default();
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err(CommandError::new("DOWNLOAD_CANCELLED", "下载已取消"));
         }
+        watchdog.check(started.elapsed(), bytes.len() as u64)?;
         let chunk = tokio::select! {
             result = response.chunk() => {
                 result.map_err(|error| CommandError::network(error.to_string()))?
@@ -504,10 +515,50 @@ where
             }
         };
         let Some(chunk) = chunk else { break };
+        if bytes.len() as u64 + chunk.len() as u64 > MAX_ARCHIVE_BYTES {
+            return Err(CommandError::new(
+                "DOWNLOAD_TOO_LARGE",
+                "曲包超过 256 MiB 下载限制",
+            ));
+        }
         bytes.extend_from_slice(&chunk);
         on_progress(bytes.len() as u64, total);
     }
     Ok(bytes)
+}
+
+#[derive(Default)]
+struct TransferWatchdog {
+    last_bytes: u64,
+    last_data_at: Duration,
+    window_at: Duration,
+    window_bytes: u64,
+}
+
+impl TransferWatchdog {
+    fn check(&mut self, elapsed: Duration, bytes: u64) -> CommandResult<()> {
+        if bytes > self.last_bytes {
+            self.last_data_at = elapsed;
+            self.last_bytes = bytes;
+        }
+        if elapsed.saturating_sub(self.last_data_at) >= Duration::from_secs(15) {
+            return Err(CommandError::new(
+                "DOWNLOAD_STALLED",
+                "下载源连续 15 秒未传输数据，切换备用源",
+            ));
+        }
+        if elapsed.saturating_sub(self.window_at) >= Duration::from_secs(20) {
+            if bytes.saturating_sub(self.window_bytes) < 32 * 1024 {
+                return Err(CommandError::new(
+                    "DOWNLOAD_TOO_SLOW",
+                    "下载源连续 20 秒传输不足 32 KiB，切换备用源",
+                ));
+            }
+            self.window_at = elapsed;
+            self.window_bytes = bytes;
+        }
+        Ok(())
+    }
 }
 
 fn retry_after(response: &Response) -> Option<u64> {
@@ -624,5 +675,48 @@ mod content_disposition_tests {
             content_disposition_filename(r#"attachment; filename="100%broken.osz""#),
             Some("100%broken.osz".to_string())
         );
+    }
+}
+
+#[cfg(test)]
+mod transfer_tests {
+    use super::*;
+
+    #[test]
+    fn a_stalled_source_times_out_after_15_seconds_without_data() {
+        let mut watch = TransferWatchdog::default();
+        watch.check(Duration::from_secs(1), 100_000).unwrap();
+        watch.check(Duration::from_secs(15), 100_000).unwrap();
+        assert_eq!(
+            watch
+                .check(Duration::from_secs(16), 100_000)
+                .unwrap_err()
+                .code,
+            "DOWNLOAD_STALLED"
+        );
+    }
+
+    #[test]
+    fn trickling_bytes_cannot_keep_a_source_alive_indefinitely() {
+        let mut watch = TransferWatchdog::default();
+        for seconds in 1..20 {
+            watch
+                .check(Duration::from_secs(seconds), seconds * 100)
+                .unwrap();
+        }
+        assert_eq!(
+            watch.check(Duration::from_secs(20), 2000).unwrap_err().code,
+            "DOWNLOAD_TOO_SLOW"
+        );
+    }
+
+    #[test]
+    fn healthy_transfers_reset_the_rate_window() {
+        let mut watch = TransferWatchdog::default();
+        for seconds in 1..100 {
+            watch
+                .check(Duration::from_secs(seconds), seconds * 100_000)
+                .unwrap();
+        }
     }
 }

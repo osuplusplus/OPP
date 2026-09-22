@@ -284,6 +284,8 @@ impl CollectionService {
                 source: CollectionSource::Opp,
                 read_only: false,
                 pending_write: true,
+                stable_sync: true,
+                pool: None,
                 entries: Vec::new(),
                 external_id: None,
                 external_fingerprint: None,
@@ -343,12 +345,81 @@ impl CollectionService {
         })
     }
 
+    pub(crate) fn pool_snapshot(
+        &self,
+        folder_id: &str,
+    ) -> CommandResult<Option<super::notebook::PoolSnapshot>> {
+        let folder = self.folder(folder_id)?;
+        match folder.pool {
+            Some(pool) => Ok(Some(pool)),
+            None => Ok(self.notebooks.get(folder_id)?.pool),
+        }
+    }
+
+    /// Update display metadata independently of game membership and personal records.
+    pub(crate) fn save_pool_metadata(
+        &self,
+        folder_id: &str,
+        maps: &HashMap<i32, serde_json::Value>,
+    ) -> CommandResult<usize> {
+        let span = crate::infrastructure::logging::global()
+            .map(|logger| logger.operation("collections", "save_pool_metadata"));
+        let legacy = self.pool_snapshot(folder_id)?;
+        let result = self.edit_folder(folder_id, |folder| {
+            if folder.pool.is_none() {
+                folder.pool = legacy;
+            }
+            let Some(pool) = &mut folder.pool else {
+                return Ok(0);
+            };
+            let mut updated = HashSet::new();
+            for entry in &mut folder.entries {
+                let Some(id) = entry.beatmap_id else {
+                    continue;
+                };
+                let Some(map) = maps.get(&id) else {
+                    continue;
+                };
+                // Recheck current membership after the asynchronous fetch; never restore removed maps.
+                for slot in pool
+                    .slots
+                    .iter_mut()
+                    .filter(|s| s.beatmap_id == id && s.metadata.is_none())
+                {
+                    slot.metadata = Some(map.clone());
+                    updated.insert(id);
+                }
+                if !updated.contains(&id) {
+                    continue;
+                }
+                let set = &map["beatmapset"];
+                entry.beatmapset_id = map["beatmapset_id"]
+                    .as_i64()
+                    .and_then(|n| i32::try_from(n).ok());
+                for (field, value) in [
+                    (&mut entry.title, &set["title"]),
+                    (&mut entry.artist, &set["artist"]),
+                    (&mut entry.creator, &set["creator"]),
+                    (&mut entry.difficulty_name, &map["version"]),
+                ] {
+                    if let Some(text) = value.as_str() {
+                        *field = text.to_owned();
+                    }
+                }
+            }
+            // Display metadata is OPP-only: preserve hashes, records, membership and pending-write state.
+            Ok(updated.len())
+        });
+        crate::infrastructure::logging::finish_span(span, result)
+    }
+
     /// Replace one linked OPP folder in a single collection update, keyed by source rather than name.
     pub(crate) fn replace_tournament_pool(
         &self,
         source_id: &str,
         name: &str,
         candidates: Vec<CollectionCandidate>,
+        pool: Option<super::notebook::PoolSnapshot>,
     ) -> CommandResult<CollectionFolder> {
         let span = crate::infrastructure::logging::global()
             .map(|logger| logger.operation("collections", "replace_tournament_pool"));
@@ -391,7 +462,20 @@ impl CollectionService {
                             }
                         }
                     }
+                    let mut pool = pool;
+                    if let (Some(next), Some(previous)) = (&mut pool, &folder.pool) {
+                        for slot in &mut next.slots {
+                            if slot.metadata.is_none() {
+                                slot.metadata = previous
+                                    .slots
+                                    .iter()
+                                    .find(|old| old.beatmap_id == slot.beatmap_id)
+                                    .and_then(|old| old.metadata.clone());
+                            }
+                        }
+                    }
                     folder.entries = entries;
+                    folder.pool = pool;
                     touch(folder);
                     return Ok(folder.clone());
                 }
@@ -399,12 +483,17 @@ impl CollectionService {
                 let folder = CollectionFolder {
                     id: Uuid::new_v4().to_string(),
                     name,
-                    creator: "Rino".into(),
+                    creator: pool
+                        .as_ref()
+                        .and_then(|p| p.info.tournament.clone())
+                        .unwrap_or_else(|| "OPP URI".into()),
                     created_at: now.clone(),
                     updated_at: now,
                     source: CollectionSource::Opp,
                     read_only: false,
-                    pending_write: true,
+                    pending_write: false,
+                    stable_sync: false,
+                    pool,
                     entries,
                     external_id: Some(source_id.into()),
                     external_fingerprint: None,
@@ -427,6 +516,27 @@ impl CollectionService {
         self.edit_folder(folder_id, |folder| {
             ensure_writable(folder)?;
             folder.entries.retain(|entry| entry.id != entry_id);
+            touch(folder);
+            Ok(())
+        })
+    }
+
+    pub(crate) fn linked_pool(&self, source_id: &str) -> CommandResult<Option<CollectionFolder>> {
+        Ok(self
+            .value
+            .lock()?
+            .folders
+            .iter()
+            .find(|f| {
+                f.source == CollectionSource::Opp && f.external_id.as_deref() == Some(source_id)
+            })
+            .cloned())
+    }
+
+    pub(crate) fn enable_stable_sync(&self, folder_id: &str) -> CommandResult<()> {
+        self.edit_folder(folder_id, |folder| {
+            ensure_writable(folder)?;
+            folder.stable_sync = true;
             touch(folder);
             Ok(())
         })
@@ -504,7 +614,7 @@ fn ensure_writable(folder: &CollectionFolder) -> CommandResult<()> {
 
 pub(super) fn touch(folder: &mut CollectionFolder) {
     folder.updated_at = Utc::now().to_rfc3339();
-    if folder.source != CollectionSource::Lazer {
+    if folder.participates_in_stable() {
         folder.pending_write = true;
     }
 }

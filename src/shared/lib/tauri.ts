@@ -341,6 +341,14 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
 }
 
 export const desktopApi = {
+  openTournamentPool: (reference: TournamentPoolRef, requestId: number) => call<{ folder_id: string; existing: boolean }>("open_tournament_pool", { reference, requestId }),
+  onTournamentImportProgress: async (handler: (progress: import("../types/osu").TournamentImportProgress) => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<import("../types/osu").TournamentImportProgress>("tournament-pool-import-progress", (event) => handler(event.payload));
+  },
+  openLazerBeatmap: (beatmapId: number) => call<void>("open_lazer_beatmap", { beatmapId }),
+  enableCollectionStableSync: (folderId: string) => call<void>("enable_collection_stable_sync", { folderId }),
+  repairTournamentPoolMetadata: (folderId: string) => call<[number, number]>("repair_tournament_pool_metadata", { folderId }),
   getTournamentPool: (reference: TournamentPoolRef) => call<TournamentPool>("get_tournament_pool", { reference }),
   syncTournamentPoolCollection: (reference: TournamentPoolRef) => call<TournamentPoolSyncResult>("sync_tournament_pool_collection", { reference }),
   getPendingTournamentLink: () => call<TournamentLink | null>("get_pending_tournament_link"),

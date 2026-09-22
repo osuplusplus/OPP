@@ -1,20 +1,8 @@
 .theme-content-frame.local-stage-frame:has(.similarity-page) { max-width: none; padding: 0; }
-.similarity-page { position: relative; isolation: isolate; min-height: calc(100dvh - var(--titlebar-height)); color: var(--text); }
+.similarity-page { container-type: inline-size; position: relative; isolation: isolate; min-height: calc(100dvh - var(--titlebar-height)); color: var(--text); }
 .similarity-page, .similarity-history-dialog { --similarity-panel: color-mix(in srgb, var(--surface-panel) 70%, transparent); --similarity-line: var(--line-strong); }
-.similarity-home { min-height: calc(100dvh - var(--titlebar-height)); display: grid; align-content: center; justify-items: center; gap: 24px; padding: 32px; }
-.similarity-home-title { text-align: center; max-width: 720px; }
-.similarity-home-title > span { color: var(--theme-primary-light); font-size: 10px; font-weight: 750; letter-spacing: .24em; }
-.similarity-home-title h1 { margin: 10px 0 8px; color: var(--text); font-size: clamp(30px, 4vw, 50px); letter-spacing: -.045em; }
-.similarity-home-title p { color: var(--text-muted); font-size: 14px; }
-.similarity-search { position: relative; z-index: 40; width: min(820px, 100%); }
-.similarity-search form { display: flex; align-items: center; gap: 7px; padding: 7px 8px 7px 14px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--similarity-panel); box-shadow: 0 12px 40px #0002; backdrop-filter: blur(12px); }
-.similarity-search form > svg { width: 19px; color: var(--theme-primary-light); }
-.similarity-search input { flex: 1; min-width: 80px; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; padding: 10px 5px; }
-.similarity-search input::placeholder { color: var(--text-muted); }
-.similarity-search-clear { border: 0; background: transparent; color: var(--text-muted); padding: 6px; }
-.similarity-search-clear svg { width: 16px; }
-.similarity-search-submit { color: var(--text); white-space: nowrap; }
-.similarity-search-submit:hover:not(:disabled) { color: var(--text); background: #ffffff0b; }
+.similarity-home { min-height: calc(100dvh - var(--titlebar-height)); display: grid; align-content: start; justify-items: center; gap: 24px; padding: calc(56px + clamp(24px, 7vh, 95px)) 24px 32px; }
+.similarity-search { position: relative; z-index: 40; width: min(712px, 100%); }
 .similarity-search-results { position: absolute; inset: calc(100% + 7px) 0 auto; z-index: 80; max-height: min(470px, 55vh); overflow-y: auto; padding: 7px; border: 1px solid var(--line-subtle); border-radius: 9px; background: var(--surface-float); box-shadow: 0 24px 80px #000b; backdrop-filter: blur(20px); }
 .similarity-search-results header { display: flex; justify-content: space-between; padding: 9px 10px; color: var(--text); font-size: 11px; }
 .similarity-search-results header small { color: var(--text-muted); }
@@ -25,7 +13,7 @@
 .similarity-search-results > p { margin: 0; padding: 18px 12px; }
 .similarity-search-results footer { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 8px; color: var(--text-muted); font-size: 11px; }
 .similarity-search-results footer button { border: 0; background: transparent; color: var(--text-muted); }
-.similarity-recommendations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: min(820px, 100%); }
+.similarity-recommendations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: min(712px, 100%); }
 .similarity-recommendations > button { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; padding: 17px; border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--similarity-panel); color: var(--text); text-align: left; transition: transform .18s ease, border-color .18s ease, background .18s ease; }
 .similarity-recommendations > button:hover:not(:disabled) { transform: translateY(-2px); border-color: color-mix(in srgb, var(--theme-primary) 45%, transparent); background: #ffffff0a; }
 .similarity-recommendations svg { width: 19px; color: var(--theme-primary-light); }
@@ -49,7 +37,6 @@
 .similarity-home-button { display: inline-grid; flex: 0 0 40px; width: 40px; height: 40px; padding: 0; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--text-muted); transition: color .18s ease, background .18s ease; }
 .similarity-home-button:hover { color: var(--stage-title, #f8fafc); background: #ffffff0b; }
 .similarity-home-button svg { width: 18px; }
-.similarity-workspace-toolbar .similarity-search form { box-shadow: none; background: var(--similarity-panel); }
 .similarity-workspace-grid { position: relative; z-index: 5; display: grid; grid-template-columns: clamp(210px, 21vw, 290px) minmax(330px, 1fr) clamp(250px, 27vw, 380px); min-height: calc(100vh - var(--titlebar-height) - 155px); gap: 18px; padding: 22px 26px 74px; }
 .similarity-source-card { align-self: center; overflow: hidden; border: 1px solid var(--similarity-line); border-radius: 9px; background: var(--similarity-panel); box-shadow: 0 24px 70px #0008; backdrop-filter: blur(16px); }
 .similarity-source-cover { aspect-ratio: 4 / 3; background: var(--surface-panel); overflow: hidden; }
@@ -152,10 +139,8 @@
   .similarity-stage-metrics { grid-template-columns: repeat(3, minmax(72px, 1fr)); max-width: 500px; }
 }
 @media (max-width: 760px) {
-  .similarity-home { padding: 20px 10px; }
+  .similarity-home { padding-inline: 24px; }
   .similarity-recommendations { grid-template-columns: 1fr; }
-  .similarity-search form { flex-wrap: wrap; }
-  .similarity-search input { flex-basis: calc(100% - 40px); }
   .similarity-workspace { margin: -16px; }
   .similarity-workspace-grid { grid-template-columns: 1fr; padding: 15px 16px 86px; }
   .similarity-source-card { display: grid; grid-template-columns: 110px 1fr; width: 100%; }
@@ -192,16 +177,6 @@
   background: linear-gradient(#0b10195c, transparent);
 }
 .similarity-workspace-toolbar > .similarity-search { max-width: none; min-width: 0; }
-.similarity-workspace-toolbar .similarity-search form {
-  min-height: 40px;
-  padding: 0 7px 0 12px;
-  border-color: var(--similarity-line);
-  border-radius: 6px;
-  background: var(--similarity-panel);
-  backdrop-filter: none;
-}
-.similarity-workspace-toolbar .similarity-search input { padding-block: 8px; }
-.similarity-workspace-toolbar .similarity-search form > button { border-color: transparent; background: transparent; }
 .similarity-workspace-grid {
   grid-template-columns: clamp(220px, 21vw, 300px) minmax(0, 1fr);
   gap: 0;
@@ -392,7 +367,6 @@
   background: transparent;
 }
 :root[data-theme-mode="light"] .similarity-evidence-rail { background: linear-gradient(90deg, #f2f0e9d9, #f2f0e999 82%, transparent); }
-:root[data-theme-mode="light"] .similarity-workspace-toolbar .similarity-search form,
 :root[data-theme-mode="light"] .similarity-inline-filter-trigger,
 :root[data-theme-mode="light"] .mania-candidate-filter > button { background: #f2f0e97d; color: #25364a; }
 :root[data-theme-mode="light"] .similarity-candidate-copy { text-shadow: 0 1px 12px #ffffffd9; }
@@ -402,9 +376,8 @@
 :root[data-theme-mode="light"] .similarity-evidence-context { color: #516273; }
 
 :root[data-theme-mode="light"] .similarity-page { --similarity-panel: #ffffffb8; }
-:root[data-theme-mode="light"] .similarity-search input { background: transparent; color: var(--text); box-shadow: none; }
 :root[data-theme-mode="light"] .similarity-workspace-toolbar { background: linear-gradient(#ffffff40, transparent); }
-:root[data-theme-mode="light"] :is(.similarity-search form, .similarity-workspace-toolbar .similarity-search form, .similarity-recommendations > button) { background: var(--similarity-panel); border-color: var(--line-strong); }
+:root[data-theme-mode="light"] .similarity-recommendations > button { background: var(--similarity-panel); border-color: var(--line-strong); }
 :root[data-theme-mode="light"] :is(.similarity-search-results, .similarity-inline-filter-panel, .mania-candidate-filter-panel, .similarity-history-dialog > div) { background: var(--surface-float); color: var(--text); border-color: var(--line-strong); box-shadow: 0 16px 50px #11182726; }
 :root[data-theme-mode="light"] :is(.similarity-search-results > button:hover, .similarity-search-results > button[aria-selected=true], .similarity-recommendations > button:hover:not(:disabled), .similarity-history-dialog main > button:hover) { background: var(--theme-primary-muted); }
 :root[data-theme-mode="light"] :is(.similarity-candidate-copy h1, .similarity-candidate-copy > p, .similarity-candidate-difficulty, .similarity-candidate-difficulty strong, .similarity-candidate-difficulty span, .similarity-stage-navigation button, .similarity-home-button) { color: var(--text); }

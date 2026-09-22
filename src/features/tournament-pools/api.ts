@@ -4,7 +4,7 @@ import type { TournamentPoolRef } from "../../shared/types/osu";
 import { collectionEntriesKey, collectionsQueryKey } from "../collections/api";
 
 export const tournamentPoolKey = (reference: TournamentPoolRef) =>
-  ["tournament-pool", reference.provider, reference.season, reference.category] as const;
+  ["tournament-pool", reference] as const;
 
 export function useTournamentPool(reference: TournamentPoolRef) {
   return useQuery({ queryKey: tournamentPoolKey(reference), queryFn: () => desktopApi.getTournamentPool(reference),

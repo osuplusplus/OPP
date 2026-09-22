@@ -444,6 +444,45 @@ struct LaunchTarget {
     working_dir: Option<PathBuf>,
 }
 
+pub(crate) fn lazer_beatmap_uri(beatmap_id: i32) -> CommandResult<String> {
+    if beatmap_id <= 0 {
+        return Err(CommandError::new(
+            "INVALID_BEATMAP_ID",
+            "谱面 ID 必须为正整数",
+        ));
+    }
+    Ok(format!("osu://b/{beatmap_id}"))
+}
+
+/// Pass the official URI directly to lazer, independently of the default osu:// handler.
+#[tauri::command]
+pub fn open_lazer_beatmap(beatmap_id: i32, state: State<'_, AppState>) -> CommandResult<()> {
+    use crate::infrastructure::logging::{finish_span, global};
+    let span = global().map(|log| log.operation("game_session", "open_lazer_beatmap"));
+    let result = (|| {
+        let uri = lazer_beatmap_uri(beatmap_id)?;
+        let target = game_launch_target(LocalClient::Lazer, &state)?;
+        let mut launch = Command::new(&target.exe);
+        launch.arg(uri);
+        if let Some(dir) = target.working_dir {
+            launch.current_dir(dir);
+        }
+        #[cfg(windows)]
+        launch.creation_flags(CREATE_NO_WINDOW);
+        let launched = launch.spawn().map_err(|e| {
+            CommandError::new(
+                "GAME_START_FAILED",
+                format!("无法打开 lazer，请检查安装路径：{e}"),
+            )
+        });
+        if let Some(span) = &span {
+            span.io("launch_lazer", &launched);
+        }
+        launched.map(|_| ())
+    })();
+    finish_span(span, result)
+}
+
 /// 解析要启动/识别的客户端可执行文件。Windows 用安装目录内的 exe（并记录工作目录）；
 /// Linux 用系统命令名（`osu-wine` / `osu-lazer`），无需安装目录。
 fn game_launch_target(client: LocalClient, state: &AppState) -> CommandResult<LaunchTarget> {
@@ -992,4 +1031,14 @@ pub fn open_media_in_explorer(
     crate::infrastructure::platform::reveal_path(&candidate)
         .map_err(|error| CommandError::new("EXPLORER_OPEN_FAILED", error.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod lazer_uri_tests {
+    #[test]
+    fn exact_difficulty_uri_only_accepts_positive_ids() {
+        assert_eq!(super::lazer_beatmap_uri(12345).unwrap(), "osu://b/12345");
+        assert!(super::lazer_beatmap_uri(0).is_err());
+        assert!(super::lazer_beatmap_uri(-1).is_err());
+    }
 }
