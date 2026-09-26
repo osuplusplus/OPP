@@ -44,6 +44,7 @@ import {
 import { requestManualUpdateCheck } from "../updates/events";
 import { SettingsLayout, type SettingsCategory } from "./SettingsLayout";
 import { OnlineSourceCredit } from "./panels/OnlineSourceCredit";
+import { LocalDataPanel } from "./panels/LocalDataPanel";
 
 const colors: Array<[ThemeColor, string, string]> = [
   ["cyan", "青色", "#67e8f9"],
@@ -66,12 +67,15 @@ const categoryMeta: Record<SettingsCategory, { title: string; description: strin
   appearance: { title: "外观", description: "自定义界面主题和色彩。" },
   online: { title: "在线谱面", description: "设置谱面下载、保存位置和音频试听。" },
   directories: { title: "游戏目录", description: "管理 Stable 和 lazer 的本地资源目录。" },
+  "local-data": { title: "本地数据", description: "管理数据库、谱面与皮肤索引、扫描更新和在线已有标记。" },
   replay: { title: "回放渲染", description: "配置 Danser、FFmpeg 和回放导出。" },
   tools: { title: "工具与缓存", description: "清理运行缓存并管理本地缩略图空间。" },
   about: { title: "关于", description: "查看版本、更新和社区信息。" },
 };
 
 const base: AppSettings = {
+  show_local_beatmap_presence: true,
+  local_beatmap_presence_scope: "all",
   onboarding_version: 0,
   page_onboarding_versions: {},
   ignored_update_version: null,
@@ -131,6 +135,7 @@ function Toggle({
         <InfoTip text={description} />
       </div>
       <Switch.Root
+        aria-label={label}
         checked={checked}
         className="relative h-6 w-11 shrink-0 rounded-full bg-slate-500 data-[state=checked]:bg-[var(--theme-primary)]"
         onCheckedChange={onChange}
@@ -434,6 +439,8 @@ export function SettingsPage() {
               })}
             </div>
           </Card>
+
+          {activeCategory === "local-data" ? <LocalDataPanel settings={settings} save={save} busy={busy} onConfigure={() => setActiveCategory("directories")} /> : null}
 
           <Card className={panelClass("replay")}>
             <div className="flex items-start justify-between gap-4">

@@ -4,7 +4,7 @@ import type { OnlineBeatmapSearchQuery, Ruleset } from "../../shared/types/osu";
 import { TREND_WINDOW_DAYS, trendingQuery } from "./stageModel";
 
 export { useOnlineDownload as useBeatmapDownloads } from "./useOnlineDownload";
-export { DownloadResultActions } from "./DownloadResultActions";
+export { DownloadResultActions, DownloadTargetActions } from "./DownloadResultActions";
 export type { BeatmapDownloadSelection } from "./downloadSession";
 
 export function useTrendingBeatmapsets(ruleset: Ruleset) {

@@ -14,6 +14,8 @@ export async function invalidateLocalClient(queryClient: QueryClient, client: Os
     predicate: ({ queryKey, state }) => {
       if (queryKey[0] === "local-artwork-sample") return !Array.isArray(state.data) || state.data.length === 0;
       if (queryKey[0] === "local-sources") return true;
+      if (queryKey[0] === "local-beatmap-presence") return queryKey[1] === null || queryKey[1] === client;
+      if (queryKey[0] === "local-library-storage") return true;
       if (queryKey[0] === "collections" && ["browser", "artwork"].includes(String(queryKey[1]))) return true;
       if (queryKey[0] !== "local-summary" && !resourceKeys.has(String(queryKey[0]))) return false;
       const scope = queryKey[1];

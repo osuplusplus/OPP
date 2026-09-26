@@ -9,7 +9,7 @@ import { useLocalSummary } from "../local-analysis/api";
 const localSourcesKey = ["local-sources"] as const;
 const localSummaryKey = (client: OsuClient) => ["local-summary", client] as const;
 
-export function LocalScanAction({ client, onConfigure }: { client: OsuClient; onConfigure: () => void }) {
+export function LocalScanAction({ client, onConfigure, allowRescan = false }: { client: OsuClient; onConfigure: () => void; allowRescan?: boolean }) {
   const queryClient = useQueryClient();
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<LocalScanProgress | null>(null);
@@ -33,6 +33,9 @@ export function LocalScanAction({ client, onConfigure }: { client: OsuClient; on
       queryClient.invalidateQueries({ queryKey: ["local-skin-detail"] }),
       queryClient.invalidateQueries({ queryKey: ["local-skin-preview"] }),
       queryClient.invalidateQueries({ queryKey: ["skin-workshop-tree"] }),
+      queryClient.invalidateQueries({ queryKey: ["local-index-status"] }),
+      queryClient.invalidateQueries({ queryKey: ["local-library-storage"] }),
+      queryClient.invalidateQueries({ queryKey: ["local-beatmap-presence"] }),
     ]);
   }, [client, queryClient]);
 
@@ -75,7 +78,7 @@ export function LocalScanAction({ client, onConfigure }: { client: OsuClient; on
     }
   };
 
-  if (summaryQuery.isPending || sourcesQuery.isLoading || summaryQuery.data) return null;
+  if (summaryQuery.isPending || sourcesQuery.isLoading || (!allowRescan && summaryQuery.data)) return null;
 
   const needsConfiguration = !source?.valid;
   return (
@@ -95,7 +98,7 @@ export function LocalScanAction({ client, onConfigure }: { client: OsuClient; on
           ? "扫描失败，重试"
           : needsConfiguration
             ? "配置数据源"
-            : "扫描本地数据"}
+            : summaryQuery.data ? "更新本地索引" : "扫描本地数据"}
     </Button>
   );
 }

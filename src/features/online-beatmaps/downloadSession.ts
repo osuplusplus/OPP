@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { desktopApi } from "../../shared/lib/tauri";
 import { errorMessage } from "../../shared/lib/format";
 import type { BeatmapDownloadProgress, BeatmapDownloadRequest, BeatmapDownloadResult, OnlineBeatmapset } from "../../shared/types/osu";
+import { createDownloadProgressDisplay } from "./downloadProgressDisplay";
 
 export const beatmapDownloadDirectoryKey = "opp:beatmap-download-directory";
 /** Download callers need set metadata and the exact expected difficulty IDs, not full statistics. */
@@ -11,6 +12,7 @@ type Snapshot = {
   activeIds: number[];
   busy: boolean;
   progress: BeatmapDownloadProgress | null;
+  displayProgress: BeatmapDownloadProgress | null;
   result: BeatmapDownloadResult | null;
   error: string | null;
 };
@@ -18,7 +20,8 @@ type DownloadApi = Pick<typeof desktopApi, "downloadOnlineBeatmapsets" | "onBeat
 
 /** App-session state: neither route changes nor closing the drawer owns a download. */
 export function createDownloadSession(api: DownloadApi) {
-  let state: Snapshot = { queue: [], activeIds: [], busy: false, progress: null, result: null, error: null };
+  let state: Snapshot = { queue: [], activeIds: [], busy: false, progress: null, displayProgress: null, result: null, error: null };
+  const progressDisplay = createDownloadProgressDisplay();
   const listeners = new Set<() => void>();
   let cancellationRequested = false;
   let invoked = false;
@@ -53,7 +56,8 @@ export function createDownloadSession(api: DownloadApi) {
       const succeeded = new Set<number>();
       let dispose: (() => void) | undefined;
       cancellationRequested = false; invoked = false;
-      update({ busy: true, activeIds: [...ids], progress: null, result: null, error: null });
+      progressDisplay.reset();
+      update({ busy: true, activeIds: [...ids], progress: null, displayProgress: null, result: null, error: null });
       try {
         const options = await prepare();
         if (!options || cancellationRequested) return;
@@ -61,7 +65,7 @@ export function createDownloadSession(api: DownloadApi) {
         dispose = await api.onBeatmapDownloadProgress((progress) => {
           if (progress.current_beatmapset_id !== null && !ids.has(progress.current_beatmapset_id)) return;
           if ((progress.phase === "completed" || progress.phase === "skipped") && progress.current_beatmapset_id !== null) succeeded.add(progress.current_beatmapset_id);
-          update({ progress });
+          update({ progress, displayProgress: progressDisplay.update(progress) });
         });
         if (cancellationRequested) return;
         invoked = true;

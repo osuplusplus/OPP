@@ -6,11 +6,12 @@ import { OnlineBeatmapSortBar } from "./OnlineBeatmapSortBar";
 import { OnlineResultCard } from "./OnlineResultCard";
 import { RESULT_CARD_HEIGHT, RESULT_GAP, resultLayout, visibleResultRows } from "./resultLayout";
 import { scrollWheel } from "./scrollWheel";
+import { useOnlineLocalPresence } from "./useOnlineLocalPresence";
 
 export function OnlineResults({ items, selectedId, queuedIds, total, sort, variant, busy, loading, error, hasMore, onSort, onRandom, onChoose, onDownload, onLoadMore, onRetry, onAdd, onCollect, collecting, title, playingId, onPreview }: {
   title: string; playingId: number | null; onPreview: (set: OnlineBeatmapset) => void;
   items: OnlineBeatmapset[]; selectedId?: number; queuedIds: Set<number>; total: number | null; sort: string; variant: "grid" | "sidebar"; busy: boolean; loading: boolean; error: string | null; hasMore: boolean;
-  onSort: (sort: string) => void; onRandom: () => void; onChoose: (set: OnlineBeatmapset) => void; onDownload: (set: OnlineBeatmapset) => void; onLoadMore: () => void; onRetry: () => void;
+  onSort: (sort: string) => void; onRandom: () => void; onChoose: (set: OnlineBeatmapset, beatmapId?: number) => void; onDownload: (set: OnlineBeatmapset) => void; onLoadMore: () => void; onRetry: () => void;
   onAdd: (items: OnlineBeatmapset[]) => void; onCollect: (limit: number) => void; collecting: boolean;
 }) {
   const expanded = variant === "grid";
@@ -61,6 +62,7 @@ export function OnlineResults({ items, selectedId, queuedIds, total, sort, varia
   }), [variant]);
   const layout = useMemo(() => resultLayout(items.map((item) => item.id), columns, heights), [items, columns, heights]);
   const { start, end } = visibleResultRows(layout.rows, viewport.top, viewport.height);
+  const presence = useOnlineLocalPresence(items.slice(start * columns, end * columns));
   useEffect(() => {
     if (present && hasMore && !loading && !error && (viewport.top + viewport.height >= layout.totalHeight - 250)) onLoadMore();
   }, [present, hasMore, loading, error, viewport, layout.totalHeight, onLoadMore]);
@@ -88,9 +90,9 @@ export function OnlineResults({ items, selectedId, queuedIds, total, sort, varia
         {items.slice(start * columns, end * columns).map((item, offset) => {
           const index = start * columns + offset;
           const column = index % columns;
-          return <OnlineResultCard key={`${item.id}:${variant}`} item={item} index={index} total={total ?? items.length} selected={selectedId === item.id} queued={queuedIds.has(item.id)} busy={busy} playing={playingId === item.id} multi={multi} checked={checked.has(item.id)}
+          return <OnlineResultCard presence={presence} key={`${item.id}:${variant}`} item={item} index={index} total={total ?? items.length} selected={selectedId === item.id} queued={queuedIds.has(item.id)} busy={busy} playing={playingId === item.id} multi={multi} checked={checked.has(item.id)}
             style={{ top: layout.rows[Math.floor(index / columns)].top, left: `calc(${column * 100 / columns}% + ${column * RESULT_GAP / columns}px)`, width: `calc(${100 / columns}% - ${RESULT_GAP * (columns - 1) / columns}px)` }}
-            onHeight={onHeight} onChoose={() => onChoose(item)} onDownload={() => onDownload(item)} onPreview={() => onPreview(item)} onToggle={() => toggle(item.id)} onNavigate={(event) => {
+            onHeight={onHeight} onChoose={(beatmapId) => onChoose(item, beatmapId)} onDownload={() => onDownload(item)} onPreview={() => onPreview(item)} onToggle={() => toggle(item.id)} onNavigate={(event) => {
               if (event.altKey || event.ctrlKey || event.metaKey) return;
               let next: number;
               if (event.key === "ArrowDown") next = Math.min(items.length - 1, index + columns);

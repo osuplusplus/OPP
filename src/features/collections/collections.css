@@ -231,7 +231,7 @@ html:has(.collection-explorer), body:has(.collection-explorer) { min-width: 0; }
 .collection-pool-import li[data-active="true"], .collection-pool-import li[data-complete="true"] { color: var(--theme-primary-light); }
 .collection-pool-import li[data-active="true"] span { background: var(--theme-primary-muted); border-color: currentColor; }
 .collection-pool-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.collection-pool-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--collection-line); border-radius: 6px; font-size: 12px; }
+.collection-pool-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 7px 12px; border: 1px solid var(--collection-line); border-radius: 6px; font-size: 12px; white-space: nowrap; }
 .collection-pool-actions button:hover { background: var(--theme-primary-muted); }
 .collection-pool-actions button:disabled { opacity: .5; cursor: default; }
 .collection-pool-actions select { padding: 4px; border-radius: 4px; color: var(--text); background: var(--surface-panel); }
@@ -250,6 +250,7 @@ html:has(.collection-explorer), body:has(.collection-explorer) { min-width: 0; }
 .collection-pool-info > .collection-pool-actions { margin: 0; }
 .collection-pool-info .collection-pool-actions > small { margin: 0 8px 0 0; }
 .collection-pool-info > p, .collection-pool-info > .collection-download-result, .collection-pool-info > .collection-pool-settings[open] { flex-basis: 100%; }
+.collection-download-status { flex: 0 0 100%; min-width: 0; min-height: 18px; margin: 0 !important; overflow: hidden; line-height: 18px !important; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .collection-pool-settings summary, .collection-download-result summary { cursor: pointer; margin: 0; }
 .collection-pool-settings[open] { padding-top: 8px; border-top: 1px solid var(--collection-line); }
 .collection-download-result[open] { padding-top: 8px; }

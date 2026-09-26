@@ -61,6 +61,7 @@ pub(super) struct DanserTask {
     pub replay_path: String,
     pub preferences: DanserRenderPreferences,
     pub lazer_stage: Option<DanserLazerStage>,
+    pub stable_directories: Option<(PathBuf, PathBuf)>,
 }
 
 #[derive(Default)]

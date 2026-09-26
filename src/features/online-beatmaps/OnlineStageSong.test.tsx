@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { OnlineBeatmapset } from "../../shared/types/osu";
 import { OnlineStageSong } from "./OnlineStageSong";
 
+vi.mock("./useOnlineLocalPresence", () => ({ useOnlineLocalPresence: () => undefined }));
+
 const set: OnlineBeatmapset = { id: 1, title: "Song", artist: "Artist", creator: "Mapper", status: "ranked", preview_url: "//preview.test/1.mp3", ranked_date: "2026-09-14T18:00:00Z", beatmaps: [
   { id: 10, beatmapset_id: 1, difficulty_rating: 2, total_length: 120, version: "Easy", mode: "osu", status: "ranked" },
   { id: 11, beatmapset_id: 1, difficulty_rating: 5, total_length: 120, version: "Insane", mode: "osu", status: "ranked" },

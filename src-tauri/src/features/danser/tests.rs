@@ -42,15 +42,19 @@ fn runtime_patch_points_danser_at_the_replay_osu_installation() {
         client: LocalClient::Stable,
         replay_path: "D:\\osu!\\Replays\\play.osr".into(),
         preferences,
+        stable_directories: Some((
+            PathBuf::from("D:/osu!/Songs"),
+            PathBuf::from("D:/osu!/Skins"),
+        )),
         lazer_stage: None,
     };
     let patch: serde_json::Value = serde_json::from_str(
         &runtime_settings_patch(&task).expect("create runtime settings patch"),
     )
     .expect("parse runtime settings patch");
-    assert_eq!(patch["General"]["OsuSongsDir"], "D:\\osu!\\Songs");
+    assert_eq!(patch["General"]["OsuSongsDir"], "D:/osu!/Songs");
     assert_eq!(patch["General"]["OsuReplaysDir"], "D:\\osu!\\Replays");
-    assert_eq!(patch["General"]["OsuSkinsDir"], "D:\\osu!\\Skins");
+    assert_eq!(patch["General"]["OsuSkinsDir"], "D:/osu!/Skins");
     assert_eq!(patch["Graphics"]["Width"], 1280);
     assert_eq!(patch["Recording"]["FrameWidth"], 1920);
     assert_eq!(patch["Recording"]["FPS"], 60);
@@ -67,6 +71,10 @@ fn runtime_patch_points_lazer_tasks_at_the_staged_directories() {
         client: LocalClient::Lazer,
         replay_path: "/home/user/.local/share/osu/replays/play.osr".into(),
         preferences,
+        stable_directories: Some((
+            PathBuf::from("D:/osu!/Songs"),
+            PathBuf::from("D:/osu!/Skins"),
+        )),
         lazer_stage: Some(DanserLazerStage {
             songs_dir: std::path::PathBuf::from("/cache/materialized-sets/set-abc"),
             skins_root: std::path::PathBuf::from("/cache/danser-stage/Skins"),
@@ -97,6 +105,10 @@ fn runtime_patch_uses_encoder_specific_quality_and_motion_blur() {
         client: LocalClient::Stable,
         replay_path: "D:\\osu!\\Replays\\play.osr".into(),
         preferences,
+        stable_directories: Some((
+            PathBuf::from("D:/osu!/Songs"),
+            PathBuf::from("D:/osu!/Skins"),
+        )),
         lazer_stage: None,
     };
     let patch: serde_json::Value = serde_json::from_str(
@@ -117,4 +129,24 @@ fn detects_ffmpeg_in_the_danser_distribution_subdirectory() {
     std::fs::write(directory.path().join("ffmpeg").join("ffmpeg.exe"), [])
         .expect("create ffmpeg executable");
     assert!(ffmpeg_available(&executable));
+}
+
+#[test]
+fn external_replay_uses_configured_directories_instead_of_its_parent() {
+    let task = DanserTask {
+        id: "external".into(),
+        client: LocalClient::Stable,
+        replay_path: "/downloads/player replay.osr".into(),
+        preferences: DanserRenderPreferences::default(),
+        lazer_stage: None,
+        stable_directories: Some((
+            PathBuf::from("/custom-beatmaps"),
+            PathBuf::from("/osu/Skins"),
+        )),
+    };
+    let patch: serde_json::Value =
+        serde_json::from_str(&runtime_settings_patch(&task).unwrap()).unwrap();
+    assert_eq!(patch["General"]["OsuSongsDir"], "/custom-beatmaps");
+    assert_eq!(patch["General"]["OsuSkinsDir"], "/osu/Skins");
+    assert_eq!(patch["General"]["OsuReplaysDir"], "/downloads");
 }

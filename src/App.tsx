@@ -10,6 +10,7 @@ import { AppDialog } from "./shared/components/AppDialog";
 import { NotificationViewport } from "./shared/components/notifications";
 import { desktopApi, isTauri } from "./shared/lib/tauri";
 import { musicApi } from "./features/music-player/api";
+import { LocalDatabaseGate } from "./features/local-database/DatabaseSetup";
 
 function ThemeController() {
   const settings = useSettings();
@@ -114,7 +115,7 @@ export default function App() {
       <NotificationViewport />
       <HashRouter>
         <TitleBar />
-        <AppConnectionGate />
+        <LocalDatabaseGate><AppConnectionGate /></LocalDatabaseGate>
       </HashRouter>
     </Tooltip.Provider>
   );

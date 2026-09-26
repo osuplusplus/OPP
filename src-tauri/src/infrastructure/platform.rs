@@ -8,6 +8,94 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+/// SQLite WAL requires a local filesystem; reject recognized network volumes.
+pub(crate) fn validate_local_database_directory(path: &Path) -> crate::error::CommandResult<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use std::path::{Component, Prefix};
+        use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+        use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
+        if let Some(Component::Prefix(prefix)) = path.components().next() {
+            match prefix.kind() {
+                Prefix::UNC(_, _) | Prefix::VerbatimUNC(_, _) => {
+                    return Err(crate::error::CommandError::new(
+                        "DATABASE_NETWORK_DIRECTORY",
+                        "请选择本机磁盘目录，数据库不支持网络共享",
+                    ));
+                }
+                Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => {
+                    let root = format!("{}:\\", char::from(letter));
+                    let wide: Vec<u16> = std::ffi::OsStr::new(&root)
+                        .encode_wide()
+                        .chain(Some(0))
+                        .collect();
+                    // SAFETY: wide is a valid null-terminated drive-root string.
+                    if unsafe { GetDriveTypeW(wide.as_ptr()) } == DRIVE_REMOTE {
+                        return Err(crate::error::CommandError::new(
+                            "DATABASE_NETWORK_DIRECTORY",
+                            "请选择本机磁盘目录，数据库不支持映射网络驱动器",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(crate::error::CommandError::new(
+                        "DATABASE_PATH_INVALID",
+                        "请选择本机磁盘上的普通文件夹",
+                    ));
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mount_path = Path::new("/proc/self/mountinfo");
+        let mounts = crate::infrastructure::local_database::fs_io(
+            "read_mounts",
+            mount_path,
+            fs::read_to_string(mount_path),
+        )?;
+        let filesystem = mounts
+            .lines()
+            .filter_map(|line| {
+                let (fields, details) = line.split_once(" - ")?;
+                let mount = fields
+                    .split_whitespace()
+                    .nth(4)?
+                    .replace("\\040", " ")
+                    .replace("\\011", "\t")
+                    .replace("\\012", "\n")
+                    .replace("\\134", "\\");
+                let fs_type = details.split_whitespace().next()?;
+                path.starts_with(&mount).then_some((mount.len(), fs_type))
+            })
+            .max_by_key(|(length, _)| *length)
+            .map(|(_, fs_type)| fs_type);
+        if filesystem.is_some_and(|fs_type| {
+            matches!(
+                fs_type,
+                "nfs"
+                    | "nfs4"
+                    | "cifs"
+                    | "smb3"
+                    | "9p"
+                    | "ceph"
+                    | "afs"
+                    | "fuse.sshfs"
+                    | "fuse.rclone"
+                    | "fuse.glusterfs"
+                    | "fuse.davfs"
+            )
+        }) {
+            return Err(crate::error::CommandError::new(
+                "DATABASE_NETWORK_DIRECTORY",
+                "请选择本机磁盘目录，数据库不支持网络挂载",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// 当前操作系统（编译期常量）。目前仅适配 `"windows"` 与 `"linux"`。
 pub fn current_os() -> &'static str {
     env::consts::OS

@@ -7,6 +7,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   TournamentPoolRef, TournamentPool, TournamentLink, TournamentPoolSyncResult,
   AppSettings,
+  LocalDatabaseStatus,
+  LocalBeatmapPresence,
+  LocalLibraryStorageStatus,
   FfmpegStatusInfo,
   AuthStatus,
   BeatmapHubAuthStatus,
@@ -21,6 +24,7 @@ import type {
   BeatmapDownloadProgress,
   BeatmapDownloadRequest,
   BeatmapDownloadResult,
+  BeatmapOpenResult,
   BeatmapPreviewInspection,
   BeatmapPreviewRequest,
   BeatmapPreviewResult,
@@ -195,6 +199,12 @@ async function call<T>(
 }
 
 function browserPreviewValue<T>(command: string, args?: Record<string, unknown>): T | undefined {
+  if (command === "get_local_library_storage_status" || command === "migrate_local_library_database") return ["stable", "lazer"].map((client) => ({ client, storage: "unscanned", revision: null, entry_count: 0, beatmap_count: 0, error: null })) as T;
+  if (command === "query_local_beatmap_presence") return (args?.ids as number[] ?? []).map((beatmap_id) => ({ beatmap_id, status: "unknown", clients: [] })) as T;
+  if (command === "get_local_database_status" || command === "retry_local_database") return {
+    phase: "ready", directory: "/preview/datasets", recommended_directory: "/preview/datasets",
+    database_uuid: "00000000-0000-4000-8000-000000000001", schema_version: 2, can_initialize: false, error: null,
+  } satisfies LocalDatabaseStatus as T;
   if (command === "query_collection_browser") return { items: [], total: 0, offset: 0, limit: 50, matching_folders: [], pool: null } as T;
   if (command === "get_collection_artwork" || command === "get_collection_entry_scores") return [] as T;
   if (command === "refresh_local_scores") return { players: [], default_player: null, errors: [], count: 0 } as T;
@@ -238,6 +248,7 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_game_status") return { clients: [{ client: "stable", running: false, executable: null, detected_at: new Date().toISOString() }, { client: "lazer", running: false, executable: null, detected_at: new Date().toISOString() }] } as T;
   if (command === "get_game_session_status") return null as T;
   if (command === "get_local_sources") return [] as T;
+  if (command === "choose_game_replay_files") return { items: [], failures: [] } as T;
   if (command === "list_game_media") return [] as T;
   if (command === "get_tosu_status") return { installed: false, executable_path: null, api_base_url: "http://127.0.0.1:24050", api_reachable: false, running: false, owned_by_opp: false, dashboard_url: "http://127.0.0.1:24050", last_error: null, lyrics: { installed: false, executable_path: null, running: false, owned_by_opp: false, proxy_url: "http://127.0.0.1:41280/lyrics/" } } as T;
   if (command === "get_obs_status") return { running: false, websocket_url: "ws://127.0.0.1:4455", connected: false, password_configured: false, selected_scene: null, last_error: null } as T;
@@ -341,6 +352,13 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
 }
 
 export const desktopApi = {
+  getLocalDatabaseStatus: () => call<LocalDatabaseStatus>("get_local_database_status"),
+  getLocalLibraryStorageStatus: () => call<LocalLibraryStorageStatus[]>("get_local_library_storage_status"),
+  migrateLocalLibraryDatabase: () => call<LocalLibraryStorageStatus[]>("migrate_local_library_database"),
+  queryLocalBeatmapPresence: (ids: number[], client: OsuClient | null) => call<LocalBeatmapPresence[]>("query_local_beatmap_presence", { ids, client }),
+  initializeLocalDatabase: (directory: string) => call<LocalDatabaseStatus>("initialize_local_database", { directory }),
+  retryLocalDatabase: () => call<LocalDatabaseStatus>("retry_local_database"),
+  locateLocalDatabase: (directory: string) => call<LocalDatabaseStatus>("locate_local_database", { directory }),
   openTournamentPool: (reference: TournamentPoolRef, requestId: number) => call<{ folder_id: string; existing: boolean }>("open_tournament_pool", { reference, requestId }),
   onTournamentImportProgress: async (handler: (progress: import("../types/osu").TournamentImportProgress) => void): Promise<UnlistenFn> => {
     if (!isTauri()) return () => undefined;
@@ -492,6 +510,8 @@ export const desktopApi = {
   openCollectionDownloads: (archivePaths: string[]) =>
     call<CollectionOpenResult>("open_collection_downloads", { archivePaths }),
   openDownloadedPath: (path: string) => call<void>("open_downloaded_path", { path }),
+  openBeatmapFiles: (client: OsuClient, archivePaths: string[]) =>
+    call<BeatmapOpenResult>("open_beatmap_files", { client, archivePaths }),
   exitApp: () => call<void>("exit_app"),
   clearProfileCache: () => call<void>("clear_profile_cache"),
   checkForUpdates: () => call<UpdateCheckResult>("check_for_updates"),
@@ -515,6 +535,7 @@ export const desktopApi = {
   getGameStatus: () => call<GameStatusSnapshot>("get_game_status"),
   convertManiaBeatmaps: (paths: string[]) =>
     call<ManiaConversionResult>("convert_mania_beatmaps", { paths }),
+  chooseGameReplayFiles: (client: OsuClient) => call<import("../types/osu").ReplayFileSelection>("choose_game_replay_files", { client }),
   listGameMedia: (client: OsuClient) => call<GameMediaItem[]>("list_game_media", { client }),
   readGameReplay: (client: OsuClient, path: string) =>
     call<GameReplayPayload>("read_game_replay", { client, path }),
@@ -664,7 +685,7 @@ export const desktopApi = {
     call<SkinWorkshopMutationResult>("execute_skin_workshop_action", { targetSkinResourceId, mode, action }),
   executeSkinWorkshopPreset: (targetSkinResourceId: string, mode: SkinWorkshopWriteMode, preset: SkinWorkshopPreset) =>
     call<SkinWorkshopMutationResult>("execute_skin_workshop_preset", { targetSkinResourceId, mode, preset }),
-  chooseLocalDirectory: async (defaultPath?: string | null) => {
+  chooseLocalDirectory: async (defaultPath?: string | null, title = "选择 osu! 本地目录") => {
     if (!isTauri()) {
       throw {
         code: "TAURI_REQUIRED",
@@ -675,7 +696,7 @@ export const desktopApi = {
       directory: true,
       multiple: false,
       defaultPath: defaultPath ?? undefined,
-      title: "选择 osu! 本地目录",
+      title,
     });
     return typeof selected === "string" ? selected : null;
   },

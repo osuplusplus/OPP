@@ -15,6 +15,43 @@ use crate::{
     state::AppState,
 };
 
+#[tauri::command]
+pub async fn query_local_beatmap_presence(
+    ids: Vec<i32>,
+    client: Option<LocalClient>,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<super::models::LocalBeatmapPresence>> {
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::blocking_io("query_local_beatmap_presence", move || {
+        let span = crate::infrastructure::logging::global()
+            .map(|log| log.operation("local_analysis.command", "beatmap_presence"));
+        crate::infrastructure::logging::finish_span(span, service.beatmap_presence(ids, client))
+    })
+    .await?
+}
+
+#[tauri::command]
+pub async fn get_local_library_storage_status(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<super::models::LocalLibraryStorageStatus>> {
+    let span = crate::infrastructure::logging::global()
+        .map(|log| log.operation("local_analysis.command", "storage_status"));
+    crate::infrastructure::logging::finish_span(span, state.local_analysis.library_storage_status())
+}
+
+#[tauri::command]
+pub async fn migrate_local_library_database(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<super::models::LocalLibraryStorageStatus>> {
+    let service = Arc::clone(&state.local_analysis);
+    crate::infrastructure::tasks::blocking_io("migrate_local_library_database", move || {
+        let span = crate::infrastructure::logging::global()
+            .map(|log| log.operation("local_analysis.command", "migrate_library"));
+        crate::infrastructure::logging::finish_span(span, service.migrate_cached_indexes())
+    })
+    .await?
+}
+
 #[tauri::command(async)]
 pub async fn get_local_sources(
     state: State<'_, AppState>,

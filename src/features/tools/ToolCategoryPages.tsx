@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { FileCog, Info } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
-import { Badge, Card, SectionTitle } from "../../shared/components/ui";
+import { Card, SectionTitle } from "../../shared/components/ui";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { desktopApi, useCapabilities } from "../../shared/lib/tauri";
@@ -11,7 +11,7 @@ import { OtdPanel } from "./OtdPanel";
 import { TosuPage } from "./TosuPage";
 
 export function ToolPageHeader({ title, description }: { title: string; description: string }) {
-  return <PageHeader eyebrow="Tools" title={title} description={description} actions={<Badge tone="cyan">工具集合</Badge>} />;
+  return <PageHeader eyebrow="Tools" title={title} description={description} />;
 }
 
 export function GameToolsPage() {

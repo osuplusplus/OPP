@@ -5,6 +5,8 @@ import { durationLabel, normalizePreviewUrl } from "./filters";
 import { displayArtist, displayTitle } from "./stageModel";
 import { useQuietScrollbar } from "./useQuietScrollbar";
 import { dateOnly } from "../../shared/lib/format";
+import { LocalSetBadge, LocalDifficultyBadge } from "./localPresence";
+import { useOnlineLocalPresence } from "./useOnlineLocalPresence";
 import { OnlineStatusBadge } from "./OnlineStatusBadge";
 
 export function OnlineStageSong({ set, ruleset, playing, busy, loading, onPreview, onDownload, onDetails, onCollect, onVisualPreview, onSimilar, onWebsite, onDifficultyWebsite, onSearchTitle, initialBeatmapId }: {
@@ -13,6 +15,7 @@ export function OnlineStageSong({ set, ruleset, playing, busy, loading, onPrevie
   initialBeatmapId?: number | null;
   onDifficultyWebsite: (id: number, mode: Ruleset) => void; onSearchTitle: () => void;
 }) {
+  const presence = useOnlineLocalPresence([set]);
   const [difficultyId, setDifficultyId] = useState<number | null>(initialBeatmapId ?? null);
   const onDifficultyScroll = useQuietScrollbar();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -29,7 +32,7 @@ export function OnlineStageSong({ set, ruleset, playing, busy, loading, onPrevie
   const difficulty = difficulties.find((item) => item.id === difficultyId) ?? difficulties.find((item) => !ruleset || item.mode === ruleset) ?? difficulties[0];
   const number = (value?: number) => value == null || !Number.isFinite(value) ? "—" : Number(value.toFixed(2)).toString();
   return <div className="online-stage-song">
-    <div className="online-song-heading"><div className="online-song-meta"><OnlineStatusBadge status={set.status} /><span>BID {difficulty?.id ?? "—"}</span><button aria-label="打开当前难度官网" title="打开当前难度官网" disabled={!difficulty} onClick={() => { if (difficulty) onDifficultyWebsite(difficulty.id, difficulty.mode); }}><ExternalLink /></button>{loading ? <span>正在读取详情…</span> : null}</div>
+    <div className="online-song-heading"><div className="online-song-meta"><OnlineStatusBadge status={set.status} /><LocalSetBadge set={set} presence={presence} /><span>BID {difficulty?.id ?? "—"}</span><button aria-label="打开当前难度官网" title="打开当前难度官网" disabled={!difficulty} onClick={() => { if (difficulty) onDifficultyWebsite(difficulty.id, difficulty.mode); }}><ExternalLink /></button>{loading ? <span>正在读取详情…</span> : null}</div>
       <p>{displayArtist(set)}</p><div className="online-song-title"><h1 title={displayTitle(set)}>{displayTitle(set)}</h1><button aria-label="搜索同名" title="搜索同名" onClick={onSearchTitle}><Search /></button></div>
       <div className="online-song-credits"><small>谱师 <strong>{set.creator}</strong></small><small>上架 {dateOnly(set.ranked_date)}</small><small>上传 {dateOnly(set.submitted_date)}</small></div>
     </div>
@@ -44,7 +47,7 @@ export function OnlineStageSong({ set, ruleset, playing, busy, loading, onPrevie
         event.preventDefault(); setDifficultyId(difficulties[next].id);
         const target = event.currentTarget.parentElement?.children[next] as HTMLElement | undefined;
         target?.focus({ preventScroll: true }); target?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-      }}><span>{item.version}</span><small>{number(item.difficulty_rating)} ★</small></button>)}
+      }}><span>{item.version}</span><LocalDifficultyBadge id={item.id} presence={presence} /><small>{number(item.difficulty_rating)} ★</small></button>)}
     </div>
     {difficulty ? <div className="online-song-metrics">{[
       ["stars", "星级", `${number(difficulty.difficulty_rating)} ★`],

@@ -1,4 +1,7 @@
 mod models;
+mod replay_files;
+pub use replay_files::choose_game_replay_files;
+pub(crate) use replay_files::read_replay as validate_replay_file;
 
 use std::{
     collections::HashMap,
@@ -30,9 +33,9 @@ use crate::{
 };
 
 use models::{
-    GameClientStatus, GameMediaItem, GameReplayPayload, GameScreenshotPayload, GameSessionSummary,
-    GameStatusSnapshot, NewReplayItem, NewReplaysDetected, ReplayFingerprint, ReplayMapInfo,
-    ReplayWatchSession, UserSnapshot,
+    BeatmapOpenResult, GameClientStatus, GameMediaItem, GameReplayPayload, GameScreenshotPayload,
+    GameSessionSummary, GameStatusSnapshot, NewReplayItem, NewReplaysDetected, ReplayFingerprint,
+    ReplayMapInfo, ReplayWatchSession, UserSnapshot,
 };
 pub use models::{GameMonitorRuntime, GameSessionRuntime};
 
@@ -444,6 +447,62 @@ struct LaunchTarget {
     working_dir: Option<PathBuf>,
 }
 
+#[tauri::command]
+pub async fn open_beatmap_files(
+    client: LocalClient,
+    archive_paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> CommandResult<BeatmapOpenResult> {
+    use crate::infrastructure::logging::{finish_span, global};
+    let span = global().map(|log| log.operation("game_session", "open_beatmap_files"));
+    let result = async {
+        let target = game_launch_target(client, &state)?;
+        let mut opened = 0usize;
+        let mut failures = Vec::new();
+        let total = archive_paths.len();
+        for (index, value) in archive_paths.into_iter().enumerate() {
+            let path = PathBuf::from(&value);
+            let valid = path.is_file()
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("osz"));
+            if !valid {
+                failures.push(format!("曲包文件不存在或格式不受支持：{value}"));
+                continue;
+            }
+            let mut launch = Command::new(&target.exe);
+            launch.arg(&path);
+            if let Some(dir) = &target.working_dir {
+                launch.current_dir(dir);
+            }
+            #[cfg(windows)]
+            launch.creation_flags(CREATE_NO_WINDOW);
+            let launched = launch.spawn();
+            if let Some(span) = &span {
+                span.io("launch_beatmap_file", &launched);
+            }
+            match launched {
+                Ok(_) => opened += 1,
+                Err(error) => failures.push(format!(
+                    "无法使用 {client} 打开 {}：{error}",
+                    path.display()
+                )),
+            }
+            if index + 1 < total {
+                tokio::time::sleep(Duration::from_millis(180)).await;
+            }
+        }
+        Ok(BeatmapOpenResult {
+            opened,
+            failed: failures.len(),
+            failures,
+        })
+    }
+    .await;
+    finish_span(span, result)
+}
+
 pub(crate) fn lazer_beatmap_uri(beatmap_id: i32) -> CommandResult<String> {
     if beatmap_id <= 0 {
         return Err(CommandError::new(
@@ -708,6 +767,15 @@ pub(crate) fn within_root(candidate: &Path, root: &Path) -> bool {
         || candidate.starts_with(&(root + "/"))
 }
 
+pub(crate) fn media_path_for_ui(path: &Path) -> String {
+    let value = path.display().to_string();
+    value
+        .strip_prefix("\\\\?\\")
+        .or_else(|| value.strip_prefix("//?/"))
+        .unwrap_or(&value)
+        .to_string()
+}
+
 pub(crate) fn load_game_replay_file(
     client: LocalClient,
     path: &str,
@@ -716,28 +784,23 @@ pub(crate) fn load_game_replay_file(
     let candidate = PathBuf::from(path)
         .canonicalize()
         .map_err(|error| CommandError::new("REPLAY_NOT_FOUND", error.to_string()))?;
-    let allowed = media_roots(state, client)?.into_iter().any(|root| {
-        within_root(&candidate, &root)
-            && candidate
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("osr"))
-    });
-    if !allowed {
+    let selected = state
+        .game_session
+        .selected_replays
+        .lock()
+        .map_err(|_| CommandError::new("SESSION_LOCKED", "素材状态不可用"))?
+        .contains(&candidate);
+    if !selected
+        && !media_roots(state, client)?
+            .iter()
+            .any(|root| within_root(&candidate, root))
+    {
         return Err(CommandError::new(
             "REPLAY_PATH_NOT_ALLOWED",
-            "回放文件不在 osu! 的 Replays 目录中",
+            "请通过文件选择器选择此回放",
         ));
     }
-    let metadata = fs::metadata(&candidate)
-        .map_err(|error| CommandError::new("REPLAY_READ_FAILED", error.to_string()))?;
-    if metadata.len() > 32 * 1024 * 1024 {
-        return Err(CommandError::new(
-            "REPLAY_TOO_LARGE",
-            "回放文件超过 32 MB，已拒绝上传",
-        ));
-    }
-    fs::read(&candidate).map_err(|error| CommandError::new("REPLAY_READ_FAILED", error.to_string()))
+    replay_files::read_replay(&candidate)
 }
 
 pub(crate) fn parse_replay_metadata(bytes: &[u8]) -> CommandResult<(String, String)> {
@@ -805,13 +868,15 @@ pub fn list_game_media(
 ) -> CommandResult<Vec<GameMediaItem>> {
     let mut items = Vec::new();
     for root in media_roots(&state, client)? {
-        for entry in walkdir::WalkDir::new(root)
-            .follow_links(false)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-        {
+        let entries = fs::read_dir(&root)
+            .map_err(|error| CommandError::new("MEDIA_READ_FAILED", error.to_string()))?;
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| CommandError::new("MEDIA_READ_FAILED", error.to_string()))?;
             let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
             let ext = path
                 .extension()
                 .and_then(|x| x.to_str())
@@ -824,12 +889,11 @@ pub fn list_game_media(
             } else {
                 continue;
             };
-            let metadata = entry
-                .metadata()
+            let metadata = fs::metadata(&path)
                 .map_err(|e| CommandError::new("MEDIA_READ_FAILED", e.to_string()))?;
             items.push(GameMediaItem {
                 client,
-                path: path.display().to_string(),
+                path: media_path_for_ui(&path),
                 kind: kind.into(),
                 modified_at: metadata
                     .modified()
@@ -869,7 +933,7 @@ pub fn read_game_replay(
     }
     let bytes = load_game_replay_file(client, &path, &state)?;
     Ok(GameReplayPayload {
-        path: candidate.display().to_string(),
+        path: media_path_for_ui(&candidate),
         file_name: candidate
             .file_name()
             .and_then(|x| x.to_str())
@@ -887,25 +951,31 @@ pub fn inspect_game_replay(
     path: String,
     state: State<'_, AppState>,
 ) -> CommandResult<ReplayMapInfo> {
-    let bytes = load_game_replay_file(client, &path, &state)?;
-    let (beatmap_hash, username) = parse_replay_metadata(&bytes)?;
-    let beatmap = state
-        .local_analysis
-        .find_beatmap_by_md5(client, &beatmap_hash)?;
-    Ok(ReplayMapInfo {
-        path,
-        beatmap_hash: beatmap_hash.clone(),
-        username,
-        beatmap_id: beatmap.as_ref().and_then(|map| map.beatmap_id),
-        beatmap_resource_id: beatmap.as_ref().map(|map| map.resource.resource_id.clone()),
-        beatmap_title: beatmap.as_ref().map(|map| {
-            format!(
-                "{} — {} [{}]",
-                map.artist_unicode, map.title_unicode, map.difficulty_name
-            )
-        }),
-        submitted: beatmap.as_ref().and_then(|map| map.beatmap_id).is_some(),
-    })
+    let span = crate::infrastructure::logging::global()
+        .map(|logger| logger.operation("game_session", "inspect_game_replay"));
+    let result = (|| {
+        let bytes = load_game_replay_file(client, &path, &state)?;
+        let (beatmap_hash, username) = parse_replay_metadata(&bytes)?;
+        let beatmap = state
+            .local_analysis
+            .find_beatmap_by_md5(client, &beatmap_hash)?;
+        Ok(ReplayMapInfo {
+            ruleset: replay_files::replay_ruleset(&bytes)?,
+            path,
+            beatmap_hash: beatmap_hash.clone(),
+            username,
+            beatmap_id: beatmap.as_ref().and_then(|map| map.beatmap_id),
+            beatmap_resource_id: beatmap.as_ref().map(|map| map.resource.resource_id.clone()),
+            beatmap_title: beatmap.as_ref().map(|map| {
+                format!(
+                    "{} — {} [{}]",
+                    map.artist_unicode, map.title_unicode, map.difficulty_name
+                )
+            }),
+            submitted: beatmap.as_ref().and_then(|map| map.beatmap_id).is_some(),
+        })
+    })();
+    crate::infrastructure::logging::finish_span(span, result)
 }
 
 #[tauri::command(async)]
@@ -950,7 +1020,7 @@ pub fn read_game_screenshot(
     let bytes = fs::read(&candidate)
         .map_err(|e| CommandError::new("SCREENSHOT_READ_FAILED", e.to_string()))?;
     Ok(GameScreenshotPayload {
-        path: candidate.display().to_string(),
+        path: media_path_for_ui(&candidate),
         file_name: candidate
             .file_name()
             .and_then(|x| x.to_str())
@@ -965,7 +1035,7 @@ pub fn read_game_screenshot(
 mod tests {
     use std::{collections::HashMap, path::Path};
 
-    use super::{ReplayFingerprint, changed_replay_paths, same_executable};
+    use super::{ReplayFingerprint, changed_replay_paths, media_path_for_ui, same_executable};
 
     #[test]
     fn matches_windows_executables_without_case_sensitivity() {
@@ -994,6 +1064,14 @@ mod tests {
         assert_eq!(
             changed_replay_paths(&before, &current),
             vec!["changed.osr", "new.osr"]
+        );
+    }
+
+    #[test]
+    fn media_paths_do_not_expose_windows_extended_prefixes() {
+        assert_eq!(
+            media_path_for_ui(Path::new(r"\\?\D:\osu!\Screenshots\capture.png")),
+            r"D:\osu!\Screenshots\capture.png"
         );
     }
 }

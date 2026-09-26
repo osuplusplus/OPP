@@ -7,6 +7,7 @@ pub(crate) mod danser;
 pub(crate) mod game_session;
 pub(crate) mod live_render;
 pub(crate) mod local_analysis;
+pub(crate) mod local_database;
 pub(crate) mod local_scores;
 pub(crate) mod music_player;
 pub(crate) mod netease_music;

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SettingsLayout, type SettingsCategory } from "./SettingsLayout";
+import { LocalDataPanel } from "./panels/LocalDataPanel";
 import { GeneralPanel } from "./panels/GeneralPanel";
 import { LogsPanel } from "./panels/LogsPanel";
 import { AccountPanel } from "./panels/AccountPanel";
@@ -62,6 +63,8 @@ export function SettingsPageNew() {
         return <AppearancePanel settings={settings} save={save} />;
       case "online":
         return <OnlinePanel settings={settings} save={save} busy={busy} />;
+      case "local-data":
+        return <LocalDataPanel settings={settings} save={save} busy={busy} onConfigure={() => setActiveCategory("directories")} />;
       case "directories":
         return <DirectoriesPanel />;
       case "replay":

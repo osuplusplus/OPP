@@ -254,12 +254,12 @@ fn merge_json(target: &mut serde_json::Value, patch: serde_json::Value) {
 fn runtime_settings_patch(task: &DanserTask) -> CommandResult<String> {
     let replay = Path::new(&task.replay_path);
     let replay_directory = replay.parent().unwrap_or(Path::new("."));
-    let osu_root = replay_directory.parent().unwrap_or(replay_directory);
-    // Lazer：谱面与皮肤已入队时物化到应用缓存目录，直接指向那里；
-    // Stable：回放位于 <osu!>/Replays，按上级目录推导安装布局。
     let (songs, skins) = match &task.lazer_stage {
         Some(stage) => (stage.songs_dir.clone(), stage.skins_root.clone()),
-        None => (osu_root.join("Songs"), osu_root.join("Skins")),
+        None => task
+            .stable_directories
+            .clone()
+            .ok_or_else(|| command_error("DANSER_SOURCE_MISSING", "客户端谱面与皮肤目录不可用"))?,
     };
     let mut patch = serde_json::json!({
         "General": {
@@ -569,6 +569,15 @@ fn execute_task(
     // 暂存只在任务真正开始渲染时执行（消费时物化）；取消的任务不会产生
     // 任何文件复制。
     let mut task = task.clone();
+    if let Err(error) =
+        crate::features::game_session::validate_replay_file(Path::new(&task.replay_path))
+    {
+        update_job(runtime, app, &task.id, |job| {
+            job.status = "failed".into();
+            job.description = error.message;
+        });
+        return;
+    }
     if task.client == LocalClient::Lazer
         && let Err(error) = stage_lazer_task(local_analysis, &mut task)
     {
@@ -781,75 +790,117 @@ pub fn enqueue_danser_renders(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> CommandResult<Vec<DanserRenderJob>> {
-    if request.replay_paths.is_empty() {
-        return Err(command_error("NO_REPLAYS_SELECTED", "请选择至少一个回放"));
-    }
-    validate_preferences(&request.preferences)?;
-    let executable = resolve_danser(&state)?;
-    if !ffmpeg_available(&executable) {
-        return Err(command_error("FFMPEG_NOT_FOUND", "Danser 无法访问 FFmpeg"));
-    }
-    let export_directory = state
-        .store
-        .settings_snapshot()?
-        .replay_export_directory
-        .map(PathBuf::from)
-        .ok_or_else(|| {
-            command_error(
-                "REPLAY_EXPORT_DIRECTORY_NOT_SET",
-                "请先在设置中选择回放导出位置",
-            )
-        })?;
-    fs::create_dir_all(&export_directory)?;
-    let mut created = Vec::new();
-    for replay_path in &request.replay_paths {
-        let bytes = load_game_replay_file(request.client, replay_path, &state)?;
-        if bytes.first().copied() != Some(0) {
-            return Err(command_error(
-                "DANSER_RULESET_UNSUPPORTED",
-                "Danser 仅支持 osu!standard 回放",
-            ));
+    let span = crate::infrastructure::logging::global()
+        .map(|logger| logger.operation("danser", "enqueue_danser_renders"));
+    let result = (|| {
+        if request.replay_paths.is_empty() {
+            return Err(command_error("NO_REPLAYS_SELECTED", "请选择至少一个回放"));
         }
-        // Lazer 的谱面 / 皮肤物化推迟到任务实际执行时（见 stage_lazer_task），
-        // 入队只做轻量校验，避免为可能被取消的任务提前复制文件。
-        let id = Uuid::new_v4().to_string();
-        let position = state
-            .danser
-            .queue
-            .lock()
-            .map(|queue| queue.len() + 1)
-            .unwrap_or(1);
-        let job = DanserRenderJob {
-            id: id.clone(),
-            replay_path: replay_path.clone(),
-            status: "queued".into(),
-            progress: 0,
-            description: "已加入队列，等待开始".into(),
-            output_path: None,
-            queue_position: Some(position),
+        validate_preferences(&request.preferences)?;
+        let executable = resolve_danser(&state)?;
+        if !ffmpeg_available(&executable) {
+            return Err(command_error("FFMPEG_NOT_FOUND", "Danser 无法访问 FFmpeg"));
+        }
+        let export_directory = state
+            .store
+            .settings_snapshot()?
+            .replay_export_directory
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                command_error(
+                    "REPLAY_EXPORT_DIRECTORY_NOT_SET",
+                    "请先在设置中选择回放导出位置",
+                )
+            })?;
+        fs::create_dir_all(&export_directory)?;
+        // Validate the entire batch before mutating either queue. A failed retry
+        // must never duplicate jobs from a partially enqueued batch.
+        let stable_directories = if request.client == LocalClient::Stable {
+            let source = state.local_analysis.resolved_source(request.client)?;
+            let songs = source
+                .beatmap_root
+                .ok_or_else(|| command_error("DANSER_SOURCE_MISSING", "未找到客户端谱面目录"))?;
+            let skins = source
+                .skin_root
+                .or_else(|| {
+                    source
+                        .status
+                        .install_root
+                        .map(|root| PathBuf::from(root).join("Skins"))
+                })
+                .ok_or_else(|| command_error("DANSER_SOURCE_MISSING", "未找到客户端皮肤目录"))?;
+            Some((songs, skins))
+        } else {
+            None
         };
-        state
-            .danser
-            .queue
-            .lock()
-            .map_err(|_| command_error("DANSER_QUEUE_LOCKED", "Danser 队列不可用"))?
-            .push_back(DanserTask {
-                id,
-                client: request.client,
-                replay_path: replay_path.clone(),
-                preferences: request.preferences.clone(),
-                lazer_stage: None,
-            });
-        state
+        let mut paths = Vec::new();
+        for replay_path in &request.replay_paths {
+            let bytes = load_game_replay_file(request.client, replay_path, &state)?;
+            if bytes.first().copied() != Some(0) {
+                return Err(command_error(
+                    "DANSER_RULESET_UNSUPPORTED",
+                    "Danser 仅支持 osu!standard 回放",
+                ));
+            }
+            let (hash, _) = crate::features::game_session::parse_replay_metadata(&bytes)?;
+            if state
+                .local_analysis
+                .find_beatmap_by_md5(request.client, &hash)?
+                .is_none()
+            {
+                return Err(command_error(
+                    "REPLAY_BEATMAP_NOT_INDEXED",
+                    "请先安装并扫描回放对应的谱面",
+                ));
+            }
+            let canonical = fs::canonicalize(replay_path)?;
+            if !paths.contains(&canonical) {
+                paths.push(canonical);
+            }
+        }
+        let mut jobs = state
             .danser
             .jobs
             .lock()
-            .map_err(|_| command_error("DANSER_QUEUE_LOCKED", "Danser 队列不可用"))?
-            .push(job.clone());
-        emit(&app, &job);
-        created.push(job);
-    }
-    Ok(created)
+            .map_err(|_| command_error("DANSER_QUEUE_LOCKED", "Danser 队列不可用"))?;
+        let mut queue = state
+            .danser
+            .queue
+            .lock()
+            .map_err(|_| command_error("DANSER_QUEUE_LOCKED", "Danser 队列不可用"))?;
+        let mut created = Vec::new();
+        for path in paths {
+            let replay_path = crate::features::game_session::media_path_for_ui(&path);
+            let id = Uuid::new_v4().to_string();
+            let job = DanserRenderJob {
+                id: id.clone(),
+                replay_path: replay_path.clone(),
+                status: "queued".into(),
+                progress: 0,
+                description: "已加入队列，等待开始".into(),
+                output_path: None,
+                queue_position: Some(queue.len() + 1),
+            };
+            queue.push_back(DanserTask {
+                id,
+                client: request.client,
+                replay_path,
+                preferences: request.preferences.clone(),
+                lazer_stage: None,
+                stable_directories: stable_directories.clone(),
+            });
+            jobs.push(job.clone());
+            created.push(job);
+        }
+        drop(jobs);
+        drop(queue);
+        for job in &created {
+            emit(&app, job);
+        }
+
+        Ok(created)
+    })();
+    crate::infrastructure::logging::finish_span(span, result)
 }
 
 #[tauri::command]

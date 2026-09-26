@@ -42,6 +42,10 @@ src-tauri/crates/*/Cargo.lock
 credentials.json
 secrets.json
 state.json
+local-database.json*
+library.sqlite3*
+career.sqlite3*
+*-index-revision.json*
 /.local-analysis/
 /.private-similarity-index/
 /src-tauri/resources/similarity-index/

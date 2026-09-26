@@ -9,6 +9,8 @@ export function useSettings() {
     queryKey: settingsQueryKey,
     queryFn: () => isTauri() ? desktopApi.getSettings() : Promise.resolve({
       onboarding_version: 0,
+      show_local_beatmap_presence: true,
+      local_beatmap_presence_scope: "all" as const,
       page_onboarding_versions: {},
       ignored_update_version: null,
       reduce_motion: false,

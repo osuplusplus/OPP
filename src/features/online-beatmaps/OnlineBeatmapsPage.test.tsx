@@ -7,10 +7,11 @@ import { OnlineBeatmapsPage } from "./OnlineBeatmapsPage";
 import { downloadSession } from "./downloadSession";
 import type { OnlineBeatmapset } from "../../shared/types/osu";
 
-const api = vi.hoisted(() => ({ searchOnlineBeatmapsets: vi.fn(), getOnlineBeatmapset: vi.fn(), getOnlineBeatmapBackground: vi.fn(), getOnlineBeatmap: vi.fn(), collectOnlineBeatmapsets: vi.fn(), openExternal: vi.fn(), onBeatmapDownloadProgress: vi.fn(), downloadOnlineBeatmapsets: vi.fn(), cancelOnlineBeatmapDownload: vi.fn() }));
+const api = vi.hoisted(() => ({ getLocalIndexStatus: vi.fn(), queryLocalBeatmapPresence: vi.fn(), searchOnlineBeatmapsets: vi.fn(), getOnlineBeatmapset: vi.fn(), getOnlineBeatmapBackground: vi.fn(), getOnlineBeatmap: vi.fn(), collectOnlineBeatmapsets: vi.fn(), openExternal: vi.fn(), onBeatmapDownloadProgress: vi.fn(), downloadOnlineBeatmapsets: vi.fn(), cancelOnlineBeatmapDownload: vi.fn() }));
+const localPreferences = vi.hoisted(() => ({ show_local_beatmap_presence: true, local_beatmap_presence_scope: "all" }));
 vi.mock("../../shared/lib/tauri", () => ({ desktopApi: api }));
 vi.mock("../../app/ModeContext", () => ({ useMode: () => ({ ruleset: "osu" }) }));
-vi.mock("../settings/api", () => ({ settingsQueryKey: ["settings"], useSettings: () => ({ data: { beatmap_download_directory: "C:/Maps", default_beatmap_download_provider: "sayobot", reduce_motion: true, preview_volume: 65 } }) }));
+vi.mock("../settings/api", () => ({ settingsQueryKey: ["settings"], useSettings: () => ({ data: { ...localPreferences, beatmap_download_directory: "C:/Maps", default_beatmap_download_provider: "sayobot", reduce_motion: true, preview_volume: 65 } }) }));
 vi.mock("../tools/ToolsPage", () => ({ BeatmapPreviewCard: () => <div>Visual preview</div> }));
 vi.mock("../../shared/components/StageBackground", () => ({ StageBackground: ({ source }: { source: string }) => <div data-testid="artwork" data-source={source} /> }));
 vi.mock("./BeatmapsetDetailDialog", () => ({ BeatmapsetDetailDialog: ({ beatmapsetId, initialBeatmapId }: { beatmapsetId: number | null; initialBeatmapId: number | null }) => beatmapsetId ? <div data-testid="detail-link">{beatmapsetId}/{initialBeatmapId}</div> : null }));
@@ -22,6 +23,10 @@ function mount(url = "/online/beatmaps", nextLink?: string) {
 }
 beforeEach(() => {
   vi.clearAllMocks(); downloadSession.clear();
+  localPreferences.show_local_beatmap_presence = true;
+  localPreferences.local_beatmap_presence_scope = "all";
+  api.getLocalIndexStatus.mockResolvedValue({ phase: "ready", clients: {} });
+  api.queryLocalBeatmapPresence.mockImplementation(async (ids: number[]) => ids.map((beatmap_id) => ({ beatmap_id, status: "unknown", clients: [] })));
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   api.searchOnlineBeatmapsets.mockResolvedValue({ beatmapsets: Array.from({ length: 50 }, (_, index) => makeSet(index + 1)), total: 200, cursor_string: "next" });
   api.getOnlineBeatmapset.mockImplementation(async (id) => makeSet(id));
@@ -38,6 +43,28 @@ async function searchFor(text = "music") {
 }
 
 describe("search engine flow", () => {
+  it("respects the local presence switch and selected client", async () => {
+    localPreferences.show_local_beatmap_presence = false;
+    const hidden = mount();
+    await screen.findByRole("button", { name: "查看 Song 1" });
+    expect(api.queryLocalBeatmapPresence).not.toHaveBeenCalled();
+    expect(screen.queryByText("本地状态未知")).not.toBeInTheDocument();
+    hidden.unmount();
+    localPreferences.show_local_beatmap_presence = true;
+    localPreferences.local_beatmap_presence_scope = "lazer";
+    mount();
+    await waitFor(() => expect(api.queryLocalBeatmapPresence).toHaveBeenCalledWith([10,20,30,40,50], "lazer"));
+  });
+  it("batches local ownership for visible results and shows specific owned difficulties", async () => {
+    api.queryLocalBeatmapPresence.mockImplementation(async (ids: number[]) => ids.map((beatmap_id) => ({ beatmap_id, status: beatmap_id === 10 ? "present" : "unknown", clients: beatmap_id === 10 ? ["stable"] : [] })));
+    mount();
+    await screen.findByRole("button", { name: "查看 Song 1" });
+    expect(await screen.findByText("本地已有")).toBeInTheDocument();
+    expect(api.queryLocalBeatmapPresence).toHaveBeenCalledWith([10,20,30,40,50], null);
+    await userEvent.click(screen.getByRole("button", { name: "查看 Song 1" }));
+    await screen.findByRole("heading", { name: "Song 1" });
+    await waitFor(() => expect(within(screen.getByRole("tab", { name: /Insane/ })).getByText("本地已有")).toBeInTheDocument());
+  });
   it("dismisses autocomplete on search and supports nearby keyboard and mouse navigation", async () => {
     const page = mount(); await searchFor();
     const input = screen.getByRole("combobox", { name: "搜索在线谱面" });
@@ -72,7 +99,12 @@ describe("search engine flow", () => {
   it("opens a centered search home with five independently cached trends and no selected beatmap", async () => {
     mount();
     expect(screen.getByRole("heading", { name: "OPP Beatmaps" })).toBeInTheDocument();
-    await screen.findByRole("button", { name: "查看 Song 1" });
+    const firstTrend = await screen.findByRole("button", { name: "查看 Song 1" });
+    firstTrend.focus();
+    fireEvent.keyDown(firstTrend, { key: "ArrowRight" });
+    expect(screen.getByRole("button", { name: "查看 Song 2" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("button", { name: "查看 Song 2" }), { key: "ArrowLeft" });
+    expect(firstTrend).toHaveFocus();
     expect(screen.getAllByRole("listitem")).toHaveLength(5);
     expect(api.getOnlineBeatmapset).not.toHaveBeenCalled();
     expect(api.getOnlineBeatmapBackground).not.toHaveBeenCalled();
@@ -155,26 +187,25 @@ describe("search engine flow", () => {
     act(() => audios[1].onerror?.()); expect(screen.getByRole("status")).toHaveTextContent("试听加载失败");
     page.unmount(); expect(audios[1].pause).toHaveBeenCalled(); vi.unstubAllGlobals();
   });
-  it("shows difficulty details in a portal without moving result rows", async () => {
+  it("opens difficulty details on click in a portal without moving result rows", async () => {
     mount(); await searchFor();
     const first = screen.getByRole("button", { name: "查看 Song 1" }).closest<HTMLElement>('[role=listitem]')!;
     const second = screen.getByRole("button", { name: "查看 Song 2" }).closest<HTMLElement>('[role=listitem]')!;
     const top = second.style.top;
-    await userEvent.hover(first);
-    expect(screen.queryByRole("region", { name: "Song 1 的难度详情" })).not.toBeInTheDocument();
     const trigger = within(first).getByRole("button", { name: "1 个难度" });
     await userEvent.hover(trigger);
     expect(screen.queryByRole("region", { name: "Song 1 的难度详情" })).not.toBeInTheDocument();
+    await userEvent.click(trigger);
     const popover = await screen.findByRole("region", { name: "Song 1 的难度详情" });
     expect(document.body).toContainElement(popover); expect(first).not.toContainElement(popover);
     expect(second.style.top).toBe(top); expect(within(popover).getByText("Insane")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("region", { name: "Song 1 的难度详情" })).not.toBeInTheDocument());
-    fireEvent.keyDown(trigger, { key: "ArrowDown" });
-    await waitFor(() => expect(screen.getByRole("region", { name: "Song 1 的难度详情" })).toHaveFocus());
-    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
-    expect(trigger).toHaveFocus();
-    expect(screen.queryByRole("region", { name: "Song 1 的难度详情" })).not.toBeInTheDocument();
+    await userEvent.click(trigger);
+    const secondPopover = await screen.findByRole("region", { name: "Song 1 的难度详情" });
+    await userEvent.click(within(secondPopover).getByRole("button", { name: /Insane/ }));
+    expect(await screen.findByRole("heading", { name: "Song 1" })).toBeInTheDocument();
+    expect(screen.getByText("BID 10")).toBeInTheDocument();
   });
   it("keeps download selections across searches and page remounts, with batch actions in More", async () => {
     const user = userEvent.setup(); const page = mount(); await searchFor();

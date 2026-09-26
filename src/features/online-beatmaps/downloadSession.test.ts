@@ -45,6 +45,19 @@ describe("online download session", () => {
     finish({ total: 1, completed: 1 });
     await run;
   });
+  it("keeps the displayed pool title on one worker until that download finishes", async () => {
+    const { session, api, emit, finish } = setup();
+    session.add([set(1), set(2)]);
+    const run = session.start(session.getSnapshot().queue, options);
+    await vi.waitFor(() => expect(api.downloadOnlineBeatmapsets).toHaveBeenCalledOnce());
+    emit({ current_beatmapset_id: 1, current_title: "Artist — First" });
+    emit({ current_beatmapset_id: 2, current_title: "Artist — Second" });
+    expect(session.getSnapshot().displayProgress?.current_title).toBe("Artist — First");
+    emit({ phase: "completed", current_beatmapset_id: 1, current_title: "Artist — First", processed: 1, completed: 1 });
+    expect(session.getSnapshot().displayProgress?.current_title).toBe("Artist — Second");
+    finish({ total: 2, completed: 2, succeeded_beatmapset_ids: [1, 2] });
+    await run;
+  });
   it("merges different searches, deduplicates and excludes prohibited sets", () => {
     const { session } = setup();
     session.add([set(1), set(2)]);

@@ -1,3 +1,4 @@
+import { useReplayRenderEvents } from "../features/local-media/renderEvents";
 import { visiblePoll } from "../shared/lib/visiblePoll";
 import { RouteContent } from "./RouteContent";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -31,6 +32,7 @@ import {
 } from "../features/onboarding/pageTourContent";
 import { START_ONBOARDING_EVENT, START_PAGE_ONBOARDING_EVENT } from "../shared/lib/onboardingEvents";
 import { UpdateCenter } from "../features/updates/UpdateCenter";
+import { createDownloadProgressDisplay } from "../features/online-beatmaps/downloadProgressDisplay";
 
 const validRulesets: Ruleset[] = ["osu", "taiko", "fruits", "mania"];
 
@@ -61,8 +63,11 @@ function formatDownloadedBytes(progress: BeatmapDownloadProgress) {
 
 function DownloadToast() {
   const [progress, setProgress] = useState<BeatmapDownloadProgress | null>(null);
+  const [visibleProgress, setVisibleProgress] = useState<BeatmapDownloadProgress | null>(null);
   const [displaySpeed, setDisplaySpeed] = useState<number | null>(null);
+  const [displayPercent, setDisplayPercent] = useState(0);
   const [cancelling, setCancelling] = useState(false);
+  const [progressDisplay] = useState(createDownloadProgressDisplay);
   useEffect(() => {
     let disposed = false;
     let dispose: (() => void) | undefined;
@@ -71,10 +76,17 @@ function DownloadToast() {
       if (disposed) return;
       window.clearTimeout(timer);
       setProgress(next);
+      setVisibleProgress(progressDisplay.update(next));
       if (next.phase === "started") {
         setDisplaySpeed(null);
+        setDisplayPercent(0);
         setCancelling(false);
-      } else if (next.phase === "downloading" && Number.isFinite(next.bytes_per_second) && (next.bytes_per_second ?? 0) > 0) {
+      } else if (next.phase === "finished") {
+        setDisplayPercent(100);
+      } else if (next.phase !== "cancelled") {
+        setDisplayPercent((previous) => Math.max(previous, downloadProgressPercent(next)));
+      }
+      if (next.phase === "downloading" && Number.isFinite(next.bytes_per_second) && (next.bytes_per_second ?? 0) > 0) {
         setDisplaySpeed((previous) => previous === null
           ? next.bytes_per_second ?? null
           : previous * 0.72 + (next.bytes_per_second ?? 0) * 0.28);
@@ -82,16 +94,21 @@ function DownloadToast() {
       if (next.phase === "finished" || next.phase === "cancelled") timer = window.setTimeout(() => {
         setCancelling(false);
         setProgress(null);
+        setVisibleProgress(null);
+        progressDisplay.reset();
         setDisplaySpeed(null);
+        setDisplayPercent(0);
       }, 5_000);
     }).then((unlisten) => { if (disposed) unlisten(); else dispose = unlisten; });
     return () => { disposed = true; window.clearTimeout(timer); dispose?.(); };
-  }, []);
-  if (!progress) return null;
-  const completed = progress.phase === "finished" || progress.phase === "cancelled";
-  const percent = downloadProgressPercent(progress);
-  if (progress.phase === "cancelled") return (
-    <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={progress.message ?? "未完成的谱面不会继续下载。"} title="下载已取消" tone="warning" />
+  }, [progressDisplay]);
+  if (!progress || !visibleProgress) return null;
+  const completed = visibleProgress.phase === "finished" || visibleProgress.phase === "cancelled";
+  const percent = visibleProgress.phase === "finished"
+    ? 100
+    : Math.max(displayPercent, downloadProgressPercent(visibleProgress));
+  if (visibleProgress.phase === "cancelled") return (
+    <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={visibleProgress.message ?? "未完成的谱面不会继续下载。"} descriptionClassName="h-5 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" title="下载已取消" tone="warning" />
   );
   const cancelDownload = async () => {
     setCancelling(true);
@@ -102,18 +119,18 @@ function DownloadToast() {
     }
   };
   if (!completed) return (
-    <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={progress.current_title ?? progress.message ?? "准备下载"} icon={<Loader2 className="size-5 animate-spin" />} title={cancelling ? "正在取消下载" : "正在下载谱面"} tone="info">
-      <div className="flex items-center justify-between gap-3 text-xs"><span className="text-slate-500">下载进度</span><span className="shrink-0 font-mono text-cyan-200">{progress.processed}/{progress.total}</span></div>
+    <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={visibleProgress.current_title ?? visibleProgress.message ?? "准备下载"} descriptionClassName="h-5 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" icon={<Loader2 className="size-5 animate-spin" />} title={cancelling ? "正在取消下载" : "正在下载谱面"} tone="info">
+      <div className="flex items-center justify-between gap-3 text-xs"><span className="text-slate-500">下载进度</span><span className="w-12 shrink-0 text-right font-mono tabular-nums text-cyan-200">{visibleProgress.processed}/{visibleProgress.total}</span></div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.08]"><div className="h-full rounded-full bg-[var(--theme-primary)] transition-[width]" style={{ width: `${percent}%` }} /></div>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-        <span className="min-w-0 flex-1 truncate text-slate-500">{formatDownloadedBytes(progress)}</span>
-        <strong className="shrink-0 font-mono text-emerald-200">{formatTransfer(displaySpeed ?? progress.bytes_per_second ?? 0)}</strong>
+        <span className="min-w-0 flex-1 truncate text-slate-500">{formatDownloadedBytes(visibleProgress)}</span>
+        <strong className="w-20 shrink-0 text-right font-mono tabular-nums text-emerald-200">{formatTransfer(displaySpeed ?? visibleProgress.bytes_per_second ?? 0)}</strong>
         <Button disabled={cancelling} onClick={() => void cancelDownload()} size="sm" variant="ghost"><X className="size-3.5" />{cancelling ? "取消中" : "取消下载"}</Button>
       </div>
     </NotificationCard>
   );
-  if (progress.completed_paths?.length) return null;
-  return <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={progress.current_title ?? progress.message ?? "下载任务已结束"} title="下载完成" tone="success"><div className="flex justify-between gap-3 text-xs"><span className="truncate text-slate-500">{formatDownloadedBytes(progress)}</span><strong className="shrink-0 font-mono text-emerald-200">{progress.processed}/{progress.total}</strong></div></NotificationCard>;
+  if (visibleProgress.completed_paths?.length) return null;
+  return <NotificationCard className="fixed bottom-6 right-6 z-[180]" description={visibleProgress.current_title ?? visibleProgress.message ?? "下载任务已结束"} descriptionClassName="h-5 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" title="下载完成" tone="success"><div className="flex justify-between gap-3 text-xs"><span className="truncate text-slate-500">{formatDownloadedBytes(visibleProgress)}</span><strong className="w-12 shrink-0 text-right font-mono tabular-nums text-emerald-200">{visibleProgress.processed}/{visibleProgress.total}</strong></div></NotificationCard>;
 }
 
 function CollectionTaskToast() {
@@ -287,6 +304,7 @@ function TosuLaunchPrompt({ settings, onClose }: { settings: AppSettings; onClos
 }
 
 export function AppShell() {
+  useReplayRenderEvents();
   const { ruleset, setRuleset, hasRulesetPreference } = useMode();
   const profileQuery = useOwnProfile(ruleset);
   const settingsQuery = useSettings();
@@ -453,7 +471,7 @@ export function AppShell() {
       />
       <main className="ml-[var(--sidebar-width)] min-h-screen pt-[var(--titlebar-height)]" id="main-content" tabIndex={-1}>
         <div className="relative min-h-[calc(100vh-var(--titlebar-height))] overflow-x-auto">
-        <div className={["/local/maps", "/online/beatmaps", "/online/similar", "/collections"].includes(location.pathname) ? "theme-content-frame local-stage-frame relative" : "theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9"} data-page-guide-content="true">
+        <div className={["/local/maps", "/online/beatmaps", "/online/similar", "/collections", "/local/media/render"].includes(location.pathname) ? "theme-content-frame local-stage-frame relative" : "theme-content-frame relative mx-auto max-w-[var(--content-width)] p-7 xl:p-9"} data-page-guide-content="true">
             <RouteContent />
           </div>
         </div>

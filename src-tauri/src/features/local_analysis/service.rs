@@ -2,6 +2,8 @@
 mod service_artwork;
 #[path = "service_data.rs"]
 mod service_data;
+#[path = "service_database.rs"]
+mod service_database;
 #[path = "service_music.rs"]
 mod service_music;
 #[path = "service_query.rs"]
@@ -154,6 +156,9 @@ pub struct LocalAnalysisService {
     load_status: RwLock<LocalIndexLoadStatus>,
     watcher_stops: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
     music_only: AtomicBool,
+    database: RwLock<Option<Arc<crate::features::local_database::LocalDatabaseService>>>,
+    persistence: Mutex<()>,
+    storage_reports: RwLock<BTreeMap<LocalClient, super::models::LocalLibraryStorageStatus>>,
 }
 
 impl LocalAnalysisService {
@@ -183,15 +188,26 @@ impl LocalAnalysisService {
             }),
             watcher_stops: Mutex::new(BTreeMap::new()),
             music_only: AtomicBool::new(false),
+            database: RwLock::new(None),
+            persistence: Mutex::new(()),
+            storage_reports: RwLock::new(BTreeMap::new()),
         })
     }
 
     pub fn load_cached_indexes(&self) {
         let result = (|| -> CommandResult<()> {
+            let _guard = self
+                .persistence
+                .lock()
+                .map_err(|_| service_database::state_error())?;
             let mut loaded = BTreeMap::new();
             for client in [LocalClient::Stable, LocalClient::Lazer] {
-                if let Some(index) = load_index(&self.cache_dir, client) {
-                    loaded.insert(client, Arc::new(index));
+                match self.restore_library(client) {
+                    Ok(Some(index)) => {
+                        loaded.insert(client, Arc::new(index));
+                    }
+                    Ok(None) => {}
+                    Err(error) => self.report_storage_error(client, error),
                 }
             }
             let mut indexes = self
@@ -699,11 +715,7 @@ impl LocalAnalysisService {
         index.rebuild_runtime_indexes();
         check_cancelled(cancel)?;
         reporter.emit("finalizing", total, total, 99.0, true);
-        persist_index(&self.cache_dir, client, &index)?;
-        self.indexes
-            .write()
-            .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "本地索引状态已损坏"))?
-            .insert(client, Arc::new(index));
+        self.store_and_publish(client, index)?;
         reporter.emit("finalizing", total, total, 100.0, true);
         Ok(summary)
     }
@@ -2742,7 +2754,7 @@ mod tests {
     use super::super::models::BeatmapSort;
     use super::*;
 
-    const OSU_FIXTURE: &str = r#"osu file format v14
+    pub(super) const OSU_FIXTURE: &str = r#"osu file format v14
 
 [General]
 AudioFilename: audio.mp3
@@ -3496,7 +3508,7 @@ SliderTickRate:1
         }
     }
 
-    fn fixture_service() -> (
+    pub(super) fn fixture_service() -> (
         tempfile::TempDir,
         tempfile::TempDir,
         LocalAnalysisService,

@@ -34,6 +34,31 @@ pub enum Completeness {
     Partial,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalLibraryStorageStatus {
+    pub client: LocalClient,
+    pub storage: String,
+    pub revision: Option<String>,
+    pub entry_count: usize,
+    pub beatmap_count: usize,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LocalPresenceState {
+    Present,
+    Missing,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalBeatmapPresence {
+    pub beatmap_id: i32,
+    pub status: LocalPresenceState,
+    pub clients: Vec<LocalClient>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CapabilityLevel {

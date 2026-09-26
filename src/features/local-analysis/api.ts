@@ -46,10 +46,11 @@ export function useLocalSources() {
   });
 }
 
-export function useLocalIndexStatus() {
+export function useLocalIndexStatus(enabled = true) {
   const queryClient = useQueryClient();
   const result = useQuery({
     queryKey: localIndexStatusKey,
+    enabled,
     refetchOnWindowFocus: true,
     refetchIntervalInBackground: false,
     queryFn: desktopApi.getLocalIndexStatus,
@@ -65,6 +66,25 @@ export function useLocalIndexStatus() {
   });
   useEffect(() => { if (result.data) observeLocalIndex(queryClient, result.data); }, [queryClient, result.data]);
   return result;
+}
+
+export function useLocalBeatmapPresence(ids: number[], client: OsuClient | null, enabled: boolean) {
+  const index = useLocalIndexStatus(enabled);
+  const normalized = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))].sort((a, b) => a - b);
+  return useQuery({
+    queryKey: ["local-beatmap-presence", client, normalized, index.data],
+    queryFn: async () => {
+      const results = [];
+      for (let start = 0; start < normalized.length; start += 1000) {
+        results.push(...await desktopApi.queryLocalBeatmapPresence(normalized.slice(start, start + 1000), client));
+      }
+      return results;
+    },
+    enabled: enabled && normalized.length > 0 && index.data?.phase === "ready",
+    staleTime: 5000,
+    refetchInterval: 5000,
+    retry: false,
+  });
 }
 
 export function useLocalSummary(client: OsuClient) {

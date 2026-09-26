@@ -111,9 +111,9 @@ function OnlineBeatmapsClient({ ruleset, linkedQuery }: { ruleset: Ruleset; link
     audioRef.current?.pause(); setNotice(null); clearDeepLink();
     setText(next.query); setQuery({ ...next, cursor_string: null }); setHasSearched(true); setOrigin("results"); setView("results");
   };
-  const choose = (item: OnlineBeatmapset, from: StageOrigin) => {
+  const choose = (item: OnlineBeatmapset, from: StageOrigin, beatmapId?: number) => {
     if (playingId !== item.id) audioRef.current?.pause();
-    clearDeepLink(); setSelection({ id: item.id, fallback: item }); setOrigin(from); setView("stage"); setNotice(null);
+    clearDeepLink(); setSelection({ id: item.id, fallback: item, beatmapId }); setOrigin(from); setView("stage"); setNotice(null);
   };
   const goHome = () => { if (set) setSelection({ id: set.id, fallback: set }); audioRef.current?.pause(); clearDeepLink(); setView("home"); setNotice(null); };
   const goBack = () => {
@@ -166,7 +166,7 @@ function OnlineBeatmapsClient({ ruleset, linkedQuery }: { ruleset: Ruleset; link
       {notice || downloads.error ? <p className="online-notice" role="status">{notice || downloads.error}</p> : null}
 
         {view === "home" ? <div key="home" className="online-home-scene">
-          <OnlineHome scrollPositionRef={homeScroll} items={trending} loading={trend.isPending} error={trend.error ? errorMessage(trend.error) : null} busy={downloads.busy} playingId={playingId} queuedIds={queuedIds} onChoose={(item) => choose(item, "home")} onPreview={preview} onDownload={(item) => void startDownload([item])} onRetry={() => void trend.refetch()} />
+          <OnlineHome scrollPositionRef={homeScroll} items={trending} loading={trend.isPending} error={trend.error ? errorMessage(trend.error) : null} busy={downloads.busy} playingId={playingId} queuedIds={queuedIds} onChoose={(item, beatmapId) => choose(item, "home", beatmapId)} onPreview={preview} onDownload={(item) => void startDownload([item])} onRetry={() => void trend.refetch()} />
         </div> : <div key="browser" className="online-browser">
 
             {view === "stage" ? <main className="online-stage-focus">
@@ -175,7 +175,7 @@ function OnlineBeatmapsClient({ ruleset, linkedQuery }: { ruleset: Ruleset; link
             </main> : null}
 
           <div className="online-result-pane">
-            <OnlineResults key={view === "stage" && sourceIsTrend ? "trend" : JSON.stringify(query)} title={view === "stage" && sourceIsTrend ? "近期热门" : onlineResultsTitle(query)} playingId={playingId} onPreview={preview} items={pool} selectedId={selectedId ?? undefined} queuedIds={queuedIds} total={view === "stage" && sourceIsTrend ? trending.length : search.data?.pages[0]?.total ?? null} sort={view === "stage" && sourceIsTrend ? "favourites_desc" : query.sort} variant={view === "stage" ? "sidebar" : "grid"} busy={downloads.busy} loading={view === "stage" && sourceIsTrend ? trend.isPending : search.isFetching} error={(view === "stage" && sourceIsTrend ? trend.error : search.error) ? errorMessage(view === "stage" && sourceIsTrend ? trend.error : search.error) : null} hasMore={!(view === "stage" && sourceIsTrend) && !!search.hasNextPage} onSort={(sort) => apply({ ...query, sort })} onRandom={() => { const item = pickRandomBeatmapset(pool, selectedId); if (item) choose(item, view === "stage" ? origin : "results"); }} onChoose={(item) => choose(item, view === "stage" ? origin : "results")} onDownload={(item) => void startDownload([item])} onLoadMore={loadMore} onRetry={() => { if (view === "stage" && sourceIsTrend) void trend.refetch(); else if (search.isFetchNextPageError) void search.fetchNextPage(); else void search.refetch(); }} onAdd={add} onCollect={(limit) => { if (view === "stage" && sourceIsTrend) add(trending.slice(0, limit)); else void collect(limit); }} collecting={collecting} />
+            <OnlineResults key={view === "stage" && sourceIsTrend ? "trend" : JSON.stringify(query)} title={view === "stage" && sourceIsTrend ? "近期热门" : onlineResultsTitle(query)} playingId={playingId} onPreview={preview} items={pool} selectedId={selectedId ?? undefined} queuedIds={queuedIds} total={view === "stage" && sourceIsTrend ? trending.length : search.data?.pages[0]?.total ?? null} sort={view === "stage" && sourceIsTrend ? "favourites_desc" : query.sort} variant={view === "stage" ? "sidebar" : "grid"} busy={downloads.busy} loading={view === "stage" && sourceIsTrend ? trend.isPending : search.isFetching} error={(view === "stage" && sourceIsTrend ? trend.error : search.error) ? errorMessage(view === "stage" && sourceIsTrend ? trend.error : search.error) : null} hasMore={!(view === "stage" && sourceIsTrend) && !!search.hasNextPage} onSort={(sort) => apply({ ...query, sort })} onRandom={() => { const item = pickRandomBeatmapset(pool, selectedId); if (item) choose(item, view === "stage" ? origin : "results"); }} onChoose={(item, beatmapId) => choose(item, view === "stage" ? origin : "results", beatmapId)} onDownload={(item) => void startDownload([item])} onLoadMore={loadMore} onRetry={() => { if (view === "stage" && sourceIsTrend) void trend.refetch(); else if (search.isFetchNextPageError) void search.fetchNextPage(); else void search.refetch(); }} onAdd={add} onCollect={(limit) => { if (view === "stage" && sourceIsTrend) add(trending.slice(0, limit)); else void collect(limit); }} collecting={collecting} />
           </div>
         </div>}
       <nav className="online-quick-nav" aria-label="快速导航">

@@ -1,17 +1,15 @@
+import type { LiveExportProgress } from "./renderEvents";
 import * as Dialog from "@radix-ui/react-dialog";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { Film, FolderOpen, LoaderCircle, MonitorPlay, Pause, Play, Square, X } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
-import { Badge, Button, Card, EmptyState, SectionTitle } from "../../shared/components/ui";
+import { Button, Card, EmptyState, SectionTitle } from "../../shared/components/ui";
 import { desktopApi, type LiveExportParams, type LiveRenderOptions, type LiveSkinEntry } from "../../shared/lib/tauri";
-import type { GameMediaItem, ReplayMapInfo } from "../../shared/types/osu";
-
-function labelForReplay(item: GameMediaItem) {
-  return item.path.split(/[\\/]/).pop() ?? item.path;
-}
+import { useReplayWorkspace, useRenderSession } from "./api";
+import { replayBlockReason } from "./model";
+import { ReplayIdentity, StudioTasks } from "./ReplayWorkspace";
 
 function formatTime(ms: number) {
   const total = Math.max(0, Math.round(ms / 1000));
@@ -39,99 +37,60 @@ const defaultOptions: LiveRenderOptions = {
   avatarPath: null,
 };
 
-export function LivePreviewPanel() {
+const defaultExportForm = { resolution: "1920x1080", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true, results: true, audioOffset: 0 };
+
+export function LivePreviewPanel({ visible }: { visible: boolean }) {
   const { client } = useMode();
-  const [searchParams] = useSearchParams();
-  const [replays, setReplays] = useState<GameMediaItem[]>([]);
-  const [replayPath, setReplayPath] = useState("");
+  const { replayPath, replayInfo, inspectError } = useReplayWorkspace();
+  const blocked = replayBlockReason(replayPath, replayInfo, "live", inspectError);
   // 音频偏移的原始输入:text 框允许键入 "-" 等中间态,解析成功才提交数值。
-  const [audioOffsetText, setAudioOffsetText] = useState(String(defaultOptions.audioOffset));
-  const [inspect, setInspect] = useState<{ path: string; info: ReplayMapInfo | null }>({ path: "", info: null });
-  const [loading, setLoading] = useState(true);
+  const [audioOffsetText, setAudioOffsetText] = useRenderSession(`live-audio-offset:${client}`, String(defaultOptions.audioOffset));
   const [starting, setStarting] = useState(false);
   const [active, setActive] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [time, setTime] = useState(0);
   const [scrubbing, setScrubbing] = useState(false);
-  const [error, setError] = useState<unknown>(null);
+  const [error, setError] = useRenderSession<unknown>("live-error", null);
   const [exportOpen, setExportOpen] = useState(false);
   const [ffmpegVersion, setFfmpegVersion] = useState<string | null | undefined>(undefined);
   // [h264_nvenc, hevc_nvenc] 可用性(undefined = 未探测)。
   const [nvenc, setNvenc] = useState<[boolean, boolean] | undefined>(undefined);
-  const [exportForm, setExportForm] = useState({ resolution: "1920x1080", fps: 60, encoder: "x264" as LiveExportParams["encoder"], quality: 18, audio: true, hitsounds: true, results: true, audioOffset: 0 });
+  const [exportForm, setExportForm] = useRenderSession("live-export-form", defaultExportForm);
   // 导出偏移的原始输入(与预览偏移同理:text 框允许键入 "-" 等中间态)。
-  const [exportOffsetText, setExportOffsetText] = useState(String(0));
-  const [exporting, setExporting] = useState<{ phase: string; frame: number; total: number; message: string } | null>(null);
-  const [exportResult, setExportResult] = useState<string | null>(null);
-  const [exportBusy, setExportBusy] = useState(false);
-  const [options, setOptions] = useState<LiveRenderOptions>(defaultOptions);
+  const [exportOffsetText, setExportOffsetText] = useRenderSession("live-export-offset", "0");
+  const [exporting, setExporting] = useRenderSession<LiveExportProgress | null>("live-export-progress", null);
+  const [exportResult, setExportResult] = useRenderSession<string | null>("live-export-result", null);
+  const [exportBusy, setExportBusy] = useRenderSession("live-export-busy", false);
+  const [options, setOptions] = useRenderSession<LiveRenderOptions>(`live-options:${client}`, defaultOptions);
   // 客户端 Skins 目录下的可选皮肤(内置 Argon-Pro 为默认项,不在列表)。
   const [skins, setSkins] = useState<LiveSkinEntry[]>([]);
   // 皮肤热切换失败信息(加载错误时后端事件推送;当前皮肤保持不变)。
   const [skinError, setSkinError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef(false);
+  const generation = useRef(0);
+  const visibleRef = useRef(visible);
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
   const startedOptionsRef = useRef<string>("");
-  const startedInputsRef = useRef<{ beatmap: string; replay: string }>({ beatmap: "", replay: "" });
 
   // 时间轴事件:后端每帧/状态变化推送当前时间。
   useEffect(() => {
+    let disposed = false;
     let unlisten: () => void = () => undefined;
     desktopApi.onLiveRenderTime((state) => {
       if (!state.active) {
+        activeRef.current = false;
+        setPlaying(false);
         setActive(false);
         return;
       }
       setPlaying(state.playing);
       setDuration(state.durationMs);
       if (!scrubbing) setTime(state.timeMs);
-    }).then((dispose) => { unlisten = dispose; });
-    return () => unlisten();
+    }).then((dispose) => { if (disposed) dispose(); else unlisten = dispose; });
+    return () => { disposed = true; unlisten(); };
   }, [scrubbing]);
-
-  // 导出进度事件。done 是终态:清空 exporting 才能让弹窗从进度界面
-  // 切到"导出完成"(渲染分支里 exporting 优先于 exportResult)。
-  useEffect(() => {
-    let unlisten: () => void = () => undefined;
-    desktopApi.onLiveRenderExport((progress) => {
-      if (progress.phase === "done") {
-        setExporting(null);
-        setExportResult(progress.message);
-        return;
-      }
-      setExporting(progress);
-    }).then((dispose) => { unlisten = dispose; });
-    return () => unlisten();
-  }, []);
-
-  // 回放列表 + inspect(复用 o!rdr 面板的数据链路);深链指定的回放存在时优先选中。
-  useEffect(() => {
-    let mounted = true;
-    desktopApi.listGameMedia(client)
-      .then((media) => {
-        if (!mounted) return;
-        const items = media.filter((item) => item.kind === "replay");
-        const requested = searchParams.get("replay");
-        const initial = requested && items.some((item) => item.path === requested) ? requested : items[0]?.path ?? "";
-        setReplays(items);
-        setReplayPath(initial);
-      })
-      .catch((value) => { if (mounted) setError(value); })
-      .finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
-  }, [client, searchParams]);
-
-  const replayInfo = inspect.path === replayPath ? inspect.info : null;
-
-  useEffect(() => {
-    if (!replayPath) return;
-    let mounted = true;
-    desktopApi.inspectGameReplay(client, replayPath)
-      .then((info) => { if (mounted) setInspect({ path: replayPath, info }); })
-      .catch(() => { if (mounted) setInspect({ path: replayPath, info: null }); });
-    return () => { mounted = false; };
-  }, [client, replayPath]);
 
   // 皮肤列表(客户端切换时重拉;失败静默为空,仅剩内置项)。
   useEffect(() => {
@@ -144,21 +103,24 @@ export function LivePreviewPanel() {
 
   // 皮肤热切换失败提示(仅展示,不打断预览)。
   useEffect(() => {
+    let disposed = false;
     let unlisten: () => void = () => undefined;
     let unlistenErr: () => void = () => undefined;
     desktopApi.onLiveRenderSkinError((message) => setSkinError(message))
-      .then((dispose) => { unlisten = dispose; })
+      .then((dispose) => { if (disposed) dispose(); else unlisten = dispose; })
       .catch(() => undefined);
     // 渲染线程异常(如图集超出 GPU 纹理限制):后端已清理会话,前端
     // 复位预览状态并提示重开。
     desktopApi.onLiveRenderError((message) => {
+      activeRef.current = false;
       setActive(false);
       setPlaying(false);
       setSkinError(message);
     })
-      .then((dispose) => { unlistenErr = dispose; })
+      .then((dispose) => { if (disposed) dispose(); else unlistenErr = dispose; })
       .catch(() => undefined);
     return () => {
+      disposed = true;
       unlisten();
       unlistenErr();
     };
@@ -211,6 +173,8 @@ export function LivePreviewPanel() {
     };
     const observer = new ResizeObserver(schedule);
     observer.observe(element);
+    const workspace = element.closest(".replay-studio");
+    if (workspace) observer.observe(workspace);
     // 弹窗增删/属性变化都会触发(radix 开关 dialog 改 aria/data 属性)。
     const mutation = new MutationObserver(detectDialog);
     mutation.observe(document.body, { childList: true, subtree: true, attributes: true });
@@ -227,21 +191,34 @@ export function LivePreviewPanel() {
   }, [active]);
 
   const stop = useCallback(() => {
+    generation.current++;
     activeRef.current = false;
     setActive(false);
     setPlaying(false);
     void desktopApi.liveRenderClose().catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    if (!visible) {
+      generation.current++;
+      activeRef.current = false;
+      void desktopApi.liveRenderClose().then(() => { setActive(false); setPlaying(false); }).catch(() => undefined);
+    }
+  }, [visible]);
+
   // 卸载时关闭预览。
-  useEffect(() => () => { if (activeRef.current) void desktopApi.liveRenderClose().catch(() => undefined); }, []);
+  useEffect(() => () => { generation.current++; if (activeRef.current) void desktopApi.liveRenderClose().catch(() => undefined); }, []);
 
   const start = async () => {
-    if (!replayPath || !replayInfo?.beatmap_resource_id) return;
+    if (blocked || !replayInfo?.beatmap_resource_id) return;
+    const attempt = ++generation.current;
     setStarting(true);
     setError(null);
     try {
-      const beatmapPath = await desktopApi.getLocalBeatmapPath(client, replayInfo.beatmap_resource_id);
+      const fresh = await desktopApi.inspectGameReplay(client, replayPath);
+      const reason = replayBlockReason(replayPath, fresh, "live");
+      if (reason || !fresh.beatmap_resource_id) throw new Error(reason ?? "谱面不可用");
+      const beatmapPath = await desktopApi.getLocalBeatmapPath(client, fresh.beatmap_resource_id);
       // 结算屏头像:按账号头像 URL 落盘缓存后取本地路径;失败不阻塞预览。
       let avatarPath: string | null = null;
       try {
@@ -265,9 +242,10 @@ export function LivePreviewPanel() {
       const rect = box
         ? { x: box.x * d, y: box.y * d, width: box.width * d, height: box.height * d, ...viewport }
         : { x: 0, y: 0, width: 0, height: 0, ...viewport };
+      if (attempt !== generation.current || !visibleRef.current) return;
       const info = await desktopApi.liveRenderOpen(beatmapPath, replayPath, openOptions, rect);
+      if (attempt !== generation.current || !visibleRef.current) { await desktopApi.liveRenderClose(); return; }
       startedOptionsRef.current = JSON.stringify(openOptions);
-      startedInputsRef.current = { beatmap: beatmapPath, replay: replayPath };
       activeRef.current = true;
       setActive(true);
       setDuration(info.durationMs);
@@ -293,18 +271,17 @@ export function LivePreviewPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optionsKey]);
 
-  // 素材变化(换回放文件):判定数据需重算,重启会话。
   useEffect(() => {
-    if (!activeRef.current) return;
-    if (startedInputsRef.current.replay === replayPath) return;
-    void desktopApi.liveRenderClose().catch(() => undefined);
-    activeRef.current = false;
-    void start();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replayPath]);
+    generation.current++;
+    if (activeRef.current) {
+      activeRef.current = false;
+      void desktopApi.liveRenderClose().then(() => { setActive(false); setPlaying(false); }).catch(() => undefined);
+    }
+  }, [replayPath, client]);
 
   const openExport = async () => {
     setError(null);
+    if (exportBusy || exporting) { setExportOpen(true); return; }
     setExportResult(null);
     setExporting(null);
     try {
@@ -328,11 +305,14 @@ export function LivePreviewPanel() {
   };
 
   const confirmExport = async () => {
-    if (!replayPath || !replayInfo?.beatmap_resource_id) return;
+    if (blocked || !replayInfo?.beatmap_resource_id || exportBusy) return;
     setExportBusy(true);
     setError(null);
     try {
-      const beatmapPath = await desktopApi.getLocalBeatmapPath(client, replayInfo.beatmap_resource_id);
+      const fresh = await desktopApi.inspectGameReplay(client, replayPath);
+      const reason = replayBlockReason(replayPath, fresh, "live");
+      if (reason || !fresh.beatmap_resource_id) throw new Error(reason ?? "谱面不可用");
+      const beatmapPath = await desktopApi.getLocalBeatmapPath(client, fresh.beatmap_resource_id);
       const base = replayPath.split(/[\\/]/).pop()?.replace(/\.osr$/i, "") ?? "replay";
       const out = await save({ defaultPath: `${base || "replay"}.mp4`, filters: [{ name: "MP4 视频", extensions: ["mp4"] }] });
       if (!out) return;
@@ -361,17 +341,13 @@ export function LivePreviewPanel() {
     void desktopApi.liveRenderSeek(value);
   };
 
-  return <div className="pb-8">
-    {error ? <div className="mb-5"><ErrorPanel error={error} onRetry={() => void start()} /></div> : null}
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-5">
+  return <div className="studio-panel">
+    {error ? <div className="mb-5"><ErrorPanel error={error} /></div> : null}
+    <div className="studio-grid">
+      <div className="studio-preview">
         <Card className="p-5">
-          <SectionTitle
-            title="预览区域"
-            description="原生窗口直渲(wgpu 直接呈现,高帧率),覆盖在下方区域。"
-          />
-          <div ref={containerRef} className="relative mt-5 aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-[#0e0e13]">
-            {!active ? <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-600">开始预览后画面显示在这里</div> : null}
+          <div ref={containerRef} className="studio-viewport relative w-full overflow-hidden" role="region" aria-label="回放预览">
+            {!active ? <ReplayIdentity provider="live" /> : null}
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {active ? <>
@@ -379,9 +355,10 @@ export function LivePreviewPanel() {
               <Button size="sm" onClick={stop}><Square className="size-4" />停止</Button>
               <span className="font-mono text-xs text-slate-400">{formatTime(time)} / {formatTime(duration)}</span>
             </> : null}
-            <Button size="sm" disabled={!replayPath || !replayInfo?.beatmap_resource_id} onClick={() => void openExport()}><Film className="size-4" />导出视频</Button>
+            <Button size="sm" disabled={Boolean(blocked)} onClick={() => void openExport()}><Film className="size-4" />导出视频</Button>
             <input
               className="w-full accent-cyan-400"
+              aria-label="回放播放进度"
               type="range"
               min={0}
               max={Math.max(duration, 1)}
@@ -390,29 +367,19 @@ export function LivePreviewPanel() {
               disabled={!active}
               onPointerDown={() => setScrubbing(true)}
               onPointerUp={() => setScrubbing(false)}
+              onPointerCancel={() => setScrubbing(false)}
+              onBlur={() => setScrubbing(false)}
               onChange={(event) => seek(Number(event.target.value))}
             />
           </div>
         </Card>
       </div>
-      <div className="space-y-5">
+      <div className="studio-settings" aria-label="实时预览设置"><div className="studio-settings-scroll">
         <Card className="p-5">
-          <SectionTitle title="素材" description="从当前客户端的 Replays 目录选择;谱面需已建立本地索引。" />
-          <select
-            className="mt-5 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-base text-white"
-            disabled={loading || active}
-            value={replayPath}
-            onChange={(event) => setReplayPath(event.target.value)}
-          >
-            <option value="">{loading ? "正在扫描本地回放…" : "选择回放"}</option>
-            {replays.map((item) => <option key={item.path} value={item.path}>{labelForReplay(item)}</option>)}
-          </select>
-          {replayInfo ? <div className={`mt-4 rounded-xl border p-4 text-sm ${replayInfo.beatmap_resource_id ? "border-success-300/15 bg-success-300/[0.05] text-success-100" : "border-amber-300/15 bg-amber-300/[0.05] text-amber-100"}`}>
-            {replayInfo.beatmap_resource_id ? `已匹配谱面 · ${replayInfo.beatmap_title ?? `Beatmap ${replayInfo.beatmap_id ?? ""}`}` : "未在本地索引中找到对应谱面,无法预览。"}
-          </div> : null}
+          <SectionTitle title="画面与声音" description="设置实时生效，导出可单独配置输出质量。" />
           {starting ? <div className="mt-4 flex items-center gap-2 rounded-xl border border-white/10 p-4 text-sm text-slate-300"><LoaderCircle className="size-4 animate-spin" />正在加载谱面与回放…</div> : null}
           <div className="mt-5 space-y-4 border-t border-white/[0.06] pt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500" title="即时生效,无需重载">渲染选项</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500" title="即时生效,无需重载">音频</h3>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="谱面自带音频([General] AudioFilename)">
               <input className="accent-cyan-400" type="checkbox" checked={options.audio} onChange={(event) => update("audio", event.target.checked)} />播放 BGM
             </label>
@@ -439,6 +406,7 @@ export function LivePreviewPanel() {
                 }}
               />
             </label> : null}
+            <h3>皮肤与光标</h3>
             <div className="block text-xs text-slate-400" title="即时热切换,缺件回退 Argon">皮肤
               <select
                 className="mt-2 min-w-0 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white"
@@ -467,6 +435,7 @@ export function LivePreviewPanel() {
                 onChange={(event) => update("cursorSize", Number(event.target.value) / 100)}
               />
             </label>
+            <h3>背景</h3>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={options.bg} onChange={(event) => update("bg", event.target.checked)} />谱面背景图
             </label>
@@ -479,6 +448,7 @@ export function LivePreviewPanel() {
             <label className="block text-xs text-slate-400" title="同时作用于背景图/故事板/背景视频(osu! 背景暗化的反向);拖动即时生效">背景亮度 {Math.round(options.bgOpacity * 100)}%
               <input className="mt-3 w-full accent-cyan-400" type="range" min={0} max={100} value={Math.round(options.bgOpacity * 100)} onChange={(event) => update("bgOpacity", Number(event.target.value) / 100)} />
             </label>
+            <h3>叠加信息</h3>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2 text-xs text-slate-300" title="玩法 HUD 总开关:关闭后隐藏分数/准确率/连击/血条/UR 条/按键展示/PP 计数,物件与光标照常;预览与视频导出共用">
               <input className="accent-cyan-400" type="checkbox" checked={options.hud} onChange={(event) => update("hud", event.target.checked)} />HUD
             </label>
@@ -495,13 +465,14 @@ export function LivePreviewPanel() {
               <input className="accent-cyan-400" type="checkbox" checked={options.followPoints} onChange={(event) => update("followPoints", event.target.checked)} />物件引导线
             </label>
           </div>
-          <Button className="mt-5 w-full" variant="primary" loading={starting} disabled={!replayPath || !replayInfo?.beatmap_resource_id || active} onClick={() => void start()}>
+        </Card></div><div className="studio-action-bar"><p className="studio-disabled-reason">{blocked}</p><Button className="w-full studio-primary-action" variant="primary" loading={starting} disabled={Boolean(blocked) || active} onClick={() => void start()}>
             <MonitorPlay className="size-4" />开始预览
-          </Button>
-        </Card>
-        {!active ? <Card className="p-5"><EmptyState icon={<MonitorPlay className="size-5" />} title="等待预览" description="选择回放并点击“开始预览”后,可播放、暂停并任意拖动进度条。" /></Card> : <Card className="p-5"><div className="flex items-center justify-between"><SectionTitle title="预览中" description="渲染在本机 GPU 上实时进行。" /><Badge tone="cyan">原生直渲</Badge></div></Card>}
+          </Button></div>
       </div>
     </div>
+    <StudioTasks provider="live" title={exporting ? exporting.message : exportResult ? "导出完成" : active ? "实时预览中" : "等待预览或导出"}>
+      {exporting ? <p>{exporting.message}<Button onClick={() => void desktopApi.liveRenderExportCancel()}>取消导出</Button></p> : exportResult ? <p>{exportResult}<Button onClick={() => void desktopApi.liveRenderOpenExportOutput(exportResult)}>打开所在文件夹</Button></p> : <EmptyState title="准备好记录精彩了吗？" description="选择回放后可开始预览，或直接导出视频。" />}
+    </StudioTasks>
     <Dialog.Root open={exportOpen} onOpenChange={(open) => { if (!exportBusy) setExportOpen(open); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/55 backdrop-blur-md" />
@@ -577,10 +548,10 @@ export function LivePreviewPanel() {
               </label> : null}
               <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300" title="命中音/combobreak,ArgonPro">
                 <input className="accent-cyan-400" type="checkbox" checked={exportForm.hitsounds} onChange={(event) => setExportForm((f) => ({ ...f, hitsounds: event.target.checked }))} />混入音效
+              </label>
                 <label className="flex items-center gap-2 text-sm" title="玩法后追加 4 秒,默认开">
                   <input className="accent-cyan-400" type="checkbox" checked={exportForm.results} onChange={(event) => setExportForm((f) => ({ ...f, results: event.target.checked }))} />生成结算屏
                 </label>
-              </label>
               <p className="pl-6 text-[10px] leading-relaxed text-slate-500">音量按 osu! 默认值(Music/Effect/Master 各 60%),两者同时混入时自动混合为一条音轨</p>
             </div>
             <Button className="w-full" variant="primary" loading={exportBusy} disabled={ffmpegVersion === null} onClick={() => void confirmExport()}><Film className="size-4" />选择保存位置并导出</Button>

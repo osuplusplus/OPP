@@ -16,6 +16,7 @@ function DownloadContents() {
   const [overwrite, setOverwrite] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const progress = state.displayProgress ?? state.progress;
   const choose = async () => {
     setChoosing(true); setError(null);
     try { const selected = await desktopApi.chooseBeatmapDownloadDirectory(path || null); if (selected) { await saveDestination(selected); setPath(selected); } }
@@ -39,7 +40,7 @@ function DownloadContents() {
         <label><input type="checkbox" disabled={state.busy} checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />覆盖同名 .osz 文件</label>
       </details>
     </div>
-    {state.progress ? <div className="online-download-progress" role="status"><span>{state.progress.current_title || state.progress.message || "准备下载"}</span><strong>{state.progress.processed}/{state.progress.total}</strong><progress max={state.progress.total || 1} value={state.progress.processed} /><small>{state.busy ? "下载中，可关闭清单继续浏览" : state.result?.cancelled ? "已取消，未完成项已保留" : "本批次已结束"}</small></div> : null}
+    {progress ? <div className="online-download-progress" role="status"><span>{progress.current_title || progress.message || "准备下载"}</span><strong>{progress.processed}/{progress.total}</strong><progress max={progress.total || 1} value={progress.processed} /><small>{state.busy ? "下载中，可关闭清单继续浏览" : state.result?.cancelled ? "已取消，未完成项已保留" : "本批次已结束"}</small></div> : null}
     {state.result ? <p role="status">完成 {state.result.completed} · 跳过 {state.result.skipped} · 失败 {state.result.failed}{state.result.cancelled ? " · 已取消" : ""}</p> : null}
     {state.result?.failures.map((failure) => <p className="online-notice" key={failure.beatmapset_id}>{failure.title}：{failure.message}</p>)}
     {state.result && <DownloadResultActions result={state.result} />}
@@ -52,7 +53,8 @@ function DownloadContents() {
 export function DownloadDrawer() {
   const { state } = useOnlineDownload();
   const settings = useSettings();
-  return <Dialog.Root><Dialog.Trigger asChild><button className="online-download-trigger" data-page-guide-online-download="true"><Download />{state.busy ? `↓ ${state.progress?.processed ?? 0}/${state.progress?.total ?? state.activeIds.length}` : `下载清单 · ${state.queue.length}`}{state.error ? " !" : ""}</button></Dialog.Trigger>
+  const progress = state.displayProgress ?? state.progress;
+  return <Dialog.Root><Dialog.Trigger asChild><button className="online-download-trigger" data-page-guide-online-download="true"><Download />{state.busy ? `↓ ${progress?.processed ?? 0}/${progress?.total ?? state.activeIds.length}` : `下载清单 · ${state.queue.length}`}{state.error ? " !" : ""}</button></Dialog.Trigger>
     <Dialog.Portal><Dialog.Overlay className="online-dialog-overlay" /><Dialog.Content data-dialog-layout="drawer" data-reduce-motion={settings.data?.reduce_motion || undefined} className="online-dialog online-download-drawer">
       <Dialog.Title>下载清单</Dialog.Title><Dialog.Description>跨搜索保留所选谱面，关闭清单后下载继续。</Dialog.Description><Dialog.Close className="online-dialog-close" aria-label="关闭下载清单"><X /></Dialog.Close>
       <DownloadContents />

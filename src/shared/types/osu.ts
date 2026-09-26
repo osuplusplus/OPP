@@ -2,6 +2,19 @@ export type Ruleset = "osu" | "taiko" | "fruits" | "mania";
 export type ScoreCategory = "best" | "pinned" | "recent";
 export type SkillDimension = "stamina" | "tenacity" | "agility" | "accuracy" | "precision" | "reaction" | "memory" | "reading";
 export type OsuClient = "stable" | "lazer";
+export interface LocalBeatmapPresence {
+  beatmap_id: number;
+  status: "present" | "missing" | "unknown";
+  clients: OsuClient[];
+}
+export interface LocalLibraryStorageStatus {
+  client: OsuClient;
+  storage: "database" | "json" | "unscanned";
+  revision: string | null;
+  entry_count: number;
+  beatmap_count: number;
+  error: string | null;
+}
 export type Completeness = "complete" | "partial";
 export type CapabilityLevel = "full" | "partial" | "unavailable";
 export type BeatmapDownloadProvider = "sayobot" | "hinai" | "catboy" | "nerinyan";
@@ -84,7 +97,19 @@ export interface OAuthResult {
   message: string;
 }
 
+export interface LocalDatabaseStatus {
+  phase: "unconfigured" | "ready" | "error";
+  directory: string | null;
+  recommended_directory: string;
+  database_uuid: string | null;
+  schema_version: number | null;
+  can_initialize: boolean;
+  error: CommandError | null;
+}
+
 export interface AppSettings {
+  show_local_beatmap_presence?: boolean;
+  local_beatmap_presence_scope?: "all" | OsuClient;
   onboarding_version: number;
   page_onboarding_versions: Record<string, number>;
   ignored_update_version?: string | null;
@@ -624,7 +649,13 @@ export interface GameReplayPayload {
   video_ready: boolean;
   note: string;
 }
+export interface ReplayFileSelection {
+  items: GameMediaItem[];
+  failures: Array<{ path: string; error: CommandError }>;
+}
+
 export interface ReplayMapInfo {
+  ruleset: Ruleset;
   path: string;
   beatmap_hash: string;
   username: string;
@@ -1475,6 +1506,12 @@ export interface CollectionInstallResult {
 }
 
 export interface CollectionOpenResult {
+  opened: number;
+  failed: number;
+  failures: string[];
+}
+
+export interface BeatmapOpenResult {
   opened: number;
   failed: number;
   failures: string[];

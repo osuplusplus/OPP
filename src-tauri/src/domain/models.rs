@@ -143,8 +143,21 @@ pub struct Cached<T> {
     pub stale: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LocalPresenceScope {
+    #[default]
+    All,
+    Stable,
+    Lazer,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
+    #[serde(default = "default_true")]
+    pub show_local_beatmap_presence: bool,
+    #[serde(default)]
+    pub local_beatmap_presence_scope: LocalPresenceScope,
     #[serde(default)]
     pub collection_manager_path: Option<String>,
     #[serde(default = "default_collection_backup_retention")]
@@ -403,6 +416,8 @@ pub enum BeatmapDownloadProvider {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            show_local_beatmap_presence: true,
+            local_beatmap_presence_scope: LocalPresenceScope::All,
             collection_manager_path: None,
             collection_backup_retention: default_collection_backup_retention(),
             collection_backup_directory: None,

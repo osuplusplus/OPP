@@ -1,9 +1,7 @@
 import { Suspense, useState, type ReactNode } from "react";
 import { useOutlet, useLocation, useNavigate } from "react-router-dom";
-import { Cpu, FileCog, ImageIcon, Radio, Wrench } from "lucide-react";
-import { Button } from "../../shared/components/ui";
+import { Cpu, FileCog, ImageIcon, Radio } from "lucide-react";
 import { cn } from "../../shared/lib/cn";
-import * as Dialog from "@radix-ui/react-dialog";
 import { RouteDialog } from "../../shared/components/RouteDialog";
 
 const categories = [
@@ -25,7 +23,7 @@ export function ToolsLayout() {
     setVisited({ ...visited, [activeCategory]: outlet });
   }
   return (
-    <RouteDialog title="工具集合">
+    <RouteDialog closeLabel="关闭工具" title="工具集合">
       <aside className="flex w-56 shrink-0 flex-col border-r border-white/[0.08] bg-black/20">
         <div className="border-b border-white/[0.06] p-6">
           <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[var(--theme-primary)]">Application</p>
@@ -39,7 +37,6 @@ export function ToolsLayout() {
             })}
           </div>
         </nav>
-        <div className="border-t border-white/[0.06] p-3"><Dialog.Close asChild><Button className="w-full" size="sm" variant="ghost"><Wrench className="size-3.5" />关闭工具</Button></Dialog.Close></div>
       </aside>
       <main className="min-w-0 flex-1 overflow-hidden">
         {Object.entries(visited).map(([category, content]) => <div key={category} hidden={category !== activeCategory} className="h-full overflow-y-auto p-6">

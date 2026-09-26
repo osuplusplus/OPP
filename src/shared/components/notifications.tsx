@@ -92,6 +92,7 @@ export function NotificationCard({
   headerActions,
   children,
   className,
+  descriptionClassName,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -103,6 +104,7 @@ export function NotificationCard({
   headerActions?: ReactNode;
   children?: ReactNode;
   className?: string;
+  descriptionClassName?: string;
 }) {
   const style = toneStyles[tone];
   const Icon = style.Icon;
@@ -117,7 +119,7 @@ export function NotificationCard({
         <span className={cn("mt-0.5 shrink-0", style.icon)}>{icon ?? <Icon className="size-5" />}</span>
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-white">{title}</h2>
-          {description ? <p className="mt-1 text-xs leading-5 text-slate-400">{description}</p> : null}
+          {description ? <p className={cn("mt-1 text-xs leading-5 text-slate-400", descriptionClassName)}>{description}</p> : null}
         </div>
         {headerActions}
         {onClose ? <button aria-label={closeLabel} className="grid size-7 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-[var(--surface-interactive-hover)] hover:text-white" onClick={onClose} type="button"><X className="size-4" /></button> : null}

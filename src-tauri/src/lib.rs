@@ -107,18 +107,23 @@ pub fn run() {
             let music_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let loading = local_analysis.clone();
+                let cache_loader = loading.clone();
                 let _ =
                     crate::infrastructure::tasks::background("load_cached_indexes", move || {
-                        loading.load_cached_indexes()
+                        cache_loader.load_cached_indexes()
                     })
                     .await;
+                // Restore the persisted indexes before starting filesystem watchers.
+                // Starting a watcher while the cache is still loading can race with
+                // the first Lazer/Stable filesystem event and schedule a full scan
+                // against an empty in-memory index on every application launch.
+                loading.start_watchers(music_app.clone());
                 music_app
                     .state::<AppState>()
                     .music
                     .initialize_queue(local_analysis)
                     .await;
             });
-            state.local_analysis.start_watchers(app.handle().clone());
             start_game_monitor(
                 state.local_analysis.clone(),
                 state.game_monitor.clone(),
@@ -167,6 +172,7 @@ pub fn run() {
         .expect("failed to build OPP")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                app.state::<AppState>().local_database.shutdown();
                 app.state::<AppState>().music.shutdown();
                 features::tosu::cleanup_on_exit(&app.state::<AppState>().tosu);
                 logging::shutdown();

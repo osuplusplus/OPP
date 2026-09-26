@@ -584,8 +584,8 @@ export function SkinPanel({ client }: { client: OsuClient }) {
         <ErrorPanel error={skins.error} onRetry={() => skins.refetch()} />
       ) : skins.data?.items.length ? (
         <>
-          <div className="grid grid-cols-[280px_minmax(0,1fr)] items-start gap-4">
-            <aside className="max-h-[calc(100vh-270px)] space-y-2 overflow-y-auto pr-1">
+          <div className="grid min-h-0 grid-cols-[280px_minmax(0,1fr)] items-start gap-4">
+            <aside className="min-h-0 max-h-[calc(100vh-270px)] space-y-2 overflow-y-auto overscroll-contain pr-1">
               {skins.data.items.map((skin) => (
                 <SkinListItem
                   active={activeResourceId === skin.resource.resource_id}
@@ -596,12 +596,14 @@ export function SkinPanel({ client }: { client: OsuClient }) {
               ))}
             </aside>
             {activeResourceId ? (
-              <SkinWorkspace
-                client={client}
-                key={activeResourceId}
-                onAssetsReplaced={async () => { setSelected(null); await skins.refetch(); }}
-                resourceId={activeResourceId}
-              />
+              <div className="min-h-0 min-w-0 max-h-[calc(100vh-270px)] overflow-y-auto overscroll-contain pr-1">
+                <SkinWorkspace
+                  client={client}
+                  key={activeResourceId}
+                  onAssetsReplaced={async () => { setSelected(null); await skins.refetch(); }}
+                  resourceId={activeResourceId}
+                />
+              </div>
             ) : null}
           </div>
           {skins.data.total > skins.data.limit ? (

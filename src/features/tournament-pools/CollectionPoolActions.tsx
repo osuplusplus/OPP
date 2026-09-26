@@ -3,7 +3,8 @@ import { Download, RefreshCw } from "lucide-react";
 import { desktopApi } from "../../shared/lib/tauri";
 import { errorMessage } from "../../shared/lib/format";
 import type { BeatmapDownloadProvider, CollectionEntry, CollectionFolderSummary, CollectionPoolSnapshot } from "../../shared/types/osu";
-import { DownloadResultActions, useBeatmapDownloads } from "../online-beatmaps/api";
+import { useBeatmapDownloads } from "../online-beatmaps/api";
+import { DownloadResultActions, DownloadTargetActions } from "../online-beatmaps/DownloadResultActions";
 import { useSyncTournamentPool } from "./api";
 import { PoolMetadataRepair } from "./PoolMetadataRepair";
 import { savedPoolDownloads } from "./model";
@@ -33,10 +34,12 @@ export function CollectionPoolActions({ folder, pool, onImportStable }: {
     finally { setPreparing(false); }
   };
   const busy = preparing || sync.isPending;
+  const visibleProgress = downloads.state.displayProgress ?? downloads.state.progress;
   return <section className="collection-pool-info" aria-label="比赛图池信息">
     <div className="collection-pool-actions"><small>{folder.stable_sync === false ? "仅保存在 OPP" : "已加入 Stable 同步"} · osu!standard</small>
       <button disabled={busy || downloads.state.busy || (provider ?? downloads.defaultProvider) === "none"} onClick={() => void start()}><Download size={15} />下载图池</button>
       <button disabled={busy} onClick={() => { setPreparing(true); void onImportStable().catch((e) => setNotice(errorMessage(e))).finally(() => setPreparing(false)); }}>导入 Stable</button>
+      {downloads.state.result && <DownloadTargetActions result={downloads.state.result} onNotice={setNotice} />}
       {downloads.state.busy && <button onClick={() => void downloads.cancel()}>取消当前下载</button>}
     </div>
     <details className="collection-pool-settings"><summary>图池设置</summary>
@@ -54,10 +57,10 @@ export function CollectionPoolActions({ folder, pool, onImportStable }: {
     {sync.error && <p role="alert">{errorMessage(sync.error)}</p>}
 
     {downloads.state.error && <p role="alert">{downloads.state.error}</p>}
-    {downloads.state.busy && downloads.state.progress && <p role="status">当前下载：{downloads.state.progress.processed}/{downloads.state.progress.total} · {downloads.state.progress.current_title || downloads.state.progress.message}</p>}
-    {downloads.state.result && <details className="collection-download-result"><summary>{downloads.state.result.cancelled ? "下载已取消" : "下载完成"} · {downloads.state.result.completed + downloads.state.result.skipped} 个曲包{downloads.state.result.failed > 0 ? ` · ${downloads.state.result.failed} 个失败` : ""} · 查看结果</summary>
+    {downloads.state.busy && <p className="collection-download-status" role="status">{visibleProgress ? `当前下载：${visibleProgress.processed}/${visibleProgress.total} · ${visibleProgress.current_title || visibleProgress.message || "准备下载"}` : "当前下载：准备下载"}</p>}
+    {downloads.state.result && downloads.state.result.failures.length > 0 && <details className="collection-download-result"><summary>{downloads.state.result.cancelled ? "下载已取消" : "下载完成"} · {downloads.state.result.completed + downloads.state.result.skipped} 个曲包{downloads.state.result.failed > 0 ? ` · ${downloads.state.result.failed} 个失败` : ""} · 查看结果</summary>
       {downloads.state.result.failures.map((failure) => <p key={failure.beatmapset_id}>{failure.title}：{failure.message}</p>)}
-      <DownloadResultActions result={downloads.state.result} />
+      <DownloadResultActions result={downloads.state.result} showArchiveActions={false} showDestinationAction={false} />
     </details>}
     <PoolMetadataRepair folderId={folder.id} pool={pool} />
   </section>;

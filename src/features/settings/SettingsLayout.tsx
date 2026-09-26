@@ -1,4 +1,3 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import { RouteDialog } from "../../shared/components/RouteDialog";
 import {
   SlidersHorizontal,
@@ -7,11 +6,11 @@ import {
   Palette,
   Download,
   FolderOpen,
+  Database,
   Film,
   Wrench,
   Info,
 } from "lucide-react";
-import { Button } from "../../shared/components/ui";
 import { cn } from "../../shared/lib/cn";
 
 const categories = [
@@ -21,6 +20,7 @@ const categories = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "online", label: "在线谱面", icon: Download },
   { id: "directories", label: "游戏目录", icon: FolderOpen },
+  { id: "local-data", label: "本地数据", icon: Database },
   { id: "replay", label: "回放渲染", icon: Film },
   { id: "tools", label: "工具与缓存", icon: Wrench },
   { id: "about", label: "关于", icon: Info },
@@ -36,7 +36,7 @@ interface SettingsLayoutProps {
 
 export function SettingsLayout({ children, activeCategory, onCategoryChange }: SettingsLayoutProps) {
   return (
-    <RouteDialog title="设置">
+    <RouteDialog closeLabel="关闭设置" title="设置">
       {/* 左侧导航栏 */}
       <aside className="flex w-56 shrink-0 flex-col border-r border-white/[0.08] bg-black/20">
         <div className="border-b border-white/[0.06] p-6">
@@ -69,15 +69,6 @@ export function SettingsLayout({ children, activeCategory, onCategoryChange }: S
           </div>
         </nav>
 
-        <div className="border-t border-white/[0.06] p-3">
-          <Dialog.Close asChild><Button
-            size="sm"
-            variant="ghost"
-            className="w-full"
-          >
-            关闭设置
-          </Button></Dialog.Close>
-        </div>
       </aside>
 
       {/* 右侧内容区域 */}

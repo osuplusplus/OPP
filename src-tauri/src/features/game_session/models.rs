@@ -1,6 +1,10 @@
 //! Data contracts returned by the game-session Tauri commands.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Mutex,
+};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -28,6 +32,13 @@ pub struct GameSessionSummary {
     pub start: UserSnapshot,
     pub end: Option<UserSnapshot>,
     pub running: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeatmapOpenResult {
+    pub opened: usize,
+    pub failed: usize,
+    pub failures: Vec<String>,
 }
 
 /// The independently monitored state of one installed osu! client.
@@ -94,6 +105,7 @@ pub struct GameReplayPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayMapInfo {
+    pub ruleset: Ruleset,
     pub path: String,
     pub beatmap_hash: String,
     pub username: String,
@@ -114,6 +126,7 @@ pub struct GameScreenshotPayload {
 /// In-memory state for the currently launched osu! process.
 pub struct GameSessionRuntime {
     pub active: Mutex<Option<GameSessionSummary>>,
+    pub selected_replays: Mutex<HashSet<PathBuf>>,
 }
 
 /// Shared, continuously refreshed process state. It deliberately has no
@@ -138,6 +151,7 @@ impl Default for GameSessionRuntime {
     fn default() -> Self {
         Self {
             active: Mutex::new(None),
+            selected_replays: Mutex::new(HashSet::new()),
         }
     }
 }
