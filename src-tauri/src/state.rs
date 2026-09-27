@@ -34,6 +34,7 @@ pub struct OAuthRuntime {
 
 pub struct AppState {
     pub local_database: Arc<crate::features::local_database::LocalDatabaseService>,
+    pub career: Arc<crate::features::career::CareerService>,
     pub api: OsuApi,
     pub providers: ProviderRegistry,
     pub online_artwork: OnlineArtworkCache,
@@ -71,6 +72,9 @@ impl AppState {
             let local_database = Arc::new(
                 crate::features::local_database::LocalDatabaseService::new(app_data_dir),
             );
+            let career = Arc::new(crate::features::career::CareerService::new(Arc::clone(
+                &local_database,
+            )));
             local_analysis.attach_database(Arc::clone(&local_database))?;
             let skin_workshop = Arc::new(SkinWorkshopService::new(
                 app_data_dir,
@@ -82,6 +86,7 @@ impl AppState {
                 .set_thumbnail_cache_limit_mb(store.settings_snapshot()?.cache_limit_mb)?;
             Ok(Self {
                 local_database,
+                career,
                 api: OsuApi::new()?,
                 providers: ProviderRegistry::new()?,
                 online_artwork: OnlineArtworkCache::new(app_data_dir)?,

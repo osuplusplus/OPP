@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { markInteractive } from "../shared/lib/performance";
-import { ModeProvider } from "./ModeContext";
+import { ModeProvider, useMode } from "./ModeContext";
 import { AppRoutes } from "./AppRoutes";
 import { AppLoading } from "./AppLoading";
 import { AuthSetup } from "../features/auth/AuthSetup";
@@ -16,10 +16,31 @@ function ConnectedApplication() {
   useLocalArtworkSample();
   return (
     <ModeProvider>
+      <CareerBootstrap />
       <AppRoutes />
       <TournamentPoolHost />
     </ModeProvider>
   );
+}
+
+function CareerBootstrap() {
+  const { ruleset } = useMode();
+  const auth = useAuthStatus();
+  const queryClient = useQueryClient();
+  const captured = useRef<string | null>(null);
+  const captureKey = `${auth.data?.user_id ?? "unknown"}:${ruleset}`;
+  useEffect(() => {
+    if (!isTauri() || !auth.data?.user_id || captured.current === captureKey) return;
+    captured.current = captureKey;
+    void desktopApi.captureCareerSnapshot(ruleset).then(() => {
+      void queryClient.invalidateQueries({ queryKey: ["career-calendar", ruleset] });
+      void queryClient.invalidateQueries({ queryKey: ["career-status"] });
+    }).catch(() => {
+      void queryClient.invalidateQueries({ queryKey: ["career-calendar", ruleset] });
+      void queryClient.invalidateQueries({ queryKey: ["career-status"] });
+    });
+  }, [auth.data?.user_id, captureKey, queryClient, ruleset]);
+  return null;
 }
 
 /** Resolves desktop authentication before mounting feature routes. */

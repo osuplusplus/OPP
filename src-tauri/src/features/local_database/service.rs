@@ -34,6 +34,15 @@ pub(crate) struct LocalDatabaseService {
 }
 
 impl LocalDatabaseService {
+    pub(crate) fn configured_directory(&self) -> CommandResult<Option<PathBuf>> {
+        let mut runtime = self.lock()?;
+        self.ensure_loaded(&mut runtime);
+        Ok(runtime
+            .config
+            .as_ref()
+            .map(|config| config.directory.clone()))
+    }
+
     pub(crate) fn with_database<T>(
         &self,
         operation: &str,

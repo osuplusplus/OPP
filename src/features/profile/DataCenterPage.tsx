@@ -1,5 +1,5 @@
 import { Suspense, useEffect } from "react";
-import { BarChart3, Database, History, Medal, Pin, UserRound, GitBranch } from "lucide-react";
+import { BarChart3, Database, History, Medal, Pin, UserRound } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { Avatar } from "../../shared/components/Avatar";
 import { Badge, Card, Skeleton } from "../../shared/components/ui";
@@ -11,7 +11,6 @@ const sections = [
   ["overview", "概览", Database], ["scores", "最佳成绩", BarChart3],
   ["recent", "近期成绩", History], ["pinned", "Pinned", Pin],
   ["medals", "玩家奖牌", Medal], ["profile", "详细档案", UserRound],
-  ["career", "生涯轨迹", GitBranch],
 ] as const;
 
 export function DataCenterPage() {
@@ -24,7 +23,6 @@ export function DataCenterPage() {
       import("../scores/ScoresPage"),
       import("./MedalsPage"),
       import("./ProfileDetailsPage"),
-      import("./CareerPage"),
     ]);
   }, []);
   return <div className="space-y-5">

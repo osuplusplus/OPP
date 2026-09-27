@@ -114,6 +114,10 @@ import type {
   NewReplaysDetected,
   SkillAnalysisRequest,
   SkillAnalysisResult,
+  CareerCalendar,
+  CareerCaptureResult,
+  CareerDayDetail,
+  CareerStatus,
 } from "../types/osu";
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -232,6 +236,10 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_osekai_medal_detail") return { content: [{ Medal_ID: Number(args?.medalId ?? 1), Name: "Preview Medal", Description: "完成一次练习", Instructions: "在 osu! 中完成目标。", Solution: "完成目标即可解锁。", Link: "all-secret-jackpot.png" }] } as T;
   if (command === "get_osekai_medal_beatmaps") return { content: [] } as T;
   if (command === "get_scores") return { data: [], fetched_at: new Date().toISOString(), stale: false } as T;
+  if (command === "get_career_status") return { configured: true, path: "/preview/datasets/career.sqlite3", snapshot_count: 0, latest_date: null, last_error: null } as T;
+  if (command === "get_career_calendar") return { ruleset: args?.ruleset ?? "osu", start_date: args?.startDate ?? "", end_date: args?.endDate ?? "", days: [] } as T;
+  if (command === "get_career_day") return { ruleset: args?.ruleset ?? "osu", date: args?.date ?? "", status: "missing", captured_at: null, stats: null, previous_stats: null, error: null, score_diffs: [], medal_events: [], media_events: [] } as T;
+  if (command === "capture_career_snapshot") return { local_date: new Date().toISOString().slice(0, 10), status: "captured", created: false, fetched_at: new Date().toISOString(), profile_available: true, scores_available: false, media_available: false, message: "预览模式不会写入生涯数据库" } as T;
   if (command === "get_online_beatmap_background") return null as T;
   if (command === "analyze_player_skills") return {
     player: { id: 10001, username: "Preview User", country_code: "CN", avatar_url: "https://a.ppy.sh/10001", avatar_data_url: null },
@@ -345,7 +353,7 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     ...(browserPreviewValue<AppSettings>("get_settings") ?? {}),
     ignored_update_version: args?.version,
   } as T;
-  if (["clear_profile_cache", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
+  if (["clear_profile_cache", "clear_career_history", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
   if (command === "backup_otd_config") return `${args?.destinationDir ?? "C:\\Export"}/OpenTabletDriver-backup.json` as T;
   return undefined;
 }
@@ -353,6 +361,11 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
 export const desktopApi = {
   getLocalDatabaseStatus: () => call<LocalDatabaseStatus>("get_local_database_status"),
   getLocalLibraryStorageStatus: () => call<LocalLibraryStorageStatus[]>("get_local_library_storage_status"),
+  getCareerStatus: () => call<CareerStatus>("get_career_status"),
+  captureCareerSnapshot: (ruleset: Ruleset, forceRefresh = false) => call<CareerCaptureResult>("capture_career_snapshot", { ruleset, forceRefresh }),
+  getCareerCalendar: (ruleset: Ruleset, startDate: string, endDate: string) => call<CareerCalendar>("get_career_calendar", { ruleset, startDate, endDate }),
+  getCareerDay: (ruleset: Ruleset, date: string) => call<CareerDayDetail>("get_career_day", { ruleset, date }),
+  clearCareerHistory: (beforeDate?: string) => call<void>("clear_career_history", { beforeDate }),
   migrateLocalLibraryDatabase: () => call<LocalLibraryStorageStatus[]>("migrate_local_library_database"),
   queryLocalBeatmapPresence: (ids: number[], client: OsuClient | null) => call<LocalBeatmapPresence[]>("query_local_beatmap_presence", { ids, client }),
   initializeLocalDatabase: (directory: string) => call<LocalDatabaseStatus>("initialize_local_database", { directory }),

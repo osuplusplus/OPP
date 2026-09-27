@@ -72,9 +72,10 @@ export function AppRoutes() {
             <Route path="recent" element={<ScoresPage category="recent" title="近期成绩" />} />
             <Route path="pinned" element={<ScoresPage category="pinned" title="Pinned 成绩" />} />
             <Route path="medals" element={<MedalsPage />} />
-            <Route path="career" element={<CareerPage />} />
+            <Route path="career" element={<Navigate replace to="/career" />} />
             <Route path="profile" element={<ProfileDetailsPage />} />
           </Route>
+          <Route path="/career" element={<CareerPage />} />
           <Route path="/online/overview" element={<Navigate replace to="/data/overview" />} />
           <Route path="/online/profile" element={<Navigate replace to="/data/profile" />} />
           <Route path="/online/scores" element={<Navigate replace to="/data/scores" />} />

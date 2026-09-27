@@ -952,6 +952,93 @@ export interface Score {
   [key: string]: any;
 }
 
+export interface CareerStats {
+  pp: number | null;
+  global_rank: number | null;
+  country_rank: number | null;
+  ranked_score: number | null;
+  total_score: number | null;
+  hit_accuracy: number | null;
+  play_count: number | null;
+  play_time: number | null;
+  total_hits: number | null;
+  maximum_combo: number | null;
+  level: number | null;
+  level_progress: number | null;
+}
+
+export interface CareerCalendarDay {
+  date: string;
+  status: "captured" | "unavailable" | "partial" | "interpolated" | "missing" | string;
+  captured_at: string | null;
+  stats: CareerStats | null;
+  error: string | null;
+  has_diff: boolean;
+  added_scores: number;
+  removed_scores: number;
+  changed_scores: number;
+  added_medals: number;
+  added_replays: number;
+  added_screenshots: number;
+}
+
+export interface CareerCalendar {
+  ruleset: Ruleset;
+  start_date: string;
+  end_date: string;
+  days: CareerCalendarDay[];
+}
+
+export interface CareerScoreDiff {
+  kind: "added" | "removed" | "changed" | string;
+  key: string;
+  before_position: number | null;
+  after_position: number | null;
+  score: Score;
+}
+
+export interface CareerEventItem {
+  kind: string;
+  client: OsuClient | null;
+  name: string;
+  path: string | null;
+  size: number | null;
+  modified_at: string | null;
+  payload: Record<string, any> | null;
+}
+
+export interface CareerDayDetail {
+  ruleset: Ruleset;
+  date: string;
+  status: string;
+  captured_at: string | null;
+  stats: CareerStats | null;
+  previous_stats: CareerStats | null;
+  error: string | null;
+  score_diffs: CareerScoreDiff[];
+  medal_events: CareerEventItem[];
+  media_events: CareerEventItem[];
+}
+
+export interface CareerStatus {
+  configured: boolean;
+  path: string | null;
+  snapshot_count: number;
+  latest_date: string | null;
+  last_error: string | null;
+}
+
+export interface CareerCaptureResult {
+  local_date: string;
+  status: string;
+  created: boolean;
+  fetched_at: string | null;
+  profile_available: boolean;
+  scores_available: boolean;
+  media_available: boolean;
+  message: string;
+}
+
 export interface LocalCapabilities {
   beatmaps: CapabilityLevel;
   difficulty: CapabilityLevel;

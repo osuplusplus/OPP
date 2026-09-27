@@ -2,6 +2,7 @@
 
 pub(crate) mod account;
 pub(crate) mod beatmaphub;
+pub(crate) mod career;
 pub(crate) mod collections;
 pub(crate) mod danser;
 pub(crate) mod game_session;

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import {
   Database,
   Brain,
+  Activity,
   ExternalLink,
   Film,
   Heart,
@@ -88,6 +89,7 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
           </div>
           <NavItem emphasis="similar" icon={ScanSearch} label="相似谱面" onboarding="similar-beatmaps" to="/online/similar" />
           <NavItem emphasis="similar" icon={Brain} label="技能分析" onboarding="skill-analysis" to="/skill-analysis" />
+          <NavItem emphasis="trainer" icon={Activity} label="生涯动态" to="/career" />
           <NavItem emphasis="trainer" icon={WandSparkles} label="谱面练习生成器" onboarding="trainer" to="/trainer" />
         </NavGroup>
         <NavGroup label="资料与资源">

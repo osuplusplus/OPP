@@ -17,6 +17,10 @@ pub(crate) use crate::{
             rate_beatmaphub_pack, reconnect_beatmaphub, revoke_beatmaphub_device,
             search_beatmaphub_packs, update_beatmaphub_comment, update_beatmaphub_pack,
         },
+        career::{
+            capture_career_snapshot, clear_career_history, get_career_calendar, get_career_day,
+            get_career_status,
+        },
         collections::{
             add_collection_entries, begin_collection_task, cancel_collection_task,
             create_collection, create_collection_backup, delete_collection,
@@ -144,6 +148,11 @@ macro_rules! handler {
             music_mini_layout,
             music_frontend_task,
             get_auth_status,
+            capture_career_snapshot,
+            get_career_calendar,
+            get_career_day,
+            get_career_status,
+            clear_career_history,
             get_tournament_pool,
             open_tournament_pool,
             repair_tournament_pool_metadata,
