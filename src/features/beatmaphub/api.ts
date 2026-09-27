@@ -11,11 +11,9 @@ export const hubSearchKey = [...hubKey, "search"] as const;
 
 // All Hub IO crosses this boundary; components never call the command adapter.
 export const hubApi = {
-  createProfile: desktopApi.createBeatmapHubProfile,
-  linkDevice: desktopApi.linkBeatmapHubDevice,
   login: desktopApi.loginBeatmapHub,
+  reconnect: desktopApi.reconnectBeatmapHub,
   logout: desktopApi.logoutBeatmapHub,
-  createDeviceLink: desktopApi.createBeatmapHubDeviceLink,
   revokeDevice: desktopApi.revokeBeatmapHubDevice,
   publish: desktopApi.publishBeatmapHubPack,
   update: desktopApi.updateBeatmapHubPack,
