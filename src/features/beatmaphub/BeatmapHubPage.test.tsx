@@ -55,13 +55,12 @@ describe("BeatmapHubPage", () => {
     expect(screen.queryByRole("heading", { name: "连接 BeatmapHub" })).not.toBeInTheDocument();
     expect(api.getOnlineBeatmapset).not.toHaveBeenCalled();
   });
-  it("opens identity management on demand with default names and device linking", async () => {
+  it("opens automatic device connection on demand without legacy profile setup", async () => {
     renderPage();
     await userEvent.click(screen.getByRole("button", { name: "连接身份" }));
-    expect(await screen.findByDisplayValue("L1rics")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("TEST-PC")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "链接已有档案" }));
-    expect(screen.getByPlaceholderText("粘贴旧设备生成的 43 位链接码")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "连接 BeatmapHub" })).toBeInTheDocument();
+    expect(screen.getByText("osu! 已登录，PackHub 尚未完成设备认证。")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("粘贴旧设备生成的 43 位链接码")).not.toBeInTheDocument();
   });
   it("allows guests to preview and import without download configuration", async () => {
     renderPage(); await openPack();
@@ -139,13 +138,15 @@ describe("BeatmapHubPage", () => {
     expect(api.publishBeatmapHubPack).toHaveBeenCalledTimes(1);
   });
   it("preserves a publish draft through identity connection without auto-publishing", async () => {
-    api.createBeatmapHubProfile.mockImplementation(async () => { connect(); });
+    api.loginBeatmapHub.mockImplementation(async () => {
+      api.getBeatmapHubAuthStatus.mockResolvedValue({ has_identity: true, connected: true, display_name: "Player", user_id: "user", device_name: "PC" });
+    });
     renderPage();
     await userEvent.click(screen.getByRole("button", { name: "发布曲包" }));
     await userEvent.selectOptions(await screen.findByRole("combobox"), "folder");
     await userEvent.type(screen.getByRole("textbox", { name: /说明/ }), "Keep my draft");
     await userEvent.click(screen.getByRole("button", { name: "连接身份后继续" }));
-    await userEvent.click(await screen.findByRole("button", { name: "创建并连接" }));
+    await userEvent.click(await screen.findByRole("button", { name: "重新连接" }));
     await screen.findByRole("button", { name: "发布并复制分享码" });
     expect(screen.getByRole("textbox", { name: /说明/ })).toHaveValue("Keep my draft");
     expect(api.publishBeatmapHubPack).not.toHaveBeenCalled();

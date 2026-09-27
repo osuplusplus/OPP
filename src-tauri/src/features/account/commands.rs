@@ -111,6 +111,9 @@ pub async fn disconnect_osu(
 ) -> CommandResult<DisconnectResult> {
     let mut revoked = false;
     let mut warning = None;
+    if let Err(error) = state.beatmaphub.logout().await {
+        warning = Some(error.message);
+    }
     if revoke && let Some(tokens) = state.credentials.get_tokens()? {
         match state.api.revoke_current_token(&tokens.access_token).await {
             Ok(()) => revoked = true,

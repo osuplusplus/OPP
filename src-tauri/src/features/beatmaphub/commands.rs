@@ -10,29 +10,36 @@ pub fn get_beatmaphub_auth_status(state: State<'_, AppState>) -> CommandResult<A
 }
 
 #[tauri::command]
-pub async fn create_beatmaphub_profile(
-    display_name: String,
-    device_name: String,
-    state: State<'_, AppState>,
-) -> CommandResult<AuthStatus> {
+pub async fn login_beatmaphub(state: State<'_, AppState>) -> CommandResult<AuthStatus> {
+    bootstrap_from_osu(&state).await
+}
+
+#[tauri::command]
+pub async fn bootstrap_beatmaphub(state: State<'_, AppState>) -> CommandResult<AuthStatus> {
+    bootstrap_from_osu(&state).await
+}
+
+#[tauri::command]
+pub async fn reconnect_beatmaphub(state: State<'_, AppState>) -> CommandResult<AuthStatus> {
+    let (user_id, username) = state
+        .store
+        .read(|persisted| (persisted.current_user_id, persisted.username.clone()))?;
     state
         .beatmaphub
-        .create_profile(display_name, device_name)
+        .reconnect(
+            user_id.ok_or_else(crate::error::CommandError::auth_required)?,
+            username.ok_or_else(crate::error::CommandError::auth_required)?,
+        )
         .await
 }
 
-#[tauri::command]
-pub async fn login_beatmaphub(state: State<'_, AppState>) -> CommandResult<AuthStatus> {
-    state.beatmaphub.login().await
-}
-
-#[tauri::command]
-pub async fn link_beatmaphub_device(
-    link_token: String,
-    device_name: String,
-    state: State<'_, AppState>,
-) -> CommandResult<AuthStatus> {
-    state.beatmaphub.link_device(link_token, device_name).await
+async fn bootstrap_from_osu(state: &AppState) -> CommandResult<AuthStatus> {
+    let (user_id, username) = state
+        .store
+        .read(|persisted| (persisted.current_user_id, persisted.username.clone()))?;
+    let user_id = user_id.ok_or_else(crate::error::CommandError::auth_required)?;
+    let username = username.ok_or_else(crate::error::CommandError::auth_required)?;
+    state.beatmaphub.bootstrap(user_id, username).await
 }
 
 #[tauri::command]
@@ -43,13 +50,6 @@ pub async fn logout_beatmaphub(state: State<'_, AppState>) -> CommandResult<()> 
 #[tauri::command]
 pub async fn get_beatmaphub_profile(state: State<'_, AppState>) -> CommandResult<Profile> {
     state.beatmaphub.profile().await
-}
-
-#[tauri::command]
-pub async fn create_beatmaphub_device_link(
-    state: State<'_, AppState>,
-) -> CommandResult<LinkTokenResponse> {
-    state.beatmaphub.create_device_link().await
 }
 
 #[tauri::command]

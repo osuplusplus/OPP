@@ -36,11 +36,28 @@ pub struct HubDeviceSummary {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SessionResponse {
+pub struct BootstrapResponse {
     pub access_token: String,
-    pub expires_at: DateTime<Utc>,
-    pub user: HubUser,
+    pub expires_in: u64,
     pub device: HubDeviceSummary,
+    pub identity: BootstrapIdentity,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BootstrapIdentity {
+    pub claimed_osu_user_id: String,
+    pub claimed_username: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefreshResponse {
+    pub access_token: String,
+    pub expires_in: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefreshNonceResponse {
+    pub nonce: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,13 +195,11 @@ pub struct ImportResult {
 #[derive(Debug, Deserialize)]
 pub struct ChallengeResponse {
     pub challenge_id: String,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct LinkTokenResponse {
-    pub link_token: String,
-    pub expires_at: DateTime<Utc>,
+    #[serde(rename = "message")]
+    pub _message: String,
+    #[serde(default)]
+    #[serde(rename = "expires_at")]
+    pub _expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize)]

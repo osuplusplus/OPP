@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { markInteractive } from "../shared/lib/performance";
 import { ModeProvider } from "./ModeContext";
 import { AppRoutes } from "./AppRoutes";
@@ -8,6 +8,9 @@ import { useAuthStatus } from "../features/auth/api";
 import { ErrorPanel } from "../shared/components/ErrorPanel";
 import { TournamentPoolHost } from "../features/tournament-pools/TournamentPoolHost";
 import { useLocalArtworkSample } from "../features/local-analysis/api";
+import { desktopApi, isTauri } from "../shared/lib/tauri";
+import { beatmapHubAuthKey } from "../features/beatmaphub/api";
+import { useQueryClient } from "@tanstack/react-query";
 
 function ConnectedApplication() {
   useLocalArtworkSample();
@@ -22,7 +25,20 @@ function ConnectedApplication() {
 /** Resolves desktop authentication before mounting feature routes. */
 export function AppConnectionGate() {
   const auth = useAuthStatus();
+  const queryClient = useQueryClient();
+  const bootstrapped = useRef(false);
   useEffect(() => { if (!auth.isLoading) markInteractive(); }, [auth.isLoading]);
+  useEffect(() => {
+    if (!auth.data?.connected) {
+      bootstrapped.current = false;
+      return;
+    }
+    if (!isTauri() || bootstrapped.current) return;
+    bootstrapped.current = true;
+    void desktopApi.bootstrapBeatmapHub()
+      .then(() => queryClient.invalidateQueries({ queryKey: beatmapHubAuthKey }))
+      .catch(() => undefined);
+  }, [auth.data?.connected, queryClient]);
 
   if (auth.isLoading) return <AppLoading />;
   if (auth.error || !auth.data) {
