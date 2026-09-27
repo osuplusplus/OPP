@@ -1,5 +1,4 @@
 use std::{
-    collections::{BTreeMap, HashSet},
     error::Error as _,
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
@@ -13,10 +12,7 @@ use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use ed25519_dalek::{Signer, SigningKey};
 use keyring::{Entry, Error as KeyringError};
 use rand_core::OsRng;
-use reqwest::{
-    Client, Method, Response, StatusCode,
-    header::{ETAG, IF_NONE_MATCH},
-};
+use reqwest::{Client, Method, Response};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio::sync::Mutex as AsyncMutex;
@@ -40,29 +36,6 @@ pub struct BeatmapHubService {
     access_token: Mutex<Option<AccessToken>>,
     bootstrap_claims: Mutex<Option<BootstrapClaims>>,
     auth_lock: AsyncMutex<()>,
-    recommendations_cache_path: PathBuf,
-    recommendations_cache: Mutex<Option<RecommendationsCache>>,
-    pack_cache_path: PathBuf,
-    pack_cache: Mutex<PackCache>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct RecommendationsCache {
-    updated_at: DateTime<Utc>,
-    packs: Vec<Pack>,
-}
-
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-struct PackCache {
-    entries: BTreeMap<String, CachedPack>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct CachedPack {
-    etag: String,
-    manifest_hash: String,
-    cached_at: DateTime<Utc>,
-    pack: Pack,
 }
 
 #[derive(Debug, Clone)]
@@ -83,10 +56,6 @@ impl BeatmapHubService {
         let directory = app_data_dir.join("beatmaphub");
         fs::create_dir_all(&directory)?;
         let identity_path = directory.join("identity.json");
-        // Keep the VPS cache separate from the legacy Cloudflare Worker cache.  The
-        // old files may contain records that no longer exist in the VPS database.
-        let recommendations_cache_path = directory.join("recommendations-vps-v2.json");
-        let pack_cache_path = directory.join("packs-vps-v2.json");
         let identity = fs::read(&identity_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -115,12 +84,6 @@ impl BeatmapHubService {
             access_token: Mutex::new(None),
             bootstrap_claims: Mutex::new(None),
             auth_lock: AsyncMutex::new(()),
-            recommendations_cache: Mutex::new(read_recommendations_cache(
-                &recommendations_cache_path,
-            )),
-            recommendations_cache_path,
-            pack_cache: Mutex::new(read_pack_cache(&pack_cache_path)),
-            pack_cache_path,
         })
     }
 
@@ -257,175 +220,26 @@ impl BeatmapHubService {
             self.auth_json(Method::GET, &format!("/packs/{id}"), None)
                 .await
         } else {
-            self.get_anonymous_pack(&id).await
+            self.request_json(Method::GET, &format!("/packs/{id}"), None, None)
+                .await
         }
     }
 
-    async fn get_anonymous_pack(&self, id: &str) -> CommandResult<Pack> {
-        let cached = self.cached_pack(id)?;
-        // The hash endpoint is intentionally checked first.  It avoids downloading
-        // the full pack (and its viewer-independent metadata) when our local copy
-        // still represents the same ordered beatmapset manifest.
-        let mut hash_request = self.client.get(format!("{BASE_URL}/packs/{id}/hash"));
-        if let Some(cache) = &cached {
-            hash_request =
-                hash_request.header(IF_NONE_MATCH, format!("\"{}\"", cache.manifest_hash));
-        }
-        let hash_response = hash_request.send().await.map_err(|error| {
-            CommandError::network(format!(
-                "无法连接 BeatmapHub：{}",
-                reqwest_error_details(&error)
-            ))
-        });
-        let hash_response = match hash_response {
-            Ok(response) => response,
-            Err(error) => return cached.map(|cache| cache.pack).ok_or(error),
-        };
-        if hash_response.status() == StatusCode::NOT_MODIFIED {
-            return cached.map(|cache| cache.pack).ok_or_else(|| {
-                CommandError::new("HUB_CACHE_ERROR", "服务器返回了无对应内容的缓存验证结果")
-            });
-        }
-        if !hash_response.status().is_success() {
-            return Err(response_error(hash_response).await);
-        }
-        #[derive(serde::Deserialize)]
-        struct ManifestResponse {
-            manifest_hash: String,
-        }
-        let remote_manifest_hash = hash_response
-            .json::<ManifestResponse>()
-            .await
-            .map_err(|error| {
-                CommandError::new(
-                    "INVALID_HUB_RESPONSE",
-                    format!("BeatmapHub hash 响应格式无效：{error}"),
-                )
-            })?
-            .manifest_hash;
-        if let Some(cache) = cached
-            .as_ref()
-            .filter(|cache| cache.manifest_hash == remote_manifest_hash)
-        {
-            return Ok(cache.pack.clone());
-        }
-
-        let mut request = self.client.get(format!("{BASE_URL}/packs/{id}"));
-        if let Some(cache) = &cached {
-            request = request.header(IF_NONE_MATCH, &cache.etag);
-        }
-        let response = request.send().await.map_err(|error| {
-            CommandError::network(format!(
-                "无法连接 BeatmapHub：{}",
-                reqwest_error_details(&error)
-            ))
-        });
-        let response = match response {
-            Ok(response) => response,
-            Err(error) => return cached.map(|cache| cache.pack).ok_or(error),
-        };
-        if response.status() == StatusCode::NOT_MODIFIED {
-            return cached.map(|cache| cache.pack).ok_or_else(|| {
-                CommandError::new("HUB_CACHE_ERROR", "服务器返回了无对应内容的缓存验证结果")
-            });
-        }
-        if !response.status().is_success() {
-            return Err(response_error(response).await);
-        }
-
-        let etag = response
-            .headers()
-            .get(ETAG)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
-        let manifest_hash = response
-            .headers()
-            .get("x-beatmap-manifest-hash")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
-        let pack: Pack = response.json().await.map_err(|error| {
-            CommandError::new(
-                "INVALID_HUB_RESPONSE",
-                format!("BeatmapHub 响应格式无效：{error}"),
-            )
-        })?;
-        if pack.manifest_hash != remote_manifest_hash {
-            return Err(CommandError::new(
-                "HUB_CACHE_ERROR",
-                "BeatmapHub 返回的曲包 hash 前后不一致",
-            ));
-        }
-        if let (Some(etag), Some(manifest_hash)) = (etag, manifest_hash)
-            && manifest_hash == pack.manifest_hash
-        {
-            self.store_cached_pack(
-                id,
-                CachedPack {
-                    etag,
-                    manifest_hash,
-                    cached_at: Utc::now(),
-                    pack: pack.clone(),
-                },
-            );
-        }
-        Ok(pack)
-    }
-
-    pub async fn recommendations(
-        &self,
-        limit: u8,
-        force_refresh: bool,
-    ) -> CommandResult<Vec<Pack>> {
-        let limit = limit.clamp(1, 50);
-        if !force_refresh {
-            let cached = self
-                .recommendations_cache
-                .lock()
-                .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))?;
-            if let Some(cache) = cached.as_ref() {
-                return Ok(cache.packs.iter().take(limit as usize).cloned().collect());
-            }
-        }
+    pub async fn recommendations(&self, limit: u8) -> CommandResult<Vec<Pack>> {
         #[derive(serde::Deserialize)]
         struct RecommendationResponse {
             packs: Vec<Pack>,
         }
-        let result: RecommendationResponse = match self
+        let limit = limit.clamp(1, 50);
+        let result: RecommendationResponse = self
             .request_json(
                 Method::GET,
                 &format!("/packs/recommendations?limit={limit}"),
                 None,
                 None,
             )
-            .await
-        {
-            Ok(value) => value,
-            Err(error) => {
-                let cached = self
-                    .recommendations_cache
-                    .lock()
-                    .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))?;
-                if let Some(cache) = cached.as_ref() {
-                    return Ok(cache.packs.iter().take(limit as usize).cloned().collect());
-                }
-                return Err(error);
-            }
-        };
-        let cache = RecommendationsCache {
-            updated_at: Utc::now(),
-            packs: deduplicate_packs(result.packs),
-        };
-        fs::write(
-            &self.recommendations_cache_path,
-            serde_json::to_vec(&cache)?,
-        )?;
-        let packs = cache.packs.iter().take(limit as usize).cloned().collect();
-        *self
-            .recommendations_cache
-            .lock()
-            .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))? =
-            Some(cache);
-        Ok(packs)
+            .await?;
+        Ok(result.packs)
     }
 
     pub async fn search(&self, query: &str, limit: u8) -> CommandResult<Vec<Pack>> {
@@ -737,10 +551,12 @@ impl BeatmapHubService {
         if !force && let Some(token) = self.current_token()? {
             return Ok(token);
         }
-        if !force && self.has_expired_token()? && self.identity()?.is_some() {
-            if let Ok(token) = self.refresh_session().await {
-                return Ok(token);
-            }
+        if !force
+            && self.has_expired_token()?
+            && self.identity()?.is_some()
+            && let Ok(token) = self.refresh_session().await
+        {
+            return Ok(token);
         }
         let claims = self
             .bootstrap_claims
@@ -814,33 +630,6 @@ impl BeatmapHubService {
             .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 身份状态不可用"))? =
             value;
         Ok(())
-    }
-
-    fn cached_pack(&self, id: &str) -> CommandResult<Option<CachedPack>> {
-        self.pack_cache
-            .lock()
-            .map(|cache| {
-                cache
-                    .entries
-                    .get(id)
-                    .filter(|entry| valid_cached_pack(entry))
-                    .cloned()
-            })
-            .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))
-    }
-
-    // Cache persistence is best-effort: a read-only cache directory must not prevent opening a pack.
-    fn store_cached_pack(&self, id: &str, entry: CachedPack) {
-        let snapshot = match self.pack_cache.lock() {
-            Ok(mut cache) => {
-                cache.entries.insert(id.to_string(), entry);
-                cache.clone()
-            }
-            Err(_) => return,
-        };
-        if let Ok(bytes) = serde_json::to_vec(&snapshot) {
-            let _ = atomic_write(&self.pack_cache_path, &bytes);
-        }
     }
 
     async fn request_json<T: DeserializeOwned>(
@@ -950,58 +739,6 @@ impl BeatmapHubService {
         }
         Err(response_error(response).await)
     }
-}
-
-fn read_recommendations_cache(path: &Path) -> Option<RecommendationsCache> {
-    let cache = serde_json::from_slice::<RecommendationsCache>(&fs::read(path).ok()?).ok()?;
-    let valid = cache.packs.iter().all(|pack| {
-        !pack.id.trim().is_empty()
-            && !pack.title.trim().is_empty()
-            && !pack.beatmapset_ids.is_empty()
-            && cache.updated_at <= Utc::now() + Duration::minutes(5)
-            && cache.updated_at >= Utc::now() - Duration::days(30)
-    });
-    valid.then_some(RecommendationsCache {
-        updated_at: cache.updated_at,
-        packs: deduplicate_packs(cache.packs),
-    })
-}
-
-fn deduplicate_packs(packs: Vec<Pack>) -> Vec<Pack> {
-    let mut seen = HashSet::new();
-    packs
-        .into_iter()
-        .filter(|pack| {
-            let key = if pack.manifest_hash.trim().is_empty() {
-                format!("id:{}", pack.id.trim().to_ascii_uppercase())
-            } else {
-                format!(
-                    "manifest:{}",
-                    pack.manifest_hash.trim().to_ascii_lowercase()
-                )
-            };
-            seen.insert(key)
-        })
-        .collect()
-}
-
-fn read_pack_cache(path: &Path) -> PackCache {
-    let mut cache = fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<PackCache>(&bytes).ok())
-        .unwrap_or_default();
-    cache.entries.retain(|_, entry| valid_cached_pack(entry));
-    cache
-}
-
-fn valid_cached_pack(entry: &CachedPack) -> bool {
-    !entry.etag.trim().is_empty()
-        && !entry.manifest_hash.trim().is_empty()
-        && entry.manifest_hash == entry.pack.manifest_hash
-        && !entry.pack.id.trim().is_empty()
-        && !entry.pack.beatmapset_ids.is_empty()
-        && entry.cached_at <= Utc::now() + Duration::minutes(5)
-        && entry.cached_at >= Utc::now() - Duration::days(30)
 }
 
 async fn response_error(response: Response) -> CommandError {
@@ -1255,10 +992,7 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use ed25519_dalek::{Signer, SigningKey};
 
-    use super::{
-        CachedPack, Pack, canonical_auth_message, deduplicate_packs, normalize_share_id,
-        valid_cached_pack,
-    };
+    use super::{canonical_auth_message, normalize_share_id};
 
     #[test]
     fn normalizes_share_ids() {
@@ -1289,58 +1023,6 @@ mod tests {
         let encoded = URL_SAFE_NO_PAD.encode(signing.sign(b"challenge").to_bytes());
         assert_eq!(encoded.len(), 86);
         assert!(!encoded.contains('='));
-    }
-
-    #[test]
-    fn accepts_only_cache_entries_bound_to_the_pack_manifest_hash() {
-        let pack: Pack = serde_json::from_value(serde_json::json!({
-            "id": "7K3N9A",
-            "title": "Cache test",
-            "description": "",
-            "owner": { "id": "owner", "display_name": "Owner" },
-            "beatmapset_ids": [123],
-            "manifest_hash": "manifest-a",
-            "rating": { "average": null, "count": 0 },
-            "viewer": null,
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z"
-        }))
-        .unwrap();
-        let cached = CachedPack {
-            etag: "\"2026-01-01T00:00:00Z:manifest-a\"".into(),
-            manifest_hash: "manifest-a".into(),
-            cached_at: chrono::Utc::now(),
-            pack,
-        };
-        assert!(valid_cached_pack(&cached));
-
-        let mismatched = CachedPack {
-            manifest_hash: "manifest-b".into(),
-            ..cached
-        };
-        assert!(!valid_cached_pack(&mismatched));
-    }
-
-    #[test]
-    fn removes_duplicate_packs_by_manifest_hash() {
-        let pack: Pack = serde_json::from_value(serde_json::json!({
-            "id": "7K3N9A",
-            "title": "Pack",
-            "description": "",
-            "owner": { "id": "owner", "display_name": "Owner" },
-            "beatmapset_ids": [123],
-            "manifest_hash": "same-manifest",
-            "rating": { "average": null, "count": 0 },
-            "viewer": null,
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z"
-        }))
-        .unwrap();
-        let duplicate = Pack {
-            id: "OTHER".into(),
-            ..pack.clone()
-        };
-        assert_eq!(deduplicate_packs(vec![pack, duplicate]).len(), 1);
     }
 
     #[tokio::test]

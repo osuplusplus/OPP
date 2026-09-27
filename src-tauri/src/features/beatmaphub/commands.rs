@@ -71,13 +71,9 @@ pub async fn get_beatmaphub_pack(
 #[tauri::command]
 pub async fn get_beatmaphub_recommendations(
     limit: Option<u8>,
-    force_refresh: Option<bool>,
     state: State<'_, AppState>,
 ) -> CommandResult<Vec<Pack>> {
-    state
-        .beatmaphub
-        .recommendations(limit.unwrap_or(20), force_refresh.unwrap_or(false))
-        .await
+    state.beatmaphub.recommendations(limit.unwrap_or(20)).await
 }
 
 #[tauri::command]
