@@ -14,8 +14,7 @@ import { BeatmapHubPage } from "./BeatmapHubPage";
 
 const pack: BeatmapHubPack = { id: "7K3N9A", title: "Tech Pack", description: "Practice", is_private: false, owner: { id: "user", display_name: "Player" }, beatmapset_ids: [123], manifest_hash: "hash", rating: { average: 4.5, count: 2 }, likes: { count: 2 }, comments: { count: 0 }, viewer: null, created_at: "2026-01-01", updated_at: "2026-01-02" };
 const preview = { pack, locally_available_ids: [], missing_ids: [123] };
-function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+function renderPage(client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })) {
   return { ...render(<QueryClientProvider client={client}><MemoryRouter><BeatmapHubPage /></MemoryRouter></QueryClientProvider>), client };
 }
 async function openPack() {
@@ -54,6 +53,25 @@ describe("BeatmapHubPage", () => {
     expect(await screen.findByRole("button", { name: "查看曲包 Tech Pack" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "连接 BeatmapHub" })).not.toBeInTheDocument();
     expect(api.getOnlineBeatmapset).not.toHaveBeenCalled();
+  });
+  it("reloads recommendations on remount without retaining the previous list", async () => {
+    const page = renderPage();
+    await screen.findByRole("button", { name: "查看曲包 Tech Pack" });
+    page.unmount();
+    await waitFor(() => expect(page.client.getQueryData(["beatmaphub", "recommendations"])).toBeUndefined());
+    api.getBeatmapHubRecommendations.mockResolvedValue([]);
+    renderPage(page.client);
+    await screen.findByText("社区还没有公开曲包");
+    expect(api.getBeatmapHubRecommendations).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "查看曲包 Tech Pack" })).not.toBeInTheDocument();
+  });
+  it("shows refresh errors instead of falling back to the previous list", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: "查看曲包 Tech Pack" });
+    api.getBeatmapHubRecommendations.mockRejectedValue(new Error("offline"));
+    await userEvent.click(screen.getByRole("button", { name: "刷新推荐" }));
+    await screen.findByText("曲包暂时无法加载");
+    expect(screen.queryByRole("button", { name: "查看曲包 Tech Pack" })).not.toBeInTheDocument();
   });
   it("opens automatic device connection on demand without legacy profile setup", async () => {
     renderPage();

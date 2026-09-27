@@ -388,7 +388,7 @@ export const desktopApi = {
   getBeatmapHubProfile: () => call<BeatmapHubProfile>("get_beatmaphub_profile"),
   revokeBeatmapHubDevice: (deviceId: string) => call<void>("revoke_beatmaphub_device", { deviceId }),
   getBeatmapHubPack: (shareId: string) => call<BeatmapHubPack>("get_beatmaphub_pack", { shareId }),
-  getBeatmapHubRecommendations: (limit = 20, forceRefresh = false) => call<BeatmapHubRecommendation[]>("get_beatmaphub_recommendations", { limit, forceRefresh }),
+  getBeatmapHubRecommendations: (limit = 20) => call<BeatmapHubRecommendation[]>("get_beatmaphub_recommendations", { limit }),
   searchBeatmapHubPacks: (query: string, limit = 20) => call<BeatmapHubRecommendation[]>("search_beatmaphub_packs", { query, limit }),
   previewBeatmapHubPack: (shareId: string) => call<BeatmapHubPackPreview>("preview_beatmaphub_pack", { shareId }),
   publishBeatmapHubPack: (folderId: string, title: string, description: string, isPrivate = false) =>
