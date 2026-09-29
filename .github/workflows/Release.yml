@@ -29,6 +29,8 @@ jobs:
             args: "--bundles appimage,deb"
             upload_plain_binary: false
             asset_name: "OPP_[version]_linux_[arch][ext]"
+            # 构建后对 AppImage 打 Wayland 兼容补丁（issue #46），再交由 tauri-action 上传。
+            tauri_script: "bash scripts/tauri-build.sh"
           - name: Windows (portable exe)
             platform: windows-latest
             kind: portable
@@ -120,6 +122,7 @@ jobs:
           releaseAssetNamePattern: ${{ matrix.asset_name }}
           workflowArtifactNamePattern: "OPP-[version]-[platform]-[arch]-[bundle]"
           retryAttempts: 3
+          tauriScript: ${{ matrix.tauri_script }}
 
       - name: Create and upload portable update manifest
         if: matrix.platform == 'windows-latest' && matrix.kind == 'portable'

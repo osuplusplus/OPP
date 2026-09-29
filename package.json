@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build": "bash scripts/tauri-build.sh build"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.21",

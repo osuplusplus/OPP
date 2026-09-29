@@ -53,8 +53,10 @@ pnpm tauri build
 仓库默认关闭 Tauri bundle，主程序位于 `src-tauri/target/release/opp`。Release 工作流显式选择 AppImage 和 deb；本地生成相同格式可运行：
 
 ```bash
-pnpm tauri build --bundles appimage,deb
+pnpm tauri:build -- --bundles appimage,deb
 ```
+
+`pnpm tauri:build` 是 `tauri build` 的包装脚本：Linux 下构建 AppImage 后会自动打 Wayland 兼容补丁（见下文），Release 工作流也通过同一脚本执行。
 
 打包后仍须在目标发行版验证运行依赖和桌面集成。图池 URI 注册依赖 `xdg-mime` 与 `update-desktop-database`；便携程序移动后需从新位置启动一次。
 
@@ -84,7 +86,9 @@ command -v ffmpeg
 
 ## Wayland 渲染问题
 
-在 Wayland 下若出现窗口无法启动、黑屏或渲染异常，通常与 WebKitGTK 的 DMA-BUF 渲染器有关，可在启动前关闭它：
+AppImage 在构建后会由 `scripts/patch-appimage.mjs` 自动修补（Release 与 `pnpm tauri:build` 均已接入）：删除包内捆绑的 `libwayland-client`（它来自构建机 Ubuntu 22.04，与运行时的系统 Mesa libEGL 不匹配，会让 WebKit 在创建 EGL 显示时直接报 `EGL_BAD_PARAMETER` 退出，窗口只剩灰色背景），改为运行时加载系统同名库；同时保留用户显式设置的 `GDK_BACKEND`。修补在 Wayland 桌面（KDE/GNOME）无需任何环境变量即可正常渲染。
+
+从源码直接运行主程序（非 AppImage）时链接的就是系统库，不存在该问题。若仍出现窗口无法启动、黑屏或渲染异常，通常与 WebKitGTK 的 DMA-BUF 渲染器有关，可在启动前关闭它：
 
 ```bash
 WEBKIT_DISABLE_DMABUF_RENDERER=1 ./opp
