@@ -359,18 +359,13 @@ impl CareerService {
                 .map(|id| self.diff_counts(&mut db.connection, account_id, id))
                 .transpose()?
                 .unwrap_or_default();
-            let stats_changed = snapshot_id
-                .map(|id| self.stats_changed(&db.connection, account_id, id))
-                .transpose()?
-                .unwrap_or(false);
             days.push(CareerCalendarDay {
                 date,
                 status,
                 captured_at,
                 stats,
                 error,
-                has_diff: stats_changed
-                    || counts.0 + counts.1 + counts.2 + counts.3 + counts.4 + counts.5 > 0,
+                has_diff: counts.0 + counts.1 + counts.3 + counts.4 + counts.5 > 0,
                 added_scores: counts.0,
                 removed_scores: counts.1,
                 changed_scores: counts.2,
@@ -407,10 +402,6 @@ impl CareerService {
             .keys()
             .filter(|k| !current_scores.contains_key(*k))
             .count() as u32;
-        let changed = current_scores
-            .iter()
-            .filter(|(k, v)| previous_scores.get(*k).is_some_and(|old| old != *v))
-            .count() as u32;
         let current_medals = value_keys(connection, "career_medals", snapshot_id)?;
         let previous_medals = value_keys(connection, "career_medals", previous)?;
         let medals = current_medals.difference(&previous_medals).count() as u32;
@@ -424,41 +415,7 @@ impl CareerService {
             .iter()
             .filter(|k| k.starts_with("screenshot:") && !previous_media.contains(*k))
             .count() as u32;
-        Ok((added, removed, changed, medals, replays, screenshots))
-    }
-
-    fn stats_changed(
-        &self,
-        connection: &Connection,
-        account_id: i64,
-        snapshot_id: i64,
-    ) -> CommandResult<bool> {
-        let previous: Option<i64> = connection
-            .query_row(
-                "SELECT id FROM career_snapshots WHERE account_id=?1 AND id<?2 ORDER BY id DESC LIMIT 1",
-                params![account_id, snapshot_id],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(sql_error)?;
-        let Some(previous) = previous else {
-            return Ok(false);
-        };
-        let current: String = connection
-            .query_row(
-                "SELECT stats_json FROM career_snapshots WHERE id=?1",
-                [snapshot_id],
-                |r| r.get(0),
-            )
-            .map_err(sql_error)?;
-        let old: String = connection
-            .query_row(
-                "SELECT stats_json FROM career_snapshots WHERE id=?1",
-                [previous],
-                |r| r.get(0),
-            )
-            .map_err(sql_error)?;
-        Ok(current != old)
+        Ok((added, removed, 0, medals, replays, screenshots))
     }
 
     pub(crate) fn day(
@@ -504,38 +461,7 @@ impl CareerService {
         if let Some(previous) = previous {
             let current = score_map(&db.connection, snapshot_id)?;
             let old = score_map(&db.connection, previous)?;
-            for (key, (position, score)) in &current {
-                match old.get(key) {
-                    None => score_diffs.push(CareerScoreDiff {
-                        kind: "added".into(),
-                        key: key.clone(),
-                        before_position: None,
-                        after_position: Some(*position),
-                        score: score.clone(),
-                    }),
-                    Some((old_pos, old_score)) if old_pos != position || old_score != score => {
-                        score_diffs.push(CareerScoreDiff {
-                            kind: "changed".into(),
-                            key: key.clone(),
-                            before_position: Some(*old_pos),
-                            after_position: Some(*position),
-                            score: score.clone(),
-                        })
-                    }
-                    _ => {}
-                }
-            }
-            for (key, (position, score)) in old {
-                if !current.contains_key(&key) {
-                    score_diffs.push(CareerScoreDiff {
-                        kind: "removed".into(),
-                        key,
-                        before_position: Some(position),
-                        after_position: None,
-                        score,
-                    });
-                }
-            }
+            score_diffs = score_diffs_from_maps(&current, &old);
             medal_events = event_diff(
                 &db.connection,
                 "career_medals",
@@ -766,6 +692,46 @@ fn score_map(c: &Connection, id: i64) -> CommandResult<HashMap<String, (u32, Val
     }
     Ok(out)
 }
+
+fn score_diffs_from_maps(
+    current: &HashMap<String, (u32, Value)>,
+    previous: &HashMap<String, (u32, Value)>,
+) -> Vec<CareerScoreDiff> {
+    let mut diffs = Vec::new();
+    for (key, (position, score)) in current {
+        if !previous.contains_key(key) {
+            diffs.push(CareerScoreDiff {
+                kind: "added".into(),
+                key: key.clone(),
+                before_position: None,
+                after_position: Some(*position),
+                score: score.clone(),
+            });
+        }
+    }
+    for (key, (position, score)) in previous {
+        if !current.contains_key(key) {
+            diffs.push(CareerScoreDiff {
+                kind: "removed".into(),
+                key: key.clone(),
+                before_position: Some(*position),
+                after_position: None,
+                score: score.clone(),
+            });
+        }
+    }
+    diffs.sort_by_key(|diff| {
+        (
+            diff.after_position
+                .or(diff.before_position)
+                .unwrap_or(u32::MAX),
+            diff.kind.clone(),
+            diff.key.clone(),
+        )
+    });
+    diffs
+}
+
 fn value_keys(c: &Connection, table: &str, id: i64) -> CommandResult<HashSet<String>> {
     let sql = if table == "career_medals" {
         "SELECT achievement_key FROM career_medals WHERE snapshot_id=?1"
@@ -909,6 +875,40 @@ mod tests {
         }))
         .unwrap();
         assert!(score_key(&without_id).starts_with("map:123:"));
+    }
+
+    #[test]
+    fn score_diff_ignores_position_and_payload_changes_for_existing_scores() {
+        let previous = HashMap::from([
+            ("id:1".into(), (1, json!({"pp": 100}))),
+            ("id:2".into(), (2, json!({"pp": 90}))),
+        ]);
+        let current = HashMap::from([
+            ("id:2".into(), (1, json!({"pp": 120}))),
+            ("id:1".into(), (2, json!({"pp": 80}))),
+        ]);
+
+        assert!(score_diffs_from_maps(&current, &previous).is_empty());
+    }
+
+    #[test]
+    fn score_diff_reports_only_scores_entering_or_leaving_top_200() {
+        let previous = HashMap::from([("id:1".into(), (1, json!({"pp": 100})))]);
+        let current = HashMap::from([("id:2".into(), (1, json!({"pp": 110})))]);
+
+        let diffs = score_diffs_from_maps(&current, &previous);
+        assert_eq!(diffs.len(), 2);
+        assert_eq!(diffs[0].kind, "added");
+        assert_eq!(diffs[0].key, "id:2");
+        assert_eq!(diffs[1].kind, "removed");
+        assert_eq!(diffs[1].key, "id:1");
+    }
+
+    #[test]
+    fn score_diff_is_empty_for_an_unchanged_snapshot() {
+        let current = HashMap::from([("id:1".into(), (1, json!({"pp": 100})))]);
+
+        assert!(score_diffs_from_maps(&current, &current).is_empty());
     }
 
     #[test]
