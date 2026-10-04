@@ -64,6 +64,49 @@ export interface LazerDedupeResult {
   failed: LazerDedupeFailure[];
 }
 
+export interface VideoFileEntry {
+  path: string;
+  size: number;
+}
+
+export interface VideoScanResult {
+  songs_root: string;
+  video_count: number;
+  video_size: number;
+  pending_count: number;
+  pending_size: number;
+  pending: VideoFileEntry[];
+  pending_truncated: boolean;
+  already_flv_count: number;
+  empty_count: number;
+  other_count: number;
+}
+
+export interface VideoFixProgress {
+  phase: "scan" | "copy" | "transcode";
+  processed: number;
+  total: number;
+  percent: number;
+  current: string | null;
+}
+
+export interface VideoFixFailure {
+  path: string;
+  message: string;
+}
+
+export interface VideoFixResult {
+  songs_root: string;
+  cancelled: boolean;
+  fixed_count: number;
+  fixed_size: number;
+  remuxed_count: number;
+  transcoded_count: number;
+  skipped_count: number;
+  failed_count: number;
+  failed: VideoFixFailure[];
+}
+
 export interface Cached<T> {
   data: T;
   fetched_at: string;

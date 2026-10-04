@@ -9,19 +9,12 @@ import { ClientSwitch } from "../../shared/components/ClientSwitch";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { Badge, Button, Card, SectionTitle } from "../../shared/components/ui";
+import { byteSize } from "../../shared/lib/format";
 import { desktopApi, useCapabilities } from "../../shared/lib/tauri";
 
 import type { DefaultFileClients, LazerDedupeProgress, LazerDedupeResult, LazerDiskUsage, ManiaConversionItem, OsuClient } from "../../shared/types/osu";
 import type { BeatmapPreviewInspection, BeatmapPreviewResult } from "../../shared/types/osu";
 import { DifficultyIcon, ModIcon, modeMods } from "../online-beatmaps/BeatmapVisuals";
-
-function formatByteSize(bytes: number) {
-  const units = ["B", "K", "M", "G", "T"];
-  let value = bytes;
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) { value /= 1024; index += 1; }
-  return `${value.toFixed(value >= 100 || index === 0 ? 0 : 1)}${units[index]}`;
-}
 
 const previewModeLabels = { osu: "osu!standard", taiko: "osu!taiko", fruits: "osu!catch", mania: "osu!mania" } as const;
 
@@ -530,7 +523,7 @@ export function LazerDiskUsageCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const scan = async () => { setBusy(true); setError(null); try { setData(await desktopApi.getLazerDiskUsage()); } catch (value) { setError(value); } finally { setBusy(false); } };
-  return <Card className="p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><Database className="size-5" /></div><SectionTitle title="osu!lazer 占用统计" description="按 storage.ini 的 FullPath 定位数据目录，统计含硬链接的总大小与排除硬链接后的实际占用。" /></div><div className="mt-5"><Button loading={busy} onClick={() => void scan()}><FolderOpen className="size-4" />{data ? "重新统计" : "开始统计"}</Button></div>{data ? <div className="mt-5 space-y-3"><p className="truncate font-mono text-xs text-slate-400">{data.path}</p><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">总大小</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{formatByteSize(data.total_size)}</p></div><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">实际占用</p><p className="mt-1 text-lg font-semibold tabular-nums text-[var(--theme-primary-light)]">{formatByteSize(data.unique_size)}</p></div><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">文件数</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{data.file_count.toLocaleString()}</p></div></div></div> : null}{error ? <div className="mt-4"><ErrorPanel error={error} /></div> : null}</Card>;
+  return <Card className="p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]"><Database className="size-5" /></div><SectionTitle title="osu!lazer 占用统计" description="按 storage.ini 的 FullPath 定位数据目录，统计含硬链接的总大小与排除硬链接后的实际占用。" /></div><div className="mt-5"><Button loading={busy} onClick={() => void scan()}><FolderOpen className="size-4" />{data ? "重新统计" : "开始统计"}</Button></div>{data ? <div className="mt-5 space-y-3"><p className="truncate font-mono text-xs text-slate-400">{data.path}</p><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">总大小</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{byteSize(data.total_size)}</p></div><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">实际占用</p><p className="mt-1 text-lg font-semibold tabular-nums text-[var(--theme-primary-light)]">{byteSize(data.unique_size)}</p></div><div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">文件数</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{data.file_count.toLocaleString()}</p></div></div></div> : null}{error ? <div className="mt-4"><ErrorPanel error={error} /></div> : null}</Card>;
 }
 
 const lazerDedupePhaseLabels: Record<string, string> = {
@@ -603,27 +596,27 @@ export function LazerDedupeCard() {
     {result ? <div className="mt-5 space-y-3">
       <p className="truncate font-mono text-xs text-slate-400" title={result.lazer_files_root}>{result.lazer_files_root}{result.stable_roots.length ? ` ⟵ ${result.stable_roots.join("、")}` : ""}</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">lazer 文件</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{result.lazer_file_count.toLocaleString()} · {formatByteSize(result.lazer_total_size)}</p></div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">已是硬链接</p><p className="mt-1 text-lg font-semibold tabular-nums text-slate-300">{result.already_linked_count.toLocaleString()} · {formatByteSize(result.already_linked_size)}</p></div>
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">lazer 文件</p><p className="mt-1 text-lg font-semibold tabular-nums text-white">{result.lazer_file_count.toLocaleString()} · {byteSize(result.lazer_total_size)}</p></div>
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">已是硬链接</p><p className="mt-1 text-lg font-semibold tabular-nums text-slate-300">{result.already_linked_count.toLocaleString()} · {byteSize(result.already_linked_size)}</p></div>
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="text-xs text-slate-500">参与哈希对比</p><p className="mt-1 text-lg font-semibold tabular-nums text-slate-300">{result.hashed_stable_count.toLocaleString()}</p></div>
         <div className="rounded-xl border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)]/40 p-4">
           <p className="text-xs text-slate-500">{result.dry_run ? "可释放" : "已释放"}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums text-[var(--theme-primary-light)]">{result.dry_run ? `${result.candidate_count.toLocaleString()} 个 · ${formatByteSize(result.reclaimable_size)}` : `${result.linked_count.toLocaleString()} 个 · ${formatByteSize(result.linked_size)}`}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums text-[var(--theme-primary-light)]">{result.dry_run ? `${result.candidate_count.toLocaleString()} 个 · ${byteSize(result.reclaimable_size)}` : `${result.linked_count.toLocaleString()} 个 · ${byteSize(result.linked_size)}`}</p>
         </div>
       </div>
       {result.cancelled ? <p className="text-xs text-amber-200">任务已取消，以上为部分结果。</p> : null}
-      {result.skipped_cross_volume_count > 0 ? <p className="text-xs text-slate-400">{result.skipped_cross_volume_count.toLocaleString()} 个文件（{formatByteSize(result.skipped_cross_volume_size)}）与 stable 不在同一分区，已跳过。</p> : null}
+      {result.skipped_cross_volume_count > 0 ? <p className="text-xs text-slate-400">{result.skipped_cross_volume_count.toLocaleString()} 个文件（{byteSize(result.skipped_cross_volume_size)}）与 stable 不在同一分区，已跳过。</p> : null}
       {result.failed_count > 0 ? <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
         <p className="text-xs text-slate-400">{result.failed_count.toLocaleString()} 个文件处理失败（仅展示前 {result.failed.length} 条）：</p>
         <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
           {result.failed.map((failure) => <p className="truncate font-mono text-xs text-slate-500" key={failure.path} title={`${failure.path}：${failure.message}`}>{failure.path} — {failure.message}</p>)}
         </div>
       </div> : null}
-      {!result.dry_run ? <p className="text-xs text-emerald-200">完成：{result.linked_count.toLocaleString()} 个文件已替换为硬链接，实际释放约 {formatByteSize(result.linked_size)}。可启动 lazer 验证内容正常。</p> : null}
+      {!result.dry_run ? <p className="text-xs text-emerald-200">完成：{result.linked_count.toLocaleString()} 个文件已替换为硬链接，实际释放约 {byteSize(result.linked_size)}。可启动 lazer 验证内容正常。</p> : null}
     </div> : null}
     {result?.dry_run && !busy && result.candidate_count > 0 ? (
       confirming ? <div className="mt-5 rounded-xl border border-rose-400/25 bg-rose-400/[0.07] p-4">
-        <p className="text-sm leading-6 text-rose-100">即将把 <span className="font-semibold">{result.candidate_count.toLocaleString()}</span> 个 lazer 文件替换为指向 stable 的硬链接，预计释放 <span className="font-semibold">{formatByteSize(result.reclaimable_size)}</span>。请确认已关闭 osu!。</p>
+        <p className="text-sm leading-6 text-rose-100">即将把 <span className="font-semibold">{result.candidate_count.toLocaleString()}</span> 个 lazer 文件替换为指向 stable 的硬链接，预计释放 <span className="font-semibold">{byteSize(result.reclaimable_size)}</span>。请确认已关闭 osu!。</p>
         <div className="mt-3 flex flex-wrap gap-3">
           <Button loading={busy === "apply"} onClick={() => void run(false)} variant="danger"><Link2 className="size-4" />确认执行</Button>
           <Button disabled={busy !== null} onClick={() => setConfirming(false)} variant="secondary">取消</Button>

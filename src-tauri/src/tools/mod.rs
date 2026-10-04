@@ -8,6 +8,7 @@ mod lazer_disk_usage;
 mod mania_converter;
 mod models;
 mod pp_calc;
+mod video_fix;
 
 pub use beatmap_preview::{
     generate_beatmap_preview, inspect_beatmap_preview, open_beatmap_preview_output,
@@ -21,3 +22,4 @@ pub use lazer_dedupe::{cancel_lazer_dedupe, dedupe_lazer_files};
 pub use lazer_disk_usage::get_lazer_disk_usage;
 pub use mania_converter::convert_mania_beatmaps;
 pub use pp_calc::calculate_beatmap_pp;
+pub use video_fix::{cancel_video_fix, fix_osu_videos, scan_osu_videos};

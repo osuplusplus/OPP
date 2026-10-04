@@ -9,6 +9,7 @@ import type { DefaultFileClients, OsuClient } from "../../shared/types/osu";
 import { BeatmapPreviewCard, DisplayGammaCard, FileAssociationCard, LazerDedupeCard, LazerDiskUsageCard, ManiaConverterCard, SpeedTestCard } from "./ToolsPage";
 import { OtdPanel } from "./OtdPanel";
 import { TosuPage } from "./TosuPage";
+import { VideoFixCard } from "./VideoFixCard";
 
 export function ToolPageHeader({ title, description }: { title: string; description: string }) {
   return <PageHeader eyebrow="Tools" title={title} description={description} />;
@@ -19,7 +20,7 @@ export function GameToolsPage() {
 }
 
 export function BeatmapToolsPage() {
-  return <><ToolPageHeader title="谱面与预览" description="生成谱面预览并转换外部谱面格式。" /><div className="space-y-5"><BeatmapPreviewCard /><ManiaConverterCard /></div></>;
+  return <><ToolPageHeader title="谱面与预览" description="生成谱面预览、转换外部谱面格式，并修复导致 osu!stable 闪退的谱面视频。" /><div className="space-y-5"><BeatmapPreviewCard /><ManiaConverterCard /><VideoFixCard /></div></>;
 }
 
 export function SystemToolsPage() {

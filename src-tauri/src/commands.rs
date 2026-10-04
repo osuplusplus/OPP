@@ -115,11 +115,11 @@ pub(crate) use crate::{
     },
     infrastructure::platform::get_capabilities,
     tools::{
-        calculate_beatmap_pp, cancel_lazer_dedupe, convert_mania_beatmaps, dedupe_lazer_files,
-        generate_beatmap_preview, get_default_file_clients, get_lazer_disk_usage,
-        inspect_beatmap_preview, open_beatmap_preview_output, open_local_resource_in_explorer,
-        read_beatmap_preview_output, save_beatmap_preview_output, set_default_file_client,
-        set_display_gamma,
+        calculate_beatmap_pp, cancel_lazer_dedupe, cancel_video_fix, convert_mania_beatmaps,
+        dedupe_lazer_files, fix_osu_videos, generate_beatmap_preview, get_default_file_clients,
+        get_lazer_disk_usage, inspect_beatmap_preview, open_beatmap_preview_output,
+        open_local_resource_in_explorer, read_beatmap_preview_output, save_beatmap_preview_output,
+        scan_osu_videos, set_default_file_client, set_display_gamma,
     },
 };
 
@@ -331,6 +331,9 @@ macro_rules! handler {
             read_beatmap_preview_output,
             save_beatmap_preview_output,
             open_beatmap_preview_output,
+            scan_osu_videos,
+            fix_osu_videos,
+            cancel_video_fix,
             generate_trainer_beatmap,
             view_trainer_get_timeline,
             view_trainer_generate,

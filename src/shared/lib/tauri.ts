@@ -108,6 +108,9 @@ import type {
   LazerDiskUsage,
   LazerDedupeProgress,
   LazerDedupeResult,
+  VideoFixProgress,
+  VideoFixResult,
+  VideoScanResult,
   ObsStatus,
   OtdStatus,
   PlatformCapabilities,
@@ -353,7 +356,7 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     ...(browserPreviewValue<AppSettings>("get_settings") ?? {}),
     ignored_update_version: args?.version,
   } as T;
-  if (["clear_profile_cache", "clear_career_history", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
+  if (["clear_profile_cache", "clear_career_history", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "cancel_video_fix", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
   if (command === "backup_otd_config") return `${args?.destinationDir ?? "C:\\Export"}/OpenTabletDriver-backup.json` as T;
   return undefined;
 }
@@ -423,6 +426,11 @@ export const desktopApi = {
   dedupeLazerFiles: (dryRun: boolean) =>
     call<LazerDedupeResult>("dedupe_lazer_files", { dryRun }),
   cancelLazerDedupe: () => call<void>("cancel_lazer_dedupe"),
+  scanOsuVideos: (root?: string | null) =>
+    call<VideoScanResult>("scan_osu_videos", { root: root ?? null }),
+  fixOsuVideos: (root?: string | null) =>
+    call<VideoFixResult>("fix_osu_videos", { root: root ?? null }),
+  cancelVideoFix: () => call<void>("cancel_video_fix"),
 
   inspectBeatmapPreview: (bid: number) =>
     call<BeatmapPreviewInspection>("inspect_beatmap_preview", { bid }),
@@ -819,6 +827,14 @@ export const desktopApi = {
   ): Promise<UnlistenFn> => {
     if (!isTauri()) return () => undefined;
     return listen<LazerDedupeProgress>("lazer-dedupe-progress", (event) =>
+      handler(event.payload),
+    );
+  },
+  onVideoFixProgress: async (
+    handler: (progress: VideoFixProgress) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<VideoFixProgress>("video-fix-progress", (event) =>
       handler(event.payload),
     );
   },

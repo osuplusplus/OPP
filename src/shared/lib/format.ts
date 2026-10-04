@@ -37,6 +37,19 @@ export function percent(value?: number | null, digits = 2): string {
   return formatted === "—" ? formatted : `${formatted}%`;
 }
 
+/** 以 1024 进制展示文件大小，100 以上与整字节不保留小数。 */
+export function byteSize(bytes?: number | null): string {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes)) return "—";
+  const units = ["B", "K", "M", "G", "T"];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(value >= 100 || index === 0 ? 0 : 1)}${units[index]}`;
+}
+
 export function duration(seconds?: number | null): string {
   if (seconds === null || seconds === undefined) return "—";
   const hours = seconds / 3600;
