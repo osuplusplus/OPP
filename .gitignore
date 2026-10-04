@@ -80,6 +80,8 @@ lerna-debug.log*
 .vscode/*
 !.vscode/extensions.json
 .idea/
+.zcode/
+.zcodeignore
 *.suo
 *.ntvs*
 *.njsproj
