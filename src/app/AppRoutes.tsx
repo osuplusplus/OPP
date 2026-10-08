@@ -30,6 +30,8 @@ const ToolCategoryPages = {
 const ViewTrainerPage = lazy(() => import("../features/view-trainer/ViewTrainerPage").then((module) => ({ default: module.ViewTrainerPage })));
 const CollectionsPage = lazy(() => import("../features/collections/CollectionsPage").then((module) => ({ default: module.CollectionsPage })));
 const BeatmapHubPage = lazy(() => import("../features/beatmaphub/BeatmapHubPage").then((module) => ({ default: module.BeatmapHubPage })));
+const TournamentsPage = lazy(() => import("../features/community/TournamentsPage").then((module) => ({ default: module.TournamentsPage })));
+const LobbiesPage = lazy(() => import("../features/community/LobbiesPage").then((module) => ({ default: module.LobbiesPage })));
 
 function LegacyTrainerRedirect() {
   const location = useLocation();
@@ -81,6 +83,8 @@ export function AppRoutes() {
           <Route path="/online/beatmaps" element={<OnlineBeatmapsPage />} />
           <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/beatmaphub" element={<BeatmapHubPage />} />
+          <Route path="/community/tournaments" element={<TournamentsPage />} />
+          <Route path="/community/lobbies" element={<LobbiesPage />} />
           <Route path="/online/similar" element={<SimilarBeatmapsPage />} />
           <Route path="/skill-analysis" element={<SkillAnalysisPage />} />
           <Route path="/trainer" element={<LegacyTrainerRedirect />} />

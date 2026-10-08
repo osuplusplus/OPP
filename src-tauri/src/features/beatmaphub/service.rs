@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     error::Error as _,
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
@@ -9,14 +8,11 @@ use std::{
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use ed25519_dalek::{Signer, SigningKey};
 use keyring::{Entry, Error as KeyringError};
 use rand_core::OsRng;
-use reqwest::{
-    Client, Method, Response, StatusCode,
-    header::{ETAG, IF_NONE_MATCH},
-};
+use reqwest::{Client, Method, Response};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio::sync::Mutex as AsyncMutex;
@@ -28,48 +24,38 @@ use crate::{
     state::AppState,
 };
 
-pub const BASE_URL: &str = "https://beatmap-pack-hub.l1rics2006.workers.dev/api/v1";
+pub const BASE_URL: &str = "http://8.137.98.96/api/v2";
 const SERVICE: &str = "com.opp.desktop";
 const PRIVATE_KEY_ENTRY: &str = "beatmaphub-ed25519-private-key";
-const ACCESS_TOKEN_ENTRY: &str = "beatmaphub-access-token";
+const LEGACY_ACCESS_TOKEN_ENTRY: &str = "beatmaphub-access-token";
 
 pub struct BeatmapHubService {
     client: Client,
     identity_path: PathBuf,
     identity: Mutex<Option<IdentityMetadata>>,
+    access_token: Mutex<Option<AccessToken>>,
+    bootstrap_claims: Mutex<Option<BootstrapClaims>>,
     auth_lock: AsyncMutex<()>,
-    recommendations_cache_path: PathBuf,
-    recommendations_cache: Mutex<Option<RecommendationsCache>>,
-    pack_cache_path: PathBuf,
-    pack_cache: Mutex<PackCache>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct RecommendationsCache {
-    updated_at: DateTime<Utc>,
-    packs: Vec<Pack>,
+#[derive(Debug, Clone)]
+struct AccessToken {
+    value: String,
+    expires_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-struct PackCache {
-    entries: BTreeMap<String, CachedPack>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct CachedPack {
-    etag: String,
-    manifest_hash: String,
-    cached_at: DateTime<Utc>,
-    pack: Pack,
+#[derive(Debug, Clone)]
+struct BootstrapClaims {
+    user_id: String,
+    username: String,
 }
 
 impl BeatmapHubService {
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
+        let _ = delete_secret(LEGACY_ACCESS_TOKEN_ENTRY);
         let directory = app_data_dir.join("beatmaphub");
         fs::create_dir_all(&directory)?;
         let identity_path = directory.join("identity.json");
-        let recommendations_cache_path = directory.join("recommendations.json");
-        let pack_cache_path = directory.join("packs.json");
         let identity = fs::read(&identity_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -95,23 +81,20 @@ impl BeatmapHubService {
             client,
             identity_path,
             identity: Mutex::new(identity),
+            access_token: Mutex::new(None),
+            bootstrap_claims: Mutex::new(None),
             auth_lock: AsyncMutex::new(()),
-            recommendations_cache: Mutex::new(read_recommendations_cache(
-                &recommendations_cache_path,
-            )),
-            recommendations_cache_path,
-            pack_cache: Mutex::new(read_pack_cache(&pack_cache_path)),
-            pack_cache_path,
         })
     }
 
     pub fn status(&self) -> CommandResult<AuthStatus> {
         let identity = self.identity()?;
-        let connected = identity
+        let connected = self
+            .access_token
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用"))?
             .as_ref()
-            .and_then(|value| value.expires_at)
-            .is_some_and(|expiry| expiry > Utc::now())
-            && read_secret(ACCESS_TOKEN_ENTRY)?.is_some();
+            .is_some_and(|token| token.expires_at > Utc::now() + Duration::seconds(10));
         Ok(AuthStatus {
             has_identity: identity.is_some(),
             connected,
@@ -127,67 +110,85 @@ impl BeatmapHubService {
         })
     }
 
-    pub async fn create_profile(
+    pub async fn bootstrap(
         &self,
-        display_name: String,
-        device_name: String,
+        claimed_user_id: u64,
+        claimed_username: String,
     ) -> CommandResult<AuthStatus> {
-        validate_name(&display_name, "显示名")?;
-        validate_name(&device_name, "设备名")?;
-        let signing = SigningKey::generate(&mut OsRng);
+        let _guard = self.auth_lock.lock().await;
+        let username = claimed_username.trim().to_string();
+        validate_name(&username, "osu 用户名")?;
+        let signing = load_or_generate_signing_key()?;
         let public_key = URL_SAFE_NO_PAD.encode(signing.verifying_key().as_bytes());
-        let message = handshake_message(&public_key, display_name.trim(), device_name.trim());
-        let signature = URL_SAFE_NO_PAD.encode(signing.sign(message.as_bytes()).to_bytes());
-        let session: SessionResponse = self
+        let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let challenge: ChallengeResponse = self
             .request_json(
                 Method::POST,
-                "/auth/handshake",
-                Some(json!({
-                    "public_key": public_key, "display_name": display_name.trim(),
-                    "device_name": device_name.trim(), "signature": signature,
-                })),
+                "/auth/challenge",
+                Some(json!({ "public_key": public_key })),
                 None,
             )
             .await?;
-        self.commit_identity(signing, public_key, session)?;
-        self.status()
-    }
-
-    pub async fn link_device(
-        &self,
-        link_token: String,
-        device_name: String,
-    ) -> CommandResult<AuthStatus> {
-        validate_name(&device_name, "设备名")?;
-        if !is_token(&link_token) {
-            return Err(CommandError::new("INVALID_DEVICE_LINK", "链接码格式无效"));
-        }
-        let signing = SigningKey::generate(&mut OsRng);
-        let public_key = URL_SAFE_NO_PAD.encode(signing.verifying_key().as_bytes());
-        let message = device_link_message(link_token.trim(), &public_key, device_name.trim());
+        let message = canonical_auth_message(
+            &challenge.challenge_id,
+            &public_key,
+            claimed_user_id,
+            &username,
+            &timestamp,
+        );
         let signature = URL_SAFE_NO_PAD.encode(signing.sign(message.as_bytes()).to_bytes());
-        let session: SessionResponse = self
-            .request_json(
-                Method::POST,
-                "/auth/devices/link",
-                Some(json!({
-                    "link_token": link_token.trim(), "public_key": public_key,
-                    "device_name": device_name.trim(), "signature": signature,
-                })),
-                None,
-            )
+        let response: BootstrapResponse = self
+            .request_json(Method::POST, "/auth/bootstrap", Some(json!({
+                "challenge_id": challenge.challenge_id,
+                "public_key": public_key,
+                "signature": signature,
+                "claimed_osu_user_id": claimed_user_id.to_string(),
+                "claimed_username": username,
+                "opp_version": env!("CARGO_PKG_VERSION"),
+                "device_metadata": { "device_name": default_device_name().unwrap_or_else(|| "OPP Desktop".into()), "platform": std::env::consts::OS },
+                "timestamp": timestamp,
+            })), None)
             .await?;
-        self.commit_identity(signing, public_key, session)?;
+        self.store_token(response.access_token, response.expires_in)?;
+        self.replace_identity(Some(IdentityMetadata {
+            public_key,
+            user_id: response.identity.claimed_osu_user_id,
+            device_id: response.device.id,
+            display_name: response.identity.claimed_username,
+            device_name: default_device_name().unwrap_or_else(|| "OPP Desktop".into()),
+            expires_at: Some(Utc::now() + Duration::seconds(response.expires_in as i64)),
+        }))?;
+        *self
+            .bootstrap_claims
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 状态不可用"))? =
+            Some(BootstrapClaims {
+                user_id: claimed_user_id.to_string(),
+                username,
+            });
         self.status()
     }
 
-    pub async fn login(&self) -> CommandResult<AuthStatus> {
-        let _ = self.ensure_session(true).await?;
-        self.status()
+    pub async fn reconnect(
+        &self,
+        claimed_user_id: u64,
+        claimed_username: String,
+    ) -> CommandResult<AuthStatus> {
+        let _ = delete_secret(PRIVATE_KEY_ENTRY);
+        self.replace_identity(None)?;
+        *self
+            .access_token
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用"))? = None;
+        *self
+            .bootstrap_claims
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 状态不可用"))? = None;
+        self.bootstrap(claimed_user_id, claimed_username).await
     }
 
     pub async fn logout(&self) -> CommandResult<()> {
-        if let Some(token) = read_secret(ACCESS_TOKEN_ENTRY)? {
+        if let Some(token) = self.current_token()? {
             let result = self
                 .request_empty(Method::POST, "/auth/logout", None, Some(&token))
                 .await;
@@ -197,17 +198,15 @@ impl BeatmapHubService {
                 return result;
             }
         }
-        delete_secret(ACCESS_TOKEN_ENTRY)?;
+        *self
+            .access_token
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用"))? = None;
         self.update_identity(|identity| identity.expires_at = None)
     }
 
     pub async fn profile(&self) -> CommandResult<Profile> {
         self.auth_json(Method::GET, "/auth/me", None).await
-    }
-
-    pub async fn create_device_link(&self) -> CommandResult<LinkTokenResponse> {
-        self.auth_json(Method::POST, "/auth/device-links", None)
-            .await
     }
 
     pub async fn revoke_device(&self, device_id: &str) -> CommandResult<()> {
@@ -217,179 +216,30 @@ impl BeatmapHubService {
 
     pub async fn get_pack(&self, share_id: &str) -> CommandResult<Pack> {
         let id = normalize_share_id(share_id)?;
-        if self.identity()?.is_some() {
+        if self.current_token()?.is_some() {
             self.auth_json(Method::GET, &format!("/packs/{id}"), None)
                 .await
         } else {
-            self.get_anonymous_pack(&id).await
+            self.request_json(Method::GET, &format!("/packs/{id}"), None, None)
+                .await
         }
     }
 
-    async fn get_anonymous_pack(&self, id: &str) -> CommandResult<Pack> {
-        let cached = self.cached_pack(id)?;
-        // The hash endpoint is intentionally checked first.  It avoids downloading
-        // the full pack (and its viewer-independent metadata) when our local copy
-        // still represents the same ordered beatmapset manifest.
-        let mut hash_request = self.client.get(format!("{BASE_URL}/packs/{id}/hash"));
-        if let Some(cache) = &cached {
-            hash_request =
-                hash_request.header(IF_NONE_MATCH, format!("\"{}\"", cache.manifest_hash));
-        }
-        let hash_response = hash_request.send().await.map_err(|error| {
-            CommandError::network(format!(
-                "无法连接 BeatmapHub：{}",
-                reqwest_error_details(&error)
-            ))
-        });
-        let hash_response = match hash_response {
-            Ok(response) => response,
-            Err(error) => return cached.map(|cache| cache.pack).ok_or(error),
-        };
-        if hash_response.status() == StatusCode::NOT_MODIFIED {
-            return cached.map(|cache| cache.pack).ok_or_else(|| {
-                CommandError::new("HUB_CACHE_ERROR", "服务器返回了无对应内容的缓存验证结果")
-            });
-        }
-        if !hash_response.status().is_success() {
-            return Err(response_error(hash_response).await);
-        }
-        #[derive(serde::Deserialize)]
-        struct ManifestResponse {
-            manifest_hash: String,
-        }
-        let remote_manifest_hash = hash_response
-            .json::<ManifestResponse>()
-            .await
-            .map_err(|error| {
-                CommandError::new(
-                    "INVALID_HUB_RESPONSE",
-                    format!("BeatmapHub hash 响应格式无效：{error}"),
-                )
-            })?
-            .manifest_hash;
-        if let Some(cache) = cached
-            .as_ref()
-            .filter(|cache| cache.manifest_hash == remote_manifest_hash)
-        {
-            return Ok(cache.pack.clone());
-        }
-
-        let mut request = self.client.get(format!("{BASE_URL}/packs/{id}"));
-        if let Some(cache) = &cached {
-            request = request.header(IF_NONE_MATCH, &cache.etag);
-        }
-        let response = request.send().await.map_err(|error| {
-            CommandError::network(format!(
-                "无法连接 BeatmapHub：{}",
-                reqwest_error_details(&error)
-            ))
-        });
-        let response = match response {
-            Ok(response) => response,
-            Err(error) => return cached.map(|cache| cache.pack).ok_or(error),
-        };
-        if response.status() == StatusCode::NOT_MODIFIED {
-            return cached.map(|cache| cache.pack).ok_or_else(|| {
-                CommandError::new("HUB_CACHE_ERROR", "服务器返回了无对应内容的缓存验证结果")
-            });
-        }
-        if !response.status().is_success() {
-            return Err(response_error(response).await);
-        }
-
-        let etag = response
-            .headers()
-            .get(ETAG)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
-        let manifest_hash = response
-            .headers()
-            .get("x-beatmap-manifest-hash")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
-        let pack: Pack = response.json().await.map_err(|error| {
-            CommandError::new(
-                "INVALID_HUB_RESPONSE",
-                format!("BeatmapHub 响应格式无效：{error}"),
-            )
-        })?;
-        if pack.manifest_hash != remote_manifest_hash {
-            return Err(CommandError::new(
-                "HUB_CACHE_ERROR",
-                "BeatmapHub 返回的曲包 hash 前后不一致",
-            ));
-        }
-        if let (Some(etag), Some(manifest_hash)) = (etag, manifest_hash)
-            && manifest_hash == pack.manifest_hash
-        {
-            self.store_cached_pack(
-                id,
-                CachedPack {
-                    etag,
-                    manifest_hash,
-                    cached_at: Utc::now(),
-                    pack: pack.clone(),
-                },
-            );
-        }
-        Ok(pack)
-    }
-
-    pub async fn recommendations(
-        &self,
-        limit: u8,
-        force_refresh: bool,
-    ) -> CommandResult<Vec<Pack>> {
-        let limit = limit.clamp(1, 50);
-        if !force_refresh {
-            let cached = self
-                .recommendations_cache
-                .lock()
-                .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))?;
-            if let Some(cache) = cached.as_ref() {
-                return Ok(cache.packs.iter().take(limit as usize).cloned().collect());
-            }
-        }
+    pub async fn recommendations(&self, limit: u8) -> CommandResult<Vec<Pack>> {
         #[derive(serde::Deserialize)]
         struct RecommendationResponse {
             packs: Vec<Pack>,
         }
-        let result: RecommendationResponse = match self
+        let limit = limit.clamp(1, 50);
+        let result: RecommendationResponse = self
             .request_json(
                 Method::GET,
                 &format!("/packs/recommendations?limit={limit}"),
                 None,
                 None,
             )
-            .await
-        {
-            Ok(value) => value,
-            Err(error) => {
-                let cached = self
-                    .recommendations_cache
-                    .lock()
-                    .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))?;
-                if let Some(cache) = cached.as_ref() {
-                    return Ok(cache.packs.iter().take(limit as usize).cloned().collect());
-                }
-                return Err(error);
-            }
-        };
-        let cache = RecommendationsCache {
-            updated_at: Utc::now(),
-            packs: result.packs,
-        };
-        fs::write(
-            &self.recommendations_cache_path,
-            serde_json::to_vec(&cache)?,
-        )?;
-        let packs = cache.packs.iter().take(limit as usize).cloned().collect();
-        *self
-            .recommendations_cache
-            .lock()
-            .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))? =
-            Some(cache);
-        Ok(packs)
+            .await?;
+        Ok(result.packs)
     }
 
     pub async fn search(&self, query: &str, limit: u8) -> CommandResult<Vec<Pack>> {
@@ -399,7 +249,7 @@ impl BeatmapHubService {
         }
         let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
         let path = format!("/packs/search?q={encoded}&limit={}", limit.clamp(1, 50));
-        let result: PackSearchResponse = if self.identity()?.is_some() {
+        let result: PackSearchResponse = if self.current_token()?.is_some() {
             self.auth_json(Method::GET, &path, None).await?
         } else {
             self.request_json(Method::GET, &path, None, None).await?
@@ -552,7 +402,7 @@ impl BeatmapHubService {
 
     pub async fn comments(&self, share_id: &str, limit: u8) -> CommandResult<Vec<PackComment>> {
         let id = normalize_share_id(share_id)?;
-        let response: PackCommentsResponse = if self.identity()?.is_some() {
+        let response: PackCommentsResponse = if self.current_token()?.is_some() {
             self.auth_json(
                 Method::GET,
                 &format!("/packs/{id}/comments?limit={}", limit.clamp(1, 100)),
@@ -603,15 +453,19 @@ impl BeatmapHubService {
         }
         self.auth_json(
             Method::PATCH,
-            &format!("/comments/{comment_id}"),
+            &format!("/pack-comments/{comment_id}"),
             Some(json!({"content": content.trim()})),
         )
         .await
     }
 
     pub async fn delete_comment(&self, comment_id: &str) -> CommandResult<()> {
-        self.auth_empty(Method::DELETE, &format!("/comments/{comment_id}"), None)
-            .await
+        self.auth_empty(
+            Method::DELETE,
+            &format!("/pack-comments/{comment_id}"),
+            None,
+        )
+        .await
     }
 
     pub async fn import_pack(
@@ -669,88 +523,87 @@ impl BeatmapHubService {
         })
     }
 
-    async fn ensure_session(&self, force: bool) -> CommandResult<String> {
-        let _guard = self.auth_lock.lock().await;
-        if !force {
-            let current = self.identity()?.ok_or_else(|| {
-                CommandError::new("HUB_IDENTITY_REQUIRED", "请先创建或链接 BeatmapHub 档案")
-            })?;
-            if current
-                .expires_at
-                .is_some_and(|expiry| expiry > Utc::now() + Duration::seconds(60))
-                && let Some(token) = read_secret(ACCESS_TOKEN_ENTRY)?
-            {
-                return Ok(token);
-            }
-        }
-        self.challenge_login(true).await
+    fn current_token(&self) -> CommandResult<Option<String>> {
+        let token = self
+            .access_token
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用"))?
+            .as_ref()
+            .filter(|token| token.expires_at > Utc::now() + Duration::seconds(10))
+            .map(|token| token.value.clone());
+        Ok(token)
     }
 
-    async fn challenge_login(&self, retry_invalid: bool) -> CommandResult<String> {
-        let identity = self.identity()?.ok_or_else(|| {
-            CommandError::new("HUB_IDENTITY_REQUIRED", "请先创建或链接 BeatmapHub 档案")
+    fn store_token(&self, value: String, expires_in: u64) -> CommandResult<()> {
+        *self
+            .access_token
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用"))? =
+            Some(AccessToken {
+                value,
+                expires_at: Utc::now() + Duration::seconds(expires_in as i64),
+            });
+        Ok(())
+    }
+
+    async fn ensure_session(&self, force: bool) -> CommandResult<String> {
+        let _guard = self.auth_lock.lock().await;
+        if !force && let Some(token) = self.current_token()? {
+            return Ok(token);
+        }
+        if !force
+            && self.has_expired_token()?
+            && self.identity()?.is_some()
+            && let Ok(token) = self.refresh_session().await
+        {
+            return Ok(token);
+        }
+        let claims = self
+            .bootstrap_claims
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 状态不可用"))?
+            .clone()
+            .ok_or_else(|| CommandError::new("HUB_AUTH_REQUIRED", "请先完成 osu! 登录"))?;
+        drop(_guard);
+        let user_id = claims.user_id.parse::<u64>().map_err(|_| {
+            CommandError::new("HUB_AUTH_REQUIRED", "PackHub 用户身份无效，请重新连接")
         })?;
-        let challenge: ChallengeResponse = self
+        self.bootstrap(user_id, claims.username).await?;
+        self.current_token()?
+            .ok_or_else(|| CommandError::new("HUB_AUTH_REQUIRED", "BeatmapHub 会话不可用"))
+    }
+
+    fn has_expired_token(&self) -> CommandResult<bool> {
+        Ok(self
+            .access_token
+            .lock()
+            .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用"))?
+            .as_ref()
+            .is_some())
+    }
+
+    async fn refresh_session(&self) -> CommandResult<String> {
+        let identity = self
+            .identity()?
+            .ok_or_else(|| CommandError::new("HUB_AUTH_REQUIRED", "BeatmapHub 身份不存在"))?;
+        let signing = load_or_generate_signing_key()?;
+        let nonce: RefreshNonceResponse = self
             .request_json(
                 Method::POST,
-                "/auth/challenge",
+                "/auth/refresh/nonce",
                 Some(json!({ "public_key": identity.public_key })),
                 None,
             )
             .await?;
-        let message = URL_SAFE_NO_PAD
-            .decode(&challenge.message)
-            .map_err(|_| CommandError::new("INVALID_CHALLENGE", "服务端 Challenge 编码无效"))?;
-        let signing = load_signing_key()?;
-        let signature = URL_SAFE_NO_PAD.encode(signing.sign(&message).to_bytes());
-        let verified = self
-            .request_json::<SessionResponse>(
-                Method::POST,
-                "/auth/verify",
-                Some(json!({
-                    "challenge_id": challenge.challenge_id, "signature": signature,
-                })),
-                None,
-            )
-            .await;
-        match verified {
-            Ok(session) => {
-                write_secret(ACCESS_TOKEN_ENTRY, &session.access_token)?;
-                self.update_identity(|value| {
-                    value.user_id = session.user.id;
-                    value.device_id = session.device.id;
-                    value.display_name = session.user.display_name;
-                    value.device_name = session.device.device_name;
-                    value.expires_at = Some(session.expires_at);
-                })?;
-                Ok(session.access_token)
-            }
-            Err(error) if error.code == "INVALID_CHALLENGE" && retry_invalid => {
-                Box::pin(self.challenge_login(false)).await
-            }
-            Err(error) => Err(error),
-        }
-    }
-
-    fn commit_identity(
-        &self,
-        signing: SigningKey,
-        public_key: String,
-        session: SessionResponse,
-    ) -> CommandResult<()> {
-        write_secret(
-            PRIVATE_KEY_ENTRY,
-            &URL_SAFE_NO_PAD.encode(signing.to_bytes()),
-        )?;
-        write_secret(ACCESS_TOKEN_ENTRY, &session.access_token)?;
-        self.replace_identity(Some(IdentityMetadata {
-            public_key,
-            user_id: session.user.id,
-            device_id: session.device.id,
-            display_name: session.user.display_name,
-            device_name: session.device.device_name,
-            expires_at: Some(session.expires_at),
-        }))
+        let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let message = format!(
+            "packhub-refresh-v2\n{}\n{}\n{}",
+            nonce.nonce, identity.public_key, timestamp
+        );
+        let signature = URL_SAFE_NO_PAD.encode(signing.sign(message.as_bytes()).to_bytes());
+        let response: RefreshResponse = self.request_json(Method::POST, "/auth/refresh", Some(json!({ "public_key": identity.public_key, "nonce": nonce.nonce, "signature": signature, "timestamp": timestamp })), None).await?;
+        self.store_token(response.access_token.clone(), response.expires_in)?;
+        Ok(response.access_token)
     }
 
     fn identity(&self) -> CommandResult<Option<IdentityMetadata>> {
@@ -777,33 +630,6 @@ impl BeatmapHubService {
             .map_err(|_| CommandError::new("HUB_STATE_ERROR", "BeatmapHub 身份状态不可用"))? =
             value;
         Ok(())
-    }
-
-    fn cached_pack(&self, id: &str) -> CommandResult<Option<CachedPack>> {
-        self.pack_cache
-            .lock()
-            .map(|cache| {
-                cache
-                    .entries
-                    .get(id)
-                    .filter(|entry| valid_cached_pack(entry))
-                    .cloned()
-            })
-            .map_err(|_| CommandError::new("HUB_CACHE_ERROR", "BeatmapHub 缓存不可用"))
-    }
-
-    // Cache persistence is best-effort: a read-only cache directory must not prevent opening a pack.
-    fn store_cached_pack(&self, id: &str, entry: CachedPack) {
-        let snapshot = match self.pack_cache.lock() {
-            Ok(mut cache) => {
-                cache.entries.insert(id.to_string(), entry);
-                cache.clone()
-            }
-            Err(_) => return,
-        };
-        if let Ok(bytes) = serde_json::to_vec(&snapshot) {
-            let _ = atomic_write(&self.pack_cache_path, &bytes);
-        }
     }
 
     async fn request_json<T: DeserializeOwned>(
@@ -843,10 +669,18 @@ impl BeatmapHubService {
             .request_json(method.clone(), path, body.clone(), Some(&token))
             .await
         {
-            Err(error) if error.code == "INVALID_SESSION" => {
-                delete_secret(ACCESS_TOKEN_ENTRY)?;
+            Err(error) if matches!(error.code.as_str(), "INVALID_SESSION" | "INVALID_TOKEN") => {
+                *self.access_token.lock().map_err(|_| {
+                    CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用")
+                })? = None;
                 let token = self.ensure_session(true).await?;
                 self.request_json(method, path, body, Some(&token)).await
+            }
+            Err(error) if error.code == "DEVICE_REVOKED" => {
+                *self.access_token.lock().map_err(|_| {
+                    CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用")
+                })? = None;
+                Err(error)
             }
             result => result,
         }
@@ -863,10 +697,18 @@ impl BeatmapHubService {
             .request_empty(method.clone(), path, body.clone(), Some(&token))
             .await
         {
-            Err(error) if error.code == "INVALID_SESSION" => {
-                delete_secret(ACCESS_TOKEN_ENTRY)?;
+            Err(error) if matches!(error.code.as_str(), "INVALID_SESSION" | "INVALID_TOKEN") => {
+                *self.access_token.lock().map_err(|_| {
+                    CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用")
+                })? = None;
                 let token = self.ensure_session(true).await?;
                 self.request_empty(method, path, body, Some(&token)).await
+            }
+            Err(error) if error.code == "DEVICE_REVOKED" => {
+                *self.access_token.lock().map_err(|_| {
+                    CommandError::new("HUB_STATE_ERROR", "BeatmapHub 会话状态不可用")
+                })? = None;
+                Err(error)
             }
             result => result,
         }
@@ -879,55 +721,34 @@ impl BeatmapHubService {
         body: Option<Value>,
         token: Option<&str>,
     ) -> CommandResult<Response> {
-        let mut request = self.client.request(method, format!("{BASE_URL}{path}"));
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
+        let span = crate::infrastructure::logging::global().map(|logger| {
+            logger.operation(
+                "community_vps",
+                format!("{} {}", method, path.split('?').next().unwrap_or(path)),
+            )
+        });
+        let result = async {
+            let mut request = self.client.request(method, format!("{BASE_URL}{path}"));
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            if let Some(body) = body {
+                request = request.json(&body);
+            }
+            let response = request.send().await.map_err(|error| {
+                CommandError::network(format!(
+                    "无法连接 BeatmapHub：{}",
+                    reqwest_error_details(&error)
+                ))
+            })?;
+            if response.status().is_success() {
+                return Ok(response);
+            }
+            Err(response_error(response).await)
         }
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-        let response = request.send().await.map_err(|error| {
-            CommandError::network(format!(
-                "无法连接 BeatmapHub：{}",
-                reqwest_error_details(&error)
-            ))
-        })?;
-        if response.status().is_success() {
-            return Ok(response);
-        }
-        Err(response_error(response).await)
+        .await;
+        crate::infrastructure::logging::finish_span(span, result)
     }
-}
-
-fn read_recommendations_cache(path: &Path) -> Option<RecommendationsCache> {
-    let cache = serde_json::from_slice::<RecommendationsCache>(&fs::read(path).ok()?).ok()?;
-    let valid = cache.packs.iter().all(|pack| {
-        !pack.id.trim().is_empty()
-            && !pack.title.trim().is_empty()
-            && !pack.beatmapset_ids.is_empty()
-            && cache.updated_at <= Utc::now() + Duration::minutes(5)
-            && cache.updated_at >= Utc::now() - Duration::days(30)
-    });
-    valid.then_some(cache)
-}
-
-fn read_pack_cache(path: &Path) -> PackCache {
-    let mut cache = fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<PackCache>(&bytes).ok())
-        .unwrap_or_default();
-    cache.entries.retain(|_, entry| valid_cached_pack(entry));
-    cache
-}
-
-fn valid_cached_pack(entry: &CachedPack) -> bool {
-    !entry.etag.trim().is_empty()
-        && !entry.manifest_hash.trim().is_empty()
-        && entry.manifest_hash == entry.pack.manifest_hash
-        && !entry.pack.id.trim().is_empty()
-        && !entry.pack.beatmapset_ids.is_empty()
-        && entry.cached_at <= Utc::now() + Duration::minutes(5)
-        && entry.cached_at >= Utc::now() - Duration::days(30)
 }
 
 async fn response_error(response: Response) -> CommandError {
@@ -947,6 +768,25 @@ async fn response_error(response: Response) -> CommandError {
             )
         });
     error.request_id(request_id)
+}
+
+impl crate::infrastructure::community_client::CommunityClient for BeatmapHubService {
+    async fn public_get<T: DeserializeOwned>(&self, path: &str) -> CommandResult<T> {
+        self.request_json(Method::GET, path, None, None).await
+    }
+
+    async fn authenticated_json<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> CommandResult<T> {
+        self.auth_json(method, path, body).await
+    }
+
+    async fn authenticated_delete(&self, path: &str) -> CommandResult<()> {
+        self.auth_empty(Method::DELETE, path, None).await
+    }
 }
 
 fn placeholder(set_id: i32, title: &str, artist: &str, creator: &str) -> CollectionCandidate {
@@ -1042,12 +882,17 @@ fn normalize_http_proxy(value: &str) -> String {
     }
 }
 
-fn handshake_message(public_key: &str, display_name: &str, device_name: &str) -> String {
-    format!("OPP_BPH_HANDSHAKE_V1\n{public_key}\n{display_name}\n{device_name}")
-}
-
-fn device_link_message(link_token: &str, public_key: &str, device_name: &str) -> String {
-    format!("OPP_BPH_LINK_DEVICE_V1\n{link_token}\n{public_key}\n{device_name}")
+fn canonical_auth_message(
+    challenge_id: &str,
+    public_key: &str,
+    user_id: u64,
+    username: &str,
+    timestamp: &str,
+) -> String {
+    format!(
+        "packhub-auth-v2\n{challenge_id}\n{user_id}\n{username}\n{}\n{timestamp}\n{public_key}",
+        env!("CARGO_PKG_VERSION")
+    )
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> CommandResult<()> {
@@ -1124,13 +969,6 @@ fn validate_title_description(title: &str, description: &str) -> CommandResult<(
     Ok(())
 }
 
-fn is_token(value: &str) -> bool {
-    value.len() == 43
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-}
-
 fn entry(name: &str) -> CommandResult<Entry> {
     Entry::new(SERVICE, name).map_err(keyring_error)
 }
@@ -1160,10 +998,15 @@ fn keyring_error(error: KeyringError) -> CommandError {
         format!("系统安全存储不可用：{error}"),
     )
 }
-fn load_signing_key() -> CommandResult<SigningKey> {
-    let encoded = read_secret(PRIVATE_KEY_ENTRY)?.ok_or_else(|| {
-        CommandError::new("HUB_KEY_MISSING", "BeatmapHub 私钥不存在，请重新链接设备")
-    })?;
+fn load_or_generate_signing_key() -> CommandResult<SigningKey> {
+    let Some(encoded) = read_secret(PRIVATE_KEY_ENTRY)? else {
+        let signing = SigningKey::generate(&mut OsRng);
+        write_secret(
+            PRIVATE_KEY_ENTRY,
+            &URL_SAFE_NO_PAD.encode(signing.to_bytes()),
+        )?;
+        return Ok(signing);
+    };
     let bytes = URL_SAFE_NO_PAD
         .decode(encoded)
         .map_err(|_| CommandError::new("HUB_KEY_INVALID", "BeatmapHub 私钥编码无效"))?;
@@ -1178,10 +1021,7 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use ed25519_dalek::{Signer, SigningKey};
 
-    use super::{
-        CachedPack, Pack, device_link_message, handshake_message, normalize_share_id,
-        valid_cached_pack,
-    };
+    use super::{canonical_auth_message, normalize_share_id};
 
     #[test]
     fn normalizes_share_ids() {
@@ -1190,14 +1030,19 @@ mod tests {
     }
 
     #[test]
-    fn protocol_messages_use_lf_without_trailing_newline() {
+    fn bootstrap_message_uses_documented_canonical_fields() {
         assert_eq!(
-            handshake_message("pub", "Player", "PC"),
-            "OPP_BPH_HANDSHAKE_V1\npub\nPlayer\nPC"
-        );
-        assert_eq!(
-            device_link_message("token", "pub", "Laptop"),
-            "OPP_BPH_LINK_DEVICE_V1\ntoken\npub\nLaptop"
+            canonical_auth_message(
+                "challenge",
+                "pub",
+                123,
+                "Player",
+                "2026-09-26T10:00:00.000Z"
+            ),
+            format!(
+                "packhub-auth-v2\nchallenge\n123\nPlayer\n{}\n2026-09-26T10:00:00.000Z\npub",
+                env!("CARGO_PKG_VERSION")
+            )
         );
     }
 
@@ -1209,39 +1054,9 @@ mod tests {
         assert!(!encoded.contains('='));
     }
 
-    #[test]
-    fn accepts_only_cache_entries_bound_to_the_pack_manifest_hash() {
-        let pack: Pack = serde_json::from_value(serde_json::json!({
-            "id": "7K3N9A",
-            "title": "Cache test",
-            "description": "",
-            "owner": { "id": "owner", "display_name": "Owner" },
-            "beatmapset_ids": [123],
-            "manifest_hash": "manifest-a",
-            "rating": { "average": null, "count": 0 },
-            "viewer": null,
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z"
-        }))
-        .unwrap();
-        let cached = CachedPack {
-            etag: "\"2026-01-01T00:00:00Z:manifest-a\"".into(),
-            manifest_hash: "manifest-a".into(),
-            cached_at: chrono::Utc::now(),
-            pack,
-        };
-        assert!(valid_cached_pack(&cached));
-
-        let mismatched = CachedPack {
-            manifest_hash: "manifest-b".into(),
-            ..cached
-        };
-        assert!(!valid_cached_pack(&mismatched));
-    }
-
     #[tokio::test]
     #[ignore = "live production transport check"]
-    async fn production_worker_is_reachable_with_hub_transport() {
+    async fn staging_packhub_is_reachable_with_hub_transport() {
         let proxy_url = super::loopback_proxy().expect("local proxy on port 7890 is required");
         let client = reqwest::Client::builder()
             .no_proxy()
@@ -1253,15 +1068,14 @@ mod tests {
         let response = client.get(super::BASE_URL).send().await.unwrap();
         assert!(response.status().is_success());
 
-        let handshake = client
-            .post(format!("{}/auth/handshake", super::BASE_URL))
-            .json(&serde_json::json!({}))
+        let challenge = client
+            .post(format!("{}/auth/challenge", super::BASE_URL))
+            .json(
+                &serde_json::json!({ "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }),
+            )
             .send()
             .await
             .unwrap();
-        assert_eq!(
-            handshake.status(),
-            reqwest::StatusCode::UNPROCESSABLE_ENTITY
-        );
+        assert!(challenge.status().is_success() || challenge.status().is_client_error());
     }
 }

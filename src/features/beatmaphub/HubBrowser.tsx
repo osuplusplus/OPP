@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Layers3, RefreshCw, Search, Star, X } from "lucide-react";
 import { Button } from "../../shared/components/ui";
 import type { BeatmapHubPack } from "../../shared/types/osu";
-import { beatmapHubRecommendationsKey, hubApi, useBeatmapHubRecommendations, useHubSearch } from "./api";
+import { useBeatmapHubRecommendations, useHubSearch } from "./api";
 import { hubError, packCover, parseHubInput } from "./model";
 
 export function HubCover({ ids, className = "" }: { ids: number[]; className?: string }) {
@@ -27,7 +26,6 @@ function PackCard({ pack, onOpen }: { pack: BeatmapHubPack; onOpen: (id: string)
   </button>;
 }
 export function HubBrowser({ onOpen, fallbackQuery, onClearFallback }: { onOpen: (id: string, fallback?: string) => void; fallbackQuery: string | null; onClearFallback: () => void }) {
-  const client = useQueryClient();
   const [text, setText] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [validation, setValidation] = useState<string | null>(null);
@@ -35,7 +33,6 @@ export function HubBrowser({ onOpen, fallbackQuery, onClearFallback }: { onOpen:
   const inputText = fallbackQuery ?? text;
   const recommendations = useBeatmapHubRecommendations();
   const search = useHubSearch(activeQuery);
-  const refresh = useMutation({ mutationFn: hubApi.refreshRecommendations, onSuccess: (packs) => client.setQueryData(beatmapHubRecommendationsKey, packs) });
   const result = activeQuery ? search : recommendations;
   const packs = (result.data ?? []).filter((pack) => !pack.is_private);
   const submit = () => {
@@ -54,8 +51,7 @@ export function HubBrowser({ onOpen, fallbackQuery, onClearFallback }: { onOpen:
       <Button type="submit" variant="primary">搜索 / 打开</Button>
     </form>
     {validation ? <p className="hub-error" role="alert">{validation}</p> : null}
-    <div className="hub-section-heading"><div><h2>{activeQuery ? `“${activeQuery}”的搜索结果` : "社区推荐"}</h2><p>{activeQuery ? `${packs.length} 个结果` : "来自社区的练习灵感与精选清单"}</p></div><Button aria-label={activeQuery ? "刷新搜索" : "刷新推荐"} size="icon" loading={result.isFetching || refresh.isPending} onClick={() => { if (activeQuery) void search.refetch(); else refresh.mutate(); }}><RefreshCw size={16} /></Button></div>
-    {refresh.error ? <p className="hub-error" role="alert">刷新失败：{hubError(refresh.error)}</p> : null}
+    <div className="hub-section-heading"><div><h2>{activeQuery ? `“${activeQuery}”的搜索结果` : "社区推荐"}</h2><p>{activeQuery ? `${packs.length} 个结果` : "来自社区的练习灵感与精选清单"}</p></div><Button aria-label={activeQuery ? "刷新搜索" : "刷新推荐"} size="icon" loading={result.isFetching} onClick={() => void result.refetch()}><RefreshCw size={16} /></Button></div>
     {result.isPending ? <div className="hub-grid" aria-label="正在加载曲包" aria-busy="true">{Array.from({ length: 6 }, (_, index) => <div className="hub-skeleton" key={index} />)}</div> : result.error ? <div className="hub-empty" role="alert"><h3>曲包暂时无法加载</h3><p>{hubError(result.error)}</p><Button onClick={() => void result.refetch()}>重新加载</Button></div> : !packs.length ? <div className="hub-empty"><Layers3 size={32} /><h3>{activeQuery ? "没有找到匹配的曲包" : "社区还没有公开曲包"}</h3><p>{activeQuery ? "试试其他关键词，也可以直接输入分享码。" : "你可以输入分享码，或发布自己的第一个曲包。"}</p></div> : <div className="hub-grid" data-page-guide-hub-results="true">{packs.map((pack) => <PackCard key={pack.id} pack={pack} onOpen={onOpen} />)}</div>}
   </section>;
 }

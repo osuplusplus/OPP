@@ -1,4 +1,5 @@
 import { measureCommand } from "./performance";
+import { communityPreview } from "./communityPreview";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -13,8 +14,8 @@ import type {
   FfmpegStatusInfo,
   AuthStatus,
   BeatmapHubAuthStatus,
+  CommunityPage, CommunityQuery, CommunityLobby, CommunityLobbyInput, CommunityTournament,
   BeatmapHubComment,
-  BeatmapHubDeviceLink,
   BeatmapHubImportResult,
   BeatmapHubPack,
   BeatmapHubRecommendation,
@@ -199,6 +200,8 @@ async function call<T>(
 }
 
 function browserPreviewValue<T>(command: string, args?: Record<string, unknown>): T | undefined {
+  const community = communityPreview(command, args);
+  if (community !== undefined) return community as T;
   if (command === "get_local_library_storage_status" || command === "migrate_local_library_database") return ["stable", "lazer"].map((client) => ({ client, storage: "unscanned", revision: null, entry_count: 0, beatmap_count: 0, error: null })) as T;
   if (command === "query_local_beatmap_presence") return (args?.ids as number[] ?? []).map((beatmap_id) => ({ beatmap_id, status: "unknown", clients: [] })) as T;
   if (command === "get_local_database_status" || command === "retry_local_database") return {
@@ -213,7 +216,6 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
   if (command === "get_local_artwork_sample") return [] as T;
   if (command === "get_pending_tournament_link" || command === "acknowledge_tournament_link") return null as T;
   if (command === "get_capabilities") return { os: "windows", display_gamma: true, file_association: true } as T;
-  if (command === "get_beatmaphub_auth_status") return { has_identity: false, connected: false, public_key: null, user_id: null, device_id: null, display_name: null, device_name: "Preview PC", expires_at: null } as T;
   if (command === "get_beatmaphub_recommendations") return [] as T;
   if (command === "list_collections" || command === "list_collection_summaries") return { folders: [], sources: [] } as T;
   if (command === "get_lazer_disk_usage") return { path: "C:\\osu!", total_size: 1610612736, unique_size: 536870912, file_count: 4096 } as T;
@@ -381,18 +383,22 @@ export const desktopApi = {
   openLogFile: (name: string) => call<void>("open_log_file", { name }),
   writeClientLog: (level: import("../types/osu").LogLevel, target: string, message: string) => writeLogRaw(level, target, message),
   getAuthStatus: () => call<AuthStatus>("get_auth_status"),
+  listCommunityTournaments: (query: CommunityQuery) => call<CommunityPage<CommunityTournament>>("list_community_tournaments", { query }),
+  getCommunityTournament: (id: string) => call<CommunityTournament>("get_community_tournament", { id }),
+  listCommunityLobbies: (query: CommunityQuery, mine = false) => call<CommunityPage<CommunityLobby>>("list_community_lobbies", { query, mine }),
+  getCommunityLobby: (id: string) => call<CommunityLobby>("get_community_lobby", { id }),
+  saveCommunityLobby: (input: CommunityLobbyInput, id: string | null = null) => call<CommunityLobby>("save_community_lobby", { id, input }),
+  closeCommunityLobby: (id: string) => call<CommunityLobby>("close_community_lobby", { id }),
+  deleteCommunityLobby: (id: string) => call<void>("delete_community_lobby", { id }),
   getBeatmapHubAuthStatus: () => call<BeatmapHubAuthStatus>("get_beatmaphub_auth_status"),
-  createBeatmapHubProfile: (displayName: string, deviceName: string) =>
-    call<BeatmapHubAuthStatus>("create_beatmaphub_profile", { displayName, deviceName }),
+  bootstrapBeatmapHub: () => call<BeatmapHubAuthStatus>("bootstrap_beatmaphub"),
+  reconnectBeatmapHub: () => call<BeatmapHubAuthStatus>("reconnect_beatmaphub"),
   loginBeatmapHub: () => call<BeatmapHubAuthStatus>("login_beatmaphub"),
-  linkBeatmapHubDevice: (linkToken: string, deviceName: string) =>
-    call<BeatmapHubAuthStatus>("link_beatmaphub_device", { linkToken, deviceName }),
   logoutBeatmapHub: () => call<void>("logout_beatmaphub"),
   getBeatmapHubProfile: () => call<BeatmapHubProfile>("get_beatmaphub_profile"),
-  createBeatmapHubDeviceLink: () => call<BeatmapHubDeviceLink>("create_beatmaphub_device_link"),
   revokeBeatmapHubDevice: (deviceId: string) => call<void>("revoke_beatmaphub_device", { deviceId }),
   getBeatmapHubPack: (shareId: string) => call<BeatmapHubPack>("get_beatmaphub_pack", { shareId }),
-  getBeatmapHubRecommendations: (limit = 20, forceRefresh = false) => call<BeatmapHubRecommendation[]>("get_beatmaphub_recommendations", { limit, forceRefresh }),
+  getBeatmapHubRecommendations: (limit = 20) => call<BeatmapHubRecommendation[]>("get_beatmaphub_recommendations", { limit }),
   searchBeatmapHubPacks: (query: string, limit = 20) => call<BeatmapHubRecommendation[]>("search_beatmaphub_packs", { query, limit }),
   previewBeatmapHubPack: (shareId: string) => call<BeatmapHubPackPreview>("preview_beatmaphub_pack", { shareId }),
   publishBeatmapHubPack: (folderId: string, title: string, description: string, isPrivate = false) =>
