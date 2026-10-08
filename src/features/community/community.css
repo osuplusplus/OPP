@@ -36,6 +36,7 @@
 .community-poster-detail .community-poster-placeholder { min-height: 180px; }
 .community-status { display: inline-flex; align-items: center; border-radius: 5px; padding: 3px 7px; background: var(--surface-interactive); color: var(--text-muted); font-size: 11px; }
 .community-status.status-registering, .community-status.status-ongoing { color: #34d399; background: #10b98115; }
+:root[data-theme-mode="light"] .community-status.status-registering, :root[data-theme-mode="light"] .community-status.status-ongoing { color: #047857; background: #10b98115; }
 .community-status.status-upcoming { color: var(--theme-primary-light); background: var(--theme-primary-muted); }
 .community-activity { color: var(--theme-primary-light); font-weight: 700; }
 .community-card-time, .community-time-range { display: flex; align-items: start; gap: 8px; font-size: 11px; line-height: 1.7; color: var(--text-muted); margin-top: 5px; }
