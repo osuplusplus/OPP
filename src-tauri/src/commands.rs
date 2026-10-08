@@ -35,6 +35,11 @@ pub(crate) use crate::{
             save_collection_record, set_collection_manager_path, write_lazer_collections,
             write_stable_collections,
         },
+        community::{
+            close_community_lobby, delete_community_lobby, get_community_lobby,
+            get_community_tournament, list_community_lobbies, list_community_tournaments,
+            save_community_lobby,
+        },
         danser::{
             cancel_danser_render, enqueue_danser_renders, get_danser_render_queue,
             get_danser_status, list_danser_profiles, open_danser_output, start_danser_render_queue,
@@ -131,6 +136,13 @@ pub(crate) fn exit_app(app: tauri::AppHandle) {
 macro_rules! handler {
     () => {
         tauri::generate_handler![
+            list_community_tournaments,
+            get_community_tournament,
+            list_community_lobbies,
+            get_community_lobby,
+            save_community_lobby,
+            close_community_lobby,
+            delete_community_lobby,
             get_collection_record,
             query_collection_browser,
             save_collection_record,
