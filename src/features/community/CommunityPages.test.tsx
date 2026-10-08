@@ -60,6 +60,33 @@ describe("community pages", () => {
     await userEvent.selectOptions(screen.getByLabelText("平台", { exact: true }), "romai");
     await waitFor(() => expect(api.listCommunityLobbies).toHaveBeenLastCalledWith(expect.objectContaining({ platform: "romai", status: "active" }), false));
   });
+  it("shows the partner tournament from the normal API with unpublished dates", async () => {
+    tournament = { ...tournament, title: "ASC 星域杯 S2 · Astracup", organizer: "AeCw · 星域杯赛事组", status: "upcoming", poster_url: "https://rino.ink/NewLogo/newLogo.svg", registration_url: "https://rino.ink/", registration_starts_at: null, registration_ends_at: null, starts_at: null, ends_at: null };
+    api.getCommunityTournament.mockResolvedValue(tournament);
+    api.listCommunityTournaments.mockResolvedValue({ items: [tournament], next_cursor: null, server_time: new Date().toISOString() });
+    renderPage("tournaments");
+    const card = await screen.findByRole("button", { name: "查看比赛 ASC 星域杯 S2 · Astracup" });
+    expect(within(card).getByText("报名时间待公布")).toBeVisible();
+    expect(within(card).getByText("比赛时间待公布")).toBeVisible();
+    expect(within(card).getByRole("img")).toHaveAttribute("src", "https://rino.ink/NewLogo/newLogo.svg");
+    await userEvent.click(card);
+    const dialog = await screen.findByRole("dialog", { name: tournament.title });
+    expect(await within(dialog).findByText(tournament.organizer)).toBeVisible();
+    expect(within(dialog).getAllByText("待公布")).toHaveLength(2);
+    expect(api.getCommunityTournament).toHaveBeenCalledWith(tournament.id);
+    await userEvent.click(within(dialog).getByRole("button", { name: "打开赛事页面" }));
+    expect(api.openExternal).toHaveBeenCalledWith("https://rino.ink/");
+  });
+  it("keeps server-filtered empty results empty without injecting a local example", async () => {
+    api.listCommunityTournaments.mockResolvedValue({ items: [], next_cursor: null, server_time: new Date().toISOString() });
+    renderPage("tournaments");
+    const search = screen.getByRole("textbox", { name: "搜索比赛" });
+    await userEvent.type(search, "Astracup");
+    await userEvent.click(screen.getByRole("button", { name: "搜索" }));
+    expect(await screen.findByText("暂时没有符合条件的信息")).toBeVisible();
+    expect(api.listCommunityTournaments).toHaveBeenLastCalledWith(expect.objectContaining({ q: "Astracup" }));
+    expect(screen.queryByRole("button", { name: /查看.*比赛/ })).not.toBeInTheDocument();
+  });
   it("retains the draft through identity connection without auto-publishing", async () => {
     api.loginBeatmapHub.mockImplementation(() => { api.getBeatmapHubAuthStatus.mockResolvedValue({ connected: true, device_id: "device", user_id: "12345" }); return Promise.resolve({ connected: true }); });
     renderPage("lobbies"); await screen.findByRole("button", { name: "查看约玩 Tonight MP" }); await fillDraft();

@@ -6,7 +6,7 @@ import { Button } from "../../shared/components/ui";
 import { COMMUNITY_GROUP_NUMBER } from "../../shared/constants/community";
 import { communityApi, useTournament, useTournaments } from "./api";
 import { CommunityFailure, DetailField, Feed, FilterSelect, Poster, TournamentCard } from "./components";
-import { activityTime, copyCommunityText, queryFromParams, rulesetLabels, statusLabels } from "./model";
+import { copyCommunityText, queryFromParams, rulesetLabels, statusLabels, tournamentTimeRange } from "./model";
 import "./community.css";
 
 export function TournamentsPage() {
@@ -27,12 +27,12 @@ export function TournamentsPage() {
       <Button size="icon" aria-label="刷新比赛" loading={list.isFetching && !list.isFetchingNextPage} onClick={() => void list.refetch()}><RefreshCw size={17} /></Button>
     </div>
     <Feed loading={list.isPending} error={list.error} empty={!items.length} retry={() => void list.refetch()} more={list.hasNextPage} loadingMore={list.isFetchingNextPage} loadMore={() => void list.fetchNextPage()}>{items.map((item) => <TournamentCard key={item.id} item={item} onOpen={(id, button) => { trigger.current = button; setLinkError(""); setSelection(id); }} />)}</Feed>
-    <AppDialog open={Boolean(selection)} onOpenChange={(open) => { if (!open) setSelection(null); }} title={detail.data?.title ?? "比赛详情"} description="比赛信息与报名方式" size="lg" onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }); }} footer={detail.data?.registration_url ? <Button onClick={() => void communityApi.openExternal(detail.data!.registration_url!).catch(() => setLinkError("无法打开报名链接，请重试。"))}><ExternalLink size={16} />打开报名链接</Button> : undefined}>
+    <AppDialog open={Boolean(selection)} onOpenChange={(open) => { if (!open) setSelection(null); }} title={detail.data?.title ?? "比赛详情"} description="比赛信息与报名方式" size="lg" onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }); }} footer={detail.data?.registration_url ? <Button onClick={() => void communityApi.openExternal(detail.data!.registration_url!).catch(() => setLinkError("无法打开赛事链接，请重试。"))}><ExternalLink size={16} />{detail.data.status === "registering" ? "打开报名链接" : "打开赛事页面"}</Button> : undefined}>
       {linkError ? <p role="alert" className="community-error">{linkError}</p> : null}
       {detail.isPending ? <p role="status">正在加载比赛详情…</p> : detail.error ? <CommunityFailure error={detail.error} retry={() => void detail.refetch()} /> : detail.data ? <div className="community-detail"><Poster key={detail.data.poster_url} url={detail.data.poster_url} title={detail.data.title} detail />
         <div className="community-tags"><span>{rulesetLabels[detail.data.ruleset]}</span><span className={`community-status status-${detail.data.status}`}>{statusLabels[detail.data.status]}</span></div>
-        <DetailField label="主办方">{detail.data.organizer}</DetailField><DetailField label="报名时间">{activityTime(detail.data.registration_starts_at)} — {activityTime(detail.data.registration_ends_at)}</DetailField>
-        <DetailField label="比赛时间">{activityTime(detail.data.starts_at)} — {activityTime(detail.data.ends_at)}</DetailField>
+        <DetailField label="主办方">{detail.data.organizer}</DetailField><DetailField label="报名时间">{tournamentTimeRange(detail.data.registration_starts_at, detail.data.registration_ends_at)}</DetailField>
+        <DetailField label="比赛时间">{tournamentTimeRange(detail.data.starts_at, detail.data.ends_at)}</DetailField>
         {detail.data.requirements ? <DetailField label="参赛要求"><p className="community-prose">{detail.data.requirements}</p></DetailField> : null}
         <DetailField label="比赛介绍"><p className="community-prose">{detail.data.description}</p></DetailField>
       </div> : null}

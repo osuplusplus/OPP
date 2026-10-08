@@ -1707,10 +1707,10 @@ export interface CommunityTournament {
   requirements: string;
   poster_url: string | null;
   registration_url: string | null;
-  registration_starts_at: string;
-  registration_ends_at: string;
-  starts_at: string;
-  ends_at: string;
+  registration_starts_at: string | null;
+  registration_ends_at: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
   status: TournamentStatus;
   created_at: string;
   updated_at: string;

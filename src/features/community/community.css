@@ -28,7 +28,7 @@
 .community-card h3 { font-size: 17px; line-height: 1.5; font-weight: 650; color: var(--text); overflow-wrap: anywhere; }
 .community-card-description { margin: 10px 0 17px; font-size: 13px; line-height: 1.8; color: var(--text-muted); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .community-poster { aspect-ratio: 16/9; overflow: hidden; background: var(--theme-primary-muted); }
-.community-poster img { width: 100%; height: 100%; object-fit: cover; }
+.community-poster img { width: 100%; height: 100%; object-fit: contain; }
 .community-poster-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--theme-primary-light); background: radial-gradient(ellipse at top right,var(--theme-primary-soft),transparent 70%); }
 .community-poster-placeholder span { font-size: 9px; font-weight: 700; letter-spacing: .16em; }
 .community-poster-detail { border-radius: 10px; aspect-ratio: auto; }

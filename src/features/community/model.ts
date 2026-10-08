@@ -7,6 +7,10 @@ export const statusLabels = { registering: "报名中", upcoming: "即将开始"
 export function activityTime(value: string) {
   return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", year: "numeric" });
 }
+export function tournamentTimeRange(start: string | null, end: string | null) {
+  if (!start && !end) return "待公布";
+  return `${start ? activityTime(start) : "待公布"} — ${end ? activityTime(end) : "待公布"}`;
+}
 export function communityError(error: unknown) {
   const value = error as { message?: string; code?: string } | null;
   if (value?.code === "INSUFFICIENT_SCOPE") return "当前身份没有操作权限。";
