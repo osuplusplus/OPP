@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { Ruleset } from "../../shared/types/osu";
 import type { CareerCalendar, CareerDayDetail, CareerStatus } from "../../shared/types/osu";
@@ -50,4 +50,24 @@ export function useCareerStatus() {
     queryFn: desktopApi.getCareerStatus,
     staleTime: 30_000,
   });
+}
+
+export function useCareerActions(ruleset: Ruleset) {
+  const queryClient = useQueryClient();
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["career-calendar"] }),
+      queryClient.invalidateQueries({ queryKey: ["career-day"] }),
+      queryClient.invalidateQueries({ queryKey: ["career-status"] }),
+    ]);
+  };
+  const capture = useMutation({
+    mutationFn: () => desktopApi.captureCareerSnapshot(ruleset, true),
+    onSettled: refresh,
+  });
+  const clear = useMutation({
+    mutationFn: () => desktopApi.clearCareerHistory(),
+    onSuccess: refresh,
+  });
+  return { capture, clear };
 }

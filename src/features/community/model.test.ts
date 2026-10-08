@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { draftInput, lobbyDraft, lobbyState, queryFromParams } from "./model";
+import { draftInput, lobbyDraft, lobbyState, queryFromParams, tournamentTimeRange } from "./model";
 import type { CommunityLobby } from "../../shared/types/osu";
 
 describe("community behavior", () => {
+  it("shows unpublished tournament dates without converting null to the Unix epoch", () => {
+    expect(tournamentTimeRange(null, null)).toBe("待公布");
+    expect(tournamentTimeRange("2026-11-01T12:00:00Z", null)).toMatch(/ — 待公布$/);
+    expect(tournamentTimeRange(null, "2026-11-01T12:00:00Z")).toMatch(/^待公布 — /);
+  });
   it("converts local form times to UTC and permits already-started activities", () => {
     const draft = { ...lobbyDraft(), title: " MP ", description: "一起玩", starts_at: "2026-10-08T18:00", ends_at: "2026-10-08T20:00" };
     const input = draftInput(draft, new Date("2026-10-08T19:00").getTime());

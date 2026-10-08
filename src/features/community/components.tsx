@@ -14,8 +14,8 @@ export function TournamentCard({ item, onOpen }: { item: CommunityTournament; on
     <Poster key={item.poster_url} url={item.poster_url} title={item.title} />
     <div className="community-card-body"><div className="community-card-meta"><span className={`community-status status-${item.status}`}>{statusLabels[item.status]}</span><span>{rulesetLabels[item.ruleset]}</span></div>
       <h3>{item.title}</h3><p className="community-card-description">{item.summary}</p>
-      <div className="community-card-time"><CalendarDays size={14} /><span>报名至 {activityTime(item.registration_ends_at)}</span></div>
-      <div className="community-card-time"><Clock3 size={14} /><span>{activityTime(item.starts_at)} 开始</span></div><p className="community-card-author">{item.organizer}</p>
+      <div className="community-card-time"><CalendarDays size={14} /><span>{item.registration_ends_at ? `报名至 ${activityTime(item.registration_ends_at)}` : "报名时间待公布"}</span></div>
+      <div className="community-card-time"><Clock3 size={14} /><span>{item.starts_at ? `${activityTime(item.starts_at)} 开始` : "比赛时间待公布"}</span></div><p className="community-card-author">{item.organizer}</p>
     </div>
   </button>;
 }

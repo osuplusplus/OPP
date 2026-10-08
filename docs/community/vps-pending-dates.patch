@@ -1,0 +1,191 @@
+--- a/src/community-model.ts
++++ b/src/community-model.ts
+@@ -11,7 +11,7 @@
+ export type TournamentInput = {
+   title: string; organizer: string; ruleset: typeof rulesets[number]; summary: string;
+   description: string; requirements: string; poster_url?: string | null; registration_url?: string | null;
+-  registration_starts_at: string; registration_ends_at: string; starts_at: string; ends_at: string;
++  registration_starts_at: string | null; registration_ends_at: string | null; starts_at: string | null; ends_at: string | null;
+ };
+ export type Cursor = { created_at: string; id: string };
+ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+@@ -43,10 +43,12 @@
+   return url.href;
+ }
+ export function normalizeTournament(input: TournamentInput): TournamentInput {
+-  const registrationStart = dateValue(input.registration_starts_at); const registrationEnd = dateValue(input.registration_ends_at);
+-  const start = dateValue(input.starts_at); const end = dateValue(input.ends_at);
+-  if (registrationEnd <= registrationStart || end <= start) throw invalid('INVALID_TIME', '报名或比赛时间范围无效');
+-  return { ...input, title: requiredText(input.title, '赛事名称'), organizer: requiredText(input.organizer, '主办方'), summary: requiredText(input.summary, '简介'), description: requiredText(input.description, '正文'), poster_url: httpsUrl(input.poster_url), registration_url: httpsUrl(input.registration_url), registration_starts_at: registrationStart.toISOString(), registration_ends_at: registrationEnd.toISOString(), starts_at: start.toISOString(), ends_at: end.toISOString() };
++  const registrationStart = input.registration_starts_at === null ? null : dateValue(input.registration_starts_at);
++  const registrationEnd = input.registration_ends_at === null ? null : dateValue(input.registration_ends_at);
++  const start = input.starts_at === null ? null : dateValue(input.starts_at);
++  const end = input.ends_at === null ? null : dateValue(input.ends_at);
++  if ((registrationStart && registrationEnd && registrationEnd <= registrationStart) || (start && end && end <= start)) throw invalid('INVALID_TIME', '报名或比赛时间范围无效');
++  return { ...input, title: requiredText(input.title, '赛事名称'), organizer: requiredText(input.organizer, '主办方'), summary: requiredText(input.summary, '简介'), description: requiredText(input.description, '正文'), poster_url: httpsUrl(input.poster_url), registration_url: httpsUrl(input.registration_url), registration_starts_at: registrationStart?.toISOString() ?? null, registration_ends_at: registrationEnd?.toISOString() ?? null, starts_at: start?.toISOString() ?? null, ends_at: end?.toISOString() ?? null };
+ }
+ export function decodeCursor(value?: string): Cursor | null {
+   if (!value) return null;
+@@ -63,9 +65,9 @@
+   if (new Date(row.ends_at) <= now) return 'ended';
+   return new Date(row.starts_at) > now ? 'upcoming' : 'ongoing';
+ }
+-export function tournamentStatus(row: { starts_at: string; ends_at: string; registration_starts_at: string; registration_ends_at: string }, now: Date) {
+-  if (new Date(row.ends_at) <= now) return 'ended';
+-  if (new Date(row.starts_at) <= now) return 'ongoing';
+-  if (new Date(row.registration_starts_at) <= now && new Date(row.registration_ends_at) > now) return 'registering';
++export function tournamentStatus(row: { starts_at: string | null; ends_at: string | null; registration_starts_at: string | null; registration_ends_at: string | null }, now: Date) {
++  if (row.ends_at && new Date(row.ends_at) <= now) return 'ended';
++  if (row.starts_at && new Date(row.starts_at) <= now) return 'ongoing';
++  if (row.registration_starts_at && row.registration_ends_at && new Date(row.registration_starts_at) <= now && new Date(row.registration_ends_at) > now) return 'registering';
+   return 'upcoming';
+ }
+--- a/src/community.ts
++++ b/src/community.ts
+@@ -17,7 +17,7 @@
+   title: Type.String({ minLength: 1, maxLength: 120 }), organizer: Type.String({ minLength: 1, maxLength: 120 }),
+   ruleset: choice(rulesets), summary: Type.String({ minLength: 1, maxLength: 500 }), description: Type.String({ minLength: 1, maxLength: 20000 }),
+   requirements: Type.String({ maxLength: 4000 }), poster_url: nullable(Type.String({ maxLength: 2000 })), registration_url: nullable(Type.String({ maxLength: 2000 })),
+-  registration_starts_at: time, registration_ends_at: time, starts_at: time, ends_at: time,
++  registration_starts_at: Type.Union([time, Type.Null()]), registration_ends_at: Type.Union([time, Type.Null()]), starts_at: Type.Union([time, Type.Null()]), ends_at: Type.Union([time, Type.Null()]),
+ }, { additionalProperties: false });
+ function strictBody(schema: TSchema) {
+   const allowed = new Set(Object.keys(schema.properties as Record<string, unknown>));
+@@ -40,8 +40,7 @@
+   }
+   delete result.deleted_at;
+   delete result.cursor_created_at;
+-  const dates = result as { starts_at: string; ends_at: string; closed_at: string | null; registration_starts_at: string; registration_ends_at: string };
+-  result.status = kind === 'lobbies' ? lobbyStatus(dates, now) : tournamentStatus(dates, now);
++  result.status = kind === 'lobbies' ? lobbyStatus(result as Parameters<typeof lobbyStatus>[0], now) : tournamentStatus(result as Parameters<typeof tournamentStatus>[0], now);
+   return result;
+ }
+ async function database<T>(request: FastifyRequest, operation: string, action: () => Promise<T>): Promise<T> {
+@@ -83,11 +82,9 @@
+     if (status === 'ended') where.push(`closed_at IS NULL AND ends_at<=${clock}`);
+     if (status === 'closed') where.push('closed_at IS NOT NULL');
+   } else {
+-    if (status === 'active') where.push(`ends_at>${clock}`);
+-    if (status === 'ended') where.push(`ends_at<=${clock}`);
+-    if (status === 'ongoing') where.push(`starts_at<=${clock} AND ends_at>${clock}`);
+-    if (status === 'registering') where.push(`registration_starts_at<=${clock} AND registration_ends_at>${clock} AND starts_at>${clock}`);
+-    if (status === 'upcoming') where.push(`starts_at>${clock} AND NOT (registration_starts_at<=${clock} AND registration_ends_at>${clock})`);
++    const stage = `CASE WHEN ends_at<=${clock} THEN 'ended' WHEN starts_at<=${clock} THEN 'ongoing' WHEN registration_starts_at<=${clock} AND registration_ends_at>${clock} THEN 'registering' ELSE 'upcoming' END`;
++    if (status === 'active') where.push(`(${stage})<>'ended'`);
++    else if (status !== 'all') where.push(`(${stage})=${bind(status)}`);
+   }
+   const cursor = decodeCursor(query.cursor);
+   if (cursor) where.push(`(created_at,id)<(${bind(cursor.created_at)}::timestamptz,${bind(cursor.id)}::uuid)`);
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -26,8 +26,8 @@
+   organizer: varchar('organizer', { length: 120 }).notNull(), ruleset: varchar('ruleset', { length: 16 }).notNull(),
+   summary: varchar('summary', { length: 500 }).notNull(), description: text('description').notNull(), requirements: text('requirements').notNull().default(''),
+   posterUrl: text('poster_url'), registrationUrl: text('registration_url'),
+-  registrationStartsAt: timestampUtc('registration_starts_at').notNull(), registrationEndsAt: timestampUtc('registration_ends_at').notNull(),
+-  startsAt: timestampUtc('starts_at').notNull(), endsAt: timestampUtc('ends_at').notNull(),
++  registrationStartsAt: timestampUtc('registration_starts_at'), registrationEndsAt: timestampUtc('registration_ends_at'),
++  startsAt: timestampUtc('starts_at'), endsAt: timestampUtc('ends_at'),
+   createdAt: timestampUtc('created_at').notNull().defaultNow(), updatedAt: timestampUtc('updated_at').notNull().defaultNow(), deletedAt: timestampUtc('deleted_at'),
+ }, (t) => [
+   index('community_tournaments_feed_idx').on(t.createdAt.desc(), t.id.desc()).where(sql`${t.deletedAt} IS NULL`),
+--- a/tests/community-model.test.ts
++++ b/tests/community-model.test.ts
+@@ -3,7 +3,7 @@
+ 
+ const now = new Date('2026-10-08T12:00:00Z');
+ const lobby: LobbyInput = { title: ' MP ', description: ' 一起打图\n欢迎新人 ', ruleset: 'osu', activity_type: 'mp', starts_at: '2026-10-08T18:00:00+08:00', ends_at: '2026-10-08T21:00:00+08:00' };
+-const tournament: TournamentInput = { title: 'Cup', organizer: 'OPP', ruleset: 'osu', summary: 'Summary', description: 'Rules', requirements: '', registration_starts_at: '2026-10-01T00:00:00Z', registration_ends_at: '2026-10-10T00:00:00Z', starts_at: '2026-10-11T00:00:00Z', ends_at: '2026-10-12T00:00:00Z' };
++const tournament = { title: 'Cup', organizer: 'OPP', ruleset: 'osu' as const, summary: 'Summary', description: 'Rules', requirements: '', registration_starts_at: '2026-10-01T00:00:00Z', registration_ends_at: '2026-10-10T00:00:00Z', starts_at: '2026-10-11T00:00:00Z', ends_at: '2026-10-12T00:00:00Z' } satisfies TournamentInput;
+ describe('community input and lifecycle', () => {
+   it('accepts an ongoing activity and stores UTC with trimmed text', () => {
+     expect(normalizeLobby(lobby, now)).toMatchObject({ title: 'MP', description: '一起打图\n欢迎新人', starts_at: '2026-10-08T10:00:00.000Z', ends_at: '2026-10-08T13:00:00.000Z', platform: null });
+@@ -34,4 +34,15 @@
+     expect(() => decodeCursor('garbage')).toThrow();
+     expect(() => decodeCursor(encodeCursor({ ...cursor, id: 'bad' }))).toThrow();
+   });
++  it('preserves unpublished dates and validates every known date and range', () => {
++    const pending = { ...tournament, registration_starts_at: null, registration_ends_at: null, starts_at: null, ends_at: null };
++    expect(normalizeTournament(pending)).toMatchObject(pending);
++    expect(tournamentStatus(pending, now)).toBe('upcoming');
++    expect(tournamentStatus({ ...pending, registration_starts_at: tournament.registration_starts_at, registration_ends_at: tournament.registration_ends_at }, now)).toBe('registering');
++    expect(tournamentStatus({ ...pending, starts_at: tournament.registration_starts_at }, now)).toBe('ongoing');
++    expect(tournamentStatus({ ...pending, ends_at: now.toISOString() }, now)).toBe('ended');
++    expect(() => normalizeTournament({ ...pending, starts_at: 'invalid' })).toThrow();
++    expect(() => normalizeTournament({ ...pending, starts_at: tournament.starts_at, ends_at: tournament.starts_at })).toThrow();
++    expect(() => normalizeTournament({ ...pending, registration_starts_at: tournament.registration_starts_at, registration_ends_at: tournament.registration_starts_at })).toThrow();
++  });
+ });
+--- a/tests/community.integration.test.ts
++++ b/tests/community.integration.test.ts
+@@ -121,4 +121,21 @@
+     expect((await app.inject({ method: 'POST', url: `${base}/lobbies`, headers: headers('owner'), payload: input })).statusCode).toBe(401);
+     expect((await app.inject({ url: `${base}/lobbies`, headers: headers('owner') })).statusCode).toBe(200);
+   });
++  it('publishes pending tournaments and keeps status filters consistent with detail', async () => {
++    const body = { title: 'Pending Cup', organizer: 'Partner', ruleset: 'osu', summary: 'Preparing', description: 'Schedule not published', requirements: '', registration_starts_at: null, registration_ends_at: null, starts_at: null, ends_at: null };
++    const result = await app.inject({ method: 'POST', url: `${base}/admin/tournaments`, headers: headers('admin'), payload: body });
++    expect(result.statusCode).toBe(201);
++    const id = result.json().id;
++    try {
++      expect(result.json()).toMatchObject({ ...body, status: 'upcoming' });
++      for (const status of ['active', 'all', 'upcoming']) {
++        expect((await app.inject({ url: `${base}/tournaments?q=Pending&status=${status}` })).json().items.map((item: { id: string }) => item.id)).toContain(id);
++      }
++      for (const status of ['registering', 'ongoing', 'ended']) {
++        expect((await app.inject({ url: `${base}/tournaments?q=Pending&status=${status}` })).json().items.map((item: { id: string }) => item.id)).not.toContain(id);
++      }
++      expect((await app.inject({ url: `${base}/tournaments/${id}` })).json().status).toBe('upcoming');
++      expect((await app.inject({ method: 'PATCH', url: `${base}/admin/tournaments/${id}`, headers: headers('admin'), payload: { ...body, starts_at: '2027-01-01T00:00:00Z', ends_at: '2027-01-01T00:00:00Z' } })).statusCode).toBe(400);
++    } finally { await pool.query('DELETE FROM community_tournaments WHERE id=$1', [id]); }
++  });
+ });
+--- a/docs/community-api.md
++++ b/docs/community-api.md
+@@ -69,7 +69,7 @@
+ }
+ ```
+ 
+-Title/organizer: 1–120 characters; summary: 1–500; description: 1–20000; requirements: up to 4000. URLs are optional/null and must be HTTPS without embedded credentials. Both time ranges must be positive. The server stores URL references and does not download posters. Tournament status prioritizes ended, ongoing, registering, then upcoming.
++Title/organizer: 1–120 characters; summary: 1–500; description: 1–20000; requirements: up to 4000. URLs are optional/null and must be HTTPS without embedded credentials. Tournament date fields remain required, but accept null when not yet announced after migration `0003_tournament_pending_dates.sql`. Validate every known date and require a positive range whenever both endpoints are known. The server stores URL references and does not download posters. Tournament status prioritizes a known end date, a known start date, an active known registration range, then upcoming. Pending tournaments appear in default, all and upcoming lists, without inventing dates. Lobby dates remain mandatory and unchanged.
+ 
+ ## Validation and rollout
+ 
+--- /dev/null
++++ b/drizzle/0003_tournament_pending_dates.sql
+@@ -0,0 +1,7 @@
++-- Upcoming tournaments may be announced before their schedule is published.
++-- Existing positive-range checks still reject invalid pairs of known dates.
++ALTER TABLE community_tournaments
++  ALTER COLUMN registration_starts_at DROP NOT NULL,
++  ALTER COLUMN registration_ends_at DROP NOT NULL,
++  ALTER COLUMN starts_at DROP NOT NULL,
++  ALTER COLUMN ends_at DROP NOT NULL;
+--- /dev/null
++++ b/scripts/import-partner-tournament.mjs
+@@ -0,0 +1,25 @@
++import { readFile } from 'node:fs/promises';
++import { pool } from '../dist/src/db/client.js';
++import { normalizeTournament } from '../dist/src/community-model.js';
++
++const started = Date.now();
++const input = normalizeTournament(JSON.parse(await readFile(process.argv[2], 'utf8')));
++const fields = ['title', 'organizer', 'ruleset', 'summary', 'description', 'requirements', 'poster_url', 'registration_url', 'registration_starts_at', 'registration_ends_at', 'starts_at', 'ends_at'];
++const client = await pool.connect();
++console.log(JSON.stringify({ operation: 'import_partner_tournament', event: 'started', title: input.title }));
++try {
++  await client.query('BEGIN');
++  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`community-partner:${input.registration_url}:${input.title}`]);
++  const existing = await client.query('SELECT id FROM community_tournaments WHERE title=$1 AND registration_url=$2 AND deleted_at IS NULL FOR UPDATE', [input.title, input.registration_url]);
++  if (existing.rows.length > 1) throw new Error('Multiple matching partner announcements; review before importing');
++  const values = fields.map((field) => input[field]);
++  const result = existing.rows.length
++    ? await client.query(`UPDATE community_tournaments SET ${fields.map((field, index) => `${field}=$${index + 2}`).join(',')},updated_at=now() WHERE id=$1 RETURNING id`, [existing.rows[0].id, ...values])
++    : await client.query(`INSERT INTO community_tournaments(${fields.join(',')}) VALUES(${fields.map((_, index) => `$${index + 1}`).join(',')}) RETURNING id`, values);
++  await client.query('COMMIT');
++  console.log(JSON.stringify({ operation: 'import_partner_tournament', event: 'completed', id: result.rows[0].id, updated: existing.rows.length > 0, duration_ms: Date.now() - started }));
++} catch (error) {
++  await client.query('ROLLBACK');
++  console.error(JSON.stringify({ operation: 'import_partner_tournament', event: 'failed', message: error.message }));
++  process.exitCode = 1;
++} finally { client.release(); await pool.end(); }

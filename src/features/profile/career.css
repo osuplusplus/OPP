@@ -1,0 +1,139 @@
+.career-page {
+  --career-positive: #6ee7b7;
+  --career-negative: #fda4af;
+  --career-warning: #fcd34d;
+  display: grid;
+  gap: 20px;
+  color: var(--text);
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+:root[data-theme-mode="light"] .career-page { --career-positive: #166534; --career-negative: #9f1239; --career-warning: #92400e; }
+.career-page h2, .career-page h3, .career-page p, .career-page dl, .career-page dd { margin: 0; }
+.career-page h2 { font-size: 15px; font-weight: 650; }
+.career-page h3 { font-size: 13px; font-weight: 600; }
+.career-muted, .career-label, .career-page-foot { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.career-label { font-size: 11px; letter-spacing: .04em; }
+.career-primary { color: var(--theme-primary); }
+.career-toolbar, .career-identity, .career-period-controls, .career-period-navigation, .career-section-header, .career-page-actions { display: flex; align-items: center; gap: 12px; }
+.career-toolbar, .career-section-header { justify-content: space-between; }
+.career-toolbar { flex-wrap: wrap; gap: 14px; }
+.career-identity strong { font-size: 14px; }
+.career-identity p > span { margin-left: 12px; color: var(--text-muted); font-size: 12px; }
+.career-period-controls { gap: 8px; flex-wrap: wrap; }
+.career-period-navigation { gap: 0; }
+.career-period-navigation > span { min-width: 106px; text-align: center; font-size: 13px; font-weight: 600; }
+.career-segments { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid var(--line-subtle); border-radius: 8px; background: var(--surface); }
+.career-segments button { min-height: 30px; padding: 4px 12px; border-radius: 5px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.career-segments button[aria-pressed="true"] { background: var(--surface-panel-strong); color: var(--text); font-weight: 600; }
+.career-segments button:focus-visible, .career-more summary:focus-visible, .career-extra-stats summary:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 2px; }
+.career-more { position: relative; }
+.career-more > summary { display: grid; place-items: center; width: 34px; height: 34px; cursor: pointer; list-style: none; border-radius: 6px; color: var(--text-muted); }
+.career-more > summary::-webkit-details-marker { display: none; }
+.career-more[open] > summary { background: var(--surface-interactive-hover); }
+.career-more > div { position: absolute; top: 40px; right: 0; z-index: 20; width: 150px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-panel-strong); }
+.career-more button { width: 100%; }
+.career-panel { min-width: 0; padding: 20px 24px; border: 1px solid var(--line-subtle); border-radius: 10px; background: var(--surface-panel); }
+.career-section-header { align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.career-section-header h2 + p { margin-top: 4px; }
+.career-summary { padding: 22px 24px 12px; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); }
+.career-summary-stats { display: grid; grid-template-columns: 1.35fr 1.15fr 1fr 1fr; gap: 20px; }
+.career-summary-stat + .career-summary-stat { border-left: 1px solid var(--line-subtle); padding-left: 24px; }
+.career-summary-value { font-size: clamp(27px, 2.7vw, 38px); font-weight: 650; letter-spacing: -.035em; line-height: 1.4; white-space: nowrap; }
+.career-summary-value small { margin-left: 8px; font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--text-muted); }
+.career-delta { font-size: 12px; line-height: 1.6; }
+.career-delta-positive { color: var(--career-positive); }
+.career-delta-negative { color: var(--career-negative); }
+.career-delta-neutral { color: var(--text-muted); }
+.career-summary-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 16px; font-size: 11px; color: var(--text-muted); }
+.career-chart { height: 214px; margin-top: 16px; width: 100%; min-width: 0; }
+.career-chart-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: var(--text-muted); font-size: 11px; margin-top: 8px; }
+.career-chart-foot label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.career-chart-foot input { accent-color: var(--theme-primary); }
+.career-chart-tooltip { padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-panel-strong); color: var(--text); font-size: 11px; }
+.career-chart-tooltip strong { display: block; font-size: 16px; margin: 4px 0; }
+.career-chart-tooltip p { color: var(--text-muted); }
+.career-chart-empty, .career-inline-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; color: var(--text-muted); font-size: 12px; }
+.career-chart-empty { height: 100%; }
+.career-chart-empty strong, .career-inline-empty strong { color: var(--text); font-size: 14px; font-weight: 500; }
+.career-inline-empty { padding: 32px 12px; }
+.career-inline-empty p { overflow-wrap: anywhere; }
+.career-heatmap-layout { margin-top: 20px; }
+.career-heatmap-month { display: grid; grid-template-columns: 252px minmax(0, 1fr); align-items: center; gap: 36px; }
+.career-heatmap-scroll { min-width: 0; }
+.career-heatmap-body { display: flex; gap: 8px; }
+.career-weekdays { width: 20px; flex-shrink: 0; display: grid; grid-template-rows: repeat(7, 14px); row-gap: 4px; color: var(--text-muted); font-size: 9px; align-items: center; }
+.career-heatmap-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 14px); gap: 4px; flex: 1; min-width: 0; }
+.career-heatmap-months { display: grid; gap: 4px; padding-left: 28px; margin-bottom: 8px; font-size: 10px; color: var(--text-muted); }
+.career-heatmap-months span { white-space: nowrap; }
+.career-heatmap-month .career-heatmap-body { flex-direction: column; }
+.career-heatmap-month .career-weekdays { width: 100%; grid-template-rows: none; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 10px; }
+.career-heatmap-month .career-heatmap-grid { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.career-heat-cell { display: grid; place-items: center; position: relative; border: 1px solid var(--line-subtle); border-radius: 3px; min-width: 0; color: var(--text); font-size: 8px; cursor: pointer; transition: outline-color 120ms; }
+.career-heatmap-month .career-heat-cell { height: 26px; font-size: 10px; }
+.career-heat-mark { position: absolute; top: 0; right: 2px; font-size: 8px; }
+.career-heat-recorded.career-heat-level-0 { background: var(--surface-interactive); }
+.career-heat-recorded.career-heat-level-1 { background: color-mix(in srgb, var(--theme-primary) 18%, var(--surface-panel)); }
+.career-heat-recorded.career-heat-level-2 { background: color-mix(in srgb, var(--theme-primary) 36%, var(--surface-panel)); }
+.career-heat-recorded.career-heat-level-3 { background: color-mix(in srgb, var(--theme-primary) 65%, var(--surface-panel)); color: var(--on-primary); }
+.career-heat-recorded.career-heat-level-4 { background: var(--theme-primary); color: var(--on-primary); }
+.career-heat-missing { border-style: dashed; background: transparent; color: var(--text-muted); }
+.career-heat-unknown { background: var(--surface-panel-strong); color: var(--text-muted); }
+.career-heat-failed { border-color: var(--career-warning); color: var(--career-warning); background: transparent; }
+.career-heat-future { background: transparent; border-color: var(--line-subtle); opacity: .25; cursor: default; }
+.career-heat-spanning { background-image: repeating-linear-gradient(135deg, transparent, transparent 3px, var(--surface-panel) 3px, var(--surface-panel) 4px); }
+.career-heat-partial::after { content: ""; position: absolute; top: 0; right: 0; width: 4px; height: 4px; background: var(--career-warning); }
+.career-heat-cell[aria-pressed="true"], .career-heat-cell:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 2px; z-index: 1; }
+.career-heat-cell:hover:enabled { outline: 1px solid var(--text); outline-offset: 1px; }
+.career-activity-caption { max-width: 430px; display: grid; gap: 8px; }
+.career-activity-caption > p:nth-child(2) { font-size: 13px; }
+.career-activity-caption strong { font-size: 30px; font-weight: 600; margin-right: 4px; }
+.career-heatmap-readout { display: flex; flex-wrap: wrap; gap: 12px; min-height: 20px; margin-top: 14px; font-size: 11px; color: var(--text-muted); }
+.career-heatmap-readout strong { color: var(--text); font-weight: 500; }
+.career-heatmap-legend { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; color: var(--text-muted); font-size: 10px; }
+.career-heatmap-legend > div { display: flex; align-items: center; gap: 4px; }
+.career-legend-cell { display: block; height: 12px; width: 12px; border: 1px solid var(--line-subtle); border-radius: 2px; }
+.career-day-heading { font-weight: 400; margin-left: 12px; }
+.career-day-status { color: var(--text-muted); font-size: 11px; }
+.career-day-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--line-subtle); }
+.career-day-stat dt { color: var(--text-muted); font-size: 11px; }
+.career-day-stat dd { font-size: 18px; font-weight: 600; margin: 4px 0; }
+.career-events { margin-top: 20px; }
+.career-events h3 { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.career-no-events { padding: 8px 0 16px; }
+.career-score-event { display: flex; gap: 16px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line-subtle); }
+.career-event-kind { display: grid; gap: 3px; font-size: 12px; min-width: 38px; }
+.career-event-kind small { color: var(--text-muted); font-size: 11px; }
+.career-event-body { min-width: 0; flex: 1; }
+.career-event-body p { font-size: 13px; overflow-wrap: anywhere; }
+.career-event-body > span { color: var(--text-muted); font-size: 11px; }
+.career-score-event > strong { white-space: nowrap; font-size: 15px; font-weight: 600; }
+.career-score-event > strong small { font-size: 10px; font-weight: 400; color: var(--text-muted); }
+.career-secondary-events { display: grid; gap: 8px; margin: 16px 0; }
+.career-secondary-events p { display: flex; gap: 8px; align-items: center; font-size: 12px; overflow-wrap: anywhere; }
+.career-secondary-events p span { min-width: 0; }
+.career-secondary-events p small { color: var(--text-muted); margin-left: auto; flex-shrink: 0; }
+.career-extra-stats { border-top: 1px solid var(--line-subtle); margin-top: 16px; padding-top: 12px; }
+.career-extra-stats > summary { color: var(--text); cursor: pointer; font-size: 12px; }
+.career-extra-stats > summary span { margin-left: 12px; font-size: 11px; color: var(--text-muted); }
+.career-extra-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; padding-top: 20px; }
+.career-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; padding: 10px 14px; border: 1px solid var(--line-subtle); border-radius: 8px; overflow-wrap: anywhere; }
+.career-warning { color: var(--career-warning, var(--theme-secondary)); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.career-day-panel > .career-warning { margin-top: 16px; }
+.career-page-foot { font-size: 10px; text-align: right; }
+@media (max-width: 1200px) {
+  .career-page { gap: 16px; }
+  .career-panel { padding: 18px 20px; }
+  .career-summary { padding: 18px 20px 12px; }
+  .career-summary-stats { gap: 12px; }
+  .career-summary-stat + .career-summary-stat { padding-left: 16px; }
+  .career-chart { height: 190px; }
+}
+@media (max-width: 900px) {
+  .career-summary-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 20px; }
+  .career-summary-stat:nth-child(3) { padding-left: 0; border-left: 0; }
+  .career-heatmap-month { grid-template-columns: 1fr; gap: 20px; }
+  .career-heatmap-month .career-heatmap-scroll { max-width: 300px; }
+  .career-day-stats, .career-extra-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) { .career-heat-cell { transition: none; } }
