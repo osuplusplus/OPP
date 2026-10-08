@@ -721,23 +721,33 @@ impl BeatmapHubService {
         body: Option<Value>,
         token: Option<&str>,
     ) -> CommandResult<Response> {
-        let mut request = self.client.request(method, format!("{BASE_URL}{path}"));
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
+        let span = crate::infrastructure::logging::global().map(|logger| {
+            logger.operation(
+                "community_vps",
+                format!("{} {}", method, path.split('?').next().unwrap_or(path)),
+            )
+        });
+        let result = async {
+            let mut request = self.client.request(method, format!("{BASE_URL}{path}"));
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            if let Some(body) = body {
+                request = request.json(&body);
+            }
+            let response = request.send().await.map_err(|error| {
+                CommandError::network(format!(
+                    "无法连接 BeatmapHub：{}",
+                    reqwest_error_details(&error)
+                ))
+            })?;
+            if response.status().is_success() {
+                return Ok(response);
+            }
+            Err(response_error(response).await)
         }
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-        let response = request.send().await.map_err(|error| {
-            CommandError::network(format!(
-                "无法连接 BeatmapHub：{}",
-                reqwest_error_details(&error)
-            ))
-        })?;
-        if response.status().is_success() {
-            return Ok(response);
-        }
-        Err(response_error(response).await)
+        .await;
+        crate::infrastructure::logging::finish_span(span, result)
     }
 }
 
@@ -758,6 +768,25 @@ async fn response_error(response: Response) -> CommandError {
             )
         });
     error.request_id(request_id)
+}
+
+impl crate::infrastructure::community_client::CommunityClient for BeatmapHubService {
+    async fn public_get<T: DeserializeOwned>(&self, path: &str) -> CommandResult<T> {
+        self.request_json(Method::GET, path, None, None).await
+    }
+
+    async fn authenticated_json<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> CommandResult<T> {
+        self.auth_json(method, path, body).await
+    }
+
+    async fn authenticated_delete(&self, path: &str) -> CommandResult<()> {
+        self.auth_empty(Method::DELETE, path, None).await
+    }
 }
 
 fn placeholder(set_id: i32, title: &str, artist: &str, creator: &str) -> CollectionCandidate {
