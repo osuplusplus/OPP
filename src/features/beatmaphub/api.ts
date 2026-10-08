@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { BeatmapHubPack, OnlineBeatmapset } from "../../shared/types/osu";
+import { communityIdentityKey, communityProfileKey, useCommunityIdentity, useCommunityProfile } from "../../shared/lib/communityIdentity";
 
 export const hubKey = ["beatmaphub"] as const;
-export const beatmapHubAuthKey = [...hubKey, "auth"] as const;
-export const beatmapHubProfileKey = [...hubKey, "profile"] as const;
+export const beatmapHubAuthKey = communityIdentityKey;
+export const beatmapHubProfileKey = communityProfileKey;
 export const beatmapHubRecommendationsKey = [...hubKey, "recommendations"] as const;
 export const hubPackKey = [...hubKey, "pack"] as const;
 export const hubSearchKey = [...hubKey, "search"] as const;
@@ -33,13 +34,8 @@ export const hubApi = {
   onDownloadProgress: desktopApi.onBeatmapDownloadProgress,
 };
 
-export function useBeatmapHubAuth() {
-  return useQuery({ queryKey: beatmapHubAuthKey, queryFn: desktopApi.getBeatmapHubAuthStatus, retry: false, staleTime: 0, gcTime: 0 });
-}
-
-export function useBeatmapHubProfile(enabled: boolean) {
-  return useQuery({ queryKey: beatmapHubProfileKey, queryFn: desktopApi.getBeatmapHubProfile, enabled, retry: false, staleTime: 0, gcTime: 0 });
-}
+export const useBeatmapHubAuth = useCommunityIdentity;
+export const useBeatmapHubProfile = useCommunityProfile;
 
 export function useBeatmapHubRecommendations() {
   return useQuery({

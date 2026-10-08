@@ -16,6 +16,8 @@ import {
   WandSparkles,
   Settings,
   Wrench,
+  Trophy,
+  Users,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import type { OwnProfile } from "../shared/types/osu";
@@ -90,6 +92,8 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
           <NavItem emphasis="similar" icon={ScanSearch} label="相似谱面" onboarding="similar-beatmaps" to="/online/similar" />
           <NavItem emphasis="similar" icon={Brain} label="技能分析" onboarding="skill-analysis" to="/skill-analysis" />
           <NavItem emphasis="trainer" icon={Activity} label="生涯动态" to="/career" />
+          <NavItem icon={Trophy} label="比赛公告" to="/community/tournaments" />
+          <NavItem icon={Users} label="约玩大厅" to="/community/lobbies" />
           <NavItem emphasis="trainer" icon={WandSparkles} label="谱面练习生成器" onboarding="trainer" to="/trainer" />
         </NavGroup>
         <NavGroup label="资料与资源">
