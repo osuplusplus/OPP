@@ -38,6 +38,10 @@ const APPIMAGETOOL_SHA256 = 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33
 const APPIMAGETOOL_URL = `https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage`;
 
 const WAYLAND_CLIENT_LIBRARY_PATTERN = /^libwayland-client\.so(?:\.|$)/;
+// The opener plugin resolves `xdg-open` through PATH. AppImage's generated
+// launcher prepends `usr/bin`, so a bundled copy would shadow the host's
+// desktop integration and can fail to launch the user's browser (issue #47).
+const BUNDLED_XDG_OPEN_PATH = 'usr/bin/xdg-open';
 const FORCED_GDK_BACKEND_PATTERN =
   /^[ \t]*(?:export[ \t]+)?GDK_BACKEND[ \t]*=[ \t]*(?:"x11"|'x11'|x11)[ \t]*(?:#.*)?$/gm;
 // Same effective backend as before, but a user-provided GDK_BACKEND wins.
@@ -105,6 +109,14 @@ async function stripBundledWaylandClient(extractDir) {
   return removed;
 }
 
+async function stripBundledXdgOpen(extractDir) {
+  const path = join(extractDir, BUNDLED_XDG_OPEN_PATH);
+  if (!existsSync(path)) return false;
+  await rm(path);
+  log(`removed bundled ${BUNDLED_XDG_OPEN_PATH}`);
+  return true;
+}
+
 function rewriteForcedGdkBackend(hookText) {
   FORCED_GDK_BACKEND_PATTERN.lastIndex = 0;
   if (!FORCED_GDK_BACKEND_PATTERN.test(hookText)) {
@@ -159,6 +171,7 @@ async function patchAppImage(targetPath) {
 
   try {
     const stripped = await stripBundledWaylandClient(extractDir);
+    const removedBundledXdgOpen = await stripBundledXdgOpen(extractDir);
     for (const path of stripped) {
       log(`removed bundled ${path.slice(extractDir.length + 1)}`);
     }
@@ -179,7 +192,7 @@ async function patchAppImage(targetPath) {
       log('no linuxdeploy-plugin-gtk hook found, skipping GDK_BACKEND rewrite');
     }
 
-    if (stripped.length === 0 && !hookChanged) {
+    if (stripped.length === 0 && !removedBundledXdgOpen && !hookChanged) {
       log('nothing to patch — leaving the AppImage in place');
       await rm(extractDir, { recursive: true, force: true });
       return;

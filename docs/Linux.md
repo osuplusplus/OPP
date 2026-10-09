@@ -58,6 +58,8 @@ pnpm tauri:build -- --bundles appimage,deb
 
 `pnpm tauri:build` 是 `tauri build` 的包装脚本：Linux 下构建 AppImage 后会自动打 Wayland 兼容补丁（见下文），Release 工作流也通过同一脚本执行。
 
+AppImage 补丁还会移除包内的 `usr/bin/xdg-open`。Tauri opener 通过 PATH 查找系统打开器，而 AppImage 会把自身的 `usr/bin` 放在 PATH 前面；保留这个副本会遮蔽桌面环境提供的打开器，导致 OAuth 授权链接在部分桌面环境中无法打开浏览器（见 issue #47）。
+
 打包后仍须在目标发行版验证运行依赖和桌面集成。图池 URI 注册依赖 `xdg-mime` 与 `update-desktop-database`；便携程序移动后需从新位置启动一次。
 
 ## tosu 与 OBS
