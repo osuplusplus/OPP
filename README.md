@@ -4,7 +4,7 @@
   <h1>OPP</h1>
   <p><strong>一站式 osu! 工具集合</strong></p>
 
-  [![Version](https://img.shields.io/badge/version-0.5.0-ff6aa7?style=for-the-badge)](./docs/版本变更记录.md#v050)
+  [![Version](https://img.shields.io/badge/version-0.6.0-ff6aa7?style=for-the-badge)](./docs/版本变更记录.md#v060)
   [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-5ce1e6?style=for-the-badge&logo=linux&logoColor=white)](#开始使用)
   [![Tauri](https://img.shields.io/badge/Tauri-2-a673ff?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/)
 
@@ -30,7 +30,7 @@ OPP 使用 Tauri 2、React 19 与 Rust 构建，支持 Windows x64 与 Linux。
 | 音乐与回放 | 本地谱库播放器、悬浮迷你播放器、实时回放预览、o!rdr 与 Danser 渲染 |
 | 账号与直播 | osu! OAuth、玩家资料与成绩、游戏会话记录、tosu／歌词／OBS 联动 |
 
-v0.5.0 的完整变化见[版本记录](./docs/版本变更记录.md#v050)。
+v0.6.0 的完整变化见[版本记录](./docs/版本变更记录.md#v060)。
 
 ## 开始使用
 

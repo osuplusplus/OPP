@@ -273,8 +273,8 @@ Windows clients check `https://github.com/osuplusplus/OPP/releases/latest/downlo
 
 ```json
 {
-  "version": "0.5.0",
-  "url": "https://github.com/osuplusplus/OPP/releases/download/v0.5.0/OPP_0.5.0_windows_x64_portable.exe"
+  "version": "0.6.0",
+  "url": "https://github.com/osuplusplus/OPP/releases/download/v0.6.0/OPP_0.6.0_windows_x64_portable.exe"
 }
 ```
 
