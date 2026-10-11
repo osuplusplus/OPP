@@ -1,7 +1,7 @@
 import type { OnboardingStep } from "./tourContent";
 
-export const CURRENT_PAGE_ONBOARDING_VERSION = 2;
-const TRAINER_EMPTY_STATE_ONBOARDING_VERSION = 3;
+export const CURRENT_PAGE_ONBOARDING_VERSION = 3;
+const TRAINER_EMPTY_STATE_ONBOARDING_VERSION = 4;
 
 export interface PageGuide {
   id: string;
@@ -44,7 +44,7 @@ const copies: Record<string, PageGuideCopy> = {
   "/online/beatmaps": {
     id: "online-beatmaps",
     title: "在线谱面",
-    version: 4,
+    version: 5,
     summary: "搜索与筛选后，在右侧挑选谱面，左侧查看、试听或下载；下载清单可跨搜索累积。",
     modules: [
       { title: "搜索想找的内容", purpose: "输入曲名、艺术家、谱师或标签，按回车或点击搜索。输入建议仅供补全，不会自动打开谱面。", example: "输入 Camellia 后按回车；留空则浏览近期 Ranked。", target: '[data-page-guide-online-search="true"]' },
@@ -92,16 +92,16 @@ const copies: Record<string, PageGuideCopy> = {
     title: "数据中心",
     summary: "这个页面把当前账户和所选游戏模式的官方资料、成绩与档案放在同一条纵向工作流中。",
     modules: [
-      { title: "概览与统计", purpose: "展示 PP、排名、准确率、活跃度和长期趋势，用于快速判断账号当前状态。", example: "切换到 Mania 模式，对比全局排名和近期开图活跃度。", target: "#overview" },
-      { title: "BP 1–100", purpose: "列出最高价值的最佳成绩，并支持按曲名、Mapper、难度或 Mod 搜索。", example: "搜索 HDHR，查看该 Mod 组合在 BP 前 100 中的分布。", target: "#scores" },
-      { title: "BP 101–200 与 Pinned", purpose: "补充中段 BP，并单独展示个人主页中手动置顶的成绩。", example: "在 Pinned 区检查展示成绩，再与 BP 排名位置对照。", target: "#pinned" },
-      { title: "详细档案", purpose: "按身份、社交、徽章、成就和历史用户名等主题浏览完整资料。", example: "切换档案标签查看历史用户名和徽章，不影响当前游戏模式。", target: "#profile" },
+      { title: "概览与统计", purpose: "展示 PP、排名、准确率、活跃度和长期趋势，用于快速判断账号当前状态。", example: "切换到 Mania 模式，对比全局排名和近期开图活跃度。", target: '[data-page-guide-data-center="true"]' },
+      { title: "最佳与近期成绩", purpose: "在数据中心导航中切换最佳成绩、近期成绩和 Pinned 成绩，并按曲名、Mapper、难度或 Mod 搜索。", example: "打开最佳成绩，搜索 HDHR，查看该 Mod 组合在成绩列表中的分布。", target: '[aria-label="数据中心页面"]' },
+      { title: "玩家奖牌", purpose: "浏览已解锁和未解锁奖牌，打开奖牌查看解锁方法与推荐谱面。", example: "切换到玩家奖牌，筛选未解锁并打开一枚奖牌查看详情。", target: '[aria-label="数据中心页面"]' },
+      { title: "详细档案", purpose: "按身份、社交、徽章、成就和历史用户名等主题浏览完整资料。", example: "切换到详细档案，再按档案分类查看历史用户名和徽章。", target: '[aria-label="数据中心页面"]' },
     ],
   },
   "/local/maps": {
     id: "local-maps",
     title: "本地谱面",
-    version: 3,
+    version: 4,
     summary: "搜索选中一个谱面集，在背景主舞台上切换难度、试听音乐并使用常用功能。每次进入会随机展示一首。",
     modules: [
       { title: "用搜索找到下一首", purpose: "Ctrl+K 聚焦搜索，输入曲名、谱师、标签或 ID，上下键挑选候选，Enter 确认后展开谱面。筛选可限定星数、BPM、长度等范围。", example: "搜索一位谱师，再按 ↓ 和 Enter 选中谱面集。", target: '.local-set-search' },
@@ -179,6 +179,97 @@ const copies: Record<string, PageGuideCopy> = {
       { title: "关于与引导", purpose: "查看版本和项目仓库，并可重新启动软件总体引导。页面标题旁问号只重播设置页引导。", example: "点击“重新查看新手引导”复习总体功能；关闭后仍可用问号回到本页说明。", targetText: "关于" },
     ],
   },
+  "/skill-analysis": {
+    id: "skill-analysis",
+    title: "技能分析",
+    summary: "从最佳成绩计算八项能力分布，定位短板并把成绩带入相似谱面或训练生成器。",
+    modules: [
+      { title: "能力概览", purpose: "顶部卡片展示分析覆盖率和八项能力分布；刷新会增量复用已有结果。", example: "先查看覆盖率，再点击“增量刷新”更新最新成绩。", target: '[data-page-guide-content="true"]' },
+      { title: "训练重点", purpose: "选择一个能力维度后，明细会优先显示对该能力贡献最高的成绩。", example: "点击最低能力项，再查看右侧推荐的训练方向。", targetText: "从短板开始练习" },
+      { title: "成绩能力明细", purpose: "按谱面关键词和能力维度筛选成绩，并可直接跳转相似谱面或导入训练生成器。", example: "搜索谱师或歌曲名，点击结果右侧的相似谱面按钮。", targetText: "成绩能力明细" },
+    ],
+  },
+  "/career": {
+    id: "career",
+    title: "生涯动态",
+    summary: "按月或按年查看本地保存的成绩、谱面、奖牌和媒体活动记录。",
+    modules: [
+      { title: "更新与身份", purpose: "顶部显示当前账号和模式；点击“更新记录”采集最新快照。", example: "配置本地数据后点击“更新记录”，等待状态提示完成。", target: '[data-page-guide-content="true"]' },
+      { title: "时间视图", purpose: "在月视图和年视图之间切换，使用左右按钮浏览历史周期。", example: "切换到年视图，向左查看上一个完整年度。", target: '[aria-label="时间视图"]' },
+      { title: "趋势与每日详情", purpose: "点击趋势或热力图中的日期，查看当天的成绩变化和活动明细。", example: "点击热力图中有记录的一天，再查看下方详情。", target: '[data-page-guide-content="true"]' },
+    ],
+  },
+  "/tools/game": {
+    id: "tools-game",
+    title: "游戏与设备",
+    summary: "测试输入设备并管理 OpenTabletDriver 等游戏相关工具。",
+    modules: [
+      { title: "手速测试", purpose: "在指定时长内统计有效按键次数、KPS，并换算近似 BPM。", example: "选择 10 秒，点击开始后交替按两个键。", targetText: "手速测试" },
+      { title: "OpenTabletDriver", purpose: "检查本机驱动状态并打开驱动管理入口。", example: "确认驱动状态后再启动 osu!，避免输入设备未就绪。", target: '[data-page-guide-content="true"]' },
+      { title: "工具页切换", purpose: "使用左侧工具导航在游戏、谱面、系统和媒体分类之间切换。", example: "切换到“谱面与预览”继续生成谱面图片或转换文件。", target: '[data-page-guide-content="true"]' },
+    ],
+  },
+  "/tools/beatmaps": {
+    id: "tools-beatmaps",
+    title: "谱面与预览",
+    summary: "生成谱面预览、转换外部格式，并修复可能导致 osu!stable 闪退的谱面视频。",
+    modules: [
+      { title: "谱面预览", purpose: "输入在线谱面 ID 或选择本地谱面，生成可分享的预览图。", example: "输入 Beatmap ID，确认参数后生成预览。", target: '[data-page-guide-content="true"]' },
+      { title: "格式转换", purpose: "把 Malody 等外部格式转换为 osu! 可导入的谱面包。", example: "选择 .mcz 文件，等待每项显示完成或跳过。", targetText: "Malody 谱面转换" },
+      { title: "视频修复", purpose: "扫描谱面中的视频资源并按需修复兼容性问题。", example: "选择谱面目录，先预览待修复文件再执行修复。", targetText: "视频闪退修复" },
+    ],
+  },
+  "/tools/system": {
+    id: "tools-system",
+    title: "系统与文件",
+    summary: "管理文件关联、显示效果和 lazer 存储。",
+    modules: [
+      { title: "文件默认打开端", purpose: "设置 Windows 双击 .osz 和 .osk 文件时使用的客户端。", example: "分别选择 Stable 或 Lazer 后保存文件关联。", targetText: "文件默认打开端" },
+      { title: "显示器伽马", purpose: "实时调整主显示器中间调，1.00 为系统默认值，可随时复原。", example: "小幅调整后检查画面，测试完成点击“复原”。", targetText: "显示器伽马" },
+      { title: "lazer 存储", purpose: "查看 lazer 磁盘占用并清理重复资源。", example: "先查看占用明细，再确认需要清理的重复资源。", target: '[data-page-guide-content="true"]' },
+    ],
+  },
+  "/tools/live": {
+    id: "tools-live",
+    title: "媒体与直播",
+    summary: "管理 tosu、OBS 集成和本地媒体工具。",
+    modules: [
+      { title: "tosu 直播集成", purpose: "启动或停止 tosu，配置自动启动和 OBS WebSocket。", example: "选择 tosu 后启动服务，确认 API 已连接。", targetText: "tosu 服务" },
+      { title: "OBS 实时歌词", purpose: "运行歌词代理并复制浏览器源地址到 OBS。", example: "启动歌词代理，点击复制歌词地址并添加到 OBS。", targetText: "OBS 实时歌词" },
+      { title: "本地媒体工具", purpose: "在同一分类中访问截图、回放和渲染功能。", example: "需要导出视频时，从侧栏打开回放渲染。", target: '[data-page-guide-content="true"]' },
+    ],
+  },
+  "/community/tournaments": {
+    id: "community-tournaments",
+    title: "比赛公告",
+    summary: "浏览比赛公告，按模式和状态筛选，并打开赛事页面或报名链接。",
+    modules: [
+      { title: "搜索与筛选", purpose: "按关键词、游戏模式和赛事状态缩小公告列表。", example: "搜索主办方名称，再筛选“报名中”赛事。", target: '[data-page-guide-content="true"]' },
+      { title: "查看比赛详情", purpose: "打开卡片查看主办方、时间、要求和完整介绍。", example: "点击一张比赛卡片，核对报名与比赛时间。", target: '[data-page-guide-content="true"]' },
+      { title: "打开赛事页面", purpose: "有报名入口时使用底部按钮打开外部赛事页面。", example: "确认比赛信息后点击“打开报名链接”。", target: '[data-page-guide-content="true"]' },
+    ],
+  },
+  "/community/lobbies": {
+    id: "community-lobbies",
+    title: "约玩大厅",
+    summary: "浏览公开约玩活动，筛选合适的模式和平台，也可以发布自己的活动。",
+    modules: [
+      { title: "搜索与筛选", purpose: "按关键词、模式、活动类型和平台筛选公开活动。", example: "筛选 osu!standard 和指定平台，再查看未结束活动。", target: '[data-page-guide-content="true"]' },
+      { title: "查看活动详情", purpose: "打开卡片查看活动描述、时间和发布者 osu! 信息。", example: "选择一条活动，确认时间后使用“打开 osu! 主页”。", target: '[data-page-guide-content="true"]' },
+      { title: "发布约玩", purpose: "连接社区身份后填写标题、时间、模式和描述，发布后可继续编辑或提前结束。", example: "点击“发布约玩”，填写活动信息并确认发布。", targetText: "发布约玩" },
+    ],
+  },
+};
+
+const routeAliases: Record<string, string> = {
+  "/view-trainer": "/trainer",
+  "/tosu": "/tools/live",
+  "/data/overview": "/data",
+  "/data/scores": "/data",
+  "/data/recent": "/data",
+  "/data/pinned": "/data",
+  "/data/medals": "/data",
+  "/data/profile": "/data",
 };
 
 function stepsFor(copy: PageGuideCopy): OnboardingStep[] {
@@ -226,7 +317,7 @@ export function getPageGuide(pathname: string): PageGuide | null {
       ],
     };
   }
-  const copy = copies[pathname];
+  const copy = copies[routeAliases[pathname] ?? pathname];
   return copy
     ? { id: copy.id, title: copy.title, version: copy.version ?? CURRENT_PAGE_ONBOARDING_VERSION, steps: stepsFor(copy) }
     : null;

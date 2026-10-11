@@ -110,6 +110,49 @@ fn migrates_legacy_cache_without_scanning_and_prefers_new_database_after_restart
 }
 
 #[test]
+fn mismatched_database_snapshot_is_rebuilt_once() {
+    let (app, _stable, service, _path) = fixture_service();
+    scan(&service);
+    let database = attach(app.path(), &service);
+    service.migrate_cached_indexes().unwrap();
+    database
+        .with_database("corrupt_snapshot_count", |db| {
+            db.connection
+                .execute(
+                    "UPDATE library_snapshots SET entry_count = entry_count + 1",
+                    [],
+                )
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let cache_path = service_data::index_path(&service.cache_dir, LocalClient::Stable);
+    let _ = fs::remove_file(&cache_path);
+    let _ = fs::remove_file(cache_path.with_extension("json.bak"));
+
+    let restarted = LocalAnalysisService::new(app.path()).unwrap();
+    restarted.attach_database(Arc::clone(&database)).unwrap();
+    restarted.load_cached_indexes();
+
+    assert!(
+        restarted
+            .current_index(LocalClient::Stable)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        restarted.library_storage_status().unwrap()[0].storage,
+        "database"
+    );
+    database
+        .with_database("verify_repaired_snapshot", |db| {
+            assert!(library::load(&db.connection, "stable")?.is_some());
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
 fn failed_sql_write_falls_back_and_old_database_cannot_win_on_restart() {
     let (app, _stable, service, path) = fixture_service();
     scan(&service);

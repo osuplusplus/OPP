@@ -17,13 +17,13 @@ describe("OnboardingTour", () => {
     const onClose = vi.fn();
     render(<OnboardingTour onClose={onClose} reduceMotion />);
 
-    expect(screen.queryByText("1059437719")).not.toBeInTheDocument();
+    expect(screen.queryByText(/交流群|加入 QQ 群/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "欢迎使用 OPP" })).toBeInTheDocument();
     for (let index = 1; index < onboardingSteps.length; index += 1) {
       await user.click(screen.getByRole("button", { name: "下一步" }));
       expect(screen.getByRole("heading", { name: onboardingSteps[index].title })).toBeInTheDocument();
     }
-    expect(screen.getByText("1059437719")).toBeInTheDocument();
+    expect(screen.queryByText(/交流群|加入 QQ 群/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "完成" }));
     expect(onClose).toHaveBeenCalledOnce();
   });

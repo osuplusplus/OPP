@@ -154,12 +154,23 @@
 @keyframes online-drawer-enter { from { transform: translateX(100%); } to { transform: translateX(0); } }
 .online-download-drawer[data-reduce-motion="true"] { animation: none; }
 .online-download-summary { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
-.online-download-items { margin-block: 15px; }
-.online-download-items > div { display: flex; align-items: center; gap: 12px; padding-block: 9px; border-bottom: 1px solid #ffffff0b; }
-.online-download-items > div > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.online-download-items { display: grid; gap: 10px; margin-block: 15px; }
+.online-download-items > div { display: grid; gap: 8px; padding: 11px 12px; border: 1px solid var(--online-line); border-radius: 10px; background: color-mix(in srgb, var(--surface, #101722) 72%, transparent); }
+.online-download-item-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.online-download-item-heading > span:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .online-download-items strong, .online-download-items small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .online-download-items strong { font-size: 12px; }
 .online-download-items small { font-size: 10px; color: var(--text-muted, #aeb9c9); }
+.online-download-item-status { flex-shrink: 0; font-size: 10px; color: var(--text-muted, #aeb9c9); }
+.online-download-item-status.is-downloading { color: var(--theme-primary); }
+.online-download-item-status.is-completed, .online-download-item-status.is-skipped { color: #87d7aa; }
+.online-download-item-status.is-failed { color: #ff9e9e; }
+.online-download-item-progress { display: grid; gap: 5px; font-size: 10px; color: var(--text-muted, #aeb9c9); }
+.online-download-item-progress-meta { display: flex; justify-content: space-between; gap: 10px; min-width: 0; }
+.online-download-item-progress-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.online-download-item-progress-meta strong { flex-shrink: 0; color: var(--text); font-size: 10px; font-weight: 600; }
+.online-download-item-progress progress { width: 100%; height: 4px; accent-color: var(--theme-primary); }
+.online-download-item-preparing { padding-top: 1px; }
 .online-download-options { font-size: 12px; border-block: 1px solid var(--online-line); padding-block: 14px; }
 .online-download-options > span { color: var(--text-muted, #aeb9c9); }
 .online-download-options p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-block: 6px 14px; }

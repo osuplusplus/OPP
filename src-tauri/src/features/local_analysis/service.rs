@@ -159,6 +159,7 @@ pub struct LocalAnalysisService {
     database: RwLock<Option<Arc<crate::features::local_database::LocalDatabaseService>>>,
     persistence: Mutex<()>,
     storage_reports: RwLock<BTreeMap<LocalClient, super::models::LocalLibraryStorageStatus>>,
+    repair_clients: Mutex<BTreeSet<LocalClient>>,
 }
 
 impl LocalAnalysisService {
@@ -191,6 +192,7 @@ impl LocalAnalysisService {
             database: RwLock::new(None),
             persistence: Mutex::new(()),
             storage_reports: RwLock::new(BTreeMap::new()),
+            repair_clients: Mutex::new(BTreeSet::new()),
         })
     }
 
@@ -228,6 +230,23 @@ impl LocalAnalysisService {
             self.trim_thumbnail_cache()?;
             Ok(())
         })();
+        if result.is_ok() {
+            let repairs = self
+                .repair_clients
+                .lock()
+                .map(|mut clients| {
+                    std::mem::take(&mut *clients)
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            for client in repairs {
+                // A pre-existing database snapshot can contain duplicate
+                // Lazer resource keys. Rebuild it once after detecting the
+                // mismatch so the next launch can restore the cache normally.
+                let _ = self.scan(client, true, Arc::new(|_| {}));
+            }
+        }
         if let Ok(mut status) = self.load_status.write() {
             let clients = status.clients.clone();
             *status = match result {
@@ -548,6 +567,27 @@ impl LocalAnalysisService {
     ) -> CommandResult<LocalLibrarySummary> {
         let span =
             global().map(|logger| logger.operation("local_analysis", format!("scan:{client}")));
+
+        // osu!lazer updates the Realm file while starting up even when its
+        // beatmap library did not change. The filesystem watcher cannot tell
+        // that metadata-only write from a library change, so avoid rebuilding
+        // the expensive Realm/blob index when the Realm content is identical
+        // to the last successful scan. Manual scans can still force a rebuild.
+        if !force
+            && client == LocalClient::Lazer
+            && let Some(summary) = self.reusable_lazer_summary()?
+        {
+            if let Some(mut span) = span {
+                span.finish_ok(Some(serde_json::json!({
+                    "client": client,
+                    "beatmaps": summary.beatmap_count,
+                    "beatmap_sets": summary.beatmap_set_count,
+                    "reused": true,
+                })));
+            }
+            return Ok(summary);
+        }
+
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut scans = self
@@ -571,6 +611,9 @@ impl LocalAnalysisService {
         let result = self
             .pool
             .install(|| self.run_scan(client, force, emit_event, &cancel));
+        if result.is_ok() && client == LocalClient::Lazer {
+            self.persist_lazer_fingerprint();
+        }
         if let Ok(mut scans) = self.scans.lock() {
             scans.remove(&client);
         }
@@ -596,6 +639,54 @@ impl LocalAnalysisService {
             Err(_) => status.phase = "error".into(),
         });
         result
+    }
+
+    /// Return the cached Lazer summary when the Realm bytes are unchanged.
+    ///
+    /// This is deliberately a content check rather than an mtime check:
+    /// osu!lazer commonly touches `client.realm` during startup, which used to
+    /// make the watcher schedule a full scan on every application launch.
+    fn reusable_lazer_summary(&self) -> CommandResult<Option<LocalLibrarySummary>> {
+        let source = self.sources.resolve(LocalClient::Lazer)?;
+        if !source.status.valid {
+            return Ok(None);
+        }
+        let Some(source_root) = source_root(&source) else {
+            return Ok(None);
+        };
+        let Some(index) = self.current_index(LocalClient::Lazer)? else {
+            return Ok(None);
+        };
+        if index.source_root != source_root {
+            return Ok(None);
+        }
+        let Some(current) = self.lazer_realm_fingerprint(&source) else {
+            return Ok(None);
+        };
+        let cached = fs::read_to_string(self.lazer_fingerprint_path()).ok();
+        Ok((cached.as_deref() == Some(current.as_str())).then_some(index.summary.clone()))
+    }
+
+    fn lazer_realm_fingerprint(&self, source: &ResolvedSource) -> Option<String> {
+        let files_root = source.repository_root.as_ref()?;
+        let realm_path = files_root.parent()?.join("client.realm");
+        let bytes = fs::read(realm_path).ok()?;
+        Some(sha256(&bytes))
+    }
+
+    fn lazer_fingerprint_path(&self) -> PathBuf {
+        self.cache_dir.join("lazer-realm-fingerprint.json")
+    }
+
+    fn persist_lazer_fingerprint(&self) {
+        let Ok(source) = self.sources.resolve(LocalClient::Lazer) else {
+            return;
+        };
+        let Some(fingerprint) = self.lazer_realm_fingerprint(&source) else {
+            return;
+        };
+        let target = self.lazer_fingerprint_path();
+        let _ = fs::write(&target, fingerprint.as_bytes());
     }
 
     fn run_scan(
@@ -2173,7 +2264,15 @@ fn discover(
                         continue;
                     };
                     discovery.candidates.push(Candidate {
-                        key: format!("lazer:{}", lazer_realm::blob_relative_path(&beatmap.sha256)),
+                        // A content hash identifies the blob, not its Realm
+                        // membership. The same beatmap can be referenced by
+                        // more than one set; include the set id so SQLite's
+                        // unique resource key does not collapse those rows.
+                        key: format!(
+                            "lazer:beatmap:{}:{}",
+                            set.id,
+                            lazer_realm::blob_relative_path(&beatmap.sha256)
+                        ),
                         physical_path: physical,
                         logical_path: beatmap.sha256.clone(),
                         known_hash: Some(beatmap.sha256.clone()),
@@ -2206,7 +2305,11 @@ fn discover(
                     continue;
                 };
                 discovery.candidates.push(Candidate {
-                    key: format!("lazer:{}", lazer_realm::blob_relative_path(&skin_ini.hash)),
+                    key: format!(
+                        "lazer:skin:{}:{}",
+                        skin.id,
+                        lazer_realm::blob_relative_path(&skin_ini.hash)
+                    ),
                     physical_path: physical,
                     logical_path: skin_ini.hash.clone(),
                     known_hash: Some(skin_ini.hash.clone()),
@@ -2258,6 +2361,19 @@ fn watch_event_relevant(client: LocalClient, roots: &[PathBuf], event: &notify::
             let Some(data_root) = roots.first() else {
                 return false;
             };
+            // Lazer writes unrelated session/settings data to Realm during
+            // startup. Beatmap and skin blobs are content-addressed and are
+            // immutable, so library membership changes are represented by
+            // creates/removes (or a rename), not ordinary content updates.
+            let library_change = matches!(
+                event.kind,
+                notify::EventKind::Create(_)
+                    | notify::EventKind::Remove(_)
+                    | notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+            );
+            if !library_change {
+                return false;
+            }
             event.paths.iter().any(|path| {
                 path == &data_root.join("client.realm") || path.starts_with(data_root.join("files"))
             })
@@ -4040,24 +4156,38 @@ SliderTickRate:1
     fn watcher_ignores_reads_but_keeps_library_changes() {
         use notify::{
             Event, EventKind,
-            event::{AccessKind, DataChange, ModifyKind},
+            event::{AccessKind, CreateKind, DataChange, ModifyKind},
         };
         let root = PathBuf::from("library");
-        for client in [LocalClient::Stable, LocalClient::Lazer] {
-            let path = root.join("client.realm");
-            let roots = [root.clone()];
-            assert!(!watch_event_relevant(
-                client,
-                &roots,
-                &Event::new(EventKind::Access(AccessKind::Read)).add_path(path.clone())
-            ));
-            assert!(watch_event_relevant(
-                client,
-                &roots,
-                &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
-                    .add_path(path)
-            ));
-        }
+        let path = root.join("client.realm");
+        let roots = [root.clone()];
+        assert!(!watch_event_relevant(
+            LocalClient::Stable,
+            &roots,
+            &Event::new(EventKind::Access(AccessKind::Read)).add_path(path.clone())
+        ));
+        assert!(watch_event_relevant(
+            LocalClient::Stable,
+            &roots,
+            &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+                .add_path(path.clone())
+        ));
+        assert!(!watch_event_relevant(
+            LocalClient::Lazer,
+            &roots,
+            &Event::new(EventKind::Access(AccessKind::Read)).add_path(path.clone())
+        ));
+        assert!(!watch_event_relevant(
+            LocalClient::Lazer,
+            &roots,
+            &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+                .add_path(path.clone())
+        ));
+        assert!(watch_event_relevant(
+            LocalClient::Lazer,
+            &roots,
+            &Event::new(EventKind::Create(CreateKind::File)).add_path(path)
+        ));
     }
 
     #[test]
@@ -4081,6 +4211,41 @@ SliderTickRate:1
                 .as_deref(),
             Some(revision.as_str())
         );
+    }
+
+    #[test]
+    fn unchanged_lazer_realm_reuses_cached_summary() {
+        let app_data = tempfile::tempdir().expect("cache");
+        let lazer = tempfile::tempdir().expect("lazer");
+        fs::create_dir_all(lazer.path().join("files")).expect("files");
+        fs::write(lazer.path().join("client.realm"), b"realm fixture").expect("realm");
+        let service = LocalAnalysisService::new(app_data.path()).expect("service");
+        service
+            .set_source(LocalClient::Lazer, lazer.path())
+            .expect("source");
+
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.summary.client = LocalClient::Lazer;
+        index.source_root = service
+            .sources
+            .resolve(LocalClient::Lazer)
+            .expect("resolve")
+            .status
+            .data_root
+            .expect("data root");
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index.clone()));
+        service.persist_lazer_fingerprint();
+
+        let reused = service
+            .reusable_lazer_summary()
+            .expect("reuse check")
+            .expect("cached summary");
+        assert_eq!(reused.client, LocalClient::Lazer);
+        assert_eq!(reused.scanned_at, index.summary.scanned_at);
     }
 
     #[test]

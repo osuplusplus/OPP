@@ -1,10 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { Button } from "../../shared/components/ui";
-import {
-  COMMUNITY_GROUP_MESSAGE,
-  COMMUNITY_GROUP_NUMBER,
-} from "../../shared/constants/community";
 import { onboardingSteps, type OnboardingStep } from "./tourContent";
 
 interface TargetBox {
@@ -237,14 +233,6 @@ export function OnboardingTour({
           </button>
         </div>
         <p className="mt-4 text-sm leading-6 text-slate-300" id="onboarding-description">{step.description}</p>
-        {finalStep ? (
-          <div className="mt-4 rounded-lg border border-white/[0.09] bg-white/[0.035] px-3.5 py-3 text-xs leading-5 text-slate-400">
-            <p>{COMMUNITY_GROUP_MESSAGE}</p>
-            <p className="mt-1 text-slate-300">
-              交流群：<span className="select-all font-mono font-semibold text-[var(--theme-primary-light)]">{COMMUNITY_GROUP_NUMBER}</span>
-            </p>
-          </div>
-        ) : null}
         {step.example ? (
           <div className="mt-4 rounded-lg border border-[var(--theme-primary-soft)] bg-[var(--theme-primary-muted)] px-3.5 py-3">
             <p className="text-xs font-semibold text-[var(--theme-primary-light)]">操作示例</p>

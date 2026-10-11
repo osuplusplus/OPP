@@ -42,7 +42,7 @@ describe("community pages", () => {
   it("browses tournaments without community identity and provides no publish form", async () => {
     renderPage("tournaments");
     const card = await screen.findByRole("button", { name: "查看比赛 Autumn Cup" });
-    expect(screen.getByText(/1059437719/)).toBeVisible();
+    expect(screen.queryByText(/交流群|加入 QQ 群/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "发布比赛" })).not.toBeInTheDocument();
     expect(api.getBeatmapHubAuthStatus).not.toHaveBeenCalled();
     fireEvent.error(screen.getByAltText("Autumn Cup赛事海报"));
@@ -85,7 +85,7 @@ describe("community pages", () => {
     await userEvent.click(screen.getByRole("button", { name: "搜索" }));
     expect(await screen.findByText("暂时没有符合条件的信息")).toBeVisible();
     expect(api.listCommunityTournaments).toHaveBeenLastCalledWith(expect.objectContaining({ q: "Astracup" }));
-    expect(screen.queryByRole("button", { name: /查看.*比赛/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^查看比赛 / })).not.toBeInTheDocument();
   });
   it("retains the draft through identity connection without auto-publishing", async () => {
     api.loginBeatmapHub.mockImplementation(() => { api.getBeatmapHubAuthStatus.mockResolvedValue({ connected: true, device_id: "device", user_id: "12345" }); return Promise.resolve({ connected: true }); });

@@ -1,26 +1,24 @@
 import { useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Copy, ExternalLink, RefreshCw, Search, Trophy } from "lucide-react";
+import { ExternalLink, RefreshCw, Search, Trophy } from "lucide-react";
 import { AppDialog } from "../../shared/components/AppDialog";
 import { Button } from "../../shared/components/ui";
-import { COMMUNITY_GROUP_NUMBER } from "../../shared/constants/community";
+import { PageGuideButton } from "../../shared/components/PageHeader";
 import { communityApi, useTournament, useTournaments } from "./api";
 import { CommunityFailure, DetailField, Feed, FilterSelect, Poster, TournamentCard } from "./components";
-import { copyCommunityText, queryFromParams, rulesetLabels, statusLabels, tournamentTimeRange } from "./model";
+import { queryFromParams, rulesetLabels, statusLabels, tournamentTimeRange } from "./model";
 import "./community.css";
 
 export function TournamentsPage() {
   const [params, setParams] = useSearchParams(); const query = queryFromParams(params);
-  const [text, setText] = useState(query.q ?? ""); const [notice, setNotice] = useState("");
+  const [text, setText] = useState(query.q ?? "");
   const [linkError, setLinkError] = useState("");
   const [selection, setSelection] = useState<string | null>(null); const trigger = useRef<HTMLButtonElement | null>(null);
   const list = useTournaments(query); const detail = useTournament(selection);
   const items = [...new Map((list.data?.pages.flatMap((page) => page.items) ?? []).map((item) => [item.id, item])).values()];
   const change = (key: string, value: string) => setParams((previous) => { const next = new URLSearchParams(previous); if (value) next.set(key, value); else next.delete(key); return next; }, { replace: true });
   return <div className="community-page">
-    <header className="community-page-header"><div><span className="community-eyebrow">OPP COMMUNITY</span><h1>比赛公告</h1><p>发现下一场比赛，找到属于你的舞台。</p></div><Trophy size={38} aria-hidden="true" /></header>
-    <div className="community-contact"><div><strong>想让更多玩家看到你的比赛？</strong><p>发布比赛公告请加入 QQ 群 <span className="community-group-number">{COMMUNITY_GROUP_NUMBER}</span> 联系管理员</p></div><Button size="sm" onClick={() => void copyCommunityText(COMMUNITY_GROUP_NUMBER).then(setNotice)}><Copy size={14} />复制群号</Button></div>
-    {notice ? <p role="status" className="community-notice">{notice}</p> : null}
+    <header className="community-page-header"><div data-page-guide-title="true"><span className="community-eyebrow">OPP COMMUNITY</span><div className="flex items-center gap-2"><h1>比赛公告</h1><PageGuideButton title="比赛公告" /></div><p>发现下一场比赛，找到属于你的舞台。</p></div><Trophy size={38} aria-hidden="true" /></header>
     <div className="community-toolbar"><form className="community-search" onSubmit={(event) => { event.preventDefault(); change("q", text.trim()); }}><Search size={18} /><input aria-label="搜索比赛" placeholder="搜索比赛、主办方或介绍" maxLength={120} value={text} onChange={(event) => setText(event.target.value)} /><Button type="submit" size="sm">搜索</Button></form>
       <FilterSelect label="游戏模式" value={query.ruleset} options={rulesetLabels} onChange={(value) => change("ruleset", value)} />
       <FilterSelect label="赛事状态" value={query.status === "all" ? "" : query.status ?? "active"} all="全部状态" options={{ active: "未结束", registering: "报名中", upcoming: "即将开始", ongoing: "进行中", ended: "已结束" }} onChange={(value) => change("status", value || "all")} />

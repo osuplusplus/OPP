@@ -16,7 +16,7 @@ OPP 使用 Tauri 2、React 19 与 Rust 构建，支持 Windows x64 与 Linux。
 > [!IMPORTANT]
 > OPP 是独立的社区项目，与 ppy Pty Ltd 或 osu! 官方无隶属关系。osu! 是 ppy Pty Ltd 的商标。
 
-交流群：**1059437719** · [B 站视频演示](https://www.bilibili.com/video/BV1EhuC65EAB/)
+[B 站视频演示](https://www.bilibili.com/video/BV1EhuC65EAB/)
 
 ## 功能概览
 

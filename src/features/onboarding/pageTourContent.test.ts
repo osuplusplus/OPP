@@ -19,6 +19,15 @@ const guidedRoutes = [
   "/tosu",
   "/tools",
   "/settings",
+  "/skill-analysis",
+  "/career",
+  "/view-trainer",
+  "/tools/game",
+  "/tools/beatmaps",
+  "/tools/system",
+  "/tools/live",
+  "/community/tournaments",
+  "/community/lobbies",
 ];
 
 describe("page tour content", () => {
@@ -42,7 +51,7 @@ describe("page tour content", () => {
 
   it("uses a dedicated version for the redesigned online beatmap guide", () => {
     const guide = getPageGuide("/online/beatmaps");
-    expect(guide?.version).toBe(4);
+    expect(guide?.version).toBe(5);
     expect(guide?.steps.map((step) => step.target)).toEqual(expect.arrayContaining([
       '[data-page-guide-online-search="true"]',
       '[data-page-guide-online-filter-trigger="true"]',
@@ -50,5 +59,12 @@ describe("page tour content", () => {
       '[data-page-guide-online-download="true"]',
     ]));
     expect(getPageGuide("/settings")?.version).toBe(CURRENT_PAGE_ONBOARDING_VERSION);
+  });
+
+  it("follows the current nested routes after page reorganizations", () => {
+    expect(getPageGuide("/view-trainer")?.id).toBe("trainer");
+    expect(getPageGuide("/data/overview")?.id).toBe("data-center");
+    expect(getPageGuide("/tools/live")?.id).toBe("tools-live");
+    expect(getPageGuide("/community/tournaments")?.id).toBe("community-tournaments");
   });
 });

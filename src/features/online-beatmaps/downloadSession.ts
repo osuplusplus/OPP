@@ -13,6 +13,7 @@ type Snapshot = {
   busy: boolean;
   progress: BeatmapDownloadProgress | null;
   displayProgress: BeatmapDownloadProgress | null;
+  itemProgress: Record<number, BeatmapDownloadProgress>;
   result: BeatmapDownloadResult | null;
   error: string | null;
 };
@@ -20,7 +21,7 @@ type DownloadApi = Pick<typeof desktopApi, "downloadOnlineBeatmapsets" | "onBeat
 
 /** App-session state: neither route changes nor closing the drawer owns a download. */
 export function createDownloadSession(api: DownloadApi) {
-  let state: Snapshot = { queue: [], activeIds: [], busy: false, progress: null, displayProgress: null, result: null, error: null };
+  let state: Snapshot = { queue: [], activeIds: [], busy: false, progress: null, displayProgress: null, itemProgress: {}, result: null, error: null };
   const progressDisplay = createDownloadProgressDisplay();
   const listeners = new Set<() => void>();
   let cancellationRequested = false;
@@ -57,7 +58,7 @@ export function createDownloadSession(api: DownloadApi) {
       let dispose: (() => void) | undefined;
       cancellationRequested = false; invoked = false;
       progressDisplay.reset();
-      update({ busy: true, activeIds: [...ids], progress: null, displayProgress: null, result: null, error: null });
+      update({ busy: true, activeIds: [...ids], progress: null, displayProgress: null, itemProgress: {}, result: null, error: null });
       try {
         const options = await prepare();
         if (!options || cancellationRequested) return;
@@ -65,7 +66,10 @@ export function createDownloadSession(api: DownloadApi) {
         dispose = await api.onBeatmapDownloadProgress((progress) => {
           if (progress.current_beatmapset_id !== null && !ids.has(progress.current_beatmapset_id)) return;
           if ((progress.phase === "completed" || progress.phase === "skipped") && progress.current_beatmapset_id !== null) succeeded.add(progress.current_beatmapset_id);
-          update({ progress, displayProgress: progressDisplay.update(progress) });
+          const itemProgress = progress.current_beatmapset_id === null
+            ? state.itemProgress
+            : { ...state.itemProgress, [progress.current_beatmapset_id]: progress };
+          update({ progress, displayProgress: progressDisplay.update(progress), itemProgress });
         });
         if (cancellationRequested) return;
         invoked = true;

@@ -37,10 +37,6 @@ import { localSourcesKey, useLocalSources } from "../local-analysis/api";
 import { useSettings, settingsQueryKey } from "./api";
 import { defaultSimilarityPreferences } from "../similar-beatmaps/defaults";
 import { START_ONBOARDING_EVENT } from "../../shared/lib/onboardingEvents";
-import {
-  COMMUNITY_GROUP_MESSAGE,
-  COMMUNITY_GROUP_NUMBER,
-} from "../../shared/constants/community";
 import { requestManualUpdateCheck } from "../updates/events";
 import { SettingsLayout, type SettingsCategory } from "./SettingsLayout";
 import { OnlineSourceCredit } from "./panels/OnlineSourceCredit";
@@ -565,12 +561,6 @@ export function SettingsPage() {
                   <Gamepad2 className="size-4 text-[var(--theme-primary)]" />
                   OPP v{__APP_VERSION__}
                 </p>
-                <div className="mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] px-4 py-3">
-                  <p className="text-sm text-slate-300">{COMMUNITY_GROUP_MESSAGE}</p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    交流群：<span className="select-all font-mono font-semibold text-[var(--theme-primary-light)]">{COMMUNITY_GROUP_NUMBER}</span>
-                  </p>
-                </div>
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <Button disabled={updateBusy} loading={updateBusy} onClick={() => void checkForUpdates()} size="sm" variant="secondary">

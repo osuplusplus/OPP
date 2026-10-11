@@ -6,6 +6,7 @@ import { Badge, Card, Skeleton } from "../../shared/components/ui";
 import { useMode } from "../../app/ModeContext";
 import { useOwnProfile } from "./api";
 import { rulesetLabels } from "../../shared/lib/format";
+import { PageGuideButton } from "../../shared/components/PageHeader";
 
 const sections = [
   ["overview", "概览", Database], ["scores", "最佳成绩", BarChart3],
@@ -26,14 +27,14 @@ export function DataCenterPage() {
     ]);
   }, []);
   return <div className="space-y-5">
-    <Card className="relative overflow-hidden border-white/[0.1] p-0">
+    <Card className="relative overflow-hidden border-white/[0.1] p-0" data-page-guide-data-center="true">
       <div className="relative h-36 overflow-hidden bg-gradient-to-r from-cyan-400/20 via-slate-900 to-pink-400/15">
         {profile?.cover_url ? <img alt="" className="absolute inset-0 size-full object-cover opacity-50" src={profile.cover_url} /> : null}
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--surface-panel)] via-transparent to-black/10" />
       </div>
       <div className="relative -mt-10 flex items-end gap-4 px-6 pb-5">
         {profileQuery.isLoading ? <Skeleton className="size-20 rounded-full" /> : profile ? <Avatar profile={profile} className="size-20 rounded-full border-4 border-[var(--surface-panel)]" /> : <span className="size-20 rounded-full border-4 border-[var(--surface-panel)] bg-white/10" />}
-        <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold text-white">{profile?.username ?? "数据中心"}</h1>{profile?.country_code ? <Badge tone="cyan">{profile.country_code}</Badge> : null}</div><p className="mt-1 text-xs text-slate-400">{profile ? `${rulesetLabels[ruleset]} · osu! 个人资料` : "加载个人资料…"}</p></div>
+        <div className="min-w-0 flex-1" data-page-guide-title="true"><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold text-white">{profile?.username ?? "数据中心"}</h1><PageGuideButton title="数据中心" />{profile?.country_code ? <Badge tone="cyan">{profile.country_code}</Badge> : null}</div><p className="mt-1 text-xs text-slate-400">{profile ? `${rulesetLabels[ruleset]} · osu! 个人资料` : "加载个人资料…"}</p></div>
         {profile?.is_supporter ? <Badge tone="pink">Supporter</Badge> : null}
       </div>
     </Card>

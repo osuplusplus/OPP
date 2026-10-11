@@ -2,12 +2,39 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import { Download, FolderOpen, X } from "lucide-react";
 import { desktopApi } from "../../shared/lib/tauri";
-import { errorMessage } from "../../shared/lib/format";
-import type { BeatmapDownloadProvider } from "../../shared/types/osu";
+import { byteSize, errorMessage } from "../../shared/lib/format";
+import type { BeatmapDownloadProgress, BeatmapDownloadProvider } from "../../shared/types/osu";
 import { downloadSession } from "./downloadSession";
 import { useOnlineDownload } from "./useOnlineDownload";
 import { useSettings } from "../settings/api";
 import { DownloadResultActions } from "./DownloadResultActions";
+
+function itemStatus(progress: BeatmapDownloadProgress | undefined, active: boolean, cancelled: boolean) {
+  if (progress?.phase === "completed") return "已完成";
+  if (progress?.phase === "skipped") return "已跳过";
+  if (progress?.phase === "failed") return "下载失败";
+  if (progress?.phase === "downloading") return "下载中";
+  if (active) return "等待下载";
+  if (cancelled) return "已取消";
+  return "待下载";
+}
+
+function itemProgressText(progress: BeatmapDownloadProgress) {
+  if (progress.phase === "failed") return progress.message || "下载失败";
+  if (progress.phase === "completed") return "已保存到下载目录";
+  if (progress.phase === "skipped") return "文件已存在，已跳过";
+  return `${byteSize(progress.downloaded_bytes)}${progress.total_bytes ? ` / ${byteSize(progress.total_bytes)}` : ""}`;
+}
+
+function DownloadItemProgress({ progress, title }: { progress: BeatmapDownloadProgress; title: string }) {
+  const hasTotal = typeof progress.total_bytes === "number" && progress.total_bytes > 0;
+  const downloaded = progress.downloaded_bytes ?? 0;
+  const speed = `${byteSize(progress.bytes_per_second ?? 0)}/s`;
+  return <div className="online-download-item-progress">
+    <div className="online-download-item-progress-meta"><span>{itemProgressText(progress)}</span><strong>{progress.phase === "downloading" ? speed : itemStatus(progress, false, false)}</strong></div>
+    {hasTotal ? <progress aria-label={`${title}下载进度`} max={progress.total_bytes!} value={Math.min(downloaded, progress.total_bytes!)} /> : null}
+  </div>;
+}
 
 function DownloadContents() {
   const { state, start, destination, defaultProvider, saveDestination } = useOnlineDownload();
@@ -28,10 +55,18 @@ function DownloadContents() {
     <div className="online-download-body">
     <div className="online-download-summary"><span>{state.queue.length} 个谱面集</span><button disabled={!pending.length} onClick={() => downloadSession.clear()}>清空待下载</button></div>
     <div className="online-download-items">
-      {!state.queue.length ? <p className="online-empty">清单为空。可从搜索结果多选添加，也可以按筛选条件批量加入。</p> : state.queue.map((item) => <div key={item.id}>
-        <span><strong>{item.title_unicode || item.title}</strong><small>{item.artist_unicode || item.artist} · {state.activeIds.includes(item.id) ? "本批次" : item.creator}</small></span>
-        <button aria-label={`移除 ${item.title}`} disabled={state.activeIds.includes(item.id)} onClick={() => downloadSession.remove(item.id)}><X /></button>
-      </div>)}
+      {!state.queue.length ? <p className="online-empty">清单为空。可从搜索结果多选添加，也可以按筛选条件批量加入。</p> : state.queue.map((item) => {
+        const progress = state.itemProgress[item.id];
+        const active = state.activeIds.includes(item.id);
+        return <div key={item.id}>
+          <div className="online-download-item-heading">
+            <span><strong>{item.title_unicode || item.title}</strong><small>{item.artist_unicode || item.artist} · {item.creator}</small></span>
+            <span className={`online-download-item-status is-${progress?.phase ?? (active ? "queued" : "pending")}`}>{itemStatus(progress, active, Boolean(state.result?.cancelled))}</span>
+            <button aria-label={`移除 ${item.title}`} disabled={active} onClick={() => downloadSession.remove(item.id)}><X /></button>
+          </div>
+          {progress ? <DownloadItemProgress progress={progress} title={item.title_unicode || item.title} /> : active ? <div className="online-download-item-progress online-download-item-preparing"><span>正在准备下载…</span></div> : null}
+        </div>;
+      })}
     </div>
     <div className="online-download-options"><span>保存到</span><p title={path}>{path || "开始下载时选择目录"}</p>
       <details><summary>更多选项</summary>

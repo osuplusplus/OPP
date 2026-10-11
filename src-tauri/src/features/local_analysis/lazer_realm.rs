@@ -85,13 +85,18 @@ pub fn read_realm_data(realm_path: &Path) -> Result<LazerRealmData, String> {
         .parent()
         .map(|parent| parent.join("files"))
         .unwrap_or_else(|| PathBuf::from("files"));
+    // Shared resources are referenced by hash from multiple Realm rows. Avoid
+    // repeating a filesystem metadata call for every logical filename.
+    let mut sizes = HashMap::new();
     for file in data
         .sets
         .iter_mut()
         .flat_map(|set| set.files.iter_mut())
         .chain(data.skins.iter_mut().flat_map(|skin| skin.files.iter_mut()))
     {
-        file.size = fs_metadata_size(&files_root, &file.hash);
+        file.size = *sizes
+            .entry(file.hash.clone())
+            .or_insert_with(|| fs_metadata_size(&files_root, &file.hash));
     }
     Ok(data)
 }

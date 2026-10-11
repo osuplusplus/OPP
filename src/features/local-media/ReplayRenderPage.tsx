@@ -11,6 +11,7 @@ import type { RenderProvider } from "./model";
 import "./replayStudio.css";
 import { useReplayRenderEvents } from "./renderEvents";
 import { StudioPanelsContext } from "./studioPanels";
+import { PageGuideButton } from "../../shared/components/PageHeader";
 
 const providers = [
   { id: "live", label: "实时预览", icon: MonitorPlay },
@@ -45,7 +46,7 @@ export function ReplayRenderPage() {
   return <ReplayWorkspaceContext.Provider value={workspace}><StudioPanelsContext.Provider value={{ host: tasksHost, provider }}>
     <div className="replay-studio">
       <header className="studio-toolbar">
-        <div className="studio-brand"><span className="studio-eyebrow">REPLAY STUDIO</span><strong>回放渲染</strong></div>
+        <div className="studio-brand" data-page-guide-title="true"><span className="studio-eyebrow">REPLAY STUDIO</span><strong>回放渲染</strong><PageGuideButton title="回放渲染" /></div>
         <div className="studio-modes" role="tablist" aria-label="渲染方式">{providers.map(({ id, label, icon: Icon }, index) => <button key={id} id={`studio-tab-${id}`} aria-controls={`studio-panel-${id}`} aria-selected={provider === id} tabIndex={provider === id ? 0 : -1} role="tab" onClick={() => choose(id)} onKeyDown={(event) => {
           let next: number | undefined;
           if (event.key === "ArrowRight") next = (index + 1) % providers.length;

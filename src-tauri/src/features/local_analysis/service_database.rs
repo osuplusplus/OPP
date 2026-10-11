@@ -175,7 +175,16 @@ impl LocalAnalysisService {
                     self.report(client, Some(&index), "database", None);
                     return Ok(Some(index));
                 }
-                Err(error) => warning = Some(error.message),
+                Err(error) => {
+                    if matches!(
+                        error.code.as_str(),
+                        "DATABASE_INDEX_INVALID" | "LOCAL_INDEX_INCOMPATIBLE"
+                    ) && let Ok(mut clients) = self.repair_clients.lock()
+                    {
+                        clients.insert(client);
+                    }
+                    warning = Some(error.message);
+                }
                 _ => {}
             }
         }
@@ -187,6 +196,11 @@ impl LocalAnalysisService {
         });
         finish_span(span, Ok(()))?;
         if let Some(index) = &index {
+            // A valid legacy JSON snapshot is enough to recover the database;
+            // do not force a filesystem scan when that fallback succeeded.
+            if let Ok(mut clients) = self.repair_clients.lock() {
+                clients.remove(&client);
+            }
             // Migrate only compatible cached data. No source scan or resource reads.
             match self.save_database(client, index) {
                 Ok(true) => {

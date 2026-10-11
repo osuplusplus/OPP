@@ -5,10 +5,6 @@
 .community-page-header p, .community-muted { color: var(--text-muted); font-size: 13px; line-height: 1.7; }
 .community-page-header > svg { color: var(--theme-primary-light); }
 .community-header-actions, .community-detail-actions, .community-owner-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.community-contact { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px; margin-bottom: 22px; border: 1px solid var(--theme-primary-soft); border-radius: 14px; background: var(--theme-primary-muted); font-size: 13px; line-height: 1.8; }
-.community-contact strong { color: var(--text); }
-.community-contact p { color: var(--text-muted); }
-.community-group-number { color: var(--theme-primary-light); font-variant-numeric: tabular-nums; }
 .community-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 22px 0; }
 .community-search { display: flex; flex: 1 1 280px; align-items: center; gap: 10px; padding: 5px 6px 5px 14px; min-height: 42px; border: 1px solid var(--line-subtle); border-radius: 10px; background: var(--surface-interactive); color: var(--text-muted); }
 .community-search:focus-within { border-color: var(--theme-primary); }
@@ -68,5 +64,5 @@
 .community-publisher strong { color: var(--text); }
 @keyframes community-pulse { 50% { opacity: .5; } }
 @media (max-width: 900px) { .community-page-header { align-items: start; } .community-view-tabs > span { display: none; } .community-header-actions { justify-content: end; } }
-@media (max-width: 650px) { .community-page-header, .community-contact { align-items: start; flex-direction: column; } .community-form-row { grid-template-columns: 1fr; } .community-toolbar { gap: 8px; } .community-filter { flex: 1 1 110px; } }
+@media (max-width: 650px) { .community-page-header { align-items: start; flex-direction: column; } .community-form-row { grid-template-columns: 1fr; } .community-toolbar { gap: 8px; } .community-filter { flex: 1 1 110px; } }
 @media (prefers-reduced-motion: reduce) { .community-card { transition: none; } .community-card:hover { transform: none; } .community-skeleton { animation: none; } }

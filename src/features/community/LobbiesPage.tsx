@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Search, Users } from "lucide-react";
 import { Button } from "../../shared/components/ui";
+import { PageGuideButton } from "../../shared/components/PageHeader";
 import { useCommunityIdentity, useCommunityProfile } from "../../shared/lib/communityIdentity";
 import { desktopApi } from "../../shared/lib/tauri";
 import { useMode } from "../../app/ModeContext";
@@ -35,7 +36,7 @@ export function LobbiesPage() {
   const openMine = () => { if (!connected) { setPendingMine(true); setIdentityOpen(true); } else changeView(true); };
   const restoreFocus = (event: Event) => { event.preventDefault(); const target = trigger.current?.isConnected ? trigger.current : publishTrigger.current?.querySelector("button"); target?.focus({ preventScroll: true }); };
   return <div className="community-page">
-    <header className="community-page-header"><div><span className="community-eyebrow">PLAY TOGETHER</span><h1>约玩大厅</h1><p>约一场 MP，找个排位搭子，或一起练练图。</p></div><div className="community-header-actions"><Button onClick={openMine}><Users size={16} />我的发布</Button><div ref={publishTrigger}><Button variant="primary" onClick={() => setPublisher({ edit: null })}><Plus size={17} />发布约玩</Button></div></div></header>
+    <header className="community-page-header"><div data-page-guide-title="true"><span className="community-eyebrow">PLAY TOGETHER</span><div className="flex items-center gap-2"><h1>约玩大厅</h1><PageGuideButton title="约玩大厅" /></div><p>约一场 MP，找个排位搭子，或一起练练图。</p></div><div className="community-header-actions"><Button onClick={openMine}><Users size={16} />我的发布</Button><div ref={publishTrigger}><Button variant="primary" onClick={() => setPublisher({ edit: null })}><Plus size={17} />发布约玩</Button></div></div></header>
     <div className="community-view-tabs" aria-label="约玩范围"><Button variant={!mine ? "primary" : "ghost"} onClick={() => changeView(false)}>公开大厅</Button><Button variant={mine ? "primary" : "ghost"} onClick={openMine}>我的发布</Button><span>通过 osu! 联系发布者，自由约好一起玩。</span></div>
     <div className="community-toolbar"><form className="community-search" onSubmit={(event) => { event.preventDefault(); change("q", text.trim()); }}><Search size={18} /><input aria-label="搜索约玩" placeholder="搜索活动、玩家或 osu! ID" value={text} maxLength={120} onChange={(event) => setText(event.target.value)} /><Button type="submit" size="sm">搜索</Button></form>
       <FilterSelect label="游戏模式" value={query.ruleset} options={rulesetLabels} onChange={(value) => change("ruleset", value)} />

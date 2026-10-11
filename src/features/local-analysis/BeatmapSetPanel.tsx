@@ -8,6 +8,7 @@ import { LocalSetSearch } from "./LocalSetSearch";
 import { StageBackground } from "./StageBackground";
 import { useStageArtwork } from "./useStageArtwork";
 import { StageControls } from "./StageControls";
+import { PageGuideButton } from "../../shared/components/PageHeader";
 import { createStageQuery, initialDifficulty } from "./stageModel";
 import { fetchCompleteLocalSet, pickLocalSet } from "./api";
 import "./localStage.css";
@@ -137,11 +138,11 @@ export function BeatmapSetPanel({ client, ruleset, onOpen, libraryControl, libra
         <div className="local-stage-song" key={`song:${selection.set.set_key}`}>
           <div className="local-stage-song-meta"><span>{selection.set.beatmap_set_id ? "已提交" : "本地谱面"}</span><span>{selection.set.beatmap_set_id ? `SET / ${selection.set.beatmap_set_id}` : "LOCAL / COLLECTION"}</span>{selection.set.grouping_inferred ? <span>推断分组</span> : null}</div>
           <p>{selection.set.artist_unicode || selection.set.artist}</p>
-          <h1>{selection.set.title_unicode || selection.set.title}</h1>
+          <div className="flex items-center gap-2" data-page-guide-title="true"><h1>{selection.set.title_unicode || selection.set.title}</h1><PageGuideButton title="本地谱面" /></div>
           <div className="local-stage-mapper">谱师 <strong>{selection.set.creators.join(" / ") || "未知"}</strong>{busy ? <span><LoaderCircle className="animate-spin" />正在准备谱面…</span> : null}</div>
         </div>
         <StageControls key={`controls:${selection.set.set_key}`} client={client} set={selection.set} difficulty={difficulty} focusSelection={selection.focus} volume={settings.data?.preview_volume ?? 65} onOpen={onOpen} onDifficulty={(difficultyId) => setSelection({ ...selection, difficultyId })} />
-      </> : <div className="local-stage-welcome"><span>YOUR LOCAL COLLECTION</span><h1>{busy ? "正在寻找下一首" : "从一首谱面开始"}</h1><p>{busy ? "正在准备本地谱面与背景…" : "搜索标题、艺术家或谱师，按 Enter 展开谱面。"}</p>{busy ? <LoaderCircle className="animate-spin" /> : null}</div>}
+      </> : <div className="local-stage-welcome"><span>YOUR LOCAL COLLECTION</span><div className="flex items-center justify-center gap-2" data-page-guide-title="true"><h1>{busy ? "正在寻找下一首" : "从一首谱面开始"}</h1><PageGuideButton title="本地谱面" /></div><p>{busy ? "正在准备本地谱面与背景…" : "搜索标题、艺术家或谱师，按 Enter 展开谱面。"}</p>{busy ? <LoaderCircle className="animate-spin" /> : null}</div>}
     </div>
   </section>;
 }

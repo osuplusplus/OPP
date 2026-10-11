@@ -51,7 +51,8 @@ describe("online download session", () => {
     const run = session.start(session.getSnapshot().queue, options);
     await vi.waitFor(() => expect(api.downloadOnlineBeatmapsets).toHaveBeenCalledOnce());
     emit({ current_beatmapset_id: 1, current_title: "Artist — First" });
-    emit({ current_beatmapset_id: 2, current_title: "Artist — Second" });
+    emit({ current_beatmapset_id: 2, current_title: "Artist — Second", downloaded_bytes: 6, total_bytes: 12, bytes_per_second: 2048 });
+    expect(session.getSnapshot().itemProgress[2]).toMatchObject({ downloaded_bytes: 6, total_bytes: 12, bytes_per_second: 2048 });
     expect(session.getSnapshot().displayProgress?.current_title).toBe("Artist — First");
     emit({ phase: "completed", current_beatmapset_id: 1, current_title: "Artist — First", processed: 1, completed: 1 });
     expect(session.getSnapshot().displayProgress?.current_title).toBe("Artist — Second");
