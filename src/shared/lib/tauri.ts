@@ -359,7 +359,10 @@ function browserPreviewValue<T>(command: string, args?: Record<string, unknown>)
     ...(browserPreviewValue<AppSettings>("get_settings") ?? {}),
     ignored_update_version: args?.version,
   } as T;
-  if (["clear_profile_cache", "clear_career_history", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "cancel_video_fix", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app"].includes(command)) return null as T;
+  if (["clear_profile_cache", "clear_career_history", "set_default_file_client", "set_display_gamma", "cancel_lazer_dedupe", "cancel_video_fix", "open_netease_music_search", "set_local_source", "reset_local_source", "start_tosu", "stop_tosu", "set_tosu_executable", "set_tosu_lyrics_executable", "start_otd", "stop_otd", "set_otd_executable", "read_otd_config_summary", "open_otd", "cancel_online_beatmap_download", "begin_collection_task", "cancel_collection_task", "exit_app", "overlay_set_mode", "overlay_set_visible", "overlay_test_hotkey", "overlay_set_irc_credentials", "overlay_install_ingame", "overlay_uninstall_ingame"].includes(command)) return null as T;
+  if (command === "overlay_get_state") return { enabled: false, visible: false, mode: "hud" } as T;
+  if (command === "overlay_get_mp_status") return { irc: { state: "disconnected", nick: "", channels: [], message: "" }, mp: { phase: "idle", title: "", message: "" }, irc_configured: false, irc_username: null, ingame_installed: false } as T;
+  if (command === "overlay_install_ingame") return { installed: false, tosu_dir: "", message: "" } as T;
   if (command === "backup_otd_config") return `${args?.destinationDir ?? "C:\\Export"}/OpenTabletDriver-backup.json` as T;
   return undefined;
 }
@@ -995,6 +998,28 @@ export const desktopApi = {
   onObsStatusChanged: async (handler: (status: ObsStatus) => void): Promise<UnlistenFn> => {
     if (!isTauri()) return () => undefined;
     return listen<ObsStatus>("obs-status-changed", (event) => handler(event.payload));
+  },
+  overlayGetState: () => call<import("../types/osu").OverlayState>("overlay_get_state"),
+  overlaySetMode: (mode: "hud" | "panel") => call<void>("overlay_set_mode", { mode }),
+  overlaySetVisible: (visible: boolean) => call<void>("overlay_set_visible", { visible }),
+  overlayTestHotkey: (hotkey: string) => call<void>("overlay_test_hotkey", { hotkey }),
+  overlayGetMpStatus: () => call<import("../types/osu").OverlayMpStatus>("overlay_get_mp_status"),
+  overlaySetIrcCredentials: (username: string | null, token: string) =>
+    call<void>("overlay_set_irc_credentials", { username, token }),
+  overlayInstallIngame: () =>
+    call<import("../types/osu").OverlayIngameInstallInfo>("overlay_install_ingame"),
+  overlayUninstallIngame: () => call<void>("overlay_uninstall_ingame"),
+  onOverlayModeChanged: async (handler: (mode: "hud" | "panel") => void): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<"hud" | "panel">("overlay-mode-changed", (event) => handler(event.payload));
+  },
+  onOverlayMpActivity: async (
+    handler: (activity: import("../types/osu").OverlayMpActivity) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<import("../types/osu").OverlayMpActivity>("overlay-mp-activity", (event) =>
+      handler(event.payload),
+    );
   },
 };
 

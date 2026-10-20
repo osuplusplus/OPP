@@ -423,6 +423,11 @@ pub fn start_game_monitor(
                     let state = app.state::<AppState>();
                     let _ = start_managed_tosu(&state, app.clone());
                 }
+                // 覆盖层跟随游戏启停显示/隐藏；内部自行读取设置判断是否启用。
+                crate::features::overlay::service::on_game_status(
+                    &app,
+                    next.clients.iter().any(|client| client.running),
+                );
                 let _ = app.emit("game-status-changed", next);
             }
             tokio::time::sleep(Duration::from_secs(1)).await;

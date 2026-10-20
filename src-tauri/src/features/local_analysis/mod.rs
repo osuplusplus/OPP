@@ -11,8 +11,8 @@ mod sources;
 pub use commands::*;
 pub(crate) use models::BeatmapQuery;
 pub use models::{
-    LocalBeatmapSummary, LocalClient, LocalSkinSummary, SkinQuery, SkinSort, SortDirection,
-    StrainAnalysis, StrainSeries,
+    LocalBeatmapSummary, LocalClient, LocalPresenceState, LocalSkinSummary, SkinQuery, SkinSort,
+    SortDirection, StrainAnalysis, StrainSeries,
 };
 pub(crate) use music::{MusicAsset, MusicCandidate};
 pub use service::LocalAnalysisService;

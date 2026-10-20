@@ -52,6 +52,11 @@ pub struct TosuLiveSnapshot {
     pub pp_current: Option<f64>,
     pub pp_fc: Option<f64>,
     pub mods: Option<String>,
+    /// 当前谱面身份（多人补缺/覆盖层用）。tosu 用 0/-1 表示"无谱面"，
+    /// 这里统一归一化为 `None`。
+    pub beatmap_id: Option<i64>,
+    pub beatmapset_id: Option<i64>,
+    pub beatmap_md5: Option<String>,
 }
 
 fn value<'a>(root: &'a Value, path: &[&str]) -> Option<&'a Value> {
@@ -80,6 +85,11 @@ fn decimal(root: &Value, path: &[&str]) -> Option<f64> {
         .or_else(|| value(root, path)?.as_u64().map(|number| number as f64))
 }
 
+/// 正数才有意义（tosu 用 0/-1 占位表示无数据）。
+fn positive_integer(root: &Value, path: &[&str]) -> Option<i64> {
+    integer(root, path).filter(|number| *number > 0)
+}
+
 impl TosuLiveSnapshot {
     pub fn from_v2(value: &Value) -> Self {
         Self {
@@ -104,6 +114,12 @@ impl TosuLiveSnapshot {
             pp_current: decimal(value, &["play", "pp", "current"]),
             pp_fc: decimal(value, &["play", "pp", "fc"]),
             mods: text(value, &["play", "mods", "name"]),
+            beatmap_id: positive_integer(value, &["beatmap", "id"]),
+            beatmapset_id: positive_integer(value, &["beatmap", "setId"])
+                .or_else(|| positive_integer(value, &["beatmap", "set"])),
+            beatmap_md5: text(value, &["beatmap", "checksum"])
+                .or_else(|| text(value, &["beatmap", "md5"]))
+                .filter(|checksum| !checksum.is_empty()),
         }
     }
 }
@@ -122,5 +138,39 @@ mod tests {
         assert_eq!(snapshot.title.as_deref(), Some("title"));
         assert_eq!(snapshot.combo, Some(42));
         assert_eq!(snapshot.pp_fc, Some(45.6));
+    }
+
+    #[test]
+    fn maps_beatmap_identity_fields() {
+        let data = serde_json::json!({
+            "state": {"name": "MultiplayerLobby"},
+            "beatmap": {"id": 123456, "set": 654321, "checksum": "abc123"}
+        });
+        let snapshot = TosuLiveSnapshot::from_v2(&data);
+        assert_eq!(snapshot.beatmap_id, Some(123456));
+        assert_eq!(snapshot.beatmapset_id, Some(654321));
+        assert_eq!(snapshot.beatmap_md5.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn maps_beatmap_identity_field_aliases() {
+        let data = serde_json::json!({
+            "beatmap": {"id": 42, "setId": 99, "md5": "deadbeef"}
+        });
+        let snapshot = TosuLiveSnapshot::from_v2(&data);
+        assert_eq!(snapshot.beatmap_id, Some(42));
+        assert_eq!(snapshot.beatmapset_id, Some(99));
+        assert_eq!(snapshot.beatmap_md5.as_deref(), Some("deadbeef"));
+    }
+
+    #[test]
+    fn normalizes_placeholder_beatmap_identity() {
+        let data = serde_json::json!({
+            "beatmap": {"id": 0, "set": -1, "checksum": ""}
+        });
+        let snapshot = TosuLiveSnapshot::from_v2(&data);
+        assert_eq!(snapshot.beatmap_id, None);
+        assert_eq!(snapshot.beatmapset_id, None);
+        assert_eq!(snapshot.beatmap_md5, None);
     }
 }

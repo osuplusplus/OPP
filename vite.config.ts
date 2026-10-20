@@ -33,7 +33,7 @@ export default defineConfig(async () => ({
   clearScreen: false,
   build: {
     manifest: true,
-    rollupOptions: { input: { main: "index.html", mini: "mini-player.html" } },
+    rollupOptions: { input: { main: "index.html", mini: "mini-player.html", overlay: "overlay.html" } },
   },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {

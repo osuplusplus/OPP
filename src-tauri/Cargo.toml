@@ -22,6 +22,8 @@ realm-db-reader = { git = "https://github.com/Ohdmire/realm-db-reader" }
 tauri = { version = "2", features = ["tray-icon", "image-png", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+# 钉在 2.3：2.4+ 要求 tauri ^2.12，会破坏与 npm @tauri-apps/api 2.11 的次版本对齐。
+tauri-plugin-global-shortcut = "~2.3.0"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }

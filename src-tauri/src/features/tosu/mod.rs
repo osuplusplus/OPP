@@ -5,4 +5,4 @@ mod models;
 mod service;
 
 pub use commands::*;
-pub use service::{TosuRuntime, cleanup_on_exit};
+pub use service::{TosuRuntime, cleanup_on_exit, live_snapshot, process_running};

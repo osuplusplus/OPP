@@ -68,6 +68,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let logger = logging::init(&app_data_dir);
@@ -130,6 +131,7 @@ pub fn run() {
                 app.handle().clone(),
             );
             start_obs_monitor(app.handle().clone());
+            features::overlay::service::initialize(app.handle());
             let icon = tauri::image::Image::from_bytes(include_bytes!("../../public/01.png"))?;
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(target_os = "linux")]

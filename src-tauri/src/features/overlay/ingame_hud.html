@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=340" />
+<title>OPP HUD</title>
+<style>
+  /* 运行在 tosu ingame overlay（Electron + asdf-overlay）内，背景必须透明。
+     数据来自 OPP 本地状态服务 http://127.0.0.1:24099/api/status（500ms 轮询）。 */
+  :root {
+    --text: #f4f2ee;
+    --muted: rgba(244, 242, 238, 0.62);
+    --accent: #67e8f9;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --line: rgba(255, 255, 255, 0.09);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 340px; height: 190px;
+    overflow: hidden;
+    background: transparent;
+    font-family: "Segoe UI Variable Text", "Noto Sans SC", "Microsoft YaHei UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: var(--text);
+  }
+  .card {
+    width: 100%; height: 100%;
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    border-radius: 14px;
+    background: rgba(13, 16, 22, 0.78);
+    border: 1px solid var(--line);
+  }
+  .head { display: flex; align-items: center; gap: 8px; }
+  .brand { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--accent); }
+  .state {
+    margin-left: auto; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08); color: var(--muted);
+    max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .state.mp { background: rgba(103, 232, 249, 0.18); color: var(--accent); }
+  .map { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .diff { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .activity { font-size: 11px; line-height: 1.5; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .activity.ok { color: var(--ok); }
+  .activity.warn { color: var(--warn); }
+  .bar { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 999px; background: var(--accent); transition: width 200ms ease; }
+  .foot { margin-top: auto; font-size: 10px; color: var(--muted); opacity: 0.8; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <span class="brand">OPP</span>
+      <span class="state" id="state">连接中…</span>
+    </div>
+    <div class="map">
+      <span class="title" id="title">—</span>
+      <span class="diff" id="diff"></span>
+    </div>
+    <div class="activity" id="activity">等待 OPP…</div>
+    <div class="bar" id="bar" style="display:none"><div id="bar-fill" style="width:0%"></div></div>
+    <div class="foot" id="foot">tosu 游戏内渲染 · Ctrl+Shift+Space 显隐</div>
+  </div>
+<script>
+(function () {
+  var BASE = "http://127.0.0.1:24099";
+  var stateLabels = {
+    Menu: "主菜单", SongSelect: "选图", Playing: "游戏中", ResultScreen: "结算",
+    Editor: "编辑器", MultiplayerLobby: "多人大厅", MultiplayerGameplay: "多人游戏", Lobby: "多人大厅"
+  };
+  var mpPhrases = {
+    checking: ["检查本地谱面：", ""],
+    missing: ["缺少谱面：", "warn"],
+    downloading: ["MP 补缺下载：", ""],
+    imported: ["已下载并导入：", "ok"],
+    present: ["已有谱面：", "ok"],
+    unresolved: ["无法识别谱面（可能未提交）：", "warn"],
+    error: ["", "warn"]
+  };
+  function el(id) { return document.getElementById(id); }
+  function setText(id, value) { el(id).textContent = value; }
+  function displayTitle(artist, title) {
+    if (!title) return "—";
+    return artist ? artist + " - " + title : title;
+  }
+  function render(data) {
+    var tosu = data.tosu || {};
+    var stateName = tosu.state || "无数据";
+    var isMp = /multiplayer|lobby/i.test(tosu.state || "");
+    var stateEl = el("state");
+    setText("state", stateLabels[stateName] || stateName);
+    stateEl.className = "state" + (isMp ? " mp" : "");
+    setText("title", displayTitle(tosu.artist, tosu.title));
+    setText("diff", tosu.difficulty || "");
+
+    var activity = el("activity");
+    var download = data.download;
+    if (download && download.phase !== "finished" && download.phase !== "cancelled") {
+      activity.className = "activity";
+      var percent = download.total_bytes > 0 && download.downloaded_bytes != null
+        ? Math.min(100, Math.round(download.downloaded_bytes / download.total_bytes * 100))
+        : null;
+      activity.textContent = "下载 " + download.processed + "/" + download.total +
+        (download.current_title ? " · " + download.current_title : "");
+      el("bar").style.display = "";
+      el("bar-fill").style.width = (percent == null ? 100 : percent) + "%";
+      el("bar-fill").style.opacity = percent == null ? "0.35" : "1";
+    } else {
+      el("bar").style.display = "none";
+      var mp = data.mp || {};
+      var phrase = mpPhrases[mp.phase];
+      if (!phrase || mp.phase === "idle") {
+        activity.className = "activity";
+        activity.textContent = data.irc && data.irc.state === "error"
+          ? "IRC：" + (data.irc.message || "连接失败")
+          : (data.irc && data.irc.state === "connected"
+            ? "MP 监听就绪 · " + (data.irc.channels || []).join(" ")
+            : "等待游戏数据…");
+      } else {
+        activity.className = "activity " + (phrase[1] || "");
+        activity.textContent = mp.phase === "error" ? (mp.message || "补缺失败") : phrase[0] + (mp.title || "");
+      }
+    }
+  }
+  function tick() {
+    fetch(BASE + "/api/status", { cache: "no-store" })
+      .then(function (response) { return response.json(); })
+      .then(render)
+      .catch(function () {
+        el("activity").className = "activity";
+        el("activity").textContent = "等待 OPP…";
+      });
+  }
+  tick();
+  setInterval(tick, 500);
+})();
+</script>
+</body>
+</html>

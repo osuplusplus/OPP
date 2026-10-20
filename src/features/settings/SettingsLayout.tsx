@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Database,
   Film,
+  Layers,
   Wrench,
   Info,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const categories = [
   { id: "directories", label: "游戏目录", icon: FolderOpen },
   { id: "local-data", label: "本地数据", icon: Database },
   { id: "replay", label: "回放渲染", icon: Film },
+  { id: "overlay", label: "游戏覆盖", icon: Layers },
   { id: "tools", label: "工具与缓存", icon: Wrench },
   { id: "about", label: "关于", icon: Info },
 ] as const;

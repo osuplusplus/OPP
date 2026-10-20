@@ -339,21 +339,28 @@ pub async fn update_settings(
     mut settings: AppSettings,
     app: AppHandle,
 ) -> CommandResult<AppSettings> {
-    crate::infrastructure::tasks::blocking_io("update_settings", move || {
-        let state = app.state::<AppState>();
-        settings.cache_limit_mb = settings.cache_limit_mb.clamp(64, 10_240);
-        if settings.beatmap_download_directory.is_none() {
-            settings.beatmap_download_directory = default_download_directory();
-        }
-        state
-            .local_analysis
-            .set_thumbnail_cache_limit_mb(settings.cache_limit_mb)?;
-        state
-            .store
-            .update_settings(|saved| *saved = settings.clone())?;
-        Ok(settings)
-    })
-    .await?
+    let state_app = app.clone();
+    let saved = crate::infrastructure::tasks::blocking_io(
+        "update_settings",
+        move || -> CommandResult<AppSettings> {
+            let state = state_app.state::<AppState>();
+            settings.cache_limit_mb = settings.cache_limit_mb.clamp(64, 10_240);
+            if settings.beatmap_download_directory.is_none() {
+                settings.beatmap_download_directory = default_download_directory();
+            }
+            state
+                .local_analysis
+                .set_thumbnail_cache_limit_mb(settings.cache_limit_mb)?;
+            state
+                .store
+                .update_settings(|stored| *stored = settings.clone())?;
+            Ok(settings)
+        },
+    )
+    .await??;
+    // 覆盖层热键/窗口需跟随设置即时生效（启用、角落、热键变更）。
+    crate::features::overlay::service::apply_settings(&app, &saved);
+    Ok(saved)
 }
 
 fn default_download_directory() -> Option<String> {

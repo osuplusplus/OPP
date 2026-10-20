@@ -236,10 +236,42 @@ pub struct AppSettings {
     pub cache_limit_mb: u32,
     #[serde(default)]
     pub key_bindings: AppKeyBindings,
+    /// 游戏内覆盖层（透明置顶小窗：HUD 状态 + Direct 面板 + MP 补缺）。
+    #[serde(default)]
+    pub overlay_enabled: bool,
+    #[serde(default = "default_true")]
+    pub overlay_show_with_game: bool,
+    #[serde(default = "default_true")]
+    pub overlay_auto_hide_on_game_exit: bool,
+    #[serde(default = "default_overlay_corner")]
+    pub overlay_corner: String,
+    #[serde(default = "default_overlay_hotkey_toggle")]
+    pub overlay_hotkey_toggle: String,
+    #[serde(default = "default_true")]
+    pub overlay_click_through: bool,
+    #[serde(default = "default_true")]
+    pub overlay_mp_auto_download: bool,
+    /// 覆盖层需要数据源：游戏启动时自动拉起 tosu（托管启动不弹浏览器）。
+    #[serde(default = "default_true")]
+    pub overlay_start_tosu_with_game: bool,
+    /// 把 HUD 装进 tosu 的游戏内渲染（独占全屏可见）。
+    #[serde(default)]
+    pub overlay_ingame_enabled: bool,
+    /// osu! IRC 昵称（多人补缺监听；令牌存系统密钥环不落盘）。
+    #[serde(default)]
+    pub overlay_irc_username: Option<String>,
 }
 
 fn default_collection_backup_retention() -> usize {
     10
+}
+
+fn default_overlay_corner() -> String {
+    "TopRight".into()
+}
+
+fn default_overlay_hotkey_toggle() -> String {
+    "Control+Shift+O".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -456,6 +488,16 @@ impl Default for AppSettings {
             preview_volume: default_preview_volume(),
             cache_limit_mb: default_cache_limit_mb(),
             key_bindings: AppKeyBindings::default(),
+            overlay_enabled: false,
+            overlay_show_with_game: true,
+            overlay_auto_hide_on_game_exit: true,
+            overlay_corner: default_overlay_corner(),
+            overlay_hotkey_toggle: default_overlay_hotkey_toggle(),
+            overlay_click_through: true,
+            overlay_mp_auto_download: true,
+            overlay_start_tosu_with_game: true,
+            overlay_ingame_enabled: false,
+            overlay_irc_username: None,
         }
     }
 }

@@ -41,6 +41,7 @@ import { requestManualUpdateCheck } from "../updates/events";
 import { SettingsLayout, type SettingsCategory } from "./SettingsLayout";
 import { OnlineSourceCredit } from "./panels/OnlineSourceCredit";
 import { LocalDataPanel } from "./panels/LocalDataPanel";
+import { OverlayPanel } from "./panels/OverlayPanel";
 
 const colors: Array<[ThemeColor, string, string]> = [
   ["cyan", "青色", "#67e8f9"],
@@ -65,6 +66,7 @@ const categoryMeta: Record<SettingsCategory, { title: string; description: strin
   directories: { title: "游戏目录", description: "管理 Stable 和 lazer 的本地资源目录。" },
   "local-data": { title: "本地数据", description: "管理数据库、谱面与皮肤索引、扫描更新和在线已有标记。" },
   replay: { title: "回放渲染", description: "配置 Danser、FFmpeg 和回放导出。" },
+  overlay: { title: "游戏覆盖", description: "游戏内透明覆盖层：HUD 状态、Direct 面板与多人自动补缺。" },
   tools: { title: "工具与缓存", description: "清理运行缓存并管理本地缩略图空间。" },
   about: { title: "关于", description: "查看版本、更新和社区信息。" },
 };
@@ -111,6 +113,16 @@ const base: AppSettings = {
   preview_volume: 65,
   cache_limit_mb: 512,
   similarity_preferences: defaultSimilarityPreferences,
+  overlay_enabled: false,
+  overlay_show_with_game: true,
+  overlay_auto_hide_on_game_exit: true,
+  overlay_corner: "TopRight",
+  overlay_hotkey_toggle: "Control+Shift+O",
+  overlay_click_through: true,
+  overlay_mp_auto_download: true,
+  overlay_start_tosu_with_game: true,
+  overlay_ingame_enabled: false,
+  overlay_irc_username: null,
 };
 
 function Toggle({
@@ -437,6 +449,7 @@ export function SettingsPage() {
           </Card>
 
           {activeCategory === "local-data" ? <LocalDataPanel settings={settings} save={save} busy={busy} onConfigure={() => setActiveCategory("directories")} /> : null}
+          {activeCategory === "overlay" ? <OverlayPanel settings={settings} save={save} busy={busy} /> : null}
 
           <Card className={panelClass("replay")}>
             <div className="flex items-start justify-between gap-4">

@@ -35,6 +35,9 @@ pub struct TosuRuntime {
     live: Mutex<Option<TosuLiveSnapshot>>,
     connecting: std::sync::atomic::AtomicBool,
     last_error: Mutex<Option<String>>,
+    /// 实时连接期望的 API 基地址。设置变更后由 `ensure_live_connection` 更新，
+    /// 断线重连时读取最新值，避免旧任务拿着过期地址无限重试。
+    live_base: Mutex<Option<String>>,
 }
 
 impl Default for TosuRuntime {
@@ -46,6 +49,7 @@ impl Default for TosuRuntime {
             live: Mutex::new(None),
             connecting: std::sync::atomic::AtomicBool::new(false),
             last_error: Mutex::new(None),
+            live_base: Mutex::new(None),
         }
     }
 }
@@ -438,6 +442,13 @@ pub fn start(
                 "未在 PATH 中找到 tosu，且未配置有效的 tosu 路径",
             ));
         };
+        // 同 Windows：托管启动前禁止 dashboard 弹出浏览器。
+        crate::features::overlay::ingame::patch_tosu_env(
+            executable.parent().unwrap_or(Path::new(".")),
+            "OPEN_DASHBOARD_ON_STARTUP",
+            "false",
+        )
+        .ok();
         spawn_elevated_tosu(&runtime, &app, &executable)?;
         start_lyrics_if_configured(runtime.clone(), settings, app.clone());
         ensure_live_connection(runtime, settings.tosu_api_base_url.clone(), app);
@@ -446,6 +457,13 @@ pub fn start(
     #[cfg(windows)]
     {
         let executable = executable_path(settings)?;
+        // OPP 托管启动的 tosu 不自动打开浏览器 dashboard（覆盖层等后台场景
+        // 不应弹出窗口）；只增改目标键，保留用户其余 tosu.env 配置。
+        crate::features::overlay::ingame::patch_tosu_env(
+            executable.parent().unwrap_or(Path::new(".")),
+            "OPEN_DASHBOARD_ON_STARTUP",
+            "false",
+        )?;
         let mut command = Command::new(&executable);
         command
             .current_dir(executable.parent().unwrap_or(Path::new(".")))
@@ -612,90 +630,150 @@ pub fn last_error(runtime: &TosuRuntime) -> Option<String> {
         .and_then(|error| error.clone())
 }
 
+/// 最近一次实时快照（覆盖层 HTTP 状态服务等只读消费方使用）。
+pub fn live_snapshot(runtime: &TosuRuntime) -> Option<TosuLiveSnapshot> {
+    runtime.live.lock().ok().and_then(|live| live.clone())
+}
+
+/// 把 HTTP(S) 基地址换算成 tosu v2 WebSocket 端点。
+fn websocket_endpoint(base: &str) -> CommandResult<String> {
+    let mut url = Url::parse(base)
+        .map_err(|_| CommandError::new("INVALID_TOSU_API_URL", "tosu API 地址无效"))?;
+    url.set_scheme(if url.scheme() == "https" { "wss" } else { "ws" })
+        .map_err(|_| CommandError::new("INVALID_TOSU_API_URL", "tosu API 地址无效"))?;
+    url.set_path("/websocket/v2");
+    Ok(url.to_string())
+}
+
 pub fn ensure_live_connection(runtime: Arc<TosuRuntime>, base: String, app: AppHandle) {
     use std::sync::atomic::Ordering;
+    if let Ok(mut live_base) = runtime.live_base.lock() {
+        *live_base = Some(base);
+    }
     if runtime.connecting.swap(true, Ordering::SeqCst) {
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let endpoint = match normalize_base_url(&base).and_then(|base| {
-            let mut url = Url::parse(&base)
-                .map_err(|_| CommandError::new("INVALID_TOSU_API_URL", "tosu API 地址无效"))?;
-            url.set_scheme(if url.scheme() == "https" { "wss" } else { "ws" })
-                .map_err(|_| CommandError::new("INVALID_TOSU_API_URL", "tosu API 地址无效"))?;
-            url.set_path("/websocket/v2");
-            Ok::<_, CommandError>(url.to_string())
-        }) {
-            Ok(endpoint) => endpoint,
-            Err(error) => {
-                *runtime
-                    .last_error
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.message);
-                runtime.connecting.store(false, Ordering::SeqCst);
-                return;
-            }
-        };
-        match connect_async(&endpoint).await {
-            Ok((mut stream, _)) => {
-                *runtime
-                    .last_error
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-                record(&runtime, &app, "system", "已连接到 tosu v2 实时 API。");
-                while let Some(message) = stream.next().await {
-                    match message {
-                        Ok(message) if message.is_text() => {
-                            match serde_json::from_str::<serde_json::Value>(
-                                message.to_text().unwrap_or_default(),
-                            ) {
-                                Ok(value) => {
-                                    let snapshot = TosuLiveSnapshot::from_v2(&value);
-                                    if let Ok(mut current) = runtime.live.lock() {
-                                        *current = Some(snapshot.clone());
-                                    }
-                                    let _ = app.emit("tosu-live-data", snapshot);
-                                }
-                                Err(error) => record(
-                                    &runtime,
-                                    &app,
-                                    "system",
-                                    format!("无法解析 tosu 实时数据：{error}"),
-                                ),
-                            }
-                        }
-                        Ok(_) => {}
-                        Err(error) => {
-                            *runtime
-                                .last_error
-                                .lock()
-                                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                                Some(error.to_string());
-                            record(
-                                &runtime,
-                                &app,
-                                "system",
-                                format!("tosu 实时连接已断开：{error}"),
-                            );
-                            break;
-                        }
-                    }
-                }
-            }
-            Err(error) => {
-                *runtime
-                    .last_error
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
-                record(
-                    &runtime,
-                    &app,
-                    "system",
-                    format!("无法连接 tosu API：{error}"),
-                );
+        // 连接任务存续期间保持 connecting=true（防外部探测重复拉起任务）；
+        // 用 Drop guard 复位，任务 panic 时也能恢复可重连状态。
+        struct ConnectingGuard(Arc<TosuRuntime>);
+        impl Drop for ConnectingGuard {
+            fn drop(&mut self) {
+                self.0.connecting.store(false, Ordering::SeqCst);
             }
         }
-        runtime.connecting.store(false, Ordering::SeqCst);
+        let _guard = ConnectingGuard(runtime.clone());
+        // 断线自动重连：覆盖层等常驻消费者依赖持续数据流，tosu 重启后
+        // 无需人工干预。指数退避封顶 30s，成功后复位。
+        let mut backoff = std::time::Duration::from_secs(2);
+        let mut fail_streak = 0u32;
+        loop {
+            let base = runtime
+                .live_base
+                .lock()
+                .ok()
+                .and_then(|base| base.clone())
+                .unwrap_or_default();
+            let endpoint = match websocket_endpoint(&base) {
+                Ok(endpoint) => endpoint,
+                Err(error) => {
+                    *runtime
+                        .last_error
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.message);
+                    if fail_streak == 0 {
+                        record(&runtime, &app, "system", "tosu API 地址无效，等待重试。");
+                    }
+                    fail_streak += 1;
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(std::time::Duration::from_secs(30));
+                    continue;
+                }
+            };
+            match connect_async(&endpoint).await {
+                Ok((mut stream, _)) => {
+                    *runtime
+                        .last_error
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+                    if fail_streak == 0 {
+                        record(&runtime, &app, "system", "已连接到 tosu v2 实时 API。");
+                    } else {
+                        record(&runtime, &app, "system", "已重新连接到 tosu v2 实时 API。");
+                    }
+                    fail_streak = 0;
+                    backoff = std::time::Duration::from_secs(2);
+                    while let Some(message) = stream.next().await {
+                        match message {
+                            Ok(message) if message.is_text() => {
+                                match serde_json::from_str::<serde_json::Value>(
+                                    message.to_text().unwrap_or_default(),
+                                ) {
+                                    Ok(value) => {
+                                        let snapshot = TosuLiveSnapshot::from_v2(&value);
+                                        if let Ok(mut current) = runtime.live.lock() {
+                                            *current = Some(snapshot.clone());
+                                        }
+                                        let _ = app.emit("tosu-live-data", snapshot);
+                                    }
+                                    Err(error) => record(
+                                        &runtime,
+                                        &app,
+                                        "system",
+                                        format!("无法解析 tosu 实时数据：{error}"),
+                                    ),
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                *runtime
+                                    .last_error
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    Some(error.to_string());
+                                if fail_streak == 0 {
+                                    record(
+                                        &runtime,
+                                        &app,
+                                        "system",
+                                        format!("tosu 实时连接已断开：{error}，将自动重连。"),
+                                    );
+                                }
+                                fail_streak += 1;
+                                break;
+                            }
+                        }
+                    }
+                    if fail_streak == 0 {
+                        // 读取循环自然结束 = 连接被对端关闭（如 tosu 退出）。
+                        record(
+                            &runtime,
+                            &app,
+                            "system",
+                            "tosu 实时连接已关闭，将自动重连。",
+                        );
+                        fail_streak += 1;
+                    }
+                }
+                Err(error) => {
+                    *runtime
+                        .last_error
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                    if fail_streak == 0 {
+                        record(
+                            &runtime,
+                            &app,
+                            "system",
+                            format!("无法连接 tosu API：{error}，将自动重连。"),
+                        );
+                    }
+                    fail_streak += 1;
+                }
+            }
+            tokio::time::sleep(backoff).await;
+            backoff = (backoff * 2).min(std::time::Duration::from_secs(30));
+        }
     });
 }
 
@@ -712,6 +790,19 @@ mod tests {
     #[test]
     fn rejects_non_http_urls() {
         assert!(normalize_base_url("ws://127.0.0.1:24050").is_err());
+    }
+
+    #[test]
+    fn builds_websocket_endpoint_from_base() {
+        assert_eq!(
+            websocket_endpoint("http://127.0.0.1:24050").unwrap(),
+            "ws://127.0.0.1:24050/websocket/v2"
+        );
+        assert_eq!(
+            websocket_endpoint("https://tosu.example.com").unwrap(),
+            "wss://tosu.example.com/websocket/v2"
+        );
+        assert!(websocket_endpoint("not a url").is_err());
     }
 
     #[test]

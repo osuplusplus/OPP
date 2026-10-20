@@ -10,3 +10,4 @@ mod tools;
 
 pub(crate) use artwork_cache::OnlineArtworkCache;
 pub use commands::*;
+pub use models::{BeatmapDownloadItem, BeatmapDownloadProgress, BeatmapDownloadRequest};

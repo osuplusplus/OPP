@@ -115,7 +115,8 @@ pub struct BeatmapDownloadResult {
     pub succeeded_beatmapset_ids: Vec<u64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BeatmapDownloadProgress {
     pub phase: String,
     pub total: usize,

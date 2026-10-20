@@ -13,6 +13,7 @@ const ACCESS_TOKEN_ENTRY: &str = "osu-oauth-access-token";
 const REFRESH_TOKEN_ENTRY: &str = "osu-oauth-refresh-token";
 const TOKEN_EXPIRY_ENTRY: &str = "osu-oauth-token-expiry";
 const OBS_WEBSOCKET_PASSWORD_ENTRY: &str = "obs-websocket-password";
+const OSU_IRC_TOKEN_ENTRY: &str = "osu-irc-token";
 
 #[derive(Default)]
 pub struct CredentialStore;
@@ -88,6 +89,19 @@ impl CredentialStore {
 
     pub fn get_obs_websocket_password(&self) -> CommandResult<Option<String>> {
         Self::read_password(OBS_WEBSOCKET_PASSWORD_ENTRY)
+    }
+
+    /// osu! IRC 令牌（多人补缺监听用），仅存系统密钥环。
+    pub fn set_osu_irc_token(&self, token: &str) -> CommandResult<()> {
+        if token.is_empty() {
+            Self::delete(OSU_IRC_TOKEN_ENTRY)
+        } else {
+            Self::write_password(OSU_IRC_TOKEN_ENTRY, token)
+        }
+    }
+
+    pub fn get_osu_irc_token(&self) -> CommandResult<Option<String>> {
+        Self::read_password(OSU_IRC_TOKEN_ENTRY)
     }
 
     fn read_password(account: &str) -> CommandResult<Option<String>> {

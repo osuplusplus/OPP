@@ -73,6 +73,7 @@ src-tauri/src/
 │   ├── danser/            # Local replay render queue
 │   ├── local_analysis/    # Path detection, scanning, cache, resource analysis
 │   ├── online_beatmaps/   # Online beatmap queries and downloads
+│   ├── overlay/           # In-game overlay window (HUD + Direct panel + MP auto-fill)
 │   ├── similarity/        # Similarity dataset, query, recommendations
 │   ├── skin_workshop/     # Skin component merging and atomic writes
 │   ├── live_render/       # Replay live preview (wgpu-based, Windows native window + other platforms canvas)
@@ -284,6 +285,7 @@ When a higher remote version is detected, the client downloads the new EXE from 
 - [架构与开发 (Architecture & Development)](./docs/架构与开发.md)
 - [后端代码组织方式 (Backend Code Organization)](./docs/后端代码组织方式.md)
 - [相似谱面数据集 (Similarity Dataset)](./docs/similarity-dataset.md)
+- [游戏内覆盖 (In-Game Overlay)](./docs/游戏内覆盖.md)
 - [Linux 使用与构建 (Linux Usage & Build)](./docs/Linux.md)
 - [版本变更记录 (Version Changelog)](./docs/版本变更记录.md)
 

@@ -16,6 +16,7 @@ pub(crate) mod netease_music;
 pub(crate) mod obs;
 pub(crate) mod online_beatmaps;
 pub(crate) mod osekai;
+pub(crate) mod overlay;
 pub(crate) mod replay_render;
 pub(crate) mod similarity;
 pub(crate) mod skill_analysis;
