@@ -13,31 +13,49 @@ use crate::{
     error::{CommandError, CommandResult},
 };
 
+/// 缓存条目数上限：超出后按抓取时间从最旧开始淘汰。
 const MAX_CACHE_ENTRIES: usize = 500;
+/// 缓存序列化后的总体积上限（64 MiB），防止 cache.json 无限膨胀。
 const MAX_CACHE_BYTES: usize = 64 * 1024 * 1024;
+/// 手动刷新时间记录的条目上限。
 const MAX_REFRESH_ENTRIES: usize = 1_000;
 
+/// cache.json 侧车文件的磁盘格式：只保存可再生的响应缓存与手动刷新时间。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct PersistedCache {
+    /// 缓存键到记录的映射。
     #[serde(default)]
     cache: BTreeMap<String, CacheRecord>,
+    /// 各缓存键最近一次手动刷新的时间。
     #[serde(default)]
     last_manual_refresh: BTreeMap<String, DateTime<Utc>>,
 }
 
+/// 持久化层的脏检查状态：缓存最近一次成功写盘的字节，内容未变化时跳过 I/O。
 #[derive(Default)]
 struct PersistedBytes {
+    /// cache.json 是否已完成首次共享加载。
     cache_loaded: bool,
+    /// 旧版 state.json 内联缓存是否尚未迁移到侧车文件。
     legacy_inline_cache: bool,
+    /// 各缓存条目序列化后的大小，供增量淘汰复用，避免重复序列化。
     cache_sizes: BTreeMap<String, usize>,
+    /// 最近一次写入 state.json 的字节快照。
     state: Vec<u8>,
+    /// 最近一次写入 cache.json 的字节快照。
     cache: Vec<u8>,
 }
 
+/// 本地状态仓库：主状态（state.json）与可再生缓存（cache.json）分文件存储，
+/// 写盘前做字节级脏检查，全部写入走“临时文件 + 原子改名”。
 pub struct StateStore {
+    /// 主状态文件路径。
     path: PathBuf,
+    /// 缓存侧车文件路径。
     cache_path: PathBuf,
+    /// 内存中的完整状态（含尚未加载或落盘的缓存）。
     value: Mutex<PersistedState>,
+    /// 持久化脏检查与迁移标记。
     persist: Mutex<PersistedBytes>,
 }
 
@@ -69,6 +87,7 @@ impl StateStore {
         })
     }
 
+    /// 首次访问缓存时共享加载 cache.json 并执行容量淘汰；之后调用直接返回。
     pub(crate) fn load_cache(&self) -> CommandResult<()> {
         let mut persisted = self
             .persist
@@ -99,6 +118,7 @@ impl StateStore {
         Ok(())
     }
 
+    /// 读取可能依赖缓存的字段：先确保缓存已加载，再取一致的内存快照。
     pub(crate) fn read_cached<R>(
         &self,
         select: impl FnOnce(&PersistedState) -> R,
@@ -108,6 +128,9 @@ impl StateStore {
     }
 
     /// Settings writes neither initialize nor serialize the response cache.
+    ///
+    /// 设置写入既不加载也不序列化响应缓存；写盘失败时回滚内存中的设置，
+    /// 保证磁盘与内存视图一致。
     pub(crate) fn update_settings<R>(
         &self,
         operation: impl FnOnce(&mut AppSettings) -> R,
@@ -144,6 +167,8 @@ impl StateStore {
         Ok(result)
     }
 
+    /// 插入一条缓存记录，在临界区内完成增量容量淘汰；若仍处于旧版内联缓存
+    /// 状态，则借这次写盘把缓存迁移到侧车文件。附带身份时顺带更新当前用户。
     pub(crate) fn insert_cache(
         &self,
         key: String,
@@ -255,6 +280,7 @@ impl StateStore {
     }
 }
 
+/// 序列化缓存侧车内容：紧凑 JSON，只含缓存本体与手动刷新时间两个字段。
 fn serialize_cache(state: &PersistedState) -> CommandResult<Vec<u8>> {
     #[derive(Serialize)]
     struct CacheView<'a> {
@@ -266,6 +292,7 @@ fn serialize_cache(state: &PersistedState) -> CommandResult<Vec<u8>> {
         last_manual_refresh: &state.last_manual_refresh,
     })?)
 }
+/// 统计每个缓存条目按侧车格式序列化后的大小，供增量淘汰复用。
 fn cache_sizes(state: &PersistedState) -> BTreeMap<String, usize> {
     state
         .cache
@@ -278,6 +305,8 @@ fn cache_sizes(state: &PersistedState) -> BTreeMap<String, usize> {
         })
         .collect()
 }
+/// 增量版容量淘汰：直接复用 `sizes` 中已统计的体积，避免每次插入都把整个
+/// 缓存重新序列化一遍。
 fn prune_sized_cache(state: &mut PersistedState, sizes: &mut BTreeMap<String, usize>) {
     let mut total: usize = sizes.values().sum();
     let mut oldest = state
@@ -295,6 +324,8 @@ fn prune_sized_cache(state: &mut PersistedState, sizes: &mut BTreeMap<String, us
     }
 }
 
+/// 构造写入 state.json 的持久化视图：剥离可再生缓存，只保留身份、令牌与
+/// 设置，避免几十 MB 的缓存拖慢每次主状态落盘。
 fn durable_snapshot(state: &PersistedState) -> PersistedState {
     PersistedState {
         client_id: state.client_id.clone(),
@@ -307,6 +338,8 @@ fn durable_snapshot(state: &PersistedState) -> PersistedState {
     }
 }
 
+/// 全量版容量淘汰：重算每个条目的序列化体积，按抓取时间从旧到新移除，
+/// 直到同时满足条目数与总体积上限；手动刷新记录单独按条目数裁剪。
 fn prune_cache(state: &mut PersistedState) {
     // 缓存按抓取时间淘汰，同时受条目数和序列化后体积两项上限约束。
     let mut oldest = state
@@ -344,6 +377,8 @@ fn prune_cache(state: &mut PersistedState) {
     }
 }
 
+/// 原子替换写入：先写临时文件，把旧文件改名为备份，再用临时文件顶替；
+/// 顶替失败时用备份恢复原文件，磁盘上始终保留一份完整内容。
 fn atomic_write(path: &Path, bytes: &[u8]) -> CommandResult<()> {
     // 保留上一份完整文件直到新文件改名成功，避免崩溃留下半写入的 JSON。
     let temporary = path.with_extension("json.tmp");
@@ -375,6 +410,7 @@ mod tests {
     use crate::domain::CacheRecord;
     use serde_json::json;
 
+    // 设置写入不得触发缓存加载或改写 cache.json，且旧版内联数据须保留到迁移。
     #[test]
     fn settings_writes_leave_unloaded_cache_intact_and_preserve_legacy_inline_data() {
         let directory = tempfile::tempdir().unwrap();
@@ -412,6 +448,7 @@ mod tests {
         assert!(again.snapshot().unwrap().cache.contains_key("legacy"));
     }
 
+    // 写盘失败须回滚内存设置；增量维护的体积统计须与全量统计保持一致。
     #[test]
     fn failed_settings_write_restores_memory_and_incremental_cache_accounting_is_bounded() {
         let directory = tempfile::tempdir().unwrap();
@@ -445,6 +482,7 @@ mod tests {
         assert_eq!(sizes, cache_sizes(&store.snapshot().unwrap()));
     }
 
+    // 主状态经落盘与重载后应保持一致。
     #[test]
     fn state_round_trips() {
         let directory = tempfile::tempdir().expect("temp directory");
@@ -460,6 +498,7 @@ mod tests {
         );
     }
 
+    // 纯读取路径不得触发任何持久化写入或缓存淘汰。
     #[test]
     fn settings_read_does_not_persist_or_prune_response_cache() {
         let directory = tempfile::tempdir().expect("temp directory");
@@ -486,6 +525,7 @@ mod tests {
         assert!(!store.cache_path.exists());
     }
 
+    // 缓存受条目上限约束，且必须与主状态文件分开持久化。
     #[test]
     fn cache_is_bounded_and_persisted_separately() {
         let directory = tempfile::tempdir().expect("temp directory");

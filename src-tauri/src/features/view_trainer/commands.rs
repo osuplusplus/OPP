@@ -1,8 +1,10 @@
+//! 视野训练命令层：耗时操作统一派发到后台线程池执行。
 use super::{models::*, service};
 use crate::{error::CommandResult, state::AppState};
 use std::sync::Arc;
 use tauri::State;
 
+/// 获取谱面时间线，解析在后台线程执行以免阻塞。
 #[tauri::command]
 pub async fn view_trainer_get_timeline(
     client: crate::features::local_analysis::LocalClient,
@@ -19,6 +21,7 @@ pub async fn view_trainer_get_timeline(
     })?
 }
 
+/// 把暂存的训练谱面导入 osu! Songs 目录。
 #[tauri::command(async)]
 pub async fn view_trainer_import(
     client: crate::features::local_analysis::LocalClient,
@@ -54,6 +57,7 @@ pub async fn view_trainer_import(
     })?
 }
 
+/// 生成训练谱面：先补全请求参数，再转交旧版 `features::trainer` 执行。
 #[tauri::command(async)]
 pub async fn view_trainer_generate(
     request: ViewTrainerRequest,

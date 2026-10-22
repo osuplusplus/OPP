@@ -1,3 +1,4 @@
+//! danser 纯逻辑单元测试：进度解析、偏好校验、安全命名与 `-sPatch` 生成。
 use super::*;
 
 #[test]
@@ -31,6 +32,7 @@ fn failure_detail_prefers_the_panic_over_a_trailing_timestamp() {
     assert!(failure_detail(&lines, "exit 2").contains("panic: mkdir"));
 }
 
+// Stable 任务：settings 指向解析出的 Songs/Skins 目录，用户 sPatch 叠加生效。
 #[test]
 fn runtime_patch_points_danser_at_the_replay_osu_installation() {
     let preferences = DanserRenderPreferences {
@@ -63,6 +65,7 @@ fn runtime_patch_points_danser_at_the_replay_osu_installation() {
     assert_eq!(patch["Recording"]["MotionBlur"]["Enabled"], false);
 }
 
+// Lazer 任务：settings 指向执行时物化的暂存目录，忽略 stable_directories。
 #[test]
 fn runtime_patch_points_lazer_tasks_at_the_staged_directories() {
     let preferences = DanserRenderPreferences::default();
@@ -91,6 +94,7 @@ fn runtime_patch_points_lazer_tasks_at_the_staged_directories() {
     assert_eq!(patch["General"]["OsuSkinsDir"], "/cache/danser-stage/Skins");
 }
 
+// 质量键名随编码器变化（CQ/Quality/CRF），运动模糊混合帧数按超采样倍率推导。
 #[test]
 fn runtime_patch_uses_encoder_specific_quality_and_motion_blur() {
     let preferences = DanserRenderPreferences {
@@ -120,6 +124,7 @@ fn runtime_patch_uses_encoder_specific_quality_and_motion_blur() {
     assert_eq!(patch["Recording"]["MotionBlur"]["BlendFrames"], 12);
 }
 
+// 发行包自带的 ffmpeg/ 子目录同样视为可用。
 #[test]
 fn detects_ffmpeg_in_the_danser_distribution_subdirectory() {
     let directory = tempfile::tempdir().expect("temp directory");

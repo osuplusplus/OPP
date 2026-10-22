@@ -15,14 +15,21 @@ use crate::{
     state::AppState,
 };
 
+/// lazer 数据目录占用统计结果；大小字段单位均为字节。
 #[derive(Debug, Clone, Serialize)]
 pub struct LazerDiskUsage {
+    /// 参与统计的 lazer 数据目录路径。
     pub path: String,
+    /// 逻辑总大小：目录下所有文件大小直接求和（含硬链接文件）。
     pub total_size: u64,
+    /// 实际占用：排除硬链接文件（链接数>1）后的合计，见模块文档说明。
     pub unique_size: u64,
+    /// 参与统计的文件数（含硬链接文件）。
     pub file_count: u64,
 }
 
+/// 统计 lazer 数据目录的总占用与排除硬链接后的实际占用；目录遍历与元数据
+/// 读取在后台线程并行执行，避免大目录卡住命令线程。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -48,6 +55,8 @@ async fn disk_usage(analysis: &LocalAnalysisService) -> CommandResult<LazerDiskU
     })
 }
 
+/// 解析统计根目录：要求 lazer 源已配置且校验通过（存在有效数据目录），
+/// 否则报 `LAZER_NOT_FOUND`。
 fn usage_root(analysis: &LocalAnalysisService) -> CommandResult<PathBuf> {
     let source = analysis.source_status(LocalClient::Lazer)?;
     source
@@ -57,6 +66,8 @@ fn usage_root(analysis: &LocalAnalysisService) -> CommandResult<PathBuf> {
         .ok_or_else(|| CommandError::new("LAZER_NOT_FOUND", "未配置有效的 osu!lazer 数据目录"))
 }
 
+/// 返回 `(total_size, unique_size, file_count)`。walkdir 遍历本身是串行的，
+/// 先把目录项物化成 Vec 再并行取 metadata 与硬链接标记。
 fn compute_size(root: &Path) -> (u64, u64, u64) {
     let files: Vec<(u64, bool)> = WalkDir::new(root)
         .into_iter()
@@ -90,6 +101,9 @@ fn hard_linked(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Windows 实现：`CreateFileW`（访问掩码 0 仅查询属性，带
+/// `FILE_FLAG_BACKUP_SEMANTICS`）+ `GetFileInformationByHandle` 读取
+/// `nNumberOfLinks`，仅当链接数大于 1 时视为硬链接；打开失败按非硬链接处理。
 #[cfg(windows)]
 fn hard_linked(path: &Path) -> bool {
     use std::os::windows::ffi::OsStrExt;
@@ -125,6 +139,8 @@ fn hard_linked(path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    /// 覆盖三项关键路径：数据目录覆盖生效、大小/数量统计正确、源目录
+    /// 失效（client.realm 被删）时报 `LAZER_NOT_FOUND`。
     #[tokio::test]
     async fn lazer_usage_follows_override_and_rejects_missing_source() {
         let app = tempfile::tempdir().unwrap();

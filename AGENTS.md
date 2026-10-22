@@ -275,11 +275,12 @@ Windows clients check `https://github.com/osuplusplus/OPP/releases/latest/downlo
 ```json
 {
   "version": "0.6.0",
-  "url": "https://github.com/osuplusplus/OPP/releases/download/v0.6.0/OPP_0.6.0_windows_x64_portable.exe"
+  "url": "https://github.com/osuplusplus/OPP/releases/download/v0.6.0/OPP_0.6.0_windows_x64_portable.exe",
+  "sha256": "<SHA256 hex of the uploaded portable EXE>"
 }
 ```
 
-When a higher remote version is detected, the client downloads the new EXE from the manifest's HTTPS URL. A temporary copy of the current EXE waits for the old process to exit, places the new EXE at the original path, and restarts. If the new version exits abnormally during early startup, the old EXE is restored. Keep Releases as Draft until all assets are uploaded to avoid the fixed address switching to a half-finished product.
+When a higher remote version is detected, the client downloads the new EXE from the manifest's HTTPS URL (through the `gh-proxy.com` mirror for download speed). The manifest URL must point at the official GitHub Release prefix — the client rejects any other host. The downloaded EXE is verified against the manifest's `sha256` before staging; auto-update is refused when the hash is missing, malformed, or mismatched, so the mirror carries bytes but no trust. A temporary copy of the current EXE waits for the old process to exit, places the new EXE at the original path, and restarts. If the new version exits abnormally during early startup, the old EXE is restored. Keep Releases as Draft until all assets are uploaded to avoid the fixed address switching to a half-finished product. Compatibility: older installed clients ignore the extra `sha256` field, while clients with hash verification reject legacy manifests without it (`UPDATE_MANIFEST_INCOMPLETE`) — harmless in practice, since downloads only happen after a pipeline-generated manifest is published.
 
 ## Additional Resources
 - [架构与开发 (Architecture & Development)](./docs/架构与开发.md)

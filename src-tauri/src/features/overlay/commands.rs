@@ -10,6 +10,7 @@ use crate::{
 
 use super::service::{self, OVERLAY_WINDOW_LABEL};
 
+/// 覆盖层状态查询结果；窗口尚未创建时按 HUD 默认值返回。
 #[derive(Debug, Serialize)]
 pub struct OverlayStateInfo {
     pub enabled: bool,
@@ -77,6 +78,7 @@ pub fn overlay_test_hotkey(
     service::sync_hotkey(&app, &saved)
 }
 
+/// MP/IRC 面板聚合状态：连接与补缺活动、凭据配置情况与游戏内渲染安装状态。
 #[derive(Debug, Serialize)]
 pub struct OverlayMpStatus {
     pub irc: super::irc::IrcStatusInfo,

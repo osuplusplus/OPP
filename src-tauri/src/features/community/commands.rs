@@ -1,3 +1,4 @@
+//! 社区功能的 Tauri 命令薄层，统一接入日志 span。
 use super::{models::*, service::CommunityService};
 use crate::{
     error::CommandResult,
@@ -6,6 +7,7 @@ use crate::{
 };
 use tauri::State;
 
+/// 分页列出社区赛事。
 #[tauri::command]
 pub async fn list_community_tournaments(
     query: CommunityQuery,
@@ -19,6 +21,7 @@ pub async fn list_community_tournaments(
             .await,
     )
 }
+/// 获取赛事详情。
 #[tauri::command]
 pub async fn get_community_tournament(
     id: String,
@@ -32,6 +35,7 @@ pub async fn get_community_tournament(
             .await,
     )
 }
+/// 分页列出房间；`mine` 为 `true` 时只看自己创建的。
 #[tauri::command]
 pub async fn list_community_lobbies(
     query: CommunityQuery,
@@ -46,6 +50,7 @@ pub async fn list_community_lobbies(
             .await,
     )
 }
+/// 获取房间详情。
 #[tauri::command]
 pub async fn get_community_lobby(
     id: String,
@@ -59,6 +64,7 @@ pub async fn get_community_lobby(
             .await,
     )
 }
+/// 创建或更新房间（`id` 为 `None` 时创建）。
 #[tauri::command]
 pub async fn save_community_lobby(
     id: Option<String>,
@@ -73,6 +79,7 @@ pub async fn save_community_lobby(
             .await,
     )
 }
+/// 关闭房间。
 #[tauri::command]
 pub async fn close_community_lobby(
     id: String,
@@ -86,6 +93,7 @@ pub async fn close_community_lobby(
             .await,
     )
 }
+/// 删除房间。
 #[tauri::command]
 pub async fn delete_community_lobby(id: String, state: State<'_, AppState>) -> CommandResult<()> {
     let span = global().map(|logger| logger.operation("community", "delete_community_lobby"));

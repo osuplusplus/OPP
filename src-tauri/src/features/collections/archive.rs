@@ -1,3 +1,5 @@
+//! 从 .zip/.osz 压缩包导入收藏夹：遍历包内 .osu 文件解析元数据，
+//! 生成候选条目并创建一个新的 OPP 收藏夹。
 use std::{fs, io::Read, path::Path};
 
 use md5::{Digest, Md5};
@@ -10,6 +12,7 @@ use crate::{
     state::AppState,
 };
 
+// 导入上限：条目数、单个 .osu 体积与 .osu 总体积，防超大曲包与解压炸弹。
 const MAX_ARCHIVE_ENTRIES: usize = 5_000;
 const MAX_OSU_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_TOTAL_OSU_BYTES: u64 = 64 * 1024 * 1024;
@@ -90,11 +93,13 @@ pub async fn import_collection_archive(
             ));
         }
 
+        // 收藏夹名取压缩包文件名（去扩展名），失败时回退为固定名称。
         let name = path
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or("导入曲包");
         let folder = collections.create(name, "本地压缩包")?;
+        // 任一条目写入失败则删除刚创建的收藏夹，避免留下空壳。
         if let Err(error) = collections.add_entries(&folder.id, candidates) {
             let _ = collections.delete(&folder.id);
             return Err(error);
@@ -104,6 +109,10 @@ pub async fn import_collection_archive(
     .await?
 }
 
+/// 从 .osu 文件字节解析候选条目；缺难度名（`Version`）视为无效返回 `None`。
+///
+/// `checksum` 按游戏语义取文件内容的 MD5；标题/艺人优先使用 Unicode 字段；
+/// `Mode` 数字映射为 OPP 内部使用的 ruleset 字符串。
 fn parse_osu_candidate(bytes: &[u8]) -> Option<CollectionCandidate> {
     let text = decode_osu(bytes);
     let mut section = "";
@@ -162,10 +171,13 @@ fn parse_osu_candidate(bytes: &[u8]) -> Option<CollectionCandidate> {
     })
 }
 
+/// 仅接受正整数：未上传/匿名谱面的 `BeatmapID` 常见为 0 或 -1，需过滤掉。
 fn parse_positive(value: Option<&String>) -> Option<i32> {
     value?.parse().ok().filter(|number| *number > 0)
 }
 
+/// 按优先级解码 .osu 文本：UTF-16 BOM → UTF-8 → chardetng 编码猜测，
+/// 兼容旧版客户端写出的本地编码谱面。
 fn decode_osu(bytes: &[u8]) -> String {
     if bytes.starts_with(&[0xff, 0xfe]) {
         return encoding_rs::UTF_16LE.decode(&bytes[2..]).0.into_owned();

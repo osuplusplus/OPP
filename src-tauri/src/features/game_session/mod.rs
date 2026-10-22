@@ -1,4 +1,8 @@
+//! 游戏会话模块：客户端进程监视（Windows 走进程列表、Linux 走 `/proc` 平台
+//! 探测）、游戏启动、回放/截图媒体读取，以及游玩期间新回放的差分检测。
+mod commands;
 mod models;
+pub use commands::*;
 mod replay_files;
 pub use replay_files::choose_game_replay_files;
 pub(crate) use replay_files::read_replay as validate_replay_file;
@@ -15,6 +19,8 @@ use std::{
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+// Windows 进程创建标志（0x08000000 = CREATE_NO_WINDOW）：PowerShell 查询与
+// 游戏启动共用，避免弹出多余控制台窗口。
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -39,18 +45,21 @@ use models::{
 };
 pub use models::{GameMonitorRuntime, GameSessionRuntime};
 
+/// 读取 osu! 统计字段并转为 `u64`（同一字段 API 可能以整数或浮点返回）。
 fn number(value: &serde_json::Value, key: &str) -> Option<u64> {
     value
         .get(key)
         .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|n| n as u64)))
 }
 
+/// 读取 osu! 统计字段并转为 `f64`（同样容忍整数形式的返回）。
 fn decimal(value: &serde_json::Value, key: &str) -> Option<f64> {
     value
         .get(key)
         .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|n| n as f64)))
 }
 
+/// 拉取当前登录用户的资料与统计数据快照，会话起点与终点各取一次。
 async fn snapshot(state: &AppState, ruleset: Ruleset) -> CommandResult<UserSnapshot> {
     // 游戏会话开始时固定用户资料快照，后续写入媒体元数据不依赖易变的网络状态。
     let token = ensure_access_token(state).await?;
@@ -70,6 +79,7 @@ async fn snapshot(state: &AppState, ruleset: Ruleset) -> CommandResult<UserSnaps
     })
 }
 
+/// 通过 PowerShell 列出所有 osu! 进程的可执行文件路径，供路径比对使用。
 #[cfg(windows)]
 fn running_executables() -> Vec<PathBuf> {
     Command::new("powershell.exe")
@@ -92,6 +102,7 @@ fn running_executables() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+/// 可执行文件路径相等判断；Windows 文件系统大小写不敏感，故忽略大小写。
 fn same_executable(left: &Path, right: &Path) -> bool {
     left.to_string_lossy()
         .eq_ignore_ascii_case(&right.to_string_lossy())
@@ -125,6 +136,8 @@ fn client_from_str(value: &str) -> Option<LocalClient> {
     }
 }
 
+/// 解析客户端可执行文件路径。Windows 在安装根目录内查找（lazer 可能装在
+/// `current/` 子目录）；Linux 忽略 `root`，返回平台启动命令名（如 `osu-wine`）。
 pub(crate) fn executable(client: LocalClient, root: &str) -> Option<PathBuf> {
     #[cfg(not(windows))]
     {
@@ -143,6 +156,9 @@ pub(crate) fn executable(client: LocalClient, root: &str) -> Option<PathBuf> {
     }
 }
 
+/// 扫描 stable 与 lazer 两个客户端的运行状态快照。Windows 需经
+/// `local_analysis` 取安装根目录并拉起 PowerShell 查询进程，调用方应把
+/// 本函数放入阻塞线程执行。
 fn scan_game_status(
     local_analysis: &crate::features::local_analysis::LocalAnalysisService,
 ) -> GameStatusSnapshot {
@@ -179,6 +195,7 @@ fn scan_game_status(
     GameStatusSnapshot { clients }
 }
 
+/// 判断是否有客户端由未运行转为运行（用于触发 tosu 自启等一次性动作）。
 fn any_client_started(previous: &GameStatusSnapshot, next: &GameStatusSnapshot) -> bool {
     next.clients.iter().any(|after| {
         after.running
@@ -189,6 +206,8 @@ fn any_client_started(previous: &GameStatusSnapshot, next: &GameStatusSnapshot) 
     })
 }
 
+/// 遍历媒体目录为所有 `.osr` 建立指纹表：键为小写规范化的路径，值取自
+/// 文件元数据（大小与修改时间），不读取文件内容。
 fn replay_snapshot(
     state: &AppState,
     client: LocalClient,
@@ -234,6 +253,8 @@ fn replay_snapshot(
     Ok(snapshot)
 }
 
+/// 为新出现的回放生成描述：解析谱面哈希并查本地索引补全标题与玩家名。
+/// 非 standard 模式（Danser 不支持）或谱面未索引时标记不可渲染并附原因。
 fn describe_new_replay(state: &AppState, client: LocalClient, path: &str) -> NewReplayItem {
     let file_name = Path::new(path)
         .file_name()
@@ -286,6 +307,7 @@ fn describe_new_replay(state: &AppState, client: LocalClient, path: &str) -> New
     }
 }
 
+/// 比较前后两份指纹表，返回新增或大小/修改时间发生变化的回放路径（已排序）。
 fn changed_replay_paths(
     before: &HashMap<String, ReplayFingerprint>,
     current: &HashMap<String, ReplayFingerprint>,
@@ -299,6 +321,8 @@ fn changed_replay_paths(
     paths
 }
 
+/// 客户端启停时的回放差分：启动时记录指纹基线，退出时与当前指纹差分，
+/// 把本次游玩新产生的回放经 `new-replays-detected` 事件广播给前端。
 fn handle_replay_transition(
     previous: &GameStatusSnapshot,
     next: &GameStatusSnapshot,
@@ -356,6 +380,8 @@ fn handle_replay_transition(
     }
 }
 
+/// 启动应用生命周期的后台监视循环：每秒扫描客户端状态，仅在状态变化时
+/// 联动回放差分、tosu 自启、覆盖层显隐并广播 `game-status-changed` 事件。
 /// Launch the app-lifetime monitor. The event is emitted only when a client
 /// changes state; the command always returns the most recent snapshot.
 pub fn start_game_monitor(
@@ -365,6 +391,7 @@ pub fn start_game_monitor(
 ) {
     tauri::async_runtime::spawn(async move {
         loop {
+            // 纯音频模式下且无客户端在运行时跳过扫描，避免无谓的进程查询。
             if app
                 .state::<AppState>()
                 .music_only
@@ -378,6 +405,7 @@ pub fn start_game_monitor(
                 continue;
             }
             let service = local_analysis.clone();
+            // 扫描在 Windows 上要等待 PowerShell 子进程，放入阻塞线程池执行。
             let next = tokio::task::spawn_blocking(move || scan_game_status(&service))
                 .await
                 .unwrap_or_else(|_| GameStatusSnapshot {
@@ -435,79 +463,13 @@ pub fn start_game_monitor(
     });
 }
 
-#[tauri::command]
-/// 供前端调用的 Tauri 命令：读取当前状态或详情。
-/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn get_game_status(state: State<'_, AppState>) -> CommandResult<GameStatusSnapshot> {
-    state
-        .game_monitor
-        .current
-        .lock()
-        .map(|current| current.clone())
-        .map_err(|_| CommandError::new("GAME_STATUS_LOCKED", "游戏状态不可用"))
-}
-
+/// 启动目标：Windows 需以安装目录作为工作目录；Linux 直接执行命令名。
 struct LaunchTarget {
     exe: PathBuf,
     working_dir: Option<PathBuf>,
 }
 
-#[tauri::command]
-pub async fn open_beatmap_files(
-    client: LocalClient,
-    archive_paths: Vec<String>,
-    state: State<'_, AppState>,
-) -> CommandResult<BeatmapOpenResult> {
-    use crate::infrastructure::logging::{finish_span, global};
-    let span = global().map(|log| log.operation("game_session", "open_beatmap_files"));
-    let result = async {
-        let target = game_launch_target(client, &state)?;
-        let mut opened = 0usize;
-        let mut failures = Vec::new();
-        let total = archive_paths.len();
-        for (index, value) in archive_paths.into_iter().enumerate() {
-            let path = PathBuf::from(&value);
-            let valid = path.is_file()
-                && path
-                    .extension()
-                    .and_then(|extension| extension.to_str())
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("osz"));
-            if !valid {
-                failures.push(format!("曲包文件不存在或格式不受支持：{value}"));
-                continue;
-            }
-            let mut launch = Command::new(&target.exe);
-            launch.arg(&path);
-            if let Some(dir) = &target.working_dir {
-                launch.current_dir(dir);
-            }
-            #[cfg(windows)]
-            launch.creation_flags(CREATE_NO_WINDOW);
-            let launched = launch.spawn();
-            if let Some(span) = &span {
-                span.io("launch_beatmap_file", &launched);
-            }
-            match launched {
-                Ok(_) => opened += 1,
-                Err(error) => failures.push(format!(
-                    "无法使用 {client} 打开 {}：{error}",
-                    path.display()
-                )),
-            }
-            if index + 1 < total {
-                tokio::time::sleep(Duration::from_millis(180)).await;
-            }
-        }
-        Ok(BeatmapOpenResult {
-            opened,
-            failed: failures.len(),
-            failures,
-        })
-    }
-    .await;
-    finish_span(span, result)
-}
-
+/// 构造 lazer 的谱面跳转 URI（`osu://b/<beatmap_id>`），ID 必须为正整数。
 pub(crate) fn lazer_beatmap_uri(beatmap_id: i32) -> CommandResult<String> {
     if beatmap_id <= 0 {
         return Err(CommandError::new(
@@ -516,35 +478,6 @@ pub(crate) fn lazer_beatmap_uri(beatmap_id: i32) -> CommandResult<String> {
         ));
     }
     Ok(format!("osu://b/{beatmap_id}"))
-}
-
-/// Pass the official URI directly to lazer, independently of the default osu:// handler.
-#[tauri::command]
-pub fn open_lazer_beatmap(beatmap_id: i32, state: State<'_, AppState>) -> CommandResult<()> {
-    use crate::infrastructure::logging::{finish_span, global};
-    let span = global().map(|log| log.operation("game_session", "open_lazer_beatmap"));
-    let result = (|| {
-        let uri = lazer_beatmap_uri(beatmap_id)?;
-        let target = game_launch_target(LocalClient::Lazer, &state)?;
-        let mut launch = Command::new(&target.exe);
-        launch.arg(uri);
-        if let Some(dir) = target.working_dir {
-            launch.current_dir(dir);
-        }
-        #[cfg(windows)]
-        launch.creation_flags(CREATE_NO_WINDOW);
-        let launched = launch.spawn().map_err(|e| {
-            CommandError::new(
-                "GAME_START_FAILED",
-                format!("无法打开 lazer，请检查安装路径：{e}"),
-            )
-        });
-        if let Some(span) = &span {
-            span.io("launch_lazer", &launched);
-        }
-        launched.map(|_| ())
-    })();
-    finish_span(span, result)
 }
 
 /// 解析要启动/识别的客户端可执行文件。Windows 用安装目录内的 exe（并记录工作目录）；
@@ -577,139 +510,8 @@ fn game_launch_target(client: LocalClient, state: &AppState) -> CommandResult<La
     }
 }
 
-#[tauri::command]
-/// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
-/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub async fn start_game_session(
-    ruleset: Ruleset,
-    client: LocalClient,
-    launch_tosu: Option<bool>,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> CommandResult<GameSessionSummary> {
-    let target = game_launch_target(client, &state)?;
-    if client_running(client, &target.exe) {
-        return Err(CommandError::new("GAME_ALREADY_RUNNING", "osu! 已经在运行"));
-    }
-    if launch_tosu.unwrap_or(false) {
-        start_managed_tosu(&state, app)?;
-    }
-    if state.store.settings_snapshot()?.launch_otd_with_game {
-        start_managed_otd(&state)?;
-    }
-    let start = snapshot(&state, ruleset).await?;
-    let mut launch = Command::new(&target.exe);
-    if let Some(dir) = &target.working_dir {
-        launch.current_dir(dir);
-    }
-    #[cfg(windows)]
-    launch.creation_flags(CREATE_NO_WINDOW);
-    launch
-        .spawn()
-        .map_err(|e| CommandError::new("GAME_START_FAILED", format!("无法启动 osu!：{e}")))?;
-    let summary = GameSessionSummary {
-        started_at: Utc::now(),
-        ended_at: None,
-        ruleset,
-        client: client.to_string(),
-        executable: target.exe.display().to_string(),
-        start,
-        end: None,
-        running: true,
-    };
-    *state
-        .game_session
-        .active
-        .lock()
-        .map_err(|_| CommandError::new("SESSION_LOCKED", "游戏会话状态不可用"))? =
-        Some(summary.clone());
-    Ok(summary)
-}
-
-/// Starts a comparable session for an osu! process launched outside OPP.
-/// The process monitor calls this after a running client is observed, so the
-/// normal end-of-session poll can still produce a before/after summary.
-#[tauri::command]
-/// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
-/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub async fn start_detected_game_session(
-    ruleset: Ruleset,
-    client: LocalClient,
-    state: State<'_, AppState>,
-) -> CommandResult<GameSessionSummary> {
-    let exe = game_launch_target(client, &state)?.exe;
-    if !client_running(client, &exe) {
-        return Err(CommandError::new(
-            "GAME_NOT_RUNNING",
-            "未检测到正在运行的 osu! 客户端",
-        ));
-    }
-    {
-        let active = state
-            .game_session
-            .active
-            .lock()
-            .map_err(|_| CommandError::new("SESSION_LOCKED", "游戏会话状态不可用"))?;
-        if let Some(summary) = active.as_ref()
-            && summary.running
-            && same_executable(Path::new(&summary.executable), &exe)
-        {
-            return Ok(summary.clone());
-        }
-    }
-    let start = snapshot(&state, ruleset).await?;
-    let summary = GameSessionSummary {
-        started_at: Utc::now(),
-        ended_at: None,
-        ruleset,
-        client: client.to_string(),
-        executable: exe.display().to_string(),
-        start,
-        end: None,
-        running: true,
-    };
-    *state
-        .game_session
-        .active
-        .lock()
-        .map_err(|_| CommandError::new("SESSION_LOCKED", "游戏会话状态不可用"))? =
-        Some(summary.clone());
-    Ok(summary)
-}
-
-#[tauri::command]
-/// 供前端调用的 Tauri 命令：读取当前状态或详情。
-/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub async fn get_game_session_status(
-    state: State<'_, AppState>,
-) -> CommandResult<Option<GameSessionSummary>> {
-    let current = state
-        .game_session
-        .active
-        .lock()
-        .map_err(|_| CommandError::new("SESSION_LOCKED", "游戏会话状态不可用"))?
-        .clone();
-    let Some(mut summary) = current else {
-        return Ok(None);
-    };
-    if summary.running {
-        let still_running = client_from_str(&summary.client)
-            .is_some_and(|client| client_running(client, Path::new(&summary.executable)));
-        if !still_running {
-            summary.running = false;
-            summary.ended_at = Some(Utc::now());
-            summary.end = Some(snapshot(&state, summary.ruleset).await?);
-            *state
-                .game_session
-                .active
-                .lock()
-                .map_err(|_| CommandError::new("SESSION_LOCKED", "游戏会话状态不可用"))? =
-                Some(summary.clone());
-        }
-    }
-    Ok(Some(summary))
-}
-
+/// 汇总客户端的媒体搜索目录：安装根/数据根及其 `files/` 子目录、AppData
+/// 下按客户端命名的目录，全部规范化并去重。
 pub(crate) fn media_roots(state: &AppState, client: LocalClient) -> CommandResult<Vec<PathBuf>> {
     let source = state.local_analysis.source_status(client)?;
     let mut roots = Vec::new();
@@ -772,6 +574,7 @@ pub(crate) fn within_root(candidate: &Path, root: &Path) -> bool {
         || candidate.starts_with(&(root + "/"))
 }
 
+/// 剥离 Windows 规范化路径的 `\\?\` / `//?/` 前缀，仅供前端展示与回传。
 pub(crate) fn media_path_for_ui(path: &Path) -> String {
     let value = path.display().to_string();
     value
@@ -781,6 +584,8 @@ pub(crate) fn media_path_for_ui(path: &Path) -> String {
         .to_string()
 }
 
+/// 读取回放原始字节。路径门禁：位于媒体目录内，或此前经文件选择器登记进
+/// `selected_replays` 白名单；其余路径一律拒绝。
 pub(crate) fn load_game_replay_file(
     client: LocalClient,
     path: &str,
@@ -808,6 +613,8 @@ pub(crate) fn load_game_replay_file(
     replay_files::read_replay(&candidate)
 }
 
+/// 解析 `.osr` 头部：跳过 1 字节模式与 4 字节版本后，读取谱面 MD5 与玩家
+/// 名两个字符串（0x0b 标记 + ULEB128 长度前缀，0x00 表示空串）。
 pub(crate) fn parse_replay_metadata(bytes: &[u8]) -> CommandResult<(String, String)> {
     fn read_string(bytes: &[u8], offset: &mut usize) -> CommandResult<String> {
         let marker = *bytes
@@ -866,6 +673,7 @@ pub(crate) fn parse_replay_metadata(bytes: &[u8]) -> CommandResult<(String, Stri
 
 // Media libraries can contain years of replays and screenshots. Keep all
 // filesystem traversal and decoding away from the window event loop.
+/// 列出客户端媒体库中的回放与截图，按修改时间倒序最多返回 200 项。
 #[tauri::command(async)]
 pub fn list_game_media(
     client: LocalClient,
@@ -914,6 +722,8 @@ pub fn list_game_media(
     Ok(items)
 }
 
+/// 读取回放文件并以 Base64 返回原始字节（供前端转交 o!rdr 渲染）。
+/// 仅允许位于媒体目录内且扩展名为 `.osr` 的文件。
 #[tauri::command(async)]
 pub fn read_game_replay(
     client: LocalClient,
@@ -950,6 +760,8 @@ pub fn read_game_replay(
     })
 }
 
+/// 解析回放元数据并匹配本地谱面索引，返回模式、玩家、谱面信息，以及
+/// `submitted`（能否给出已上架谱面的 `beatmap_id`）。
 #[tauri::command(async)]
 pub fn inspect_game_replay(
     client: LocalClient,
@@ -983,6 +795,8 @@ pub fn inspect_game_replay(
     crate::infrastructure::logging::finish_span(span, result)
 }
 
+/// 读取截图并以 Base64 返回：扩展名须在允许列表内、路径位于媒体目录、
+/// 且不超过 64 MB。
 #[tauri::command(async)]
 pub fn read_game_screenshot(
     client: LocalClient,
@@ -1036,6 +850,7 @@ pub fn read_game_screenshot(
     })
 }
 
+// 路径比较、回放差分与 UI 路径前缀剥离的纯函数单测。
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, path::Path};
@@ -1081,41 +896,7 @@ mod tests {
     }
 }
 
-#[tauri::command]
-/// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
-/// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
-pub fn open_media_in_explorer(
-    client: LocalClient,
-    path: String,
-    state: State<'_, AppState>,
-) -> CommandResult<()> {
-    let candidate = PathBuf::from(&path)
-        .canonicalize()
-        .map_err(|e| CommandError::new("MEDIA_NOT_FOUND", e.to_string()))?;
-    let extension = candidate
-        .extension()
-        .and_then(|x| x.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let allowed_extension =
-        extension == "osr" || ["png", "jpg", "jpeg", "webp"].contains(&extension.as_str());
-    let allowed = candidate.is_file()
-        && allowed_extension
-        && media_roots(&state, client)?
-            .into_iter()
-            .any(|root| within_root(&candidate, &root));
-    if !allowed {
-        return Err(CommandError::new(
-            "MEDIA_PATH_NOT_ALLOWED",
-            "媒体文件不在 osu! 数据目录内",
-        ));
-    }
-
-    crate::infrastructure::platform::reveal_path(&candidate)
-        .map_err(|error| CommandError::new("EXPLORER_OPEN_FAILED", error.to_string()))?;
-    Ok(())
-}
-
+// lazer 跳转 URI 仅接受正整数 ID。
 #[cfg(test)]
 mod lazer_uri_tests {
     #[test]

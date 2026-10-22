@@ -19,6 +19,8 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
+/// Linux 专属：把主窗口收缩到显示器工作区的 90% 以内并重新居中，
+/// 规避 X11 窗口管理器把超工作区的无边框窗口强制最大化。
 #[cfg(target_os = "linux")]
 fn fit_linux_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     let Some(monitor) = window.current_monitor()?.or(window.primary_monitor()?) else {
@@ -49,14 +51,20 @@ fn fit_linux_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// 便携版更新助手入口：进程以更新助手参数启动时仅执行文件替换并返回 `true`，
+/// 调用方应直接返回，不再初始化窗口、托盘与插件进入正常应用流程。
 pub fn run_portable_update_helper_if_requested() -> bool {
     portable_update::run_helper_if_requested()
 }
 
+/// 应用主入口：注册插件与命令、初始化日志与共享状态、拉起后台监视器与托盘；
+/// 退出事件中按顺序释放本地数据库、音乐运行时、tosu 与日志资源。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // opp:// 深链的待确认赛事链接队列，需在深链插件初始化之前完成托管。
         .manage(features::tournament_pools::uri::TournamentLinks::default())
+        // 单实例守卫：二次启动时唤起已激活窗口；`opp:` 深链参数交由深链插件处理。
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Deep-link forwarding has already run. Its handler restores the main window.
             if !argv.iter().any(|arg| arg.starts_with("opp:"))
@@ -81,6 +89,8 @@ pub fn run() {
             app.manage(logger);
             features::tournament_pools::uri::initialize(app.handle());
             let state = app.state::<AppState>();
+            // Windows：创建隐藏宿主窗口承接系统媒体集成；失败时降级为
+            // 应用内播放控制，不阻断启动。
             #[cfg(windows)]
             let media_hwnd = {
                 let host = tauri::WindowBuilder::new(app, "music-media-host")
@@ -106,6 +116,7 @@ pub fn run() {
             state.music.start(app.handle().clone(), media_hwnd);
             let local_analysis = state.local_analysis.clone();
             let music_app = app.handle().clone();
+            // 本地索引恢复与音乐队列初始化放后台执行，避免阻塞应用启动。
             tauri::async_runtime::spawn(async move {
                 let loading = local_analysis.clone();
                 let cache_loader = loading.clone();
@@ -166,6 +177,7 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            // 清理上一轮更新流程可能遗留的暂存文件。
             portable_update::schedule_stale_cleanup();
             Ok(())
         })
@@ -173,6 +185,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build OPP")
         .run(|app, event| {
+            // 退出事件：按依赖顺序释放各运行时，最后关闭日志系统。
             if let tauri::RunEvent::Exit = event {
                 app.state::<AppState>().local_database.shutdown();
                 app.state::<AppState>().music.shutdown();

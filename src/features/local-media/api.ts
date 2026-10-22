@@ -54,7 +54,7 @@ export function useReplayLibrary() {
     // Apply deep links once the local list becomes available, not on each selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, requested, media.data]);
-  const inspection = useQuery({ queryKey: replayInfoKey(client, replayPath), queryFn: () => desktopApi.inspectGameReplay(client, replayPath), enabled: Boolean(replayPath), retry: false, staleTime: 30_000 });
+  const inspection = useQuery({ queryKey: replayInfoKey(client, replayPath), queryFn: () => desktopApi.inspectGameReplay(client, replayPath), enabled: Boolean(replayPath), staleTime: 30_000 });
   const select = (path: string) => setSession((current) => ({ ...current, current: path }));
   const chooseFiles = async () => {
     const result = await desktopApi.chooseGameReplayFiles(client);

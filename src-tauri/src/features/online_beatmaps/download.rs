@@ -1,3 +1,5 @@
+//! 单个谱面集的下载流程：镜像级联尝试、压缩包一致性校验与目标文件命名。
+
 use std::{
     collections::HashSet,
     io::{Cursor, Read, Seek},
@@ -13,6 +15,8 @@ use crate::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// 生成目标文件名：镜像建议的名字必须以 `.osz` 结尾才会采用，且会被补上
+/// `BeatmapSetID` 前缀，保证 `find_existing_beatmapset` 能在目录中识别既有文件。
 pub fn download_file_name(item: &BeatmapDownloadItem, suggested: Option<&str>) -> String {
     // 以谱面集 ID 作为稳定前缀，避免镜像给出相同文件名时发生覆盖。
     let fallback = format!(
@@ -34,6 +38,9 @@ pub fn download_file_name(item: &BeatmapDownloadItem, suggested: Option<&str>) -
     sanitize_filename(&with_id)
 }
 
+/// 校验镜像压缩包与所选谱面集一致，拦截镜像缓存过期或返回错包：
+/// 包内每个 `.osu` 的 `BeatmapSetID` 必须匹配，收集到的 `BeatmapID`
+/// 集合须与 `expected_beatmap_ids` 精确相等（谱面池模式下允许为超集）。
 pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> CommandResult<()> {
     let mut archive = zip::ZipArchive::new(reader).map_err(|_| {
         CommandError::new(
@@ -50,6 +57,7 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
         if !file.name().to_ascii_lowercase().ends_with(".osu") {
             continue;
         }
+        // 单个 `.osu` 超过 16 MiB 视为异常载荷，直接拒绝。
         if file.size() > 16 * 1024 * 1024 {
             return Err(CommandError::new(
                 "INVALID_BEATMAP_ARCHIVE",
@@ -60,6 +68,7 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
         file.read_to_end(&mut bytes).map_err(|_| {
             CommandError::new("INVALID_BEATMAP_ARCHIVE", "无法读取压缩包中的 .osu 文件")
         })?;
+        // 只需要 [Metadata] 段里的两个 ID，不解析 `.osu` 其余内容。
         let text = String::from_utf8_lossy(&bytes);
         let mut in_metadata = false;
         let mut beatmap_id = None;
@@ -102,6 +111,7 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
     Ok(())
 }
 
+/// 给出首选镜像对应的级联顺序；不在列表中的镜像不会被自动尝试。
 fn adapters(provider: &str) -> CommandResult<&'static [&'static str]> {
     // Official .osz downloads require the lazer OAuth scope, unavailable to OPP.
     // Offer the official website in the UI; never send ordinary OAuth tokens to mirrors.
@@ -118,6 +128,8 @@ fn adapters(provider: &str) -> CommandResult<&'static [&'static str]> {
     }
 }
 
+/// 按级联顺序逐个镜像尝试“下载 + 校验”，任一镜像成功且校验通过即返回；
+/// 全部失败时把各镜像的失败原因汇总为一条 `BEATMAP_DOWNLOAD_FAILED` 错误。
 /// Downloads and validates each source before accepting it, with Sayobot preferred by default.
 pub async fn download_with_adapters<F>(
     state: &AppState,
@@ -149,6 +161,7 @@ where
             )
             .await
         {
+            // 下载成功仍需校验，防止镜像返回过期或错包。
             Ok(download) => match validate_osz(Cursor::new(&download.bytes), item) {
                 Ok(()) => return Ok(download),
                 Err(error) => failures.push(format!("{adapter}: {}", error.message)),
@@ -167,6 +180,7 @@ where
     ))
 }
 
+// 文件名净化：非法字符替换与路径穿越（`../`）防护。
 #[cfg(test)]
 #[test]
 fn sanitizes_windows_download_names() {
@@ -184,6 +198,7 @@ fn sanitizes_windows_download_names() {
     );
 }
 
+// 过期压缩包拒绝、精确/超集两种难度匹配模式的行为测试。
 #[cfg(test)]
 #[test]
 fn rejects_a_stale_mirror_archive_and_accepts_current_difficulties() {
@@ -230,6 +245,7 @@ fn rejects_a_stale_mirror_archive_and_accepts_current_difficulties() {
     assert!(validate_osz(archive(&[]), &pool_item).is_err());
 }
 
+// 线上观测数据的回归测试：guest 难度（ID 0/-1）处理与镜像级联顺序。
 #[cfg(test)]
 mod regression_tests {
     use super::*;

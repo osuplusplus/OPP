@@ -28,14 +28,18 @@ use crate::{
 /// osu! IRC 官方地址：明文 6667（bancho 官方现状，文档未提供 TLS）。
 const IRC_HOST: &str = "irc.ppy.sh";
 const IRC_PORT: u16 = 6667;
+/// 重连退避区间：从 2 秒逐次翻倍增长，封顶 30 秒。
 const RECONNECT_MIN: Duration = Duration::from_secs(2);
 const RECONNECT_MAX: Duration = Duration::from_secs(30);
+/// 定期 WHOIS 自己：bancho 在 319 回复中列出已加入的大厅频道，借此发现房间。
 const WHOIS_INTERVAL: Duration = Duration::from_secs(30);
 /// 同一谱面的去重窗口：短时间内 BanchoBot 可能因加入频道回放历史消息。
 const DEDUPE_WINDOW: Duration = Duration::from_secs(120);
+/// 下载单飞锁被主窗口占用时的重试节奏：每 10 秒一次，最多 30 次。
 const BUSY_RETRY_DELAY: Duration = Duration::from_secs(10);
 const BUSY_RETRY_LIMIT: u32 = 30;
 
+/// IRC 连接状态（供 HUD 与设置页展示）。
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct IrcStatusInfo {
     /// disconnected | connecting | connected | error
@@ -45,6 +49,7 @@ pub struct IrcStatusInfo {
     pub message: String,
 }
 
+/// MP 自动补缺的当前阶段与提示信息。
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct MpActivityInfo {
     /// idle | checking | missing | downloading | imported | present | unresolved | error
@@ -61,7 +66,9 @@ pub struct OverlayRuntime {
     pub download: Mutex<Option<crate::features::online_beatmaps::BeatmapDownloadProgress>>,
     /// 递增以中断进行中的 IRC 会话（停用/游戏退出时）。
     pub irc_generation: AtomicU64,
+    /// 连接任务运行标志；以 `swap` 原子抢占防止重复启动。
     pub irc_running: AtomicBool,
+    /// 去重窗口内已处理过的谱面 ID 与登记时间。
     recent_beatmaps: Mutex<Vec<(u64, Instant)>>,
 }
 
@@ -88,6 +95,7 @@ impl Default for OverlayRuntime {
 // IRC 协议解析（纯函数，便于单测）
 // ---------------------------------------------------------------------------
 
+/// 从 IRC 消息流解析出的事件，仅保留补缺流程关心的种类。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IrcEvent {
     Welcome,
@@ -129,6 +137,7 @@ pub fn parse_beatmap_broadcast(text: &str) -> Option<u64> {
     }
 }
 
+/// 从 WHOIS/JOIN 载荷识别 `#mp_<纯数字>` 频道名，容忍 `@`/`+` 等频道前缀。
 fn lobby_channel_name(token: &str) -> Option<String> {
     let token = token.trim_start_matches([':', '@', '+']);
     let rest = token.strip_prefix("#mp_")?;
@@ -205,6 +214,8 @@ pub fn parse_irc_line(line: &str, own_nick: &str) -> Option<IrcEvent> {
 // 连接生命周期
 // ---------------------------------------------------------------------------
 
+/// 从设置与系统密钥环取 IRC 昵称与令牌（昵称中的空格替换为下划线）；
+/// 任一缺失返回 `None`，调用方据此静默跳过连接。
 fn irc_credentials(state: &AppState) -> Option<(String, String)> {
     let settings = state.store.settings_snapshot().ok()?;
     let nick = settings.overlay_irc_username?.trim().replace(' ', "_");
@@ -215,12 +226,14 @@ fn irc_credentials(state: &AppState) -> Option<(String, String)> {
     Some((nick, token))
 }
 
+/// 原地更新 IRC 状态；锁中毒时静默忽略（状态展示非关键路径）。
 fn set_irc(runtime: &OverlayRuntime, patch: impl FnOnce(&mut IrcStatusInfo)) {
     if let Ok(mut status) = runtime.irc.lock() {
         patch(&mut status);
     }
 }
 
+/// 更新 MP 活动状态并同步广播 `overlay-mp-activity` 事件。
 pub fn set_mp(app: &AppHandle, phase: &str, title: &str, message: &str) {
     let info = MpActivityInfo {
         phase: phase.into(),
@@ -241,6 +254,7 @@ pub fn ensure_irc_connection(app: &AppHandle) {
     let Some((nick, token)) = irc_credentials(&state) else {
         return;
     };
+    // 原子抢占运行标志：返回 true 表示已有连接任务在跑，直接返回。
     if runtime.irc_running.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -293,6 +307,7 @@ pub fn ensure_irc_connection(app: &AppHandle) {
     });
 }
 
+/// 请求停止：递增代际号让任务在下一个检查点自行退出，并复位展示状态。
 pub fn stop_irc(app: &AppHandle) {
     let runtime = app.state::<AppState>().overlay.clone();
     runtime.irc_generation.fetch_add(1, Ordering::SeqCst);
@@ -308,6 +323,8 @@ async fn send(writer: &mut tokio::net::tcp::OwnedWriteHalf, line: &str) -> std::
     writer.write_all(format!("{line}\r\n").as_bytes()).await
 }
 
+/// 单次 IRC 会话：TCP 连接、明文认证、逐行读取与事件分发、周期 WHOIS；
+/// 连接失败或断开时返回错误，由外层循环按退避策略重连。
 async fn run_irc_session(
     app: &AppHandle,
     runtime: &Arc<OverlayRuntime>,
@@ -340,6 +357,7 @@ async fn run_irc_session(
             return Ok(());
         }
         let whois_due = next_whois <= tokio::time::Instant::now();
+        // 读循环要同时响应 WHOIS 周期：到期时构造立即完成的 future 与读竞争。
         let wait: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = if whois_due {
             Box::pin(std::future::ready(()))
         } else {
@@ -389,6 +407,7 @@ async fn run_irc_session(
                         }
                     }
                     Some(IrcEvent::BeatmapChanged(beatmap_id)) => {
+                        // 补缺含 API 查询与下载，派发独立任务避免阻塞读循环。
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
                             handle_beatmap(app, beatmap_id).await;
@@ -411,6 +430,7 @@ async fn run_irc_session(
 // MP 补缺编排
 // ---------------------------------------------------------------------------
 
+/// 去重登记：清理过期项后，若窗口内已处理过该谱面则返回 false。
 fn register_beatmap(runtime: &OverlayRuntime, beatmap_id: u64) -> bool {
     if let Ok(mut recent) = runtime.recent_beatmaps.lock() {
         let now = Instant::now();
@@ -423,12 +443,15 @@ fn register_beatmap(runtime: &OverlayRuntime, beatmap_id: u64) -> bool {
     true
 }
 
+/// 补缺所需的最小谱面身份：谱面集 ID 与展示用标题/作者。
 struct BeatmapIdentity {
     beatmapset_id: u64,
     title: String,
     artist: String,
 }
 
+/// 经 osu! API 把 `beatmap_id` 解析为谱面集 ID 与标题；标题/作者优先取随
+/// 响应附带的 `beatmapset` 嵌套字段，缺失时回退顶层字段。
 async fn resolve_beatmap(state: &AppState, beatmap_id: u64) -> CommandResult<BeatmapIdentity> {
     let access_token = crate::features::account::ensure_access_token(state).await?;
     let value = state
@@ -456,6 +479,8 @@ async fn resolve_beatmap(state: &AppState, beatmap_id: u64) -> CommandResult<Bea
     })
 }
 
+/// MP 补缺主流程：去重 → API 解析 → 本地 presence 检查；缺失且开启自动
+/// 下载时投递下载请求，主窗口占用下载锁则按固定间隔重试。
 async fn handle_beatmap(app: AppHandle, beatmap_id: u64) {
     let state = app.state::<AppState>();
     let runtime = state.overlay.clone();
@@ -523,6 +548,7 @@ async fn handle_beatmap(app: AppHandle, beatmap_id: u64) {
         expected_beatmap_ids: Vec::new(),
         allow_extra_difficulties: true,
     };
+    // 单飞锁被主窗口下载占用时按间隔重试，其余错误立即报错终止。
     for attempt in 0..=BUSY_RETRY_LIMIT {
         let request = crate::features::online_beatmaps::BeatmapDownloadRequest {
             destination: destination.clone(),
@@ -570,6 +596,7 @@ async fn handle_beatmap(app: AppHandle, beatmap_id: u64) {
     }
 }
 
+/// 取设置中的默认下载源；序列化失败或未设置时回退 `sayobot`。
 fn default_provider(settings: &AppSettings) -> String {
     serde_json::to_value(settings.default_beatmap_download_provider)
         .ok()
@@ -577,6 +604,7 @@ fn default_provider(settings: &AppSettings) -> String {
         .unwrap_or_else(|| "sayobot".into())
 }
 
+// IRC 协议解析与谱面链接提取的纯函数单测。
 #[cfg(test)]
 mod tests {
     use super::*;

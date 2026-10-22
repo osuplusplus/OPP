@@ -1,3 +1,5 @@
+//! 收藏夹分享码：编码为 `OPPC2.<base64(zlib 负载)>.<base64(sha256)>` 三段文本，
+//! 支持导出、预览（按本地库与可下载性分类）、导入三个命令；兼容旧版 `OPPC1` JSON 格式。
 use std::{
     collections::{BTreeSet, HashSet},
     io::{Read, Write},
@@ -21,10 +23,13 @@ use crate::{
     state::AppState,
 };
 
+// 当前二进制紧凑格式的前缀；旧版 OPPC1 为 zlib 压缩的 JSON。
 const SHARE_PREFIX: &str = "OPPC2";
 const LEGACY_SHARE_PREFIX: &str = "OPPC1";
+// 解压后负载的体积上限，同时限制压缩炸弹（解压读取 MAX+1 字节以触发判断）。
 const MAX_SHARE_BYTES: usize = 8 * 1024 * 1024;
 
+/// 分享码负载（逻辑版本 1）；`exported_at` 在每次导出时刷新。
 #[derive(Serialize, Deserialize)]
 pub(super) struct SharePayload {
     pub(super) version: u8,
@@ -35,11 +40,13 @@ pub(super) struct SharePayload {
     pub(super) entries: Vec<CollectionEntry>,
 }
 
+/// 写入一个字符串：ULEB 长度前缀 + UTF-8 字节。
 fn push_share_string(value: &str, output: &mut Vec<u8>) {
     push_uleb(value.len(), output);
     output.extend_from_slice(value.as_bytes());
 }
 
+/// 读取 ULEB 长度前缀的字符串；长度做加法溢出与切片越界双重检查。
 fn read_share_string(bytes: &[u8], offset: &mut usize) -> CommandResult<String> {
     let length = read_uleb(bytes, offset)?;
     let end = offset
@@ -56,6 +63,9 @@ fn read_share_string(bytes: &[u8], offset: &mut usize) -> CommandResult<String> 
     Ok(value)
 }
 
+/// 编码为二进制紧凑格式：首字节 `2` 是格式版本号；条目按可得标识分两类——
+/// `0` 线上条目只存 `beatmapset_id` + `beatmap_id`，`1` 本地条目存 checksum 及展示文本。
+/// 压缩使用 zlib 最高档，末尾附 SHA-256 校验段。
 pub(super) fn encode_share(payload: &SharePayload) -> CommandResult<String> {
     // Online entries use only their stable IDs. This is the information needed
     // to identify an exact difficulty and cuts large share codes dramatically.
@@ -92,6 +102,10 @@ pub(super) fn encode_share(payload: &SharePayload) -> CommandResult<String> {
     ))
 }
 
+/// 解码分享码：校验前缀、base64 与 SHA-256，再 zlib 解压。
+///
+/// 旧版 `OPPC1` 走 JSON 反序列化路径；当前格式手工逐字段读取，
+/// 条目数量上限 100_000，`kind=0` 的线上条目以占位文本展示，待导入后由线上元数据补齐。
 pub(super) fn decode_share(code: &str) -> CommandResult<SharePayload> {
     let parts = code.trim().split('.').collect::<Vec<_>>();
     if parts.len() != 3 || ![SHARE_PREFIX, LEGACY_SHARE_PREFIX].contains(&parts[0]) {
@@ -117,6 +131,7 @@ pub(super) fn decode_share(code: &str) -> CommandResult<SharePayload> {
     }
     let mut decoder = ZlibDecoder::new(encoded.as_slice());
     let mut raw = Vec::new();
+    // 解压前后双重限额：take(MAX+1) 使得超限时能通过长度判断拒绝。
     decoder
         .by_ref()
         .take((MAX_SHARE_BYTES + 1) as u64)
@@ -213,6 +228,8 @@ pub(super) fn decode_share(code: &str) -> CommandResult<SharePayload> {
     })
 }
 
+/// 生成导入预览：以本地 Stable/Lazer 两客户端的 MD5 索引判定条目是否已拥有，
+/// 并统计已拥有 / 可在线补齐 / 两者皆非三类数量。
 fn preview_payload(payload: SharePayload, state: &AppState) -> CollectionSharePreview {
     let checksums = payload
         .entries
@@ -265,6 +282,7 @@ fn preview_payload(payload: SharePayload, state: &AppState) -> CollectionSharePr
     }
 }
 
+/// 导出指定收藏夹为分享码；`creator` 为空时回落到收藏夹原创建者。
 #[tauri::command(async)]
 pub fn export_collection_share(
     folder_id: String,
@@ -295,6 +313,7 @@ pub fn export_collection_share(
     })
 }
 
+/// 解码分享码并返回导入预览（不落盘）。
 #[tauri::command(async)]
 pub fn preview_collection_share(
     code: String,
@@ -303,6 +322,8 @@ pub fn preview_collection_share(
     Ok(preview_payload(decode_share(&code)?, &state))
 }
 
+/// 导入分享码：新建 OPP 来源收藏夹，条目 `id` 重新生成，
+/// `pending_write` 与 `stable_sync` 均置真，使导入结果随下一次同步写入 Stable。
 #[tauri::command(async)]
 pub fn import_collection_share(
     code: String,

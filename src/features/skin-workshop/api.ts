@@ -13,7 +13,6 @@ export function useWorkshopTree(client: OsuClient, skinResourceId: string | null
     queryFn: () => desktopApi.getSkinWorkshopTree(client, skinResourceId!),
     enabled: client === "stable" && Boolean(skinResourceId),
     placeholderData: keepPreviousData,
-    retry: false,
   });
 }
 
@@ -22,7 +21,6 @@ export function useWorkshopPart(client: OsuClient, skinResourceId: string | null
     queryKey: workshopPartKey(client, skinResourceId ?? "", partKey ?? ""),
     queryFn: () => desktopApi.getSkinWorkshopPartPreview(client, skinResourceId!, partKey!),
     enabled: client === "stable" && Boolean(skinResourceId && partKey),
-    retry: false,
   });
 }
 
@@ -31,7 +29,6 @@ export function useWorkshopConfig(client: OsuClient, skinResourceId: string | nu
     queryKey: ["skin-workshop-config", client, skinResourceId],
     queryFn: () => desktopApi.getSkinWorkshopConfig(client, skinResourceId!),
     enabled: enabled && Boolean(skinResourceId),
-    retry: false,
   });
 }
 
@@ -41,6 +38,5 @@ export function useWorkshopAsset(client: OsuClient, skinResourceId: string, asse
     queryFn: () => desktopApi.getSkinWorkshopAsset(client, skinResourceId, assetId),
     enabled,
     staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
   });
 }

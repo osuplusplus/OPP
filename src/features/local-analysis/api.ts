@@ -26,7 +26,7 @@ export function useLocalArtworkSample() {
   const index = useLocalIndexStatus();
   return useQuery({ queryKey: localArtworkSampleKey, queryFn: desktopApi.getLocalArtworkSample,
     enabled: index.data?.phase === "ready", staleTime: Infinity, gcTime: Infinity,
-    refetchOnWindowFocus: false, refetchOnReconnect: false, retry: false });
+    refetchOnWindowFocus: false, refetchOnReconnect: false });
 }
 export const localSummaryKey = (client: OsuClient) =>
   ["local-summary", client] as const;
@@ -42,7 +42,6 @@ export function useLocalSources() {
     queryKey: localSourcesKey,
     queryFn: desktopApi.getLocalSources,
     staleTime: 30_000,
-    retry: false,
   });
 }
 
@@ -62,7 +61,6 @@ export function useLocalIndexStatus(enabled = true) {
       );
       return watching ? 500 : 5000;
     },
-    retry: false,
   });
   useEffect(() => { if (result.data) observeLocalIndex(queryClient, result.data); }, [queryClient, result.data]);
   return result;
@@ -83,7 +81,6 @@ export function useLocalBeatmapPresence(ids: number[], client: OsuClient | null,
     enabled: enabled && normalized.length > 0 && index.data?.phase === "ready",
     staleTime: 5000,
     refetchInterval: 5000,
-    retry: false,
   });
 }
 
@@ -94,7 +91,6 @@ export function useLocalSummary(client: OsuClient) {
     queryFn: () => desktopApi.getLocalSummary(client),
     enabled: indexStatus.data?.phase === "ready",
     staleTime: 30_000,
-    retry: false,
   });
 }
 
@@ -104,7 +100,6 @@ export function useLocalBeatmaps(query: BeatmapQuery, enabled: boolean) {
     queryFn: () => desktopApi.queryLocalBeatmaps(query),
     enabled,
     placeholderData: keepPreviousData,
-    retry: false,
   });
 }
 
@@ -114,7 +109,6 @@ export function useLocalBeatmapSets(query: BeatmapQuery, enabled: boolean) {
     queryFn: () => desktopApi.queryLocalBeatmapSets(query),
     enabled,
     placeholderData: keepPreviousData,
-    retry: false,
   });
 }
 
@@ -128,7 +122,6 @@ export function useLocalBeatmapBackground(
     queryFn: () => desktopApi.getLocalBeatmapBackground(client, resourceId!, size),
     enabled: Boolean(resourceId),
     staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
   });
 }
 
@@ -138,7 +131,6 @@ export function useLocalSkins(query: SkinQuery, enabled: boolean) {
     queryFn: () => desktopApi.queryLocalSkins(query),
     enabled,
     placeholderData: keepPreviousData,
-    retry: false,
   });
 }
 
@@ -150,7 +142,6 @@ export function useLocalBeatmapDetail(
     queryKey: ["local-beatmap-detail", client, resourceId],
     queryFn: () => desktopApi.getLocalBeatmapDetail(client, resourceId!),
     enabled: Boolean(resourceId),
-    retry: false,
   });
 }
 
@@ -162,7 +153,6 @@ export function useLocalSkinDetail(
     queryKey: ["local-skin-detail", client, resourceId],
     queryFn: () => desktopApi.getLocalSkinDetail(client, resourceId!),
     enabled: Boolean(resourceId),
-    retry: false,
   });
 }
 
@@ -174,7 +164,6 @@ export function useLocalSkinPreview(
     queryKey: ["local-skin-preview", client, resourceId],
     queryFn: () => desktopApi.getLocalSkinPreview(client, resourceId!),
     enabled: Boolean(resourceId),
-    retry: false,
   });
 }
 
@@ -200,6 +189,5 @@ export function useLocalSkinAsset(
     enabled:
       enabled && Boolean(skinResourceId) && Boolean(assetResourceId),
     staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
   });
 }

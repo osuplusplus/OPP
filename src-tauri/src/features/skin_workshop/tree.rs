@@ -1,3 +1,7 @@
+//! 皮肤资产的磁盘扫描、命名规则解析与目录树构建。
+//! 分组规则对齐 osu! 资源命名约定：文件名按 `-` 分段，`@2x` 后缀表示
+//! 高清变体，末尾纯数字段表示动画帧序号。
+
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -10,14 +14,18 @@ use crate::error::{CommandError, CommandResult};
 
 use super::models::{SkinAssetVariant, SkinTreeNode, WorkshopAssetKind};
 
+/// 扫描产出的单个资产：前端可见摘要加建树所需的分组与物理位置信息。
 #[derive(Debug, Clone)]
 pub(crate) struct IndexedAsset {
     pub summary: SkinAssetVariant,
+    /// 目录与文件名分段组成的逐级分组段。
     pub node_segments: Vec<String>,
+    /// `node_segments` 规范化后的分组键。
     pub part_key: String,
     pub physical_path: PathBuf,
 }
 
+/// 建树中间结构；`children` 用 `BTreeMap`（键为小写段）保证输出顺序稳定。
 #[derive(Default)]
 struct NodeBuilder {
     label: String,
@@ -26,6 +34,10 @@ struct NodeBuilder {
     children: BTreeMap<String, NodeBuilder>,
 }
 
+/// 扫描皮肤根目录，收集全部图片/音频资产并按逻辑路径排序。
+///
+/// 符号链接一律跳过；`asset_id` 由小写逻辑路径哈希派生，因此重新扫描
+/// 或目录大小写变化时 ID 保持稳定，前端引用不会失效。
 pub(crate) fn index_assets(root: &Path) -> CommandResult<Vec<IndexedAsset>> {
     let canonical_root = root.canonicalize().map_err(|error| {
         CommandError::new(
@@ -46,6 +58,7 @@ pub(crate) fn index_assets(root: &Path) -> CommandResult<Vec<IndexedAsset>> {
             .and_then(|value| value.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
+        // 只索引可预览的图片/音频扩展；其余文件（如 ini）不进入工坊树。
         let kind = match extension.as_str() {
             "bmp" | "gif" | "jpeg" | "jpg" | "png" | "webp" => WorkshopAssetKind::Image,
             "mp3" | "ogg" | "wav" => WorkshopAssetKind::Audio,
@@ -55,6 +68,7 @@ pub(crate) fn index_assets(root: &Path) -> CommandResult<Vec<IndexedAsset>> {
             .path()
             .strip_prefix(&canonical_root)
             .map_err(|error| CommandError::new("SKIN_WORKSHOP_PATH_ERROR", error.to_string()))?;
+        // 逻辑路径统一用 `/` 分隔，屏蔽 Windows 平台差异。
         let logical_path = relative.to_string_lossy().replace('\\', "/");
         let (node_segments, scale, frame) = asset_segments(relative);
         let part_key = canonical_key(&node_segments);
@@ -82,11 +96,13 @@ pub(crate) fn index_assets(root: &Path) -> CommandResult<Vec<IndexedAsset>> {
     Ok(assets)
 }
 
+/// 按分组段构建前缀树并输出根级节点列表。
 pub(crate) fn build_tree(assets: &[IndexedAsset]) -> Vec<SkinTreeNode> {
     let mut root = NodeBuilder::default();
     for asset in assets {
         let mut current = &mut root;
         for (index, segment) in asset.node_segments.iter().enumerate() {
+            // 节点键用小写段，保证大小写不同的同名目录合并为一个节点。
             let key = segment.to_ascii_lowercase();
             let mut segments = asset.node_segments[..=index].to_vec();
             if segments.is_empty() {
@@ -107,6 +123,7 @@ pub(crate) fn build_tree(assets: &[IndexedAsset]) -> Vec<SkinTreeNode> {
 }
 
 impl NodeBuilder {
+    /// 递归收尾：汇总后代计数、生成节点 ID，并按字典序输出子节点。
     fn finish(self) -> SkinTreeNode {
         let children = self
             .children
@@ -143,6 +160,10 @@ impl NodeBuilder {
     }
 }
 
+/// 解析相对路径为（分组段, 倍率, 帧号）。
+///
+/// 目录段直接进入分组；文件名去 `@2x` 后按 `-` 分段，末尾纯数字段视为
+/// 帧号并从分组中剔除；文件名不含 `-` 时整体落入“未分组”。
 fn asset_segments(relative: &Path) -> (Vec<String>, u8, Option<u32>) {
     let mut segments = relative
         .parent()
@@ -167,6 +188,7 @@ fn asset_segments(relative: &Path) -> (Vec<String>, u8, Option<u32>) {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
+    // 仅当分段数大于 1 时才把末尾数字当帧号，纯数字文件名不拆分组。
     let frame = filename_segments
         .last()
         .and_then(|value| value.parse::<u32>().ok());
@@ -183,6 +205,7 @@ fn asset_segments(relative: &Path) -> (Vec<String>, u8, Option<u32>) {
     (segments, scale, frame)
 }
 
+/// 规范化分组键：各段去空白、转小写后以 `/` 连接。
 pub(crate) fn canonical_key(segments: &[String]) -> String {
     segments
         .iter()
@@ -191,6 +214,8 @@ pub(crate) fn canonical_key(segments: &[String]) -> String {
         .join("/")
 }
 
+/// 判断资产是否属于某分组：相等或是其子分组。
+/// 前缀后必须紧跟 `/`，避免 `cursor` 误匹配 `cursor2`。
 pub(crate) fn belongs_to(asset_key: &str, part_key: &str) -> bool {
     asset_key == part_key
         || asset_key
@@ -211,6 +236,7 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
+    // 覆盖连字符分组、@2x、帧号与“未分组”四类命名。
     #[test]
     fn groups_hyphens_scales_frames_and_unclassified_files() {
         let root = tempdir().expect("root");
@@ -250,6 +276,7 @@ mod tests {
         assert!(tree.iter().any(|node| node.label == "未分组"));
     }
 
+    // 同一目录重复扫描得到的树与 ID 完全一致。
     #[test]
     fn ids_are_stable_across_reindexing() {
         let root = tempdir().expect("root");

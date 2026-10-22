@@ -1,6 +1,8 @@
+//! 本地索引库的打开、迁移、身份校验与快照同步行为测试。
 use super::*;
 use rusqlite::params;
 
+/// v1 旧库原地升级：身份与既有数据保持不变。
 #[test]
 fn upgrades_v1_in_place_without_changing_identity_or_existing_maps() {
     let directory = tempfile::tempdir().unwrap();
@@ -22,6 +24,7 @@ fn upgrades_v1_in_place_without_changing_identity_or_existing_maps() {
     );
 }
 
+/// 快照同步：未变行不写库、失败整体回滚、条目删除生效且来源不匹配返回 `None`。
 #[test]
 fn snapshot_sync_skips_unchanged_rows_and_rolls_back_removals_on_failure() {
     use super::library::{self, Entry, Snapshot};
@@ -102,6 +105,7 @@ fn snapshot_sync_skips_unchanged_rows_and_rolls_back_removals_on_failure() {
     );
 }
 
+/// 新建空库：连接 PRAGMA 配置正确，重开后身份一致。
 #[test]
 fn creates_empty_versioned_library_and_reopens_with_identity() {
     assert!(rusqlite::version_number() >= 3_051_003);
@@ -155,6 +159,7 @@ fn creates_empty_versioned_library_and_reopens_with_identity() {
     assert!(!directory.path().join("career.sqlite3").exists());
 }
 
+/// 外来文件、UUID 不匹配、版本过新与损坏文件都被拒绝且原字节不被改动。
 #[test]
 fn rejects_foreign_newer_corrupt_and_mismatched_files_without_overwriting() {
     let directory = tempfile::tempdir().unwrap();
@@ -200,6 +205,7 @@ fn rejects_foreign_newer_corrupt_and_mismatched_files_without_overwriting() {
     assert_eq!(fs::read(&path).unwrap(), b"not a sqlite database");
 }
 
+/// 迁移中途失败时 schema、身份与版本整体回滚，之后可重新迁移。
 #[test]
 fn failed_migration_rolls_back_schema_identity_and_version() {
     let mut connection = Connection::open_in_memory().unwrap();
@@ -250,6 +256,7 @@ fn failed_migration_rolls_back_schema_identity_and_version() {
     );
 }
 
+/// 数据库被占用时迁移报 `DATABASE_BUSY` 且不提交任何变更。
 #[test]
 fn lock_timeout_returns_actionable_error_and_does_not_commit_migration() {
     let directory = tempfile::tempdir().unwrap();
@@ -281,6 +288,7 @@ fn lock_timeout_returns_actionable_error_and_does_not_commit_migration() {
     blocker.execute_batch("ROLLBACK").unwrap();
 }
 
+/// 未提交谱面与跨客户端的同 ID/同 MD5 可共存，来源内键唯一且查询走索引。
 #[test]
 fn supports_unsubmitted_maps_duplicate_ids_and_hashes_across_clients_with_indexes() {
     let directory = tempfile::tempdir().unwrap();
@@ -333,6 +341,7 @@ fn supports_unsubmitted_maps_duplicate_ids_and_hashes_across_clients_with_indexe
     }
 }
 
+/// 缺库时绝不自动重建；空文件冲突按外来库拒绝。
 #[test]
 fn does_not_recreate_missing_database_and_rejects_empty_conflicting_file() {
     let directory = tempfile::tempdir().unwrap();
@@ -345,6 +354,7 @@ fn does_not_recreate_missing_database_and_rejects_empty_conflicting_file() {
     );
 }
 
+/// 孤儿 WAL 日志阻止新建且被保留；缺索引的库打开时报结构不完整。
 #[test]
 fn preserves_orphaned_sidecars_and_reports_missing_schema_indexes() {
     let directory = tempfile::tempdir().unwrap();

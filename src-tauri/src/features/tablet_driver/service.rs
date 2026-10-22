@@ -1,3 +1,4 @@
+//! OTD 可执行文件发现、进程探测与托管启停、配置摘要与备份。
 use super::models::{OtdConfigSummary, OtdStatus};
 use crate::{
     domain::AppSettings,
@@ -16,6 +17,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+/// OTD 共享运行时：托管子进程句柄与最近一次错误。
 pub struct OtdRuntime {
     pub process: Mutex<Option<Child>>,
     pub last_error: Mutex<Option<String>>,
@@ -29,6 +31,7 @@ impl Default for OtdRuntime {
     }
 }
 
+/// 校验路径存在且为文件（不限定文件名），返回规范化绝对路径。
 pub fn validate_executable(path: &Path) -> CommandResult<PathBuf> {
     let path = path.canonicalize().map_err(|_| {
         CommandError::new(
@@ -45,6 +48,7 @@ pub fn validate_executable(path: &Path) -> CommandResult<PathBuf> {
     Ok(path)
 }
 
+/// 解析 OTD 路径：用户配置优先，Linux 上额外回退 PATH 中的常见可执行名。
 fn configured_path(settings: &AppSettings) -> Option<PathBuf> {
     let configured = settings
         .otd_executable_path
@@ -71,30 +75,20 @@ fn process_name(path: &Path) -> String {
         .to_owned()
 }
 
+/// 按进程名探测 OTD 守护进程是否在运行；平台探测差异见下方分支注释。
 fn process_running(name: &str) -> bool {
     #[cfg(windows)]
     {
-        Command::new("tasklist")
-            .creation_flags(CREATE_NO_WINDOW)
-            .args(["/FI", &format!("IMAGENAME eq {name}.exe")])
-            .output()
-            .map(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .to_ascii_lowercase()
-                    .contains(&format!("{name}.exe").to_ascii_lowercase())
-            })
-            .unwrap_or(false)
+        crate::infrastructure::platform::windows_tasklist_running(&format!("{name}.exe"))
     }
     #[cfg(not(windows))]
     {
-        Command::new("pgrep")
-            .args(["-f", name])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        // OpenTabletDriver 常以 dotnet／AppImage 启动，comm 会被内核截断，需按命令行匹配。
+        crate::infrastructure::platform::unix_cmdline_running(name)
     }
 }
 
+/// 候选配置根目录：Windows 用 %LOCALAPPDATA%，Linux 用 XDG 配置目录。
 fn config_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     #[cfg(windows)]
@@ -112,6 +106,7 @@ fn config_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// 依次在候选根目录下查找配置文件（最多下探 3 层，取第一个 JSON 文件）。
 fn find_config() -> Option<PathBuf> {
     for root in config_roots() {
         if !root.is_dir() {
@@ -145,6 +140,7 @@ fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
     })
 }
 
+/// 解析配置 JSON，提取展示摘要与数位板名称；键名兼容不同命名的 OTD 版本。
 fn summarize(path: &Path) -> Option<(OtdConfigSummary, Option<String>)> {
     let value: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
     let output_mode = string_field(&value, &["OutputMode", "output_mode", "OutputModeType"]);
@@ -168,6 +164,7 @@ fn summarize(path: &Path) -> Option<(OtdConfigSummary, Option<String>)> {
     ))
 }
 
+/// 汇总安装、进程运行与配置信息；无可执行文件时仍按默认进程名探测守护进程。
 pub fn status(runtime: &OtdRuntime, settings: &AppSettings) -> OtdStatus {
     let executable_path = configured_path(settings).map(|p| p.display().to_string());
     let installed = executable_path.is_some();
@@ -199,6 +196,7 @@ pub fn status(runtime: &OtdRuntime, settings: &AppSettings) -> OtdStatus {
     }
 }
 
+/// 启动 OTD 守护进程：已在运行则直接成功；子进程丢弃输出并以无窗口方式托管。
 pub fn start(runtime: &OtdRuntime, settings: &AppSettings) -> CommandResult<()> {
     let path = configured_path(settings).ok_or_else(|| {
         CommandError::new("OTD_NOT_CONFIGURED", "请先选择 OpenTabletDriver 可执行文件")
@@ -220,6 +218,7 @@ pub fn start(runtime: &OtdRuntime, settings: &AppSettings) -> CommandResult<()> 
     Ok(())
 }
 
+/// 停止 OPP 托管的 OTD 子进程；外部启动的实例不受影响。
 pub fn stop(runtime: &OtdRuntime) -> CommandResult<()> {
     let mut process = runtime
         .process
@@ -235,6 +234,7 @@ pub fn stop(runtime: &OtdRuntime) -> CommandResult<()> {
     Ok(())
 }
 
+/// 把当前配置文件复制到目标目录，文件名带时间戳；返回备份文件的完整路径。
 pub fn backup(settings: &AppSettings, destination: &Path) -> CommandResult<String> {
     let source = find_config().ok_or_else(|| {
         CommandError::new("OTD_CONFIG_NOT_FOUND", "未找到 OpenTabletDriver 配置文件")
@@ -250,6 +250,7 @@ pub fn backup(settings: &AppSettings, destination: &Path) -> CommandResult<Strin
         chrono::Utc::now().format("%Y%m%d-%H%M%S")
     ));
     fs::copy(&source, &file).map_err(|e| CommandError::new("OTD_BACKUP_FAILED", e.to_string()))?;
+    // `settings` 参数当前未参与备份逻辑。
     let _ = settings;
     Ok(file.display().to_string())
 }

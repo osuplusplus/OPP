@@ -1,20 +1,25 @@
+//! tosu 的状态、日志与 v2 实时快照数据模型。
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// tosu 工具页展示的整体状态，含主程序与歌词代理两部分。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TosuStatus {
     pub installed: bool,
     pub executable_path: Option<String>,
     pub api_base_url: String,
     pub api_reachable: bool,
+    /// 泛指任意实例在运行（OPP 托管、外部启动或 API 可达任一成立）。
     pub running: bool,
+    /// 仅指由 OPP 作为子进程托管的实例；外部启动的为 false。
     pub owned_by_opp: bool,
     pub dashboard_url: String,
     pub last_error: Option<String>,
     pub lyrics: TosuLyricsStatus,
 }
 
+/// tosu-lyrics 歌词代理（tosu-proxy）的运行状态。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TosuLyricsStatus {
     pub installed: bool,
@@ -24,6 +29,7 @@ pub struct TosuLyricsStatus {
     pub proxy_url: String,
 }
 
+/// 一条 tosu 相关日志：stdout/stderr 输出与 OPP 系统事件统一为此结构。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TosuLogEntry {
     pub at: DateTime<Utc>,
@@ -32,6 +38,7 @@ pub struct TosuLogEntry {
     pub message: String,
 }
 
+/// 一帧实时游戏数据，由 tosu v2 WebSocket 消息映射而来；缺失字段为 `None`。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TosuLiveSnapshot {
     pub state: Option<String>,
@@ -91,6 +98,8 @@ fn positive_integer(root: &Value, path: &[&str]) -> Option<i64> {
 }
 
 impl TosuLiveSnapshot {
+    /// 从 tosu v2 JSON 消息构建快照：兼容字段别名（Unicode 优先、`setId`/`set`），
+    /// 并把 0/-1 等占位值归一化为 `None`。
     pub fn from_v2(value: &Value) -> Self {
         Self {
             state: text(value, &["state", "name"]),

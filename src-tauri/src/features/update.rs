@@ -1,3 +1,5 @@
+//! 应用内更新：以 GitHub Tags 判断版本、以官方清单校验并下载便携 EXE，
+//! 交给便携更新助手完成原路径替换与重启。
 use std::{
     env,
     path::Path,
@@ -9,6 +11,7 @@ use futures_util::StreamExt;
 use reqwest::header::{ACCEPT, CACHE_CONTROL};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, State};
 use tokio::{fs, io::AsyncWriteExt};
 
@@ -19,27 +22,39 @@ use crate::{
     state::AppState,
 };
 
+/// Releases 固定地址上的更新清单，含版本号、下载链接与 SHA256。
 const LATEST_MANIFEST_URL: &str =
     "https://github.com/osuplusplus/OPP/releases/latest/download/latest.json";
+/// GitHub Tags API 地址；最新版本号以此为准。
 const GITHUB_TAGS_URL: &str = "https://api.github.com/repos/osuplusplus/OPP/tags?per_page=100";
 /// 国内 GitHub Release 镜像。版本检查仍直接访问 GitHub Tags API，只有大文件下载走镜像。
 const RELEASE_MIRROR_PREFIX: &str = "https://gh-proxy.com/";
+/// 便携 EXE 只允许来自官方 GitHub Release；清单被篡改时无法指向其他下载源。
+const OFFICIAL_RELEASE_PREFIX: &str = "https://github.com/osuplusplus/OPP/releases/";
+/// 更新包大小上限（1 GiB）：已知大小超限或流式累计超限都拒绝，防止写满磁盘。
 const MAX_UPDATE_BYTES: u64 = 1024 * 1024 * 1024;
+/// 向前端推送下载进度的全局事件名。
 const UPDATE_PROGRESS_EVENT: &str = "update-progress";
 
+/// 全局安装互斥标志；`UpdateGuard` 负责抢占与释放。
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+/// 官方 `latest.json` 清单结构。
 #[derive(Debug, Clone, Deserialize)]
 struct UpdateManifest {
     version: String,
     url: String,
+    // 缺少 SHA256 时拒绝自动更新，见 parse_manifest_sha256。
+    sha256: Option<String>,
 }
 
+/// Tags API 返回条目的最小子集（仅取名称）。
 #[derive(Debug, Deserialize)]
 struct GithubTag {
     name: String,
 }
 
+/// 版本检查结果：展示用版本信息、发布页链接与是否可自动更新。
 #[derive(Debug, Serialize)]
 pub struct UpdateCheckResult {
     current_version: String,
@@ -50,10 +65,13 @@ pub struct UpdateCheckResult {
     release_url: String,
     published_at: Option<String>,
     release_notes: Option<String>,
+    /// 平台是否支持便携 EXE 应用内更新（当前仅 Windows x64）。
     can_auto_update: bool,
+    /// 检查阶段尚未下载，恒为 `None`。
     download_size: Option<u64>,
 }
 
+/// `update-progress` 事件的载荷：阶段、字节数与展示文案。
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateProgress {
     phase: String,
@@ -62,6 +80,7 @@ pub struct UpdateProgress {
     message: String,
 }
 
+/// RAII 互斥守卫：获取时原子抢占安装标志，Drop 时复位，保证同一时刻只有一个安装任务。
 struct UpdateGuard;
 
 impl UpdateGuard {
@@ -79,14 +98,17 @@ impl Drop for UpdateGuard {
     }
 }
 
+/// 解析 Release tag 为语义化版本，容忍可选的 `v`/`V` 前缀。
 fn parse_release_version(value: &str) -> Result<Version, semver::Error> {
     Version::parse(value.trim().trim_start_matches(['v', 'V']))
 }
 
+/// 便携 EXE 自动更新仅支持 Windows x64；其他平台只能提示手动下载。
 fn supports_auto_update() -> bool {
     cfg!(all(target_os = "windows", target_arch = "x86_64"))
 }
 
+/// 由清单构造检查结果：校验两侧版本号与下载地址合法性，`is_latest` 按语义化比较。
 fn build_update_result(
     current_version: &str,
     manifest: UpdateManifest,
@@ -121,6 +143,7 @@ fn build_update_result(
     })
 }
 
+/// 强制下载地址为 HTTPS 且位于官方 GitHub Release 前缀之下。
 fn validate_download_url(value: &str) -> CommandResult<()> {
     let url = reqwest::Url::parse(value)
         .map_err(|error| CommandError::new("INVALID_UPDATE_URL", error.to_string()))?;
@@ -130,17 +153,53 @@ fn validate_download_url(value: &str) -> CommandResult<()> {
             "更新包下载地址必须使用 HTTPS",
         ));
     }
+    if !value.starts_with(OFFICIAL_RELEASE_PREFIX) {
+        return Err(CommandError::new(
+            "INVALID_UPDATE_URL",
+            "更新包下载地址必须指向官方 GitHub Release",
+        ));
+    }
     Ok(())
 }
 
+/// 为官方下载地址追加国内镜像前缀；已是镜像地址则原样返回，避免重复拼接。
 fn mirror_download_url(value: &str) -> CommandResult<String> {
-    validate_download_url(value)?;
-    if value.starts_with(RELEASE_MIRROR_PREFIX) {
+    if let Some(inner) = value.strip_prefix(RELEASE_MIRROR_PREFIX) {
+        validate_download_url(inner)?;
         return Ok(value.to_string());
     }
+    validate_download_url(value)?;
     Ok(format!("{RELEASE_MIRROR_PREFIX}{value}"))
 }
 
+/// 下载前必须拿到清单中的 SHA256，缺失或格式非法都拒绝安装；
+/// 第三方镜像（gh-proxy）由此只承载字节，不承载信任。
+fn parse_manifest_sha256(manifest: &UpdateManifest) -> CommandResult<[u8; 32]> {
+    let invalid = || {
+        CommandError::new(
+            "UPDATE_MANIFEST_INCOMPLETE",
+            "更新清单缺少有效的 SHA256 校验值，请稍后重试或手动下载更新",
+        )
+    };
+    let raw = manifest.sha256.as_deref().unwrap_or_default().trim();
+    let bytes = raw.as_bytes();
+    if raw.len() != 64 {
+        return Err(invalid());
+    }
+    let mut digest = [0_u8; 32];
+    for (index, slot) in digest.iter_mut().enumerate() {
+        match (
+            (bytes[index * 2] as char).to_digit(16),
+            (bytes[index * 2 + 1] as char).to_digit(16),
+        ) {
+            (Some(high), Some(low)) => *slot = (high * 16 + low) as u8,
+            _ => return Err(invalid()),
+        }
+    }
+    Ok(digest)
+}
+
+/// 构造更新专用 HTTP 客户端，User-Agent 携带版本号便于服务端区分来源。
 fn http_client(current_version: &str) -> CommandResult<reqwest::Client> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
@@ -151,6 +210,7 @@ fn http_client(current_version: &str) -> CommandResult<reqwest::Client> {
         .map_err(|error| CommandError::network(format!("无法创建更新请求：{error}")))
 }
 
+/// 拉取官方 `latest.json` 更新清单。
 async fn fetch_manifest(client: &reqwest::Client) -> CommandResult<UpdateManifest> {
     let response = client
         .get(LATEST_MANIFEST_URL)
@@ -170,6 +230,7 @@ async fn fetch_manifest(client: &reqwest::Client) -> CommandResult<UpdateManifes
     })
 }
 
+/// 从 Tags API 中选出语义化版本最高的 tag 作为最新版本；无法解析的 tag 被忽略。
 async fn fetch_latest_tag(client: &reqwest::Client) -> CommandResult<String> {
     let response = client
         .get(GITHUB_TAGS_URL)
@@ -211,6 +272,7 @@ pub async fn check_for_updates(app: AppHandle) -> CommandResult<UpdateCheckResul
     let manifest = UpdateManifest {
         version: latest_tag.clone(),
         url: format!("https://github.com/osuplusplus/OPP/releases/tag/{latest_tag}"),
+        sha256: None,
     };
     build_update_result(&current_version, manifest, supports_auto_update())
 }
@@ -247,6 +309,7 @@ pub async fn download_and_install_update(
         ));
     }
     let download_url = mirror_download_url(&manifest.url)?;
+    let expected_sha256 = parse_manifest_sha256(&manifest)?;
 
     let current_exe = env::current_exe().map_err(|error| {
         CommandError::new("UPDATE_PATH_ERROR", format!("无法定位当前程序：{error}"))
@@ -258,13 +321,14 @@ pub async fn download_and_install_update(
     remove_file_if_exists(&partial).await?;
     remove_file_if_exists(&paths.staged).await?;
 
-    let downloaded = match download_asset(&app, &client, &download_url, &partial).await {
-        Ok(downloaded) => downloaded,
-        Err(error) => {
-            let _ = fs::remove_file(&partial).await;
-            return Err(error);
-        }
-    };
+    let downloaded =
+        match download_asset(&app, &client, &download_url, &partial, expected_sha256).await {
+            Ok(downloaded) => downloaded,
+            Err(error) => {
+                let _ = fs::remove_file(&partial).await;
+                return Err(error);
+            }
+        };
     emit_progress(
         &app,
         "preparing",
@@ -298,11 +362,14 @@ pub async fn download_and_install_update(
     Ok(())
 }
 
+/// 流式下载更新包到 `.part` 文件：边下边算 SHA256、双重限制大小、
+/// 节流推送进度，完成后校验哈希是否与清单一致。
 async fn download_asset(
     app: &AppHandle,
     client: &reqwest::Client,
     url: &str,
     destination: &Path,
+    expected_sha256: [u8; 32],
 ) -> CommandResult<u64> {
     let response = client
         .get(url)
@@ -333,11 +400,13 @@ async fn download_asset(
         )
     })?;
     let mut stream = response.bytes_stream();
+    let mut hasher = Sha256::new();
     let mut downloaded = 0_u64;
     let mut last_progress = Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk =
             chunk.map_err(|error| CommandError::network(format!("更新包下载中断：{error}")))?;
+        hasher.update(&chunk);
         downloaded = downloaded.saturating_add(chunk.len() as u64);
         if downloaded > MAX_UPDATE_BYTES || (total_bytes > 0 && downloaded > total_bytes) {
             return Err(CommandError::new(
@@ -374,6 +443,13 @@ async fn download_asset(
             "更新包下载不完整",
         ));
     }
+    let actual_sha256: [u8; 32] = hasher.finalize().into();
+    if actual_sha256 != expected_sha256 {
+        return Err(CommandError::new(
+            "UPDATE_HASH_MISMATCH",
+            "更新包 SHA256 校验失败，已取消安装（下载内容与官方发布不一致）",
+        ));
+    }
     // 服务端未返回 Content-Length 时也补发一次最终进度。
     emit_progress(
         app,
@@ -389,6 +465,7 @@ async fn download_asset(
     Ok(downloaded)
 }
 
+/// 向前端发射一次进度事件；发射失败仅忽略，不打断下载流程。
 fn emit_progress(
     app: &AppHandle,
     phase: &str,
@@ -407,6 +484,7 @@ fn emit_progress(
     );
 }
 
+/// 删除文件，不存在视为成功；其余失败转为可展示错误。
 async fn remove_file_if_exists(path: &Path) -> CommandResult<()> {
     match fs::remove_file(path).await {
         Ok(()) => Ok(()),
@@ -443,6 +521,7 @@ mod tests {
         UpdateManifest {
             version: version.into(),
             url: format!("https://github.com/osuplusplus/OPP/releases/download/v{version}/OPP.exe"),
+            sha256: Some("a".repeat(64)),
         }
     }
 
@@ -483,6 +562,39 @@ mod tests {
             .expect_err("non-HTTPS URL must fail");
 
         assert_eq!(error.code, "INVALID_UPDATE_URL");
+    }
+
+    #[test]
+    fn rejects_non_github_asset_urls() {
+        let error = validate_download_url("https://example.test/OPP.exe")
+            .expect_err("non-GitHub URL must fail");
+
+        assert_eq!(error.code, "INVALID_UPDATE_URL");
+    }
+
+    #[test]
+    fn rejects_manifests_without_sha256() {
+        let mut item = manifest("1.1.0");
+        item.sha256 = None;
+
+        let error = super::parse_manifest_sha256(&item).expect_err("missing hash must fail");
+
+        assert_eq!(error.code, "UPDATE_MANIFEST_INCOMPLETE");
+    }
+
+    #[test]
+    fn rejects_malformed_manifest_sha256() {
+        let mut short = manifest("1.1.0");
+        short.sha256 = Some("zz".into());
+
+        let error = super::parse_manifest_sha256(&short).expect_err("malformed hash must fail");
+
+        assert_eq!(error.code, "UPDATE_MANIFEST_INCOMPLETE");
+
+        // 大写十六进制同样接受，摘要按字节比较。
+        let mut upper = manifest("1.1.0");
+        upper.sha256 = Some("ABCD".repeat(16));
+        assert!(super::parse_manifest_sha256(&upper).is_ok());
     }
 
     #[test]

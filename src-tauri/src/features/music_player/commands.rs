@@ -1,3 +1,4 @@
+//! 音乐播放器的 Tauri 命令层：只做参数反序列化、状态访问、服务调用与错误转换。
 use super::{
     models::*,
     service::{Action, failure},
@@ -11,6 +12,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use std::io::Cursor;
 use tauri::State;
 
+/// 读取播放器状态快照。
 #[tauri::command(async)]
 pub fn music_state(state: State<'_, AppState>) -> CommandResult<PlayerState> {
     finish_span(
@@ -18,6 +20,8 @@ pub fn music_state(state: State<'_, AppState>) -> CommandResult<PlayerState> {
         state.music.snapshot(),
     )
 }
+/// 返回当前播放资源对应的本地谱面定位（客户端/规则/谱集键），供前端跳转谱面页；
+/// `resource_id` 不是正在播放的资源时返回 `None`。
 #[tauri::command(async)]
 pub fn music_location(
     resource_id: String,
@@ -61,6 +65,7 @@ pub fn music_location(
     })();
     finish_span(span, result)
 }
+/// 分页查询播放队列，按标题与艺人过滤。
 #[tauri::command(async)]
 pub fn music_queue_page(
     offset: usize,
@@ -73,6 +78,7 @@ pub fn music_queue_page(
         state.music.page(offset, limit, &search),
     )
 }
+/// 播放控制；非音量/模式/跳转类指令先递增 `intent`，使进行中的异步队列构建作废。
 #[tauri::command]
 pub async fn music_control(control: Control, state: State<'_, AppState>) -> CommandResult<()> {
     let span = global().map(|l| l.operation("music_player", "music_control"));
@@ -87,6 +93,8 @@ pub async fn music_control(control: Control, state: State<'_, AppState>) -> Comm
     }
     finish_span(span, state.music.dispatch(Action::Control(control)).await)
 }
+/// 构建并应用新队列：在交互线程池扫描候选（可按收藏夹过滤）后交给工作线程。
+/// `intent` 在构建前先取号，若期间用户又发起新操作，旧结果送达时会被丢弃。
 #[tauri::command]
 pub async fn music_set_queue(
     request: QueueRequest,
@@ -127,6 +135,8 @@ pub async fn music_set_queue(
     .await;
     finish_span(span, result)
 }
+/// 获取曲目封面：解码第一个可用封面，缩略到 160px 并输出 base64 PNG data URL；
+/// 解码内存上限 64MB，任一步失败只是跳过该封面或返回 `None`。
 #[tauri::command(async)]
 pub async fn music_artwork(
     id: String,
@@ -177,6 +187,7 @@ pub async fn music_artwork(
     .await?
 }
 
+/// 切换迷你/主窗口；切回主窗口前先在后台线程加载缓存索引，再执行窗口操作。
 #[tauri::command]
 pub async fn music_window_mode(
     mini: bool,
@@ -195,6 +206,7 @@ pub async fn music_window_mode(
     }
     finish_span(span, super::windows::switch(&app, mini, route))
 }
+/// 新窗口前端就绪回调：完成切换收尾（换窗/状态更新），返回窗口会话。
 #[tauri::command(async)]
 pub fn music_window_ready(
     window: tauri::WebviewWindow,
@@ -206,6 +218,7 @@ pub fn music_window_ready(
     )
 }
 
+/// 前端上报是否有任务在跑；迷你模式下据此决定何时回收隐藏的主窗口。
 #[tauri::command]
 pub fn music_frontend_task(active: bool, state: State<'_, AppState>) {
     let span = global().map(|l| l.operation("music_player", "music_frontend_task"));
@@ -214,6 +227,7 @@ pub fn music_frontend_task(active: bool, state: State<'_, AppState>) {
         .store(active, std::sync::atomic::Ordering::Relaxed);
     crate::infrastructure::logging::finish_span_ok(span, ());
 }
+/// 迷你播放器展开/收起与置顶切换：按 72/420 逻辑像素约束高度并持久化置顶状态。
 #[tauri::command(async)]
 pub fn music_mini_layout(
     expanded: bool,

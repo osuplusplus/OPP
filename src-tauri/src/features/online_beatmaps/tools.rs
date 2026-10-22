@@ -1,3 +1,6 @@
+//! 在线谱面模块的支撑工具：官方搜索参数构造与校验、目标目录与文件名处理、
+//! 下载进度事件构造。
+
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -17,12 +20,16 @@ use crate::{
     state::AppState,
 };
 
+// 单次收集与单批下载的数量上限，同时约束请求规模与进度事件数量。
 pub const MAX_COLLECT_RESULTS: usize = 500;
 pub const MAX_BATCH_ITEMS: usize = 500;
+// osu! 官方 API 实际接受的流派/语言 ID 白名单，用于拒绝无效筛选值。
 const GENRE_IDS: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14];
 const LANGUAGE_IDS: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 
 impl OnlineBeatmapSearchQuery {
+    /// 将前端筛选转换为 osu! 官方搜索参数：文本、日期与数值条件拼接进 `q`，
+    /// 枚举类筛选映射为独立查询参数；所有值先经白名单与格式校验再放行。
     fn to_api_parameters(&self) -> CommandResult<Vec<(String, String)>> {
         validate_date_range("ranked", &self.ranked_from, &self.ranked_to)?;
         validate_date_range("submitted", &self.submitted_from, &self.submitted_to)?;
@@ -72,10 +79,12 @@ impl OnlineBeatmapSearchQuery {
         push_number_range(&mut filters, "cs", self.cs_min, self.cs_max)?;
         push_number_range(&mut filters, "od", self.od_min, self.od_max)?;
         push_number_range(&mut filters, "hp", self.hp_min, self.hp_max)?;
+        // 键数（keys）筛选只对 mania 模式有意义。
         if self.ruleset == Some(Ruleset::Mania) {
             push_number_range(&mut filters, "keys", self.keys_min, self.keys_max)?;
         }
 
+        // 官方搜索把所有条件合并进单个 `q` 参数，以空格分隔。
         let mut parameters = Vec::new();
         if !filters.is_empty() {
             parameters.push(("q".into(), filters.join(" ")));
@@ -186,6 +195,7 @@ impl OnlineBeatmapSearchQuery {
     }
 }
 
+/// 给官方搜索响应与其每条结果标注来源和抓取时间。
 pub fn normalize_official_response(value: &mut Value) {
     annotate_source(value, "official");
     if let Some(items) = value.get_mut("beatmapsets").and_then(Value::as_array_mut) {
@@ -195,6 +205,7 @@ pub fn normalize_official_response(value: &mut Value) {
     }
 }
 
+/// 注入 `opp_source` 与 `opp_fetched_at`，让前端能区分不同来源的数据及其新鲜度。
 pub fn annotate_source(value: &mut Value, source: &str) {
     if let Some(object) = value.as_object_mut() {
         object.insert("opp_source".into(), Value::String(source.into()));
@@ -205,6 +216,7 @@ pub fn annotate_source(value: &mut Value, source: &str) {
     }
 }
 
+/// 用当前账号的访问令牌调用 osu! 官方搜索 API，并给响应补充来源标记。
 pub async fn search_with_adapters(
     query: &OnlineBeatmapSearchQuery,
     state: &AppState,
@@ -225,6 +237,7 @@ pub fn push_free_text(filters: &mut Vec<String>, value: &str) {
     }
 }
 
+/// 以 `field=value` 语法追加文本筛选，值经引号包裹与转义。
 pub fn push_text_filter(filters: &mut Vec<String>, field: &str, value: &str) {
     let value = value.trim();
     if !value.is_empty() {
@@ -272,11 +285,13 @@ pub fn push_number_range(
     Ok(())
 }
 
+/// 最多保留 4 位小数并去掉尾随零，避免 `q` 参数携带多余精度。
 pub fn compact_number(value: f64) -> String {
     let value = format!("{value:.4}");
     value.trim_end_matches('0').trim_end_matches('.').into()
 }
 
+/// 用双引号包裹值并转义其中的反斜杠与引号，符合官方筛选语法。
 pub fn quote_filter_value(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -316,6 +331,7 @@ pub fn validate_category(field: &str, value: u8, allowed: &[u8]) -> CommandResul
     }
 }
 
+/// 映射为 osu! 官方 API 使用的模式编号。
 pub fn ruleset_id(ruleset: Ruleset) -> u8 {
     match ruleset {
         Ruleset::Osu => 0,
@@ -325,6 +341,7 @@ pub fn ruleset_id(ruleset: Ruleset) -> u8 {
     }
 }
 
+/// 校验并创建下载目录，返回规范化（canonicalize）后的绝对路径。
 pub fn prepare_destination(value: &str) -> CommandResult<PathBuf> {
     let value = value.trim();
     if value.is_empty() {
@@ -339,6 +356,7 @@ pub fn prepare_destination(value: &str) -> CommandResult<PathBuf> {
     Ok(destination)
 }
 
+/// 依下载命名约定在目录中查找既有谱面集：`{id} ` 前缀或 `{id}.osz` 精确名。
 pub fn find_existing_beatmapset(destination: &Path, beatmapset_id: u64) -> Option<PathBuf> {
     let prefix = format!("{beatmapset_id} ");
     let exact = format!("{beatmapset_id}.osz");
@@ -354,6 +372,7 @@ pub fn find_existing_beatmapset(destination: &Path, beatmapset_id: u64) -> Optio
         })
 }
 
+/// 将 Windows 非法字符与控制符替换为 `_`，截断到 180 字符，并确保以 `.osz` 结尾。
 pub fn sanitize_filename(value: &str) -> String {
     let mut sanitized = value
         .chars()
@@ -376,6 +395,7 @@ pub fn sanitize_filename(value: &str) -> String {
     sanitized
 }
 
+/// 构造单条目的进度事件骨架；字节与速度字段由下载回调另行填充。
 pub fn progress_for_item(
     phase: &str,
     counts: DownloadProgressCounts,
@@ -400,10 +420,12 @@ pub fn progress_for_item(
     }
 }
 
+/// 向前端广播 `beatmap-download-progress` 事件；发送失败静默忽略。
 pub fn emit_progress(app: &AppHandle, progress: BeatmapDownloadProgress) {
     let _ = app.emit("beatmap-download-progress", progress);
 }
 
+// 官方搜索参数构造与各类无效筛选拒绝的单元测试。
 #[cfg(test)]
 mod tests {
     use super::*;

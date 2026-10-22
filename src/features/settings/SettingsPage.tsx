@@ -1,61 +1,21 @@
-import { useEffect, useState } from "react";
-import * as Switch from "@radix-ui/react-switch";
-import {
-  Check,
-  ExternalLink,
-  Film,
-  FolderOpen,
-  Gamepad2,
-  LogOut,
-  RotateCcw,
-  RefreshCw,
-  Trash2,
-  Volume2,
-} from "lucide-react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { GeneralPanel } from "./panels/GeneralPanel";
-import {
-  Badge,
-  Button,
-  Card,
-  DataLine,
-  InfoTip,
-  SectionTitle,
-} from "../../shared/components/ui";
 import { desktopApi } from "../../shared/lib/tauri";
-import type {
-  AppSettings,
-  BeatmapDownloadProvider,
-  OsuClient,
-  ThemeColor,
-  DanserStatus,
-  FfmpegStatusInfo,
-  LogFileInfo,
-} from "../../shared/types/osu";
-import { authQueryKey, useAuthStatus } from "../auth/api";
-import { localSourcesKey, useLocalSources } from "../local-analysis/api";
-import { useSettings, settingsQueryKey } from "./api";
+import type { AppSettings } from "../../shared/types/osu";
 import { defaultSimilarityPreferences } from "../similar-beatmaps/defaults";
-import { START_ONBOARDING_EVENT } from "../../shared/lib/onboardingEvents";
-import { requestManualUpdateCheck } from "../updates/events";
+import { useSettings, settingsQueryKey } from "./api";
 import { SettingsLayout, type SettingsCategory } from "./SettingsLayout";
-import { OnlineSourceCredit } from "./panels/OnlineSourceCredit";
+import { GeneralPanel } from "./panels/GeneralPanel";
 import { LocalDataPanel } from "./panels/LocalDataPanel";
 import { OverlayPanel } from "./panels/OverlayPanel";
-
-const colors: Array<[ThemeColor, string, string]> = [
-  ["cyan", "青色", "#67e8f9"],
-  ["blue", "蓝色", "#60a5fa"],
-  ["violet", "紫罗兰", "#a78bfa"],
-  ["pink", "粉色", "#f472b6"],
-  ["orange", "橙色", "#fb923c"],
-  ["green", "绿色", "#4ade80"],
-];
-
-const clients: Array<[OsuClient, string]> = [
-  ["stable", "osu! Stable"],
-  ["lazer", "osu!lazer"],
-];
+import { LogsPanel } from "./panels/LogsPanel";
+import { AccountPanel } from "./panels/AccountPanel";
+import { AppearancePanel } from "./panels/AppearancePanel";
+import { OnlinePanel } from "./panels/OnlinePanel";
+import { DirectoriesPanel } from "./panels/DirectoriesPanel";
+import { ReplayPanel } from "./panels/ReplayPanel";
+import { ToolsCachePanel } from "./panels/ToolsCachePanel";
+import { AboutPanel } from "./panels/AboutPanel";
 
 const categoryMeta: Record<SettingsCategory, { title: string; description: string }> = {
   general: { title: "常规", description: "设置游戏模式和客户端，修改后立即生效并自动保存。" },
@@ -125,52 +85,10 @@ const base: AppSettings = {
   overlay_irc_username: null,
 };
 
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-      <div className="flex items-center gap-2">
-        <p className="font-semibold text-slate-100">{label}</p>
-        <InfoTip text={description} />
-      </div>
-      <Switch.Root
-        aria-label={label}
-        checked={checked}
-        className="relative h-6 w-11 shrink-0 rounded-full bg-slate-500 data-[state=checked]:bg-[var(--theme-primary)]"
-        onCheckedChange={onChange}
-      >
-        <Switch.Thumb className="block size-5 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-5" />
-      </Switch.Root>
-    </div>
-  );
-}
-
 export function SettingsPage() {
   const stored = useSettings();
-  const auth = useAuthStatus();
-  const sources = useLocalSources();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [accountBusy, setAccountBusy] = useState<"logout" | "reauth" | null>(null);
-  const [accountError, setAccountError] = useState<string | null>(null);
-  const [sourceBusy, setSourceBusy] = useState<OsuClient | null>(null);
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [danserStatus, setDanserStatus] = useState<DanserStatus | null>(null);
-  const [danserBusy, setDanserBusy] = useState(false);
-  const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatusInfo | null>(null);
-  const [ffmpegBusy, setFfmpegBusy] = useState(false);
-  const [logDirectory, setLogDirectory] = useState<string | null>(null);
-  const [logFiles, setLogFiles] = useState<LogFileInfo[]>([]);
-  const [logError, setLogError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("general");
   const settings: AppSettings = {
     ...base,
@@ -188,152 +106,6 @@ export function SettingsPage() {
     }
   };
 
-  const refreshDanser = async () => {
-    try { setDanserStatus(await desktopApi.getDanserStatus()); } catch { setDanserStatus(null); }
-  };
-  const refreshLogs = async () => { try { const [directory, files] = await Promise.all([desktopApi.getLogDirectory(), desktopApi.listLogFiles()]); setLogDirectory(directory); setLogFiles(files); setLogError(null); } catch (error) { setLogError(error instanceof Error ? error.message : "无法读取日志"); } };
-  useEffect(() => { queueMicrotask(() => { void refreshLogs(); }); }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    const useIdle = typeof idleWindow.requestIdleCallback === "function";
-    const schedule = useIdle
-      ? idleWindow.requestIdleCallback!(() => { if (!cancelled) void refreshDanser(); }, { timeout: 1200 })
-      : window.setTimeout(() => { if (!cancelled) void refreshDanser(); }, 350);
-    return () => {
-      cancelled = true;
-      if (useIdle) idleWindow.cancelIdleCallback?.(schedule);
-      else window.clearTimeout(schedule);
-    };
-  }, [settings.danser_executable_path]);
-
-  const chooseDanser = async () => {
-    setDanserBusy(true);
-    try {
-      const selected = await desktopApi.chooseDanserExecutable(settings.danser_executable_path);
-      if (selected) await save({ ...settings, danser_executable_path: selected });
-      await refreshDanser();
-    } finally { setDanserBusy(false); }
-  };
-
-  const refreshFfmpeg = async () => {
-    try { setFfmpegStatus(await desktopApi.liveRenderGetFfmpegStatus()); } catch { setFfmpegStatus(null); }
-  };
-
-  const chooseFfmpeg = async () => {
-    setFfmpegBusy(true);
-    try {
-      const selected = await desktopApi.chooseFfmpegExecutable(settings.ffmpeg_executable_path);
-      if (selected) await save({ ...settings, ffmpeg_executable_path: selected });
-      await refreshFfmpeg();
-    } finally { setFfmpegBusy(false); }
-  };
-
-  const chooseReplayExportDirectory = async () => {
-    const selected = await desktopApi.chooseLocalDirectory(settings.replay_export_directory);
-    if (selected) await save({ ...settings, replay_export_directory: selected });
-  };
-
-  const chooseSource = async (client: OsuClient) => {
-    setSourceBusy(client);
-    try {
-      const source = sources.data?.find((item) => item.client === client);
-      const selected = await desktopApi.chooseLocalDirectory(
-        source?.configured_path ?? source?.install_root ?? source?.data_root,
-      );
-      if (!selected) return;
-      await desktopApi.setLocalSource(client, selected);
-      await queryClient.invalidateQueries({ queryKey: localSourcesKey });
-    } finally {
-      setSourceBusy(null);
-    }
-  };
-
-  const resetSource = async (client: OsuClient) => {
-    setSourceBusy(client);
-    try {
-      await desktopApi.resetLocalSource(client);
-      await queryClient.invalidateQueries({ queryKey: localSourcesKey });
-    } finally {
-      setSourceBusy(null);
-    }
-  };
-
-  const chooseDownloadDirectory = async () => {
-    const selected = await desktopApi.chooseBeatmapDownloadDirectory(
-      settings.beatmap_download_directory,
-    );
-    if (selected) await save({ ...settings, beatmap_download_directory: selected });
-  };
-
-  const refreshAccount = async () => {
-    await queryClient.invalidateQueries({ queryKey: authQueryKey });
-    await queryClient.invalidateQueries({ queryKey: ["own-profile"] });
-    await queryClient.invalidateQueries({ queryKey: ["scores"] });
-  };
-
-  const logout = async () => {
-    setAccountBusy("logout");
-    setAccountError(null);
-    try {
-      await desktopApi.disconnectOsu(true);
-      await refreshAccount();
-    } catch (error) {
-      setAccountError((error as { message?: string }).message ?? String(error));
-    } finally {
-      setAccountBusy(null);
-    }
-  };
-
-  const reauthenticate = async () => {
-    setAccountBusy("reauth");
-    setAccountError(null);
-    try {
-      await desktopApi.disconnectOsu(false);
-      await refreshAccount();
-      const pending = await desktopApi.beginOAuthLogin();
-      await desktopApi.openExternal(pending.authorization_url);
-    } catch (error) {
-      setAccountError((error as { message?: string }).message ?? String(error));
-    } finally {
-      setAccountBusy(null);
-    }
-  };
-
-  const checkForUpdates = () => {
-    setUpdateBusy(true);
-    requestManualUpdateCheck(() => setUpdateBusy(false));
-  };
-
-  const palette = () => (
-    <div>
-      <p className="mb-3 text-base font-bold text-slate-100">主题色</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {colors.map(([value, label, color]) => {
-          const selected = settings.theme_primary === value;
-          return (
-            <button
-              aria-pressed={selected}
-              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${selected ? "border-[var(--theme-primary)] bg-[var(--theme-primary-muted)] text-[var(--theme-primary-light)] shadow-[0_0_0_2px_var(--theme-primary-soft)]" : "border-white/10 text-slate-200 hover:bg-white/[0.06]"}`}
-              key={value}
-              onClick={() => void save({ ...settings, theme_primary: value, theme_secondary: value })}
-              type="button"
-            >
-              <span className="size-4 rounded-full" style={{ background: color }} />
-              {label}
-              {selected ? <Check className="ml-auto size-4" /> : null}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const lightTheme = settings.theme_mode === "light";
   const panelClass = (...categories: SettingsCategory[]) => categories.includes(activeCategory) ? "p-6" : "hidden";
   const activeMeta = categoryMeta[activeCategory];
 
@@ -344,250 +116,17 @@ export function SettingsPage() {
           <h2 className="text-2xl font-bold text-white">{activeMeta.title}</h2>
           <p className="mt-1 text-sm text-slate-400">{activeMeta.description}</p>
         </div>
-          {activeCategory === "general" ? <GeneralPanel onConfigure={() => setActiveCategory("directories")} /> : null}
-          <Card className={panelClass("logs")}>
-            <SectionTitle title="日志与诊断" description="OPP 会保留最近 5 次运行日志，内容已自动隐藏凭据和敏感参数。" />
-            {logDirectory ? <p className="mt-4 break-all font-mono text-xs text-slate-400">{logDirectory}</p> : null}
-            {logError ? <p className="mt-3 text-sm text-rose-200">{logError}</p> : null}
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button onClick={() => void desktopApi.openLogDirectory()} size="sm" variant="secondary"><FolderOpen className="size-4" />打开日志文件夹</Button>
-              {logFiles[0] ? <Button onClick={() => void desktopApi.openLogFile(logFiles[0].name)} size="sm" variant="secondary"><ExternalLink className="size-4" />打开当前日志</Button> : null}
-              <Button onClick={() => void refreshLogs()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新</Button>
-            </div>
-            <div className="mt-4 space-y-2">{logFiles.map((file) => <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] px-3 py-2 text-xs" key={file.name}><button className="truncate text-left text-slate-300 hover:text-white" onClick={() => void desktopApi.openLogFile(file.name)} type="button">{file.name}</button><span className="shrink-0 text-slate-500">{(file.size_bytes / 1024).toFixed(1)} KB</span></div>)}</div>
-          </Card>
-
-          <Card className={panelClass("account")}>
-            <div className="flex justify-between">
-              <SectionTitle title="账户" />
-              <Badge tone={auth.data?.connected ? "success" : "warning"}>
-                {auth.data?.connected ? "已连接" : "未连接"}
-              </Badge>
-            </div>
-            <div className="mt-4">
-              <DataLine label="账户" value={auth.data?.username ?? "—"} />
-              <DataLine label="用户 ID" value={auth.data?.user_id ?? "—"} />
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--line-subtle)] pt-4">
-              <Button disabled={accountBusy !== null} loading={accountBusy === "reauth"} onClick={() => void reauthenticate()} size="sm" variant="secondary">
-                <RotateCcw className="size-4" />重新认证
-              </Button>
-              <Button disabled={!auth.data?.connected || accountBusy !== null} loading={accountBusy === "logout"} onClick={() => void logout()} size="sm" variant="ghost">
-                <LogOut className="size-4" />退出账号
-              </Button>
-            </div>
-            {accountError ? <p className="mt-3 text-xs text-rose-200">{accountError}</p> : null}
-          </Card>
-
-          <Card className={panelClass("appearance")}>
-            <SectionTitle title="主题" />
-            <div className="mt-5 flex items-center justify-between rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-              <div className="flex items-center gap-2">
-                <p className="font-semibold text-slate-100">浅色主题</p>
-                <InfoTip text="开启后使用浅色界面；关闭时使用默认深色界面。" />
-              </div>
-              <Switch.Root
-                checked={lightTheme}
-                className="relative h-6 w-11 shrink-0 rounded-full bg-slate-500 data-[state=checked]:bg-[var(--theme-primary)]"
-                onCheckedChange={(value) => void save({ ...settings, theme_mode: value ? "light" : "dark" })}
-              >
-                <Switch.Thumb className="block size-5 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-5" />
-              </Switch.Root>
-            </div>
-            <div className="mt-6">{palette()}</div>
-          </Card>
-
-          <Card className={panelClass("online")}>
-            <SectionTitle title="试听" description="适用于在线谱面和相似谱面结果的音频试听。" />
-            <label className="mt-5 flex items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-              <Volume2 className="size-5 text-[var(--theme-primary)]" />
-              <span className="flex-1 font-semibold text-slate-100">试听音量</span>
-              <span className="w-10 text-right font-mono text-sm text-slate-300">{settings.preview_volume}%</span>
-              <input
-                aria-label="试听音量"
-                className="w-36 accent-[var(--theme-primary)]"
-                max="100"
-                min="0"
-                onChange={(event) => void save({ ...settings, preview_volume: Number(event.target.value) })}
-                type="range"
-                value={settings.preview_volume}
-              />
-            </label>
-          </Card>
-
-          <Card className={panelClass("directories")}>
-            <SectionTitle title="游戏目录" description="为 Stable 和 lazer 分别选择 osu! 安装或数据目录，保存后会重新建立本地资源索引。" />
-            <div className="mt-5 space-y-3">
-              {clients.map(([client, label]) => {
-                const source = sources.data?.find((item) => item.client === client);
-                const path = source?.configured_path ?? source?.data_root ?? source?.install_root;
-                return (
-                  <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4" key={client}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-100">{label}</p>
-                        <p className="mt-1 truncate text-xs text-slate-400" title={path ?? undefined}>
-                          {path ?? "未选择目录，将自动检测"}
-                        </p>
-                      </div>
-                      <Badge tone={source?.valid ? "success" : "warning"}>
-                        {source?.valid ? "可用" : "未配置"}
-                      </Badge>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button loading={sourceBusy === client} onClick={() => void chooseSource(client)} size="sm" variant="secondary">
-                        <FolderOpen className="size-4" />选择目录
-                      </Button>
-                      <Button disabled={sourceBusy !== null} onClick={() => void resetSource(client)} size="sm" variant="ghost">
-                        <RotateCcw className="size-4" />自动检测
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-
-          {activeCategory === "local-data" ? <LocalDataPanel settings={settings} save={save} busy={busy} onConfigure={() => setActiveCategory("directories")} /> : null}
-          {activeCategory === "overlay" ? <OverlayPanel settings={settings} save={save} busy={busy} /> : null}
-
-          <Card className={panelClass("replay")}>
-            <div className="flex items-start justify-between gap-4">
-              <SectionTitle title="回放渲染" description="配置本地 Danser、统一视频导出位置和游戏结束后的新回放处理方式。" />
-              <Badge tone={danserStatus?.available && danserStatus.ffmpeg_available ? "success" : "warning"}>
-                {danserStatus?.available && danserStatus.ffmpeg_available ? "已就绪" : "需配置"}
-              </Badge>
-            </div>
-            <div className="mt-5 space-y-3">
-              <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-                <div className="flex items-start gap-3"><Film className="mt-0.5 size-5 text-[var(--theme-primary)]" /><div className="min-w-0 flex-1"><p className="font-semibold text-slate-100">Danser CLI</p><p className="mt-1 break-all text-xs text-slate-400">{danserStatus?.executable_path ?? (navigator.userAgent.includes("Windows") ? "未检测到 danser-cli.exe" : "未在 PATH 中找到 danser")}</p><p className="mt-1 text-xs text-slate-500">{danserStatus?.message ?? "可自动检测 PATH，或手动选择便携版程序。"}</p></div></div>
-                <div className="mt-3 flex flex-wrap gap-2"><Button loading={danserBusy} onClick={() => void chooseDanser()} size="sm" variant="secondary"><FolderOpen className="size-4" />选择程序</Button><Button disabled={danserBusy} onClick={() => void save({ ...settings, danser_executable_path: null }).then(refreshDanser)} size="sm" variant="ghost"><RotateCcw className="size-4" />自动检测</Button><Button disabled={danserBusy} onClick={() => void refreshDanser()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新状态</Button></div>
-              </div>
-              <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3"><Film className="mt-0.5 size-5 text-[var(--theme-primary)]" /><div className="min-w-0 flex-1"><p className="font-semibold text-slate-100">FFmpeg</p><p className="mt-1 break-all text-xs text-slate-400">{ffmpegStatus?.path ?? (navigator.userAgent.includes("Windows") ? "未检测到 ffmpeg.exe" : "未在 PATH 中找到 ffmpeg")}</p><p className="mt-1 text-xs text-slate-500">{ffmpegStatus?.version ?? "实时预览导出与本地渲染使用;可自动检测 PATH 或 danser 发行包,也可手动指定。"}</p></div></div>
-                  {ffmpegStatus?.path ? <Badge tone={ffmpegStatus.source === "manual" ? "cyan" : "success"}>{ffmpegStatus.source === "manual" ? "手动指定" : ffmpegStatus.source === "path" ? "PATH 检测" : "danser 自带"}</Badge> : null}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2"><Button loading={ffmpegBusy} onClick={() => void chooseFfmpeg()} size="sm" variant="secondary"><FolderOpen className="size-4" />选择程序</Button><Button disabled={ffmpegBusy} onClick={() => void save({ ...settings, ffmpeg_executable_path: null }).then(refreshFfmpeg)} size="sm" variant="ghost"><RotateCcw className="size-4" />自动检测</Button><Button disabled={ffmpegBusy} onClick={() => void refreshFfmpeg()} size="sm" variant="ghost"><RefreshCw className="size-4" />刷新状态</Button></div>
-              </div>
-              <div className="rounded-xl border border-white/[0.1] bg-white/[0.035] p-4"><p className="text-sm font-semibold text-slate-100">统一回放导出目录</p><p className="mt-1 break-all text-xs text-slate-400">{settings.replay_export_directory ?? "尚未选择；首次本地渲染前必须设置"}</p><div className="mt-3"><Button onClick={() => void chooseReplayExportDirectory()} size="sm" variant="secondary"><FolderOpen className="size-4" />{settings.replay_export_directory ? "修改位置" : "选择位置"}</Button></div></div>
-              <Toggle checked={Boolean(settings.auto_export_new_replays_with_danser)} description="游戏退出后的总结面板仍会让你确认；开启后，可渲染的新回放会默认全部选中。" label="总结中默认选中新回放" onChange={(value) => void save({ ...settings, auto_export_new_replays_with_danser: value })} />
-              <p className="text-xs leading-5 text-amber-200/80">Danser 仅支持 osu!standard；本地导出还需要 Danser 能访问 FFmpeg。</p>
-            </div>
-          </Card>
-
-          <Card className={panelClass("tools")}>
-            <SectionTitle title="工具与缓存" />
-            <div className="mt-5 space-y-3">
-              <div className="flex flex-wrap gap-3">
-              <Button disabled={busy} onClick={() => void desktopApi.clearProfileCache()}>
-                <Trash2 className="size-4" />清除缓存
-              </Button>
-              </div>
-              <label className="block rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-                <span className="block text-sm font-semibold text-slate-100">本地缩略图缓存上限</span>
-                <span className="mt-1 block text-xs leading-5 text-slate-500">超过上限时会自动清理最早的谱面背景缩略图；索引和你的谱面文件不会被删除。</span>
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    aria-label="本地缩略图缓存上限（MB）"
-                    className="opp-input w-32"
-                    disabled={busy}
-                    max={10240}
-                    min={64}
-                    onChange={(event) => void save({ ...settings, cache_limit_mb: Math.max(64, Math.min(10240, Number(event.target.value) || 64)) })}
-                    step={64}
-                    type="number"
-                    value={settings.cache_limit_mb}
-                  />
-                  <span className="text-sm text-slate-400">MB</span>
-                </div>
-              </label>
-            </div>
-          </Card>
-
-          <Card className={panelClass("online")}>
-            <SectionTitle
-              title="谱面下载"
-              description="设置在线谱面和相似谱面快捷下载使用的默认镜像与保存位置。"
-            />
-            <label className="mt-5 block">
-              <span className="mb-2 block text-sm font-medium text-slate-300">默认下载源</span>
-              <select
-                className="w-full rounded-xl border border-white/[0.1] bg-[#0b101b] px-3 py-3 text-sm text-slate-200 outline-none focus:border-cyan-300/45"
-                disabled={busy}
-                onChange={(event) => void save({
-                  ...settings,
-                  default_beatmap_download_provider: event.target.value as BeatmapDownloadProvider,
-                })}
-                value={settings.default_beatmap_download_provider}
-              >
-                <option value="sayobot">小夜（Sayobot，推荐）</option>
-                <option value="hinai">Hinai Mirror（仅手动选择）</option>
-                <option value="catboy">Catboy</option>
-                <option value="nerinyan">Nerinyan</option>
-              </select>
-              <span className="mt-2 block text-xs leading-5 text-slate-500">
-                下载失败时仍会自动尝试其他可用镜像；下载队列中可以临时切换，不会改动此默认值。
-              </span>
-            </label>
-            <OnlineSourceCredit />
-            <div className="mt-4 rounded-xl border border-white/[0.1] bg-white/[0.035] p-4">
-              <p className="text-xs text-slate-500">当前默认位置</p>
-              <p className="mt-1 break-all text-sm text-slate-200">
-                {settings.beatmap_download_directory ?? "Windows 下载目录"}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button onClick={() => void chooseDownloadDirectory()} size="sm" variant="secondary">
-                  <FolderOpen className="size-4" />
-                  {settings.beatmap_download_directory ? "修改位置" : "选择位置"}
-                </Button>
-                {settings.beatmap_download_directory ? (
-                  <Button onClick={() => void save({ ...settings, beatmap_download_directory: null })} size="sm" variant="ghost">
-                    清除默认位置
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-            <div className="mt-3">
-              <Toggle
-                checked={settings.include_video_in_beatmap_downloads}
-                description="开启后下载完整谱面包（可能包含背景视频，文件更大）；关闭后会向镜像请求不含视频的版本。该偏好适用于在线谱面、相似谱面、收藏夹和 BeatmapHub 补全下载。"
-                label="下载谱面时包含视频"
-                onChange={(value) => void save({ ...settings, include_video_in_beatmap_downloads: value })}
-              />
-            </div>
-            <div className="mt-3">
-              <Toggle
-                checked={settings.open_downloaded_beatmaps_after_download}
-                description="下载成功后用系统默认程序打开每个新下载的 .osz 文件，osu! 会自动导入这些谱面。此选项同时适用于在线批量下载和相似谱面的快捷下载。"
-                label="下载完成后自动打开谱面"
-                onChange={(value) => void save({ ...settings, open_downloaded_beatmaps_after_download: value })}
-              />
-            </div>
-          </Card>
-
-          <Card className={panelClass("about")}>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <SectionTitle title="关于" />
-                <p className="mt-3 flex items-center gap-2 text-sm text-slate-300">
-                  <Gamepad2 className="size-4 text-[var(--theme-primary)]" />
-                  OPP v{__APP_VERSION__}
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button disabled={updateBusy} loading={updateBusy} onClick={() => void checkForUpdates()} size="sm" variant="secondary">
-                  <RefreshCw className="size-4" />检查更新
-                </Button>
-                <Button onClick={() => window.dispatchEvent(new Event(START_ONBOARDING_EVENT))} size="sm" variant="secondary">
-                  <RotateCcw className="size-4" />重新查看新手引导
-                </Button>
-                <Button onClick={() => void desktopApi.openExternal("https://github.com/osuplusplus/OPP")} size="sm" variant="secondary">
-                  <ExternalLink className="size-4" />项目仓库
-                </Button>
-              </div>
-            </div>
-          </Card>
+        {activeCategory === "general" ? <GeneralPanel onConfigure={() => setActiveCategory("directories")} /> : null}
+        <LogsPanel className={panelClass("logs")} />
+        <AccountPanel className={panelClass("account")} />
+        <AppearancePanel className={panelClass("appearance")} settings={settings} save={save} />
+        <OnlinePanel className={panelClass("online")} settings={settings} save={save} busy={busy} />
+        <DirectoriesPanel className={panelClass("directories")} />
+        {activeCategory === "local-data" ? <LocalDataPanel settings={settings} save={save} busy={busy} onConfigure={() => setActiveCategory("directories")} /> : null}
+        {activeCategory === "overlay" ? <OverlayPanel settings={settings} save={save} busy={busy} /> : null}
+        <ReplayPanel className={panelClass("replay")} settings={settings} save={save} />
+        <ToolsCachePanel className={panelClass("tools")} settings={settings} save={save} busy={busy} />
+        <AboutPanel className={panelClass("about")} />
       </div>
     </SettingsLayout>
   );

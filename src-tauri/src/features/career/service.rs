@@ -1,3 +1,6 @@
+//! 生涯记录服务层：负责 `career.sqlite3` 的打开与迁移、每日快照写入、
+//! 日历与单日明细查询，以及相对前一快照的差异统计。
+
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -19,14 +22,18 @@ use crate::{
 
 use super::models::*;
 
+/// SQLite `application_id` 标识（ASCII "OPPC"），用于识别 OPP 生涯库文件。
 const APPLICATION_ID: i64 = 0x4f505043;
+/// 快照归属时区；本地日期统一按东八区（Asia/Shanghai）切分。
 const TIME_ZONE: &str = "Asia/Shanghai";
 
+/// 已打开的生涯库连接；记录路径以便切换数据库目录后重开。
 struct CareerDatabase {
     connection: Connection,
     path: PathBuf,
 }
 
+/// `day` 查询的原始行：(状态, 错误, 快照时间, 统计 JSON, 快照 ID)。
 type CareerDayRow = (
     String,
     Option<String>,
@@ -35,8 +42,12 @@ type CareerDayRow = (
     Option<i64>,
 );
 
+/// 生涯记录服务：持有惰性打开的 `career.sqlite3` 连接，提供状态查询、
+/// 快照抓取、日历/单日查询与历史清理。
 pub(crate) struct CareerService {
+    /// 本地数据库服务，用于确定生涯库所在目录。
     local_database: std::sync::Arc<LocalDatabaseService>,
+    /// 惰性连接，首次访问或目录切换时打开；互斥锁串行化多命令访问。
     runtime: Mutex<Option<CareerDatabase>>,
 }
 
@@ -48,6 +59,11 @@ impl CareerService {
         }
     }
 
+    /// 获取数据库连接的排他守卫；本地库未配置时返回 `None`。
+    ///
+    /// 首次访问或 `career.sqlite3` 路径变化时打开连接：先校验
+    /// `application_id` 防止误用其他 SQLite 文件，再开启 WAL、外键
+    /// 约束并执行建表迁移。
     fn database(&self) -> CommandResult<Option<std::sync::MutexGuard<'_, Option<CareerDatabase>>>> {
         let mut runtime = self
             .runtime
@@ -57,6 +73,7 @@ impl CareerService {
             return Ok(None);
         };
         let path = directory.join("career.sqlite3");
+        // 首次访问或 career.sqlite3 路径变化（切换数据库目录）时才重新打开。
         let needs_open = runtime.as_ref().map(|db| db.path != path).unwrap_or(true);
         if needs_open {
             let connection = Connection::open(&path).map_err(sql_error)?;
@@ -66,6 +83,7 @@ impl CareerService {
             let application_id: i64 = connection
                 .query_row("PRAGMA application_id", [], |row| row.get(0))
                 .map_err(sql_error)?;
+            // 非零且不匹配的 application_id 说明是其他程序的库，直接拒绝。
             if application_id != 0 && application_id != APPLICATION_ID {
                 return Err(CommandError::new(
                     "CAREER_DATABASE_IDENTITY",
@@ -93,6 +111,7 @@ impl CareerService {
         })?))
     }
 
+    /// 返回功能状态：快照总数与最近快照日期（跨所有账号与规则）。
     pub(crate) fn status(&self) -> CommandResult<CareerStatus> {
         let Some(mut guard) = self.database()? else {
             return Ok(CareerStatus {
@@ -123,6 +142,7 @@ impl CareerService {
         })
     }
 
+    /// 判断指定“账号+规则”今天（东八区）是否已有 `captured` 状态的快照。
     pub(crate) fn has_captured_today(&self, user_id: u64, ruleset: Ruleset) -> CommandResult<bool> {
         let Some(mut guard) = self.database()? else {
             return Ok(false);
@@ -141,6 +161,12 @@ impl CareerService {
         Ok(status.as_deref() == Some("captured"))
     }
 
+    /// 写入或覆写当天（东八区）的生涯快照。
+    ///
+    /// `scores` 为 `None` 表示本次未获取成绩（不覆写已有成绩数据）；
+    /// `sections` 为各分区抓取结果的 JSON 标记，这里只读取其中的 `media`。
+    /// 当天已有快照且 `force` 为 `false` 时直接短路返回；成绩与媒体
+    /// 分区都成功才标记 `captured`，否则为 `partial`。
     pub(crate) fn capture(
         &self,
         profile: &OwnProfile,
@@ -167,6 +193,7 @@ impl CareerService {
                 |r| r.get(0),
             )
             .map_err(sql_error)?;
+        // 外层 Option 表示当天是否有日历行，内层表示是否已挂快照。
         let existing: Option<Option<i64>> = tx
             .query_row(
                 "SELECT snapshot_id FROM career_days WHERE account_id=?1 AND local_date=?2",
@@ -195,6 +222,7 @@ impl CareerService {
             .map_err(|e| CommandError::new("CAREER_SERIALIZE_FAILED", e.to_string()))?;
         let stats_json = serde_json::to_string(&stats)
             .map_err(|e| CommandError::new("CAREER_SERIALIZE_FAILED", e.to_string()))?;
+        // 成绩与媒体两个分区都拿到才算完整抓取。
         let capture_status = if scores.is_some()
             && sections
                 .get("media")
@@ -270,6 +298,8 @@ impl CareerService {
         })
     }
 
+    /// 记录当天抓取失败：当天无快照时状态置 `unavailable`，
+    /// 已有快照则降级为 `partial`，错误信息写入日历行。
     pub(crate) fn record_failure(
         &self,
         user_id: Option<u64>,
@@ -299,6 +329,9 @@ impl CareerService {
         tx.commit().map_err(sql_error)
     }
 
+    /// 查询日历：逐日返回状态、统计与相对前一快照的差异计数。
+    ///
+    /// 只包含区间内有记录的日期；数据库未配置或账号不存在时返回空列表。
     pub(crate) fn calendar(
         &self,
         user_id: u64,
@@ -337,6 +370,7 @@ impl CareerService {
             .query(params![account_id, start, end])
             .map_err(sql_error)?;
         let mut days = Vec::new();
+        // 先缓冲全部行再逐日计算差异，避免持有结果集的同时复用连接。
         let mut raw = Vec::new();
         while let Some(row) = rows.next().map_err(sql_error)? {
             let stats_json: Option<String> = row.get(4).map_err(sql_error)?;
@@ -382,12 +416,17 @@ impl CareerService {
         })
     }
 
+    /// 计算快照相对前一快照的差异计数。
+    ///
+    /// 返回顺序为 (新增成绩, 移除成绩, 变动成绩, 新奖牌, 新回放, 新截图)，
+    /// 其中“变动成绩”当前恒为 0；无前序快照时全部为 0。
     fn diff_counts(
         &self,
         connection: &mut Connection,
         account_id: i64,
         snapshot_id: i64,
     ) -> CommandResult<(u32, u32, u32, u32, u32, u32)> {
+        // 以快照 ID 更小的最近一条作为对比基准（ID 随写入递增）。
         let previous: Option<i64> = connection.query_row("SELECT id FROM career_snapshots WHERE account_id=?1 AND id<?2 ORDER BY id DESC LIMIT 1", params![account_id, snapshot_id], |r| r.get(0)).optional().map_err(sql_error)?;
         let Some(previous) = previous else {
             return Ok((0, 0, 0, 0, 0, 0));
@@ -407,6 +446,7 @@ impl CareerService {
         let medals = current_medals.difference(&previous_medals).count() as u32;
         let current_media = value_keys(connection, "career_media", snapshot_id)?;
         let previous_media = value_keys(connection, "career_media", previous)?;
+        // 按指纹中的类别前缀区分新回放与新截图。
         let replays = current_media
             .iter()
             .filter(|k| k.starts_with("replay:") && !previous_media.contains(*k))
@@ -418,6 +458,9 @@ impl CareerService {
         Ok((added, removed, 0, medals, replays, screenshots))
     }
 
+    /// 查询单日明细：当天与前一快照的统计对比、成绩差异及奖牌/媒体事件。
+    ///
+    /// 无日历行或未配置数据库时返回 `missing` 占位。
     pub(crate) fn day(
         &self,
         user_id: u64,
@@ -495,6 +538,7 @@ impl CareerService {
         })
     }
 
+    /// 清理历史：给定日期时仅删除该日期之前的快照与日历行，否则全清。
     pub(crate) fn clear(&self, before: Option<&str>) -> CommandResult<()> {
         let Some(mut guard) = self.database()? else {
             return Ok(());
@@ -516,10 +560,14 @@ impl CareerService {
     }
 }
 
+/// 本地扫描到的一条媒体文件（回放或截图）。
 #[derive(Debug, Clone)]
 pub(crate) struct MediaRecord {
+    /// 内容指纹：“客户端:类别:相对路径:大小:修改时间”。
     pub key: String,
+    /// 文件类别：`replay` 或 `screenshot`。
     pub kind: String,
+    /// 来源客户端：`stable` 或 `lazer`。
     pub client: String,
     pub name: String,
     pub path: String,
@@ -527,6 +575,10 @@ pub(crate) struct MediaRecord {
     pub modified_at: Option<String>,
 }
 
+/// 扫描 Stable 与 Lazer 客户端的回放/截图目录。
+///
+/// 返回 (媒体记录, 是否完全成功)；任一目录枚举失败只把第二个值置为
+/// `false`（对应快照的媒体分区不完整），不中断整体扫描。
 pub(crate) fn scan_media(state: &crate::state::AppState) -> (Vec<MediaRecord>, bool) {
     let mut result = Vec::new();
     let mut ok = true;
@@ -551,6 +603,7 @@ pub(crate) fn scan_media(state: &crate::state::AppState) -> (Vec<MediaRecord>, b
                     .and_then(|v| v.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
+                // 只收录回放（.osr）与截图（png/jpg/jpeg/webp）。
                 let kind = match ext.as_str() {
                     "osr" => "replay",
                     "png" | "jpg" | "jpeg" | "webp" => "screenshot",
@@ -567,6 +620,7 @@ pub(crate) fn scan_media(state: &crate::state::AppState) -> (Vec<MediaRecord>, b
                     .modified()
                     .ok()
                     .map(|v| DateTime::<Utc>::from(v).to_rfc3339());
+                // 指纹含相对路径、大小与修改时间：位置或内容变化即视为新文件。
                 let key = format!(
                     "{client}:{kind}:{}:{}:{}",
                     path.strip_prefix(&root)
@@ -601,6 +655,7 @@ pub(crate) fn scan_media(state: &crate::state::AppState) -> (Vec<MediaRecord>, b
     (result, ok)
 }
 
+/// 从 osu! API 的 `statistics` JSON 抽取数值统计；缺失字段保持 `None`。
 fn extract_stats(value: &Value) -> CareerStats {
     let n = |k: &str| value.get(k).and_then(Value::as_f64);
     let level = value.get("level");
@@ -621,6 +676,7 @@ fn extract_stats(value: &Value) -> CareerStats {
             .and_then(Value::as_f64),
     }
 }
+/// 批量写入 Top 成绩；`position` 记录榜内名次（从 1 开始）。
 fn insert_scores(tx: &rusqlite::Transaction<'_>, id: i64, scores: &[Score]) -> CommandResult<()> {
     for (index, score) in scores.iter().enumerate() {
         let value = serde_json::to_string(score)
@@ -629,6 +685,7 @@ fn insert_scores(tx: &rusqlite::Transaction<'_>, id: i64, scores: &[Score]) -> C
     }
     Ok(())
 }
+/// 批量写入奖牌；键优先取 `achievement_id`（兼容 `id` 字段，缺省记 0）。
 fn insert_medals(tx: &rusqlite::Transaction<'_>, id: i64, medals: &[Value]) -> CommandResult<()> {
     for medal in medals {
         let key = medal
@@ -641,6 +698,7 @@ fn insert_medals(tx: &rusqlite::Transaction<'_>, id: i64, medals: &[Value]) -> C
     }
     Ok(())
 }
+/// 批量写入媒体指纹记录。
 fn insert_media(
     tx: &rusqlite::Transaction<'_>,
     id: i64,
@@ -651,6 +709,8 @@ fn insert_media(
     }
     Ok(())
 }
+/// 生成成绩去重键：优先服务器成绩 ID（`id:<id>`），
+/// 否则用“谱面 ID + Mod + 结束（或创建）时间”兜底。
 fn score_key(score: &Score) -> String {
     if let Some(id) = score.id {
         return format!("id:{id}");
@@ -672,6 +732,7 @@ fn score_key(score: &Score) -> String {
             .unwrap_or_default()
     )
 }
+/// 读取快照全部成绩，映射为 `去重键 -> (榜内名次, 原始 JSON)`。
 fn score_map(c: &Connection, id: i64) -> CommandResult<HashMap<String, (u32, Value)>> {
     let mut s = c
         .prepare("SELECT score_key,position,score_json FROM career_scores WHERE snapshot_id=?1")
@@ -693,6 +754,8 @@ fn score_map(c: &Connection, id: i64) -> CommandResult<HashMap<String, (u32, Val
     Ok(out)
 }
 
+/// 对比两份成绩映射，生成进入/离开 Top 榜的差异；
+/// 名次或成绩内容的变化不视为差异。
 fn score_diffs_from_maps(
     current: &HashMap<String, (u32, Value)>,
     previous: &HashMap<String, (u32, Value)>,
@@ -720,6 +783,7 @@ fn score_diffs_from_maps(
             });
         }
     }
+    // 按变化后（或变化前）的名次排序，便于前端按榜单顺序展示。
     diffs.sort_by_key(|diff| {
         (
             diff.after_position
@@ -732,6 +796,7 @@ fn score_diffs_from_maps(
     diffs
 }
 
+/// 读取指定快照在奖牌表/媒体表中的键集合，供集合差集运算。
 fn value_keys(c: &Connection, table: &str, id: i64) -> CommandResult<HashSet<String>> {
     let sql = if table == "career_medals" {
         "SELECT achievement_key FROM career_medals WHERE snapshot_id=?1"
@@ -746,6 +811,7 @@ fn value_keys(c: &Connection, table: &str, id: i64) -> CommandResult<HashSet<Str
     }
     Ok(out)
 }
+/// 查询当前快照相对旧快照新增的奖牌；目前仅实现 `career_medals` 表。
 fn event_diff(
     c: &Connection,
     table: &str,
@@ -779,6 +845,7 @@ fn event_diff(
     }
     Ok(out)
 }
+/// 查询当前快照相对旧快照新增的媒体文件（按指纹差集判断）。
 fn media_diff(c: &Connection, old: i64, current: i64) -> CommandResult<Vec<CareerEventItem>> {
     let mut s=c.prepare("SELECT kind,client,name,path,size,modified_at,fingerprint FROM career_media WHERE snapshot_id=?1 AND fingerprint NOT IN (SELECT fingerprint FROM career_media WHERE snapshot_id=?2)").map_err(sql_error)?;
     let mut rows = s.query(params![current, old]).map_err(sql_error)?;
@@ -796,15 +863,18 @@ fn media_diff(c: &Connection, old: i64, current: i64) -> CommandResult<Vec<Caree
     }
     Ok(out)
 }
+/// 把 UTC 时间换算为东八区日期（`YYYY-MM-DD`），作为快照归属日。
 fn local_date(now: DateTime<Utc>) -> String {
     now.with_timezone(&FixedOffset::east_opt(8 * 3600).unwrap())
         .date_naive()
         .to_string()
 }
 
+/// 当前时刻的东八区日期字符串。
 pub(crate) fn current_local_date() -> String {
     local_date(Utc::now())
 }
+/// 构造无记录日的 `missing` 占位明细。
 fn empty_day(ruleset: Ruleset, date: &str) -> CareerDayDetail {
     CareerDayDetail {
         ruleset,
@@ -823,6 +893,8 @@ fn sql_error(error: rusqlite::Error) -> CommandError {
     CommandError::new("CAREER_DATABASE_ERROR", error.to_string())
 }
 
+/// `career.sqlite3` 建表语句：账号、日历、快照、成绩、奖牌、媒体六张表，
+/// 均带外键级联删除；快照按“账号+日期”唯一。
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS career_accounts(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL,ruleset TEXT NOT NULL,username TEXT NOT NULL,timezone TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(user_id,ruleset));
 CREATE TABLE IF NOT EXISTS career_days(account_id INTEGER NOT NULL REFERENCES career_accounts(id) ON DELETE CASCADE,local_date TEXT NOT NULL,status TEXT NOT NULL,attempted_at TEXT NOT NULL,error TEXT,snapshot_id INTEGER REFERENCES career_snapshots(id) ON DELETE SET NULL,PRIMARY KEY(account_id,local_date));
@@ -837,6 +909,7 @@ CREATE INDEX IF NOT EXISTS idx_career_snapshots_account_date ON career_snapshots
 mod tests {
     use super::*;
 
+    // 统计抽取：可选字段缺失时保持 None 而不是报错。
     #[test]
     fn extracts_requested_statistics_without_requiring_optional_fields() {
         let stats = extract_stats(&json!({
@@ -851,6 +924,7 @@ mod tests {
         assert_eq!(stats.total_hits, None);
     }
 
+    // 去重键优先服务器成绩 ID，无 ID 时退回内容键。
     #[test]
     fn score_key_prefers_server_score_id_and_falls_back_to_content() {
         let with_id: Score = serde_json::from_value(json!({
@@ -877,6 +951,7 @@ mod tests {
         assert!(score_key(&without_id).starts_with("map:123:"));
     }
 
+    // 已在榜成绩的名次或内容变化不产生差异。
     #[test]
     fn score_diff_ignores_position_and_payload_changes_for_existing_scores() {
         let previous = HashMap::from([
@@ -891,6 +966,7 @@ mod tests {
         assert!(score_diffs_from_maps(&current, &previous).is_empty());
     }
 
+    // 差异只报告进出 Top 榜的成绩。
     #[test]
     fn score_diff_reports_only_scores_entering_or_leaving_top_200() {
         let previous = HashMap::from([("id:1".into(), (1, json!({"pp": 100})))]);
@@ -911,6 +987,7 @@ mod tests {
         assert!(score_diffs_from_maps(&current, &current).is_empty());
     }
 
+    // 建表语句需能在外键开启时初始化出全部六张表。
     #[test]
     fn career_schema_can_initialize_with_foreign_keys_enabled() {
         let connection = Connection::open_in_memory().unwrap();

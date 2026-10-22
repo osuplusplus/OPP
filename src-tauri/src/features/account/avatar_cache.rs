@@ -1,3 +1,5 @@
+//! 账号头像本地缓存：以 `avatar-{user_id}.bin` 与 `.url` 成对文件落盘于应用数据目录，
+//! 同时服务前端的 Data URL 与渲染器的文件路径两种消费方式。
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -10,9 +12,12 @@ use tokio::sync::Mutex;
 use url::Url;
 
 use crate::error::{CommandError, CommandResult};
+use crate::infrastructure::http::{HttpClientSpec, http_client};
 
+/// 单张头像的字节上限（2 MiB）；下载前按 `Content-Length` 预检，下载后再复核。
 const MAX_AVATAR_BYTES: usize = 2 * 1024 * 1024;
 
+/// 头像缓存器；`write_lock` 将查缓存、下载、落盘整体串行化，避免并发重复下载。
 pub struct AvatarCache {
     directory: PathBuf,
     client: reqwest::Client,
@@ -20,18 +25,15 @@ pub struct AvatarCache {
 }
 
 impl AvatarCache {
+    /// 在应用数据目录下创建 `image-cache` 目录，并构建带独立超时的 HTTP 客户端。
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
         let directory = app_data_dir.join("image-cache");
         fs::create_dir_all(&directory)?;
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .user_agent(concat!(
-                "OPP/",
-                env!("CARGO_PKG_VERSION"),
-                " (avatar cache)"
-            ))
-            .build()
-            .map_err(|error| CommandError::network(error.to_string()))?;
+        let client = http_client(HttpClientSpec {
+            timeout: Some(Duration::from_secs(10)),
+            ua_note: " (avatar cache)",
+            connect_timeout: None,
+        })?;
         Ok(Self {
             directory,
             client,
@@ -39,6 +41,7 @@ impl AvatarCache {
         })
     }
 
+    /// 读取或下载头像并返回 Data URL；网络失败时回退旧缓存而不是让调用失败。
     pub async fn load_or_fetch(
         &self,
         user_id: u64,
@@ -72,6 +75,7 @@ impl AvatarCache {
         self.directory.join(format!("avatar-{user_id}.bin"))
     }
 
+    /// 删除并重建整个 `image-cache` 目录，用于切换凭据、注销与手动清理。
     pub fn clear(&self) -> CommandResult<()> {
         if self.directory.exists() {
             fs::remove_dir_all(&self.directory)?;
@@ -80,6 +84,7 @@ impl AvatarCache {
         Ok(())
     }
 
+    /// 下载头像；仅接受 `ppy.sh` 及其子域的 HTTPS 地址，并校验大小与内容类型。
     async fn fetch(&self, avatar_url: &str) -> CommandResult<Vec<u8>> {
         // 头像 URL 来自 API，仍限制响应大小以防异常服务占用大量内存。
         let url = Url::parse(avatar_url)
@@ -133,6 +138,7 @@ impl AvatarCache {
     }
 }
 
+// 依据文件魔数推断 MIME 类型，无法识别时按 JPEG 兜底。
 fn to_data_url(bytes: &[u8]) -> String {
     let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"

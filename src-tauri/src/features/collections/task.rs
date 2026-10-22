@@ -1,3 +1,7 @@
+//! 收藏夹后台任务（同步、缺谱补齐下载）的取消标志与进度事件。
+//!
+//! 取消采用协作式：任务在各阶段轮询 `AppState` 上的原子标志，
+//! 取消时同时联动置位下载队列的取消标志。
 use std::sync::atomic::Ordering;
 
 use tauri::{AppHandle, Emitter, State};
@@ -8,6 +12,7 @@ use crate::{
     state::AppState,
 };
 
+/// 长任务在各阶段开始前轮询：已被取消则返回 `COLLECTION_TASK_CANCELLED`。
 pub(super) fn ensure_collection_task_active(state: &AppState) -> CommandResult<()> {
     if state.collection_task_cancel.load(Ordering::Relaxed) {
         Err(CommandError::new(
@@ -42,6 +47,7 @@ pub fn cancel_collection_task(state: State<'_, AppState>) -> CommandResult<()> {
     Ok(())
 }
 
+/// 向前端广播 `collection-task-progress` 事件；发射失败静默忽略（进度可丢）。
 pub(super) fn emit_collection_progress(
     app: &AppHandle,
     phase: &str,

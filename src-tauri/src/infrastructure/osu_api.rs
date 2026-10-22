@@ -1,3 +1,5 @@
+//! osu! 官方 API v2 客户端：OAuth 令牌的交换、刷新与吊销，以及资料、成绩、
+//! 谱面等查询端点；带认证的 GET 统一经 `authorized_get` 处理认证头与错误映射。
 use std::time::Duration;
 
 use reqwest::{Response, StatusCode};
@@ -8,30 +10,31 @@ use url::Url;
 use crate::{
     domain::{OwnProfile, Ruleset, Score, TokenResponse},
     error::{CommandError, CommandResult},
-    infrastructure::logging::{LogSpan, global},
+    infrastructure::http::{HttpClientSpec, http_client},
+    infrastructure::logging::{finish_span, global},
 };
 
 const API_BASE_URL: &str = "https://osu.ppy.sh/api/v2";
 const TOKEN_URL: &str = "https://osu.ppy.sh/oauth/token";
 
+/// osu! API v2 客户端；基地址与令牌端点拆成字段，便于测试注入本地服务。
 pub struct OsuApi {
+    /// 统一 UA 与超时配置的 reqwest 客户端。
     client: reqwest::Client,
+    /// API v2 基地址，测试中可替换为本地地址。
     api_base_url: String,
+    /// OAuth 令牌端点。
     token_url: String,
 }
 
 impl OsuApi {
     /// 创建指向官方 API 的客户端，并统一配置请求超时与 TLS 实现。
     pub fn new() -> CommandResult<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .user_agent(concat!(
-                "OPP/",
-                env!("CARGO_PKG_VERSION"),
-                " (all-in-one osu! toolkit)"
-            ))
-            .build()
-            .map_err(|error| CommandError::network(error.to_string()))?;
+        let client = http_client(HttpClientSpec {
+            timeout: Some(Duration::from_secs(120)),
+            ua_note: " (all-in-one osu! toolkit)",
+            connect_timeout: None,
+        })?;
         Ok(Self {
             client,
             api_base_url: API_BASE_URL.into(),
@@ -47,6 +50,7 @@ impl OsuApi {
         Ok(api)
     }
 
+    /// 用授权码换取令牌（`authorization_code` 授权类型）。
     pub async fn exchange_code(
         &self,
         client_id: &str,
@@ -75,6 +79,7 @@ impl OsuApi {
         finish_span(span, result)
     }
 
+    /// 用刷新令牌换取新的访问令牌（`refresh_token` 授权类型）。
     pub async fn refresh_token(
         &self,
         client_id: &str,
@@ -101,6 +106,7 @@ impl OsuApi {
         finish_span(span, result)
     }
 
+    /// 获取当前令牌对应用户在指定游戏模式的资料。
     pub async fn get_own_profile(
         &self,
         access_token: &str,
@@ -110,6 +116,8 @@ impl OsuApi {
         self.authorized_get(&url, access_token).await
     }
 
+    /// 分页获取用户成绩；`Recent` 分类显式附带 `include_fails=0` 排除失败
+    /// 成绩，其余分类沿用服务端默认值。
     pub async fn get_user_scores(
         &self,
         access_token: &str,
@@ -131,6 +139,7 @@ impl OsuApi {
         self.authorized_get(&url, access_token).await
     }
 
+    /// 获取 bp 榜前 100 条成绩。
     pub async fn get_best_scores(
         &self,
         access_token: &str,
@@ -148,6 +157,7 @@ impl OsuApi {
         .await
     }
 
+    /// 获取最近 100 条成绩（不含失败）。
     pub async fn get_recent_scores(
         &self,
         access_token: &str,
@@ -165,6 +175,7 @@ impl OsuApi {
         .await
     }
 
+    /// 按调用方给出的键值对搜索谱面集，参数原样拼进查询串。
     pub async fn search_beatmapsets(
         &self,
         access_token: &str,
@@ -180,6 +191,7 @@ impl OsuApi {
         self.authorized_get(url.as_str(), access_token).await
     }
 
+    /// 获取整个谱面集（含全部难度）的元数据。
     pub async fn get_beatmapset(
         &self,
         access_token: &str,
@@ -189,11 +201,13 @@ impl OsuApi {
         self.authorized_get(&url, access_token).await
     }
 
+    /// 获取单个难度（beatmap）的元数据。
     pub async fn get_beatmap(&self, access_token: &str, beatmap_id: u64) -> CommandResult<Value> {
         let url = format!("{}/beatmaps/{beatmap_id}", self.api_base_url);
         self.authorized_get(&url, access_token).await
     }
 
+    /// 按谱面文件的 MD5 校验和反查难度元数据，供收藏下载流程核对本地文件。
     pub async fn lookup_beatmap_by_checksum(
         &self,
         access_token: &str,
@@ -205,6 +219,8 @@ impl OsuApi {
         self.authorized_get(url.as_str(), access_token).await
     }
 
+    /// 吊销当前访问令牌（`DELETE /oauth/tokens/current`）；断开账户连接且
+    /// 调用方选择吊销时使用，失败由调用方降级为警告。
     pub async fn revoke_current_token(&self, access_token: &str) -> CommandResult<()> {
         let response = self
             .client
@@ -222,6 +238,8 @@ impl OsuApi {
         }
     }
 
+    /// 所有带认证 GET 的公共入口：附加 Bearer 令牌、固定 `x-api-version` 与
+    /// 中文语言偏好，并按端点路径记录操作日志。
     async fn authorized_get<T: DeserializeOwned>(
         &self,
         url: &str,
@@ -251,6 +269,7 @@ impl OsuApi {
         finish_span(span, result)
     }
 
+    /// 校验状态码后反序列化响应体；非 2xx 先经 `map_status` 转成领域错误。
     async fn parse_response<T: DeserializeOwned>(
         response: Response,
         default_code: &str,
@@ -265,6 +284,8 @@ impl OsuApi {
             .map_err(|error| CommandError::new("INVALID_DATA", error.to_string()))
     }
 
+    /// 把 HTTP 状态映射为前端可识别的错误码：401 要求重新登录、403 拒绝、
+    /// 429 限速（透传服务端 `retry-after` 秒数）、5xx 视为服务暂不可用。
     fn map_status(response: &Response, default_code: &str) -> CommandError {
         let status = response.status();
         match status {
@@ -287,20 +308,11 @@ impl OsuApi {
     }
 }
 
-fn finish_span<T>(span: Option<LogSpan>, result: CommandResult<T>) -> CommandResult<T> {
-    if let Some(mut span) = span {
-        match &result {
-            Ok(_) => span.finish_ok(None),
-            Err(error) => span.finish_error(error),
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // 端点响应中的未知字段应保留进 extra，而不是让反序列化失败。
     #[tokio::test]
     async fn parses_profile_and_preserves_optional_fields() {
         let server = axum::Router::new().route(

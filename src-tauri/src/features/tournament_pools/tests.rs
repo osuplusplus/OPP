@@ -1,3 +1,4 @@
+//! 图池功能测试：URI 解析边界、rino/standard 两种格式校验、收件箱行为与收藏夹同步语义。
 use serde_json::{Value, json};
 
 use super::{models::*, rino, service, uri};
@@ -17,6 +18,7 @@ fn selection(id: i32, mods: &str, position: u32) -> Value {
         "selectedBy": "123", "comment": "<script>comment</script>", "isCustome": true, "isOrigin": false })
 }
 
+/// 全部已发布“赛季 × 阶段”组合的 rino 深链都必须可解析。
 #[test]
 fn uri_accepts_all_published_seasons_and_stages() {
     for season in ["s1", "s2"] {
@@ -31,6 +33,7 @@ fn uri_accepts_all_published_seasons_and_stages() {
     }
 }
 
+/// 真实调用 rino 公开接口的集成验证，需显式运行。
 #[tokio::test]
 #[ignore = "requires the public Rino API; run explicitly for integration verification"]
 async fn live_rino_api_accepts_all_supported_pool_references() {
@@ -49,6 +52,7 @@ async fn live_rino_api_accepts_all_supported_pool_references() {
     }
 }
 
+/// 错误 scheme/路径/凭据/端口/片段、重复或未知参数、非法枚举的 URI 一律拒绝。
 #[test]
 fn uri_rejects_ambiguous_or_external_inputs() {
     for raw in [
@@ -68,6 +72,7 @@ fn uri_rejects_ambiguous_or_external_inputs() {
     }
 }
 
+/// 收件箱对相同引用去重复用 `id`，且旧确认不会清掉更新的链接。
 #[test]
 fn inbox_survives_readiness_and_deduplicates_without_losing_newer_links() {
     let mut inbox = uri::LinkInbox::default();
@@ -82,6 +87,7 @@ fn inbox_survives_readiness_and_deduplicates_without_losing_newer_links() {
     assert!(inbox.receive(second).id > newer.id);
 }
 
+/// rino 解析只保留图池元数据，选图人名等可选字段缺失可接受，评语原样保留。
 #[test]
 fn rino_keeps_only_pool_metadata_and_accepts_missing_names() {
     let bytes = serde_json::to_vec(
@@ -101,6 +107,7 @@ fn rino_keeps_only_pool_metadata_and_accepts_missing_names() {
     assert_eq!(candidates[0].beatmapset_id, None);
 }
 
+/// 空图池可用；接口失败、非法谱面 ID 与阶段不符等情况均拒绝。
 #[test]
 fn rino_accepts_empty_but_rejects_failures_invalid_ids_and_mismatched_stages() {
     assert!(
@@ -129,6 +136,7 @@ fn rino_accepts_empty_but_rejects_failures_invalid_ids_and_mismatched_stages() {
     }
 }
 
+/// 谱面元数据必须与请求 ID、osu!standard 模式严格匹配。
 #[test]
 fn metadata_must_match_the_selected_standard_difficulty() {
     let value = json!({"id":10,"mode":"osu","beatmapset_id":20,"version":"Expert","checksum":"abc",
@@ -145,6 +153,7 @@ fn metadata_must_match_the_selected_standard_difficulty() {
     assert!(service::decode_beatmap(10, mania).is_err());
 }
 
+/// 导入的线上谱面资料随快照持久化，重启后仍可用，且不误标记本地文件状态。
 #[tokio::test]
 async fn imported_online_stats_survive_restart_without_claiming_local_files() {
     let directory = tempfile::tempdir().unwrap();
@@ -171,6 +180,7 @@ async fn imported_online_stats_survive_restart_without_claiming_local_files() {
     assert!(!folder.stable_sync);
 }
 
+/// 旧布局图池的元数据修复保留成员记录、练习笔记与同步状态。
 #[test]
 fn old_pool_metadata_repair_preserves_membership_records_and_sync_state() {
     let directory = tempfile::tempdir().unwrap();
@@ -261,6 +271,7 @@ fn old_pool_metadata_repair_preserves_membership_records_and_sync_state() {
     assert_eq!(notes["records"]["bid:10"]["note"], "保留我的练习笔记");
 }
 
+/// 图池同步只替换关联文件夹（含去重），不影响无关收藏夹，重载后状态一致。
 #[test]
 fn collection_sync_strictly_replaces_only_the_linked_folder_and_survives_reload() {
     use crate::features::collections::CollectionService;
@@ -319,6 +330,7 @@ fn collection_sync_strictly_replaces_only_the_linked_folder_and_survives_reload(
     assert!(reloaded.folder(&unrelated.id).unwrap().entries.is_empty());
 }
 
+/// 单条元数据解析失败被隔离，重复 `beatmap_id` 只解析一次。
 #[tokio::test]
 async fn metadata_failure_is_isolated_and_duplicate_bids_resolve_once() {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -345,6 +357,7 @@ async fn metadata_failure_is_isolated_and_duplicate_bids_resolve_once() {
     assert_eq!(service::candidates(&pool)[2].beatmap_id, Some(11));
 }
 
+/// import 深链规范化来源 URL（大小写/默认端口），并拒绝歧义参数与非 HTTPS 来源。
 #[test]
 fn standard_uri_normalizes_source_and_rejects_ambiguous_parameters() {
     let parsed = super::uri::parse("opp://mappool/import?url=https%3A%2F%2FEXAMPLE.com%3A443%2Fpool.json%3Fstage%3Dfinal%26season%3D1").unwrap();
@@ -388,6 +401,7 @@ fn standard_pool(document: serde_json::Value) -> TournamentPool {
     .unwrap()
 }
 
+/// 标准文档可选字段缺省可用；非法版本、规则、字段值与重复图位均拒绝。
 #[test]
 fn standard_minimum_optional_fields_and_multiple_slots() {
     let mut doc = standard_document();
@@ -429,6 +443,7 @@ fn standard_minimum_optional_fields_and_multiple_slots() {
     }
 }
 
+/// 私有、特殊与映射地址（含 IPv4-mapped IPv6、6to4 内嵌地址）不得作为公开来源。
 #[test]
 fn public_sources_exclude_private_special_and_mapped_addresses() {
     for address in [
@@ -469,6 +484,7 @@ fn public_sources_exclude_private_special_and_mapped_addresses() {
     }
 }
 
+/// import 打开本地优先：重启后直接复用文件夹，绝不重新请求远端数据。
 #[tokio::test]
 async fn uri_import_survives_restart_and_reopens_without_loading_remote_data() {
     let directory = tempfile::tempdir().unwrap();
@@ -495,6 +511,7 @@ async fn uri_import_survives_restart_and_reopens_without_loading_remote_data() {
     assert_eq!(state.collections.folder(&opened.folder_id).unwrap(), folder);
 }
 
+/// 同步对成员与快照原子提交；写入失败时旧状态与练习笔记保持不变。
 #[test]
 fn sync_commits_membership_and_snapshot_together_and_preserves_notes_on_failure() {
     use sha2::{Digest, Sha256};

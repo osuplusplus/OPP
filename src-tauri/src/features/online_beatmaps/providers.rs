@@ -1,3 +1,6 @@
+//! 镜像适配层：抹平各下载/元数据镜像的 URL 与响应差异，
+//! 统一超时、限速与取消处理，并提供健康状态探测。
+
 use std::{
     io::{Cursor, Read},
     sync::atomic::{AtomicBool, Ordering},
@@ -8,14 +11,18 @@ use reqwest::{Response, StatusCode, header::CONTENT_DISPOSITION};
 use serde_json::Value;
 
 use crate::error::{CommandError, CommandResult};
-use crate::infrastructure::logging::{LogSpan, global};
+use crate::infrastructure::http::{HttpClientSpec, http_client};
+use crate::infrastructure::logging::{finish_span, global};
 
+// 支持的镜像基址与官方 `.osu` 元数据端点；各源路径差异在 `osz_with_progress` 中逐源映射。
 pub const NERINYAN_BASE_URL: &str = "https://api.nerinyan.moe";
 pub const CATBOY_BASE_URL: &str = "https://catboy.best";
 pub const HINAI_BASE_URL: &str = "https://mirror.hinamizawa.ai";
 pub const SAYOBOT_BASE_URL: &str = "https://dl.sayobot.cn";
 pub const OSU_METADATA_URL: &str = "https://osu.ppy.sh/osu";
 
+/// 单个镜像的健康与能力快照，供前端下载源选择器展示。
+/// `retry_after_seconds` 取自限速响应的 `Retry-After` 头，用于提示稍后重试。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProviderStatus {
     pub id: String,
@@ -29,6 +36,8 @@ pub struct ProviderStatus {
     pub message: Option<String>,
 }
 
+/// 镜像返回的原始内容；`suggested_filename` 来自 `Content-Disposition`（可能缺失），
+/// `source` 记录实际命中的镜像，供日志与文件命名使用。
 #[derive(Debug, Clone)]
 pub struct ProviderBytes {
     pub bytes: Vec<u8>,
@@ -36,26 +45,24 @@ pub struct ProviderBytes {
     pub source: String,
 }
 
+/// 所有镜像共用的 HTTP 注册表；复用同一客户端以共享连接池与统一超时配置。
 #[derive(Clone)]
 pub struct ProviderRegistry {
     client: reqwest::Client,
 }
 
 impl ProviderRegistry {
+    /// 构建镜像客户端：连接 10 秒、整体 120 秒超时，防止单个镜像拖垮批量下载。
     pub fn new() -> CommandResult<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(120))
-            .user_agent(concat!(
-                "OPP/",
-                env!("CARGO_PKG_VERSION"),
-                " (beatmap adapters)"
-            ))
-            .build()
-            .map_err(|error| CommandError::network(error.to_string()))?;
+        let client = http_client(HttpClientSpec {
+            connect_timeout: Some(Duration::from_secs(10)),
+            timeout: Some(Duration::from_secs(120)),
+            ua_note: " (beatmap adapters)",
+        })?;
         Ok(Self { client })
     }
 
+    /// 查询单个难度（beatmap）的 Nerinyan 元数据。
     pub async fn nerinyan_beatmap(&self, id: u64) -> CommandResult<Value> {
         self.json_get(
             &format!("{NERINYAN_BASE_URL}/v2/beatmaps/{id}"),
@@ -64,6 +71,7 @@ impl ProviderRegistry {
         .await
     }
 
+    /// 下载整个谱面集的 Nerinyan `.osz` 压缩包。
     pub async fn nerinyan_osz(&self, id: u64) -> CommandResult<ProviderBytes> {
         self.bytes_get(
             &format!("{NERINYAN_BASE_URL}/d/{id}"),
@@ -73,6 +81,9 @@ impl ProviderRegistry {
         .await
     }
 
+    /// 下载 `.osz` 并以累计字节数回调进度。
+    /// 各镜像的“无视频”参数形态不同：Sayobot 用路径段 `full/novideo`，
+    /// Hinai/Catboy 用 `?novideo=true`，Nerinyan 用 `?noVideo=true`。
     pub async fn osz_with_progress<F>(
         &self,
         id: u64,
@@ -123,8 +134,10 @@ impl ProviderRegistry {
                 ),
                 _ => unreachable!("download adapter list only contains registered providers"),
             };
+            // 20 秒内未收到响应头即判定该镜像失败，交由上层切换备用源。
             let request = tokio::time::timeout(Duration::from_secs(20), self.client.get(&url).send());
             tokio::pin!(request);
+            // 等待响应期间每 50ms 轮询一次取消标志，保证取消能及时生效。
             let response = loop {
                 tokio::select! {
                     result = &mut request => {
@@ -149,6 +162,7 @@ impl ProviderRegistry {
                 .to_string();
             let bytes =
                 parse_bytes_with_progress(response, code, provider, cancel, on_progress).await?;
+            // 个别镜像会把文件字节包装成 JSON 数组（`data` 字段）返回，这里还原为二进制。
             let bytes = if content_type.contains("json") {
                 serde_json::from_slice::<Value>(&bytes)
                     .ok()
@@ -169,6 +183,7 @@ impl ProviderRegistry {
         finish_span(span, result)
     }
 
+    /// 下载单个难度的 `.osu` 文件；Catboy 可能以 JSON 数组形式返回内容。
     pub async fn catboy_osu(&self, id: u64) -> CommandResult<ProviderBytes> {
         self.bytes_or_json_get(
             &format!("{CATBOY_BASE_URL}/osu/{id}"),
@@ -179,6 +194,7 @@ impl ProviderRegistry {
         .await
     }
 
+    /// 从 osu! 官方 `/osu/{id}` 端点获取原始 `.osu` 文件，该端点无需访问令牌。
     pub async fn official_osu(&self, id: u64) -> CommandResult<ProviderBytes> {
         self.bytes_get(
             &format!("{OSU_METADATA_URL}/{id}"),
@@ -188,6 +204,8 @@ impl ProviderRegistry {
         .await
     }
 
+    /// Nerinyan 没有独立的 `.osu` 端点：先查元数据取得所属谱面集与文件名，
+    /// 再下载整个 `.osz` 并从压缩包中抽取目标 `.osu`。
     pub async fn nerinyan_osu(&self, id: u64) -> CommandResult<ProviderBytes> {
         let metadata = self.nerinyan_beatmap(id).await?;
         let set_id = metadata
@@ -203,6 +221,7 @@ impl ProviderRegistry {
         let archive = self.nerinyan_osz(set_id).await?;
         let mut zip = zip::ZipArchive::new(Cursor::new(archive.bytes))
             .map_err(|error| CommandError::new("INVALID_ARCHIVE", error.to_string()))?;
+        // 元数据缺少文件名时，退回压缩包内第一个 `.osu` 文件。
         let index = file_name
             .as_deref()
             .and_then(|name| zip.index_for_name(name))
@@ -232,6 +251,8 @@ impl ProviderRegistry {
         })
     }
 
+    /// 并发探测各镜像健康端点，返回含官方条目的能力矩阵。
+    /// Hinai 没有专用健康端点，借用其文档页判断可达性。
     pub async fn statuses(&self) -> Vec<ProviderStatus> {
         let sayobot_health = "https://api.sayobot.cn/beatmaplist?L=1&O=0&T=1";
         let nerinyan_health = format!("{NERINYAN_BASE_URL}/health");
@@ -243,6 +264,7 @@ impl ProviderRegistry {
             self.health("catboy", &catboy_health),
             self.health("hinai", &hinai_health),
         );
+        // 官方条目不做网络探测，作为搜索与信息基准始终展示为在线。
         vec![
             ProviderStatus {
                 id: "official".into(),
@@ -302,6 +324,7 @@ impl ProviderRegistry {
         ]
     }
 
+    /// 探测单个镜像的健康端点，并按镜像 ID 填充其能力标志。
     async fn health(&self, id: &str, url: &str) -> CommandResult<ProviderStatus> {
         let response = self
             .client
@@ -381,6 +404,7 @@ impl ProviderRegistry {
         finish_span(span, result)
     }
 
+    /// 下载字节内容，兼容镜像以 JSON 数组（`data` 字段）承载文件字节的形态。
     async fn bytes_or_json_get(
         &self,
         url: &str,
@@ -472,6 +496,8 @@ async fn parse_bytes(response: Response, code: &str) -> CommandResult<Vec<u8>> {
         .map_err(|error| CommandError::network(error.to_string()))
 }
 
+/// 流式读取响应体：边下边回调进度，单包以 256 MiB 为限
+/// （`Content-Length` 与累计字节数双重校验），并响应取消与传输看门狗。
 async fn parse_bytes_with_progress<F>(
     mut response: Response,
     code: &str,
@@ -527,6 +553,8 @@ where
     Ok(bytes)
 }
 
+/// 传输看门狗：连续 15 秒无新数据判为停滞；任意 20 秒窗口内不足 32 KiB 判为过慢。
+/// 两种情况都中止当前镜像，由上层切换备用源。
 #[derive(Default)]
 struct TransferWatchdog {
     last_bytes: u64,
@@ -561,6 +589,7 @@ impl TransferWatchdog {
     }
 }
 
+/// 解析限速响应的 `Retry-After` 头（单位秒），可能不存在或无法解析。
 fn retry_after(response: &Response) -> Option<u64> {
     response
         .headers()
@@ -569,6 +598,8 @@ fn retry_after(response: &Response) -> Option<u64> {
         .and_then(|v| v.parse().ok())
 }
 
+/// 统一 HTTP 状态到错误码的映射：429 归为 `RATE_LIMITED`，5xx 归为 `SERVER_ERROR`，
+/// 其余沿用调用方给定的错误码；`Retry-After` 一并透传给前端。
 fn status_error(
     response: &Response,
     code: &str,
@@ -586,6 +617,7 @@ fn status_error(
     }
 }
 
+/// 从 `Content-Disposition` 头提取镜像建议的文件名（可能缺失）。
 fn filename(response: &Response) -> Option<String> {
     response
         .headers()
@@ -594,6 +626,8 @@ fn filename(response: &Response) -> Option<String> {
         .and_then(content_disposition_filename)
 }
 
+/// 优先采用 RFC 5987 扩展的 `filename*`（UTF-8 百分号编码），否则回退普通 `filename`；
+/// 百分号序列非法时保留原文，避免把可用的文件名误判为空。
 fn content_disposition_filename(value: &str) -> Option<String> {
     let mut regular = None;
     let mut encoded = None;
@@ -617,6 +651,7 @@ fn content_disposition_filename(value: &str) -> Option<String> {
     encoded.or(regular).filter(|name| !name.trim().is_empty())
 }
 
+/// 手工解码 `%XX` 序列；解码结果不是合法 UTF-8 时返回 `None`。
 fn percent_decode_utf8(value: &str) -> Option<String> {
     let bytes = value.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
@@ -635,16 +670,7 @@ fn percent_decode_utf8(value: &str) -> Option<String> {
     String::from_utf8(decoded).ok()
 }
 
-fn finish_span<T>(span: Option<LogSpan>, result: CommandResult<T>) -> CommandResult<T> {
-    if let Some(mut span) = span {
-        match &result {
-            Ok(_) => span.finish_ok(None),
-            Err(error) => span.finish_error(error),
-        }
-    }
-    result
-}
-
+// `Content-Disposition` 文件名解析的回归测试。
 #[cfg(test)]
 mod content_disposition_tests {
     use super::content_disposition_filename;
@@ -678,6 +704,7 @@ mod content_disposition_tests {
     }
 }
 
+// 传输看门狗停滞/低速阈值的行为测试。
 #[cfg(test)]
 mod transfer_tests {
     use super::*;

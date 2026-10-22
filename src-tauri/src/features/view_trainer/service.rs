@@ -1,3 +1,5 @@
+//! 视野训练服务：时间线解析与缓存、倍速难度换算、请求参数补全，
+//! 以及暂存谱面导入 osu! Songs。
 use super::{Timeline, ViewTrainerRequest};
 use crate::{
     error::{CommandError, CommandResult},
@@ -10,11 +12,14 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
+/// 时间线缓存：路径键映射 (文件大小, 修改时间纳秒, 时间线)。
 type TimelineCache = HashMap<String, (u64, u128, Timeline)>;
 
+/// 进程内时间线缓存，用于跳过对同一谱面的重复解析。
 static TIMELINE_CACHE: LazyLock<Mutex<TimelineCache>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// 解析 .osu 文本生成时间线摘要，按文件大小与修改时间做缓存。
 pub fn timeline_for_analysis(
     analysis: &LocalAnalysisService,
     client: LocalClient,
@@ -72,6 +77,7 @@ pub fn timeline_for_analysis(
         {
             mode = v.trim().parse().unwrap_or(0);
         }
+        // .osu 物件行的第 3 列是命中时间（毫秒）。
         if section == "[HitObjects]"
             && !t.is_empty()
             && !t.starts_with("//")
@@ -80,6 +86,7 @@ pub fn timeline_for_analysis(
             times.push(v);
             duration = duration.max(v);
         }
+        // 第 7 列为 1 表示非继承计时点，BPM 由 60000 / 第 2 列得出。
         if section == "[TimingPoints]" && !t.is_empty() && !t.starts_with("//") {
             let p = t.split(',').collect::<Vec<_>>();
             if p.len() >= 2 {
@@ -127,6 +134,7 @@ pub fn timeline_for_analysis(
         strain_section_length_ms,
     };
     if let Ok(mut cache) = TIMELINE_CACHE.lock() {
+        // 简单容量控制：超限时整体清空重建，避免无界增长。
         if cache.len() > 128 {
             cache.clear();
         }
@@ -135,6 +143,7 @@ pub fn timeline_for_analysis(
     Ok(result)
 }
 
+/// AR 转预警时间（毫秒），osu 官方两段折线公式。
 fn ar_to_ms(ar: f64) -> f64 {
     if ar <= 5.0 {
         1800.0 - ar * 120.0
@@ -143,6 +152,7 @@ fn ar_to_ms(ar: f64) -> f64 {
     }
 }
 
+/// 预警时间（毫秒）转 AR，结果夹取在 0 到 11。
 fn ms_to_ar(ms: f64) -> f32 {
     let ar = if ms >= 1200.0 {
         (1800.0 - ms) / 120.0
@@ -152,15 +162,22 @@ fn ms_to_ar(ms: f64) -> f32 {
     ar.clamp(0.0, 11.0) as f32
 }
 
+/// 倍速下的等效 AR：预警时间除以倍速后换算回 AR。
 fn scale_ar(ar: f32, rate: f64) -> f32 {
     ms_to_ar(ar_to_ms(ar as f64) / rate)
 }
 
+/// 倍速下的等效 OD：按 300 判定窗公式换算，保留一位小数。
 fn scale_od(od: f32, rate: f64) -> f32 {
     let value = ((79.5 - (-6.0 * od as f64 + 79.5) / rate) / 6.0).clamp(0.0, 11.0);
     (value * 10.0).round() as f32 / 10.0
 }
 
+/// 用源谱面时间线补全请求参数后再交由生成流程使用。
+///
+/// BPM 锁定时按“目标 BPM / 源主 BPM”计算倍速；AR/OD 在未锁定且
+/// 开启缩放时随倍速换算（taiko/mania 不缩放 AR）；未锁定的 CS/HP
+/// 一律回填源值；最后统一执行 `validate`。
 pub fn resolve_request_with_analysis(
     analysis: &LocalAnalysisService,
     mut request: ViewTrainerRequest,
@@ -191,6 +208,7 @@ pub fn resolve_request_with_analysis(
     Ok(request)
 }
 
+/// 校验请求取值范围：倍速、难度、目标 BPM、时间段与 BPM 区间。
 pub fn validate(r: &ViewTrainerRequest) -> CommandResult<()> {
     if !(0.75..=2.0).contains(&r.rate) {
         return Err(CommandError::new(
@@ -235,6 +253,10 @@ pub fn validate(r: &ViewTrainerRequest) -> CommandResult<()> {
     Ok(())
 }
 
+/// 把 View Trainer 生成的暂存目录导入 osu! Songs。
+///
+/// 只复制生成谱面实际引用的素材（含 storyboard 传递引用），
+/// 并在导入时重写 BeatmapID/BeatmapSetID 防止 osu! Stable 去重合并。
 pub fn import_staged_at_path(
     source: PathBuf,
     staged_path: &str,
@@ -248,12 +270,14 @@ pub fn import_staged_at_path(
     let root = root
         .canonicalize()
         .map_err(|e| CommandError::new("VIEW_TRAINER_STAGE_NOT_FOUND", e.to_string()))?;
+    // canonicalize 后必须落在暂存根目录内，防止借导入复制任意路径的文件。
     if !staged.starts_with(&root) || !staged.is_dir() {
         return Err(CommandError::new(
             "VIEW_TRAINER_INVALID_STAGE",
             "只能导入 View Trainer 生成的暂存目录",
         ));
     }
+    // 未显式指定目标时，默认导入到源谱面所在的 Songs 根目录。
     let songs = target_root.unwrap_or_else(|| {
         source
             .parent()
@@ -282,6 +306,7 @@ pub fn import_staged_at_path(
     let generated_map = staged.join("OPP Trainer.osu");
     let generated_text = fs::read_to_string(&generated_map).unwrap_or_default();
     let mut referenced = std::collections::HashSet::<String>::new();
+    // 从生成的 .osu 中提取音频、背景与视频的引用文件名。
     for raw in generated_text.lines() {
         let line = raw.trim();
         if let Some(value) = line.strip_prefix("AudioFilename:") {
@@ -311,6 +336,7 @@ pub fn import_staged_at_path(
         }
     }
     for name in referenced {
+        // 预览阶段的占位音频不随导入复制。
         if name.is_empty() || name.eq_ignore_ascii_case("opp-trainer-audio.mp3") {
             continue;
         }
@@ -359,6 +385,7 @@ pub fn import_staged_at_path(
         fs::write(imported_map, rewritten)
             .map_err(|e| CommandError::new("VIEW_TRAINER_IMPORT_FAILED", e.to_string()))?;
     }
+    // 先写临时目录再原子改名，Songs 中不会出现半成品文件夹。
     fs::rename(&temporary_target, &target)
         .map_err(|e| CommandError::new("VIEW_TRAINER_IMPORT_FAILED", e.to_string()))?;
     Ok(target.to_string_lossy().into_owned())
@@ -368,12 +395,14 @@ pub fn import_staged_at_path(
 mod tests {
     use super::{scale_ar, scale_od};
 
+    /// 倍速换算公式须与 osu 客户端一致。
     #[test]
     fn rate_scaling_matches_osu_windows() {
         assert!((scale_ar(7.0, 1.5) - 9.0).abs() < 0.01);
         assert!((scale_od(7.0, 1.5) - 9.1).abs() < 0.01);
     }
 
+    /// 换算结果必须夹取在 11 以内。
     #[test]
     fn rate_scaling_is_clamped_to_eleven() {
         assert_eq!(scale_ar(10.0, 2.0), 11.0);

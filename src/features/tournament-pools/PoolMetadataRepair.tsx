@@ -8,7 +8,7 @@ export function PoolMetadataRepair({ folderId, pool }: { folderId: string; pool:
   const missing = pool.slots.some((slot) => !slot.metadata);
   const query = useQuery({
     queryKey: ["pool-metadata-repair", folderId], enabled: missing,
-    staleTime: Infinity, retry: false, refetchOnMount: false, refetchOnWindowFocus: false,
+    staleTime: Infinity, refetchOnMount: false, refetchOnWindowFocus: false,
     queryFn: async () => {
       const result = await desktopApi.repairTournamentPoolMetadata(folderId);
       if (result[0]) await Promise.all([

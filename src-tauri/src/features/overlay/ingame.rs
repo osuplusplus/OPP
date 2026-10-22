@@ -24,10 +24,13 @@ use super::irc::OverlayRuntime;
 
 /// 本地状态服务端口（HUD 页轮询 http://127.0.0.1:<port>/api/status）。
 pub const STATUS_PORT: u16 = 24099;
+/// tosu `static/` 下 OPP HUD 的目录名，同时作为 profile 中的 folderName 标识。
 const HUD_FOLDER: &str = "opp-hud";
+/// ingame HUD 的注册尺寸，与窗口模式的 `HUD_SIZE`（340×190）数值一致。
 const HUD_WIDTH: i64 = 340;
 const HUD_HEIGHT: i64 = 190;
 
+/// 安装命令返回给前端的结果：安装状态、tosu 目录与用户提示。
 #[derive(Debug, Serialize)]
 pub struct IngameInstallInfo {
     pub installed: bool,
@@ -35,6 +38,7 @@ pub struct IngameInstallInfo {
     pub message: String,
 }
 
+/// 从设置中的 tosu 可执行文件路径推导其所在目录；未配置或目录缺失时报错。
 fn tosu_dir(state: &AppState) -> CommandResult<PathBuf> {
     let raw = state
         .store
@@ -81,6 +85,7 @@ pub fn patch_tosu_env(dir: &Path, key: &str, value: &str) -> CommandResult<()> {
     Ok(())
 }
 
+/// tosu 尚无 ingame 配置文件时使用的骨架（单个空 `default` profile）。
 fn default_ingame_settings() -> Value {
     json!({
         "obs_profile": "default",
@@ -152,6 +157,7 @@ fn remove_profile_entry(settings: &mut Value) {
             }
         }
     }
+    // 临时标记：卸载流程读取后即移除，仅用于传递“所有 profile 已空”。
     if !any_left {
         settings["__opp_disable_flag__"] = json!(true);
     }
@@ -230,8 +236,10 @@ pub fn ingame_installed(state: &AppState) -> bool {
 // 本地状态服务（HUD 页轮询数据源，CORS 开放给 tosu overlay 进程）
 // ---------------------------------------------------------------------------
 
+// 状态服务进程内只启动一次的守卫。
 static SERVER_STARTED: OnceLock<()> = OnceLock::new();
 
+/// 幂等启动本地状态 HTTP 服务；端口绑定失败仅记录警告，不阻断应用启动。
 pub fn ensure_status_server(app: &AppHandle) {
     if SERVER_STARTED.set(()).is_err() {
         return;
@@ -256,15 +264,18 @@ pub fn ensure_status_server(app: &AppHandle) {
     });
 }
 
+// 对所有来源开放且禁用缓存：tosu overlay 进程与浏览器调试页都要轮询此服务。
 const CORS: [(&str, &str); 2] = [
     ("Access-Control-Allow-Origin", "*"),
     ("Cache-Control", "no-store"),
 ];
 
+/// 直接返回内嵌 HUD 页（与安装进 tosu static 目录的内容同源）。
 async fn hud_page() -> impl axum::response::IntoResponse {
     (CORS, axum::response::Html(include_str!("ingame_hud.html")))
 }
 
+/// 聚合 OPP 侧运行时状态：MP 补缺、IRC、下载进度与 tosu 实时快照。
 async fn status(
     axum::extract::State((overlay, tosu)): axum::extract::State<(
         Arc<OverlayRuntime>,

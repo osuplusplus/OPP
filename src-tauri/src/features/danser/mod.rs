@@ -32,12 +32,14 @@ use crate::{
     state::AppState,
 };
 
+// Windows 子进程启动标志：不弹出控制台窗口。
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 use discovery::{ffmpeg_available, find_danser, list_profiles_for, resolve_danser_path};
 
 /// 返回可用的 FFmpeg 可执行文件路径解析
+/// 优先级：用户设置 > PATH > danser 所在目录（含 ffmpeg/ 子目录）。
 pub fn resolve_ffmpeg_path(
     saved_ffmpeg: Option<&str>,
     saved_danser: Option<&str>,
@@ -74,6 +76,7 @@ fn command_error(code: &str, message: impl Into<String>) -> CommandError {
     CommandError::new(code, message.into())
 }
 
+/// 启动前解析 danser 路径（PATH 优先，回退用户配置，见 `discovery` 模块）。
 fn resolve_danser(state: &AppState) -> CommandResult<PathBuf> {
     let saved = state.store.settings_snapshot()?.danser_executable_path;
     resolve_danser_path(saved.as_deref()).ok_or_else(|| {
@@ -87,6 +90,7 @@ fn resolve_danser(state: &AppState) -> CommandResult<PathBuf> {
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 一次性探测可执行文件、FFmpeg 与 profile 列表，并给出可展示的就绪文案。
 pub async fn get_danser_status(state: State<'_, AppState>) -> CommandResult<DanserStatus> {
     let saved = state.store.settings_snapshot()?.danser_executable_path;
     crate::infrastructure::tasks::blocking_io("get_danser_status", move || {
@@ -114,6 +118,7 @@ pub async fn get_danser_status(state: State<'_, AppState>) -> CommandResult<Dans
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：列出可用资源。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 未找到 danser 时报 `DANSER_NOT_FOUND`，而不是返回空列表。
 pub async fn list_danser_profiles(state: State<'_, AppState>) -> CommandResult<Vec<String>> {
     let saved = state.store.settings_snapshot()?.danser_executable_path;
     crate::infrastructure::tasks::blocking_io("list_danser_profiles", move || {
@@ -125,6 +130,8 @@ pub async fn list_danser_profiles(state: State<'_, AppState>) -> CommandResult<V
     .await?
 }
 
+/// 校验渲染偏好：数值范围、`mods` 与 `mods2` 互斥、`sPatch` 必须为 JSON 对象等。
+/// 入队时与每次启动渲染前都会执行，保证队列中积压的任务也满足约束。
 fn validate_preferences(input: &DanserRenderPreferences) -> CommandResult<()> {
     if !(0.1..=4.0).contains(&input.speed) || !(0.1..=4.0).contains(&input.pitch) {
         return Err(command_error(
@@ -240,6 +247,7 @@ fn unique_output_name(directory: &Path, replay_path: &str) -> String {
     format!("{base}-{}", Uuid::new_v4())
 }
 
+/// 递归合并 JSON：双方都是对象时逐键下沉，其余情况补丁值直接覆盖目标值。
 fn merge_json(target: &mut serde_json::Value, patch: serde_json::Value) {
     match (target, patch) {
         (serde_json::Value::Object(target), serde_json::Value::Object(patch)) => {
@@ -251,6 +259,9 @@ fn merge_json(target: &mut serde_json::Value, patch: serde_json::Value) {
     }
 }
 
+/// 生成启动时通过 `-sPatch` 传给 danser 的运行时 settings 覆盖：谱面、皮肤与
+/// 回放目录、录制参数，以及按编码器选择的质量键（CQ/Quality/CRF）。
+/// 用户的 `settings_patch` 最后合并，可覆盖以上任意字段。
 fn runtime_settings_patch(task: &DanserTask) -> CommandResult<String> {
     let replay = Path::new(&task.replay_path);
     let replay_directory = replay.parent().unwrap_or(Path::new("."));
@@ -297,6 +308,7 @@ fn runtime_settings_patch(task: &DanserTask) -> CommandResult<String> {
         .map_err(|error| command_error("DANSER_PATCH_FAILED", error.to_string()))
 }
 
+/// 组装 danser CLI 参数：只追加显式设置或非默认的值，避免覆盖 profile 中的配置。
 fn build_arguments(task: &DanserTask, output: &Path) -> CommandResult<Vec<String>> {
     validate_preferences(&task.preferences)?;
     let input = &task.preferences;
@@ -380,6 +392,7 @@ fn parse_progress(line: &str) -> Option<u8> {
     digits.parse::<u8>().ok().map(|value| value.min(100))
 }
 
+/// 起独立线程持续读取子进程输出行并送入通道，防止管道缓冲区写满阻塞 danser。
 fn forward_lines<R: Read + Send + 'static>(stream: Option<R>, sender: mpsc::Sender<String>) {
     if let Some(stream) = stream {
         std::thread::spawn(move || {
@@ -390,6 +403,8 @@ fn forward_lines<R: Read + Send + 'static>(stream: Option<R>, sender: mpsc::Send
     }
 }
 
+/// 按文件主干（忽略扩展名）在目录中查找渲染开始之后修改的产物并取最新一个；
+/// 产物扩展名（.mp4/.avi 等）由 danser 决定，事先未知。
 fn find_output(stem: &Path, started: SystemTime) -> Option<PathBuf> {
     let parent = stem.parent()?;
     let name = stem.file_name()?.to_str()?;
@@ -406,6 +421,7 @@ fn find_output(stem: &Path, started: SystemTime) -> Option<PathBuf> {
         .map(|(_, path)| path)
 }
 
+/// 把 danser 产物转存到导出目录：优先 rename，跨设备失败时回退 copy 后删除源文件。
 fn export_output(source: &Path, directory: &Path) -> CommandResult<PathBuf> {
     let file_name = source
         .file_name()
@@ -436,6 +452,8 @@ fn export_output(source: &Path, directory: &Path) -> CommandResult<PathBuf> {
     }
 }
 
+/// 从最近的输出行倒序挑选失败原因：优先含 panic/fatal/error/failed 的行，
+/// 否则取最后一条非空行，都没有时使用退出码等兜底文案。
 fn failure_detail(lines: &VecDeque<String>, fallback: impl ToString) -> String {
     const IMPORTANT: [&str; 4] = ["panic:", "fatal", "error:", "failed"];
     lines
@@ -479,6 +497,7 @@ fn update_job(
     }
 }
 
+/// 从任务列表移除指定任务，并以 cancelled 状态向前端广播一次终态。
 fn remove_cancelled_job(runtime: &DanserRuntime, app: &AppHandle, id: &str) {
     let removed = runtime.jobs.lock().ok().and_then(|mut jobs| {
         let index = jobs.iter().position(|job| job.id == id)?;
@@ -558,6 +577,8 @@ fn stage_lazer_task(
     Ok(())
 }
 
+/// 执行单个渲染任务的全流程：校验回放、按客户端暂存资源、启动 danser 子进程，
+/// 随后轮询输出解析进度、响应取消请求并收集产物。同步阻塞，由 worker 线程调用。
 fn execute_task(
     runtime: &DanserRuntime,
     app: &AppHandle,
@@ -727,6 +748,8 @@ fn execute_task(
     }
 }
 
+/// 启动渲染工作线程；`worker_running` 原子标志保证同一时刻只有一个消费者，
+/// 队列清空后线程自动退出，新任务入队后需再次调用才会继续消费。
 fn start_worker(
     runtime: Arc<DanserRuntime>,
     app: AppHandle,
@@ -746,6 +769,9 @@ fn start_worker(
                 .and_then(|mut queue| queue.pop_front());
             let Some(task) = task else {
                 runtime.worker_running.store(false, Ordering::SeqCst);
+                // 退出前二次检查：store(false) 与重新锁定队列之间可能又有任务入队，
+                // 或已有其他线程抢先重启 worker。队列仍空或已有新 worker 则退出，
+                // 否则本线程继续消费。
                 if runtime
                     .queue
                     .lock()
@@ -785,6 +811,7 @@ fn start_worker(
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 批量入队：每个回放都通过校验（规则集、谱面索引、去重）后整批才写入队列。
 pub fn enqueue_danser_renders(
     request: DanserEnqueueRequest,
     state: State<'_, AppState>,
@@ -906,6 +933,7 @@ pub fn enqueue_danser_renders(
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 仅在队列非空、Danser 与 FFmpeg 就绪、导出目录有效时启动后台工作线程。
 pub fn start_danser_render_queue(state: State<'_, AppState>, app: AppHandle) -> CommandResult<()> {
     let has_waiting = !state
         .danser
@@ -940,6 +968,7 @@ pub fn start_danser_render_queue(state: State<'_, AppState>, app: AppHandle) -> 
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 返回最近的任务列表（倒序取前 100 条，最新在前）。
 pub fn get_danser_render_queue(state: State<'_, AppState>) -> CommandResult<Vec<DanserRenderJob>> {
     state
         .danser
@@ -952,6 +981,7 @@ pub fn get_danser_render_queue(state: State<'_, AppState>) -> CommandResult<Vec<
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 排队中的任务直接移出队列；渲染中的登记取消标记，由工作线程轮询后终止子进程。
 pub fn cancel_danser_render(
     id: String,
     state: State<'_, AppState>,
@@ -979,6 +1009,7 @@ pub fn cancel_danser_render(
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 只允许打开位于回放导出目录内的文件，防止任意路径探测。
 pub fn open_danser_output(path: String, state: State<'_, AppState>) -> CommandResult<()> {
     let directory = state
         .store

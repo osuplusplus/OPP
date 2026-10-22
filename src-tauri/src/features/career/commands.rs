@@ -1,3 +1,5 @@
+//! 生涯记录的 Tauri 命令层：抓取每日快照，查询日历/单日/状态与清理历史。
+
 use chrono::NaiveDate;
 use serde_json::json;
 use tauri::State;
@@ -13,6 +15,10 @@ use crate::{
     state::AppState,
 };
 
+/// 抓取当天的生涯快照：玩家资料 + Top 200 成绩 + 奖牌 + 本地媒体扫描。
+///
+/// 未强制刷新且今天已有 `captured` 快照时直接短路返回；在线资料拉取
+/// 失败会先写入失败日历行再返回错误，成绩/媒体缺失则记录 `partial`。
 #[tauri::command]
 pub async fn capture_career_snapshot(
     ruleset: Ruleset,
@@ -73,6 +79,7 @@ pub async fn capture_career_snapshot(
         .await
         .ok();
     let (media, media_ok) = scan_media(&state);
+    // sections 记录各分区是否拿到，决定快照状态是 captured 还是 partial。
     let sections = json!({ "profile": true, "scores": scores.is_some(), "media": media_ok, "medals": profile.user_achievements.is_some() });
     state
         .career
@@ -91,6 +98,7 @@ pub async fn capture_career_snapshot(
         })
 }
 
+/// 分两页拉取最佳成绩榜 Top 200（每页 100 条）。
 async fn fetch_top_scores(
     state: &AppState,
     token: &str,
@@ -125,6 +133,7 @@ async fn fetch_top_scores(
     Ok(scores)
 }
 
+/// 查询日历视图：区间内逐日状态、统计与差异计数。
 #[tauri::command]
 pub async fn get_career_calendar(
     ruleset: Ruleset,
@@ -144,6 +153,7 @@ pub async fn get_career_calendar(
         .calendar(user_id, ruleset, &start_date, &end_date)
 }
 
+/// 查询单日明细：当天/前一快照统计对比及成绩、奖牌、媒体差异。
 #[tauri::command]
 pub async fn get_career_day(
     ruleset: Ruleset,
@@ -161,12 +171,14 @@ pub async fn get_career_day(
     state.career.day(user_id, ruleset, &date)
 }
 
+/// 查询生涯记录功能状态（是否配置、快照数、最近快照日期）。
 #[tauri::command]
 pub async fn get_career_status(state: State<'_, AppState>) -> CommandResult<CareerStatus> {
     let _span = global().map(|logger| logger.operation("career", "get_career_status"));
     state.career.status()
 }
 
+/// 清空生涯历史；传入日期时仅清空该日期之前的记录。
 #[tauri::command]
 pub async fn clear_career_history(
     before_date: Option<String>,
@@ -180,6 +192,7 @@ pub async fn clear_career_history(
     state.career.clear(before_date.as_deref())
 }
 
+/// 校验日期区间：两端均须为 `YYYY-MM-DD` 且起始不晚于结束。
 fn validate_dates(start: &str, end: &str) -> CommandResult<()> {
     let start = NaiveDate::parse_from_str(start, "%Y-%m-%d")
         .map_err(|_| CommandError::new("INVALID_DATE", "日期格式必须是 YYYY-MM-DD"))?;

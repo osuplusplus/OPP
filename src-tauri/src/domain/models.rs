@@ -1,3 +1,5 @@
+//! 跨 feature 共享的稳定领域模型：游戏模式、成绩与账号资料、应用设置、
+//! OAuth 令牌等；同时是对前端的序列化契约，字段名不可随意变更。
 use super::defaults::{
     default_cache_limit_mb, default_danser_encoder, default_danser_fps,
     default_danser_frame_height, default_danser_frame_width, default_danser_motion_blur_oversample,
@@ -12,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, fmt};
 
+/// osu! 四种游戏模式；serde 与 `Display` 均输出小写名称
+/// （`osu`/`taiko`/`fruits`/`mania`）。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Ruleset {
@@ -33,6 +37,7 @@ impl fmt::Display for Ruleset {
     }
 }
 
+/// 成绩列表类别：最佳（best）、置顶（pinned）、最近（recent）。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum ScoreCategory {
@@ -51,6 +56,8 @@ impl fmt::Display for ScoreCategory {
     }
 }
 
+/// osu! API 的当前用户资料：核心字段强类型，低频扩展字段以原始 JSON 透传，
+/// 未知字段经 `extra` 平铺保留，API 新增字段时不致丢失。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnProfile {
     pub id: u64,
@@ -97,6 +104,8 @@ pub struct OwnProfile {
     pub extra: Map<String, Value>,
 }
 
+/// osu! API 的单条成绩：统计与谱面信息以原始 JSON 透传，
+/// 未知字段经 `extra` 平铺保留。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Score {
     #[serde(default)]
@@ -136,6 +145,8 @@ pub struct Score {
     pub extra: Map<String, Value>,
 }
 
+/// 带抓取时间的缓存包装：`stale` 为 `true` 表示已超过缓存有效期，
+/// 旧值仍随响应返回供前端先行展示。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cached<T> {
     pub data: T,
@@ -143,6 +154,7 @@ pub struct Cached<T> {
     pub stale: bool,
 }
 
+/// 本地谱面存在性统计的范围：全部、仅 Stable、仅 Lazer。
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LocalPresenceScope {
@@ -152,6 +164,8 @@ pub enum LocalPresenceScope {
     Lazer,
 }
 
+/// 持久化到应用数据目录的用户设置；所有字段均带 serde 默认值，
+/// 旧版本配置文件缺少新字段时可无损加载。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_true")]
@@ -160,20 +174,26 @@ pub struct AppSettings {
     pub local_beatmap_presence_scope: LocalPresenceScope,
     #[serde(default)]
     pub collection_manager_path: Option<String>,
+    /// 集合备份的保留份数。
     #[serde(default = "default_collection_backup_retention")]
     pub collection_backup_retention: usize,
     #[serde(default)]
     pub collection_backup_directory: Option<String>,
+    /// 用户已完成的全局新手引导版本，用于决定是否再次展示引导。
     #[serde(default)]
     pub onboarding_version: u32,
+    /// 各页面新手引导的完成版本，键为页面标识。
     #[serde(default)]
     pub page_onboarding_versions: BTreeMap<String, u32>,
+    /// 用户选择忽略的更新版本，更新检查不再对其提示。
     #[serde(default)]
     pub ignored_update_version: Option<String>,
     #[serde(default)]
     pub reduce_motion: bool,
+    /// 标准模式相似谱面数据集的根目录。
     #[serde(default)]
     pub similarity_index_directory: Option<String>,
+    /// Mania 相似谱面数据集的根目录。
     #[serde(default)]
     pub mania_similarity_index_directory: Option<String>,
     #[serde(default)]
@@ -243,8 +263,10 @@ pub struct AppSettings {
     pub overlay_show_with_game: bool,
     #[serde(default = "default_true")]
     pub overlay_auto_hide_on_game_exit: bool,
+    /// HUD 停靠角，取值为 `TopRight` 等角名枚举字符串。
     #[serde(default = "default_overlay_corner")]
     pub overlay_corner: String,
+    /// 切换覆盖层显隐的全局快捷键（默认 `Control+Shift+O`）。
     #[serde(default = "default_overlay_hotkey_toggle")]
     pub overlay_hotkey_toggle: String,
     #[serde(default = "default_true")]
@@ -274,6 +296,7 @@ fn default_overlay_hotkey_toggle() -> String {
     "Control+Shift+O".into()
 }
 
+/// danser 渲染参数，字段逐项映射到 danser CLI 选项。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DanserRenderPreferences {
     #[serde(default = "default_danser_settings_profile")]
@@ -284,10 +307,12 @@ pub struct DanserRenderPreferences {
     pub skip: bool,
     #[serde(default)]
     pub quickstart: bool,
+    /// 渲染起止时间（秒），`None` 表示整段渲染。
     #[serde(default)]
     pub start: Option<f64>,
     #[serde(default)]
     pub end: Option<f64>,
+    /// 播放速度与音调倍率，`1.0` 表示不变。
     #[serde(default = "default_one")]
     pub speed: f64,
     #[serde(default = "default_one")]
@@ -298,6 +323,7 @@ pub struct DanserRenderPreferences {
     pub mods: String,
     #[serde(default)]
     pub mods2: String,
+    // `cs`/`ar`/`od`/`hp` 覆盖谱面难度参数，`None` 沿用谱面原值。
     #[serde(default)]
     pub cs: Option<f64>,
     #[serde(default)]
@@ -314,6 +340,7 @@ pub struct DanserRenderPreferences {
     pub debug: bool,
     #[serde(default)]
     pub settings_patch: String,
+    /// 输出视频的分辨率（像素）、帧率与编码器名称。
     #[serde(default = "default_danser_frame_width")]
     pub frame_width: u32,
     #[serde(default = "default_danser_frame_height")]
@@ -363,6 +390,7 @@ impl Default for DanserRenderPreferences {
     }
 }
 
+/// 全局快捷键绑定，值为 Tauri 快捷键格式字符串（如 `Alt+1`）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppKeyBindings {
     #[serde(default = "default_open_local_maps_key")]
@@ -373,6 +401,8 @@ pub struct AppKeyBindings {
     pub open_settings: String,
 }
 
+/// 相似度维度权重的来源：`Manual` 使用 `SimilarityManualWeights`，
+/// `Dynamic` 由相似度引擎按查询谱面自动分配（需数据集支持）。
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SimilarityWeightingPreference {
@@ -381,6 +411,8 @@ pub enum SimilarityWeightingPreference {
     Manual,
 }
 
+/// 五个标准维度（Aim/Speed/Reading/Slider/Overlap）与谱面参数维度的手动权重，
+/// 数值为相对大小。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct SimilarityManualWeights {
@@ -405,6 +437,7 @@ impl Default for SimilarityManualWeights {
     }
 }
 
+/// 相似谱面查询偏好：高级模式开关、权重来源与结果分页。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct SimilarityPreferences {
@@ -412,8 +445,10 @@ pub struct SimilarityPreferences {
     pub advanced_enabled: bool,
     #[serde(default)]
     pub mode: SimilarityWeightingPreference,
+    /// 动态权重（`WeightingMode::Dynamic`）使用的谱面分段数量下界。
     #[serde(default = "default_similarity_section_range")]
     pub lower_sections: u32,
+    /// 动态权重（`WeightingMode::Dynamic`）使用的谱面分段数量上界。
     #[serde(default = "default_similarity_section_range")]
     pub upper_sections: u32,
     #[serde(default)]
@@ -435,6 +470,7 @@ impl Default for SimilarityPreferences {
     }
 }
 
+/// 内置谱面下载镜像源。
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum BeatmapDownloadProvider {
@@ -512,6 +548,7 @@ impl Default for AppKeyBindings {
     }
 }
 
+/// OAuth 登录状态快照：凭据是否配置、是否已连接及当前用户信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthStatus {
     pub credentials_configured: bool,
@@ -522,12 +559,15 @@ pub struct AuthStatus {
     pub username: Option<String>,
 }
 
+/// 一次进行中的 OAuth 授权：前端打开 `authorization_url` 完成授权，
+/// 超过 `expires_at` 后该链接不再有效。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingOAuth {
     pub authorization_url: String,
     pub expires_at: DateTime<Utc>,
 }
 
+/// OAuth 回调处理结果：`ok` 表示成败，失败时携带 `code` 与 `message`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthResult {
     pub ok: bool,
@@ -535,24 +575,29 @@ pub struct OAuthResult {
     pub message: String,
 }
 
+/// 用户保存的 OAuth 应用凭据：仅客户端 ID 与回调地址，不含密钥。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedCredentials {
     pub client_id: String,
     pub callback_url: String,
 }
 
+/// 断开连接结果：`revoked` 表示服务端令牌是否吊销成功，
+/// `warning` 携带非致命的提示信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisconnectResult {
     pub revoked: bool,
     pub warning: Option<String>,
 }
 
+/// 持久化缓存的单条记录：原始 JSON 值与抓取时间。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheRecord {
     pub value: Value,
     pub fetched_at: DateTime<Utc>,
 }
 
+/// 落盘到应用数据目录的持久化状态：登录身份、设置、API 缓存与手动刷新时间。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PersistedState {
     pub client_id: Option<String>,
@@ -563,10 +608,12 @@ pub struct PersistedState {
     pub settings: AppSettings,
     #[serde(default)]
     pub cache: BTreeMap<String, CacheRecord>,
+    /// 各缓存键最近一次手动刷新的时间。
     #[serde(default)]
     pub last_manual_refresh: BTreeMap<String, DateTime<Utc>>,
 }
 
+/// 生效的令牌组：访问令牌、可选刷新令牌与过期时刻。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenSet {
     pub access_token: String,
@@ -574,6 +621,7 @@ pub struct TokenSet {
     pub expires_at: DateTime<Utc>,
 }
 
+/// 令牌端点的原始响应，`expires_in` 为有效期秒数。
 #[derive(Debug, Clone, Deserialize)]
 pub struct TokenResponse {
     pub access_token: String,

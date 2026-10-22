@@ -11,13 +11,13 @@ import {
 import { settingsQueryKey } from "../settings/api";
 import { Badge, Button } from "../../shared/components/ui";
 import { AppDialog } from "../../shared/components/AppDialog";
-import { APP_TIME_ZONE } from "../../shared/lib/format";
+import { APP_TIME_ZONE, errorMessage } from "../../shared/lib/format";
 import {
   desktopApi,
   type UpdateCheckResult,
   type UpdateProgress,
 } from "../../shared/lib/tauri";
-import type { AppSettings, CommandError } from "../../shared/types/osu";
+import type { AppSettings } from "../../shared/types/osu";
 import {
   MANUAL_UPDATE_CHECK_EVENT,
   type ManualUpdateCheckDetail,
@@ -30,11 +30,6 @@ interface UpdateDialogState {
   source: CheckSource;
   result: UpdateCheckResult | null;
   error: string | null;
-}
-
-function errorMessage(error: unknown) {
-  const commandError = error as Partial<CommandError> | null;
-  return commandError?.message ?? (error instanceof Error ? error.message : String(error));
 }
 
 function publishedDate(value: string | null) {

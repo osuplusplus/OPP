@@ -23,6 +23,7 @@ import { PageHeader } from "../../shared/components/PageHeader";
 import { AppDialog } from "../../shared/components/AppDialog";
 import { Badge, Button, Card, EmptyState, Skeleton } from "../../shared/components/ui";
 import { cn } from "../../shared/lib/cn";
+import { errorMessage } from "../../shared/lib/format";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CommandError,
@@ -50,10 +51,6 @@ import {
 
 function samePart(node: SkinTreeNode, key: string) {
   return node.part_key === key || key.startsWith(`${node.part_key}/`);
-}
-
-function errorMessage(error: unknown) {
-  return (error as CommandError)?.message ?? String(error);
 }
 
 function SkinCover({ skin, onOpen, onReveal, imported = false }: { skin: LocalSkinSummary; onOpen: () => void; onReveal: () => void; imported?: boolean }) {

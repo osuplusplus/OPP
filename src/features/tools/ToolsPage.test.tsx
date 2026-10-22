@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { desktopApi } from "../../shared/lib/tauri";
 import type { BeatmapPreviewInspection } from "../../shared/types/osu";
-import { BeatmapPreviewCard } from "./ToolsPage";
+import { BeatmapPreviewCard } from "./cards/BeatmapPreviewCard";
 
 const standardInspection: BeatmapPreviewInspection = {
   bid: 123,

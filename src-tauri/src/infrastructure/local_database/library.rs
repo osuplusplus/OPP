@@ -4,6 +4,7 @@ use crate::error::{CommandError, CommandResult};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// 一次扫描产出的完整索引快照：来源、算法、摘要与全部资源条目。
 pub(crate) struct Snapshot {
     pub client: String,
     pub root: String,
@@ -11,16 +12,20 @@ pub(crate) struct Snapshot {
     pub algorithm: String,
     pub summary_json: String,
     pub diagnostics_json: String,
+    /// 本轮扫描的修订标识；落库时兼作 `last_successful_scan_at`。
     pub revision: String,
+    /// 扫描完成度标记（如 `complete`）。
     pub completeness: String,
     pub entries: Vec<Entry>,
 }
+/// 单个资源条目：键、JSON 载荷与内容哈希；哈希用于跳过未变化的写入。
 pub(crate) struct Entry {
     pub key: String,
     pub json: String,
     pub hash: String,
     pub beatmap: Option<Beatmap>,
 }
+/// 谱面条目的物理与元数据信息，分别写入 `beatmap_files` 与 `beatmap_metadata`。
 pub(crate) struct Beatmap {
     pub physical_path: String,
     pub logical_path: Option<String>,
@@ -39,6 +44,8 @@ pub(crate) struct Beatmap {
     pub difficulty: String,
 }
 
+/// 读取指定客户端的快照与全部条目；条目数与记录的 `entry_count` 不一致视为损坏，
+/// 该客户端从未扫描过时返回 `None`。
 pub(crate) fn load(connection: &Connection, client: &str) -> CommandResult<Option<Snapshot>> {
     let tx = connection.unchecked_transaction().map_err(sql_error)?;
     let snapshot = tx.query_row(
@@ -77,6 +84,8 @@ pub(crate) fn load(connection: &Connection, client: &str) -> CommandResult<Optio
     Ok(Some(snapshot))
 }
 
+/// 在单个立即事务内整体落库一个快照：内容哈希未变的条目跳过写入，
+/// 消失的条目删除，谱面物理信息随条目同步增删；中途失败整体回滚。
 pub(crate) fn save(connection: &mut Connection, snapshot: &Snapshot) -> CommandResult<()> {
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -99,6 +108,7 @@ pub(crate) fn save(connection: &mut Connection, snapshot: &Snapshot) -> CommandR
         )
         .optional()
         .map_err(sql_error)?;
+    // 同一客户端换了根目录时移除旧来源记录。
     if let Some(previous) = previous.filter(|previous| *previous != source) {
         tx.execute("DELETE FROM library_sources WHERE id=?1", [previous])
             .map_err(sql_error)?;
@@ -160,6 +170,7 @@ pub(crate) fn save(connection: &mut Connection, snapshot: &Snapshot) -> CommandR
                 creator=excluded.creator,difficulty_name=excluded.difficulty_name",
                 params![file,map.id,map.set_id,map.ruleset,map.title,map.title_unicode,map.artist,map.artist_unicode,map.creator,map.difficulty]).map_err(sql_error)?;
         } else {
+            // 条目不再关联谱面时仅清掉物理信息行，资源条目本身保留。
             tx.execute(
                 "DELETE FROM beatmap_files WHERE resource_entry_id=?1",
                 [resource],
@@ -180,6 +191,8 @@ pub(super) const PRESENCE_SQL: &str =
     JOIN beatmap_files f ON f.id=m.file_id JOIN resource_entries e ON e.id=f.resource_entry_id
     WHERE m.beatmap_id=?1 AND f.source_id=?2)";
 
+/// 查询给定 ID 中已被索引的集合，仅认当前匹配的来源与修订；
+/// 找不到该来源时返回 `None`，由调用方按“未知”降级处理。
 pub(crate) fn present_ids(
     connection: &Connection,
     client: &str,

@@ -4,7 +4,7 @@ import { desktopApi } from "../../shared/lib/tauri";
 export const localDatabaseKey = ["local-database"] as const;
 
 export function useLocalDatabaseStatus() {
-  return useQuery({ queryKey: localDatabaseKey, queryFn: desktopApi.getLocalDatabaseStatus, staleTime: Infinity, retry: false });
+  return useQuery({ queryKey: localDatabaseKey, queryFn: desktopApi.getLocalDatabaseStatus, staleTime: Infinity });
 }
 
 type DatabaseAction =
@@ -36,7 +36,7 @@ export function useLocalDatabaseAction() {
 }
 
 export function useLocalLibraryStorage(enabled: boolean) {
-  return useQuery({ queryKey: ["local-library-storage"], queryFn: desktopApi.getLocalLibraryStorageStatus, enabled, refetchInterval: 5000, retry: false });
+  return useQuery({ queryKey: ["local-library-storage"], queryFn: desktopApi.getLocalLibraryStorageStatus, enabled, refetchInterval: 5000 });
 }
 
 export function useMigrateLocalLibrary() {

@@ -3,14 +3,8 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { AppDialog } from "../../shared/components/AppDialog";
 import { Button, Card, SectionTitle } from "../../shared/components/ui";
-import type { CommandError, LocalDatabaseStatus } from "../../shared/types/osu";
+import type { LocalDatabaseStatus } from "../../shared/types/osu";
 import { useLocalDatabaseAction, useLocalDatabaseStatus, useLocalLibraryStorage, useMigrateLocalLibrary } from "./api";
-
-function errorMessage(error: unknown): string | undefined {
-  if (!error) return undefined;
-  if (typeof error === "object" && "message" in error) return String((error as CommandError).message);
-  return String(error);
-}
 
 function DatabaseDetails({ status }: { status: LocalDatabaseStatus }) {
   return <div className="space-y-3 text-sm text-slate-300">
@@ -45,7 +39,7 @@ export function LocalDatabaseGate({ children }: { children: ReactNode }) {
   const [skipped, setSkipped] = useState(false);
   if (skipped || query.data?.phase === "ready") return children;
   if (query.isPending) return <main className="grid min-h-screen place-items-center"><p role="status" className="text-sm text-slate-400">正在打开本地数据库…</p></main>;
-  const error = errorMessage(action.error ?? query.error ?? query.data?.error);
+  const error = (action.error ?? query.error ?? query.data?.error)?.message;
   return <AppDialog
     open
     title={query.data?.can_initialize ? "设置本地数据库保存位置" : "本地数据库需要处理"}
@@ -70,7 +64,7 @@ export function LocalDatabaseCard() {
   const action = useLocalDatabaseAction();
   const storage = useLocalLibraryStorage(Boolean(query.data));
   const migration = useMigrateLocalLibrary();
-  const error = errorMessage(action.error ?? query.error ?? query.data?.error);
+  const error = (action.error ?? query.error ?? query.data?.error)?.message;
   return <Card className="p-6">
     <SectionTitle title="本地数据库" description="管理谱面索引数据库的保存位置与可用状态。" />
     <div className="mt-4">
@@ -89,7 +83,7 @@ export function LocalDatabaseCard() {
         <p className="text-xs text-slate-400">未扫描的客户端请先完成本地扫描。同步只导入兼容索引，不会重新扫描游戏文件，也不会采集生涯数据。</p>
         <Button disabled={query.data.phase !== "ready" || migration.isPending || action.isPending} onClick={() => migration.mutate()}><RotateCcw className="size-4" />{migration.isPending ? "正在同步索引…" : "导入／同步现有索引"}</Button>
         {query.data.phase === "ready" && storage.data?.some((item) => item.error) ? <Button disabled={action.isPending || migration.isPending} onClick={() => action.mutate({ kind: "retry" })}>重试数据库并同步</Button> : null}
-        {storage.error || migration.error ? <p role="alert" className="text-rose-300">{errorMessage(storage.error ?? migration.error)}</p> : null}
+        {storage.error || migration.error ? <p role="alert" className="text-rose-300">{(storage.error ?? migration.error)?.message}</p> : null}
       </div> : null}
     </div>
   </Card>;

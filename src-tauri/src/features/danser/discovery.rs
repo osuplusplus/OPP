@@ -1,3 +1,4 @@
+//! danser 可执行文件、settings profile 与 FFmpeg 的平台化发现逻辑。
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -27,6 +28,7 @@ fn danser_in_path() -> Option<PathBuf> {
         .filter(|path| is_danser_executable(path))
 }
 
+/// 用户在设置中保存的路径：空白视为未配置，且必须通过 danser 文件名校验。
 fn saved_danser(saved: Option<&str>) -> Option<PathBuf> {
     saved
         .filter(|value| !value.trim().is_empty())
@@ -44,6 +46,7 @@ pub(super) fn resolve_danser_path(saved: Option<&str>) -> Option<PathBuf> {
     danser_in_path().or_else(|| saved_danser(saved))
 }
 
+/// 列出可用 profile 名（去扩展名、按小写排序）；无法解析为 JSON 的文件会被跳过。
 pub(super) fn list_profiles_for(executable: &Path) -> Vec<String> {
     // Linux：danser-go 的 settings 在 XDG 配置目录（~/.config/danser/*.json）；
     // Windows：发行包自带的 settings/ 子目录。

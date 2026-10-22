@@ -1,7 +1,11 @@
+//! 队列目录构建：把本地扫描出的候选音频按谱面集合合并为曲目，
+//! 处理跨客户端合并、收藏夹解析与播放源排序。
 use super::models::{QueueRequest, Track, TrackInfo};
 use crate::features::{collections::CollectionEntry, local_analysis::MusicCandidate};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// 由候选音频构建播放队列，返回 `(曲目列表, 收藏夹未命中条目数)`。
+/// 产出的曲目按标题、艺人、ID 排序，保证相同输入得到稳定输出。
 /// Connected components join unsubmitted sets only when an identical .osu checksum proves identity.
 /// Distinct positive online set IDs are never joined by a shared song or title.
 pub(crate) fn build_queue(
@@ -9,6 +13,7 @@ pub(crate) fn build_queue(
     request: &QueueRequest,
     collection: Option<&[CollectionEntry]>,
 ) -> (Vec<Track>, usize) {
+    // 分组：有线上谱集 ID 的用 "online:<id>"（跨客户端同名同集合），否则用 "客户端:集合键"。
     let mut groups: BTreeMap<String, Vec<MusicCandidate>> = BTreeMap::new();
     for candidate in candidates {
         let key = candidate
@@ -17,9 +22,11 @@ pub(crate) fn build_queue(
             .unwrap_or_else(|| format!("{}:{}", candidate.client, candidate.set_key));
         groups.entry(key).or_default().push(candidate);
     }
+    // 并查集：仅对没有线上 ID 的本地集合，以完全一致的 .osu 校验和作为同一谱面的证据。
     let mut checksum_owner: BTreeMap<String, String> = BTreeMap::new();
     let mut aliases: BTreeMap<String, String> =
         groups.keys().map(|k| (k.clone(), k.clone())).collect();
+    // 沿别名链找到代表键（并查集的根）。
     fn root(aliases: &BTreeMap<String, String>, key: &str) -> String {
         let mut current = key;
         while aliases[current] != current {
@@ -28,6 +35,7 @@ pub(crate) fn build_queue(
         current.to_owned()
     }
     for (key, maps) in &groups {
+        // 线上谱集已按 ID 天然合并，不再参与校验和合并。
         if key.starts_with("online:") {
             continue;
         }
@@ -40,6 +48,7 @@ pub(crate) fn build_queue(
                 let left = root(&aliases, key);
                 let right = root(&aliases, owner);
                 if left != right {
+                    // 共享同一校验和的集合合并：较大的根改为指向较小的根。
                     aliases.insert(left.max(right.clone()), root(&aliases, key).min(right));
                 }
             } else {
@@ -47,10 +56,13 @@ pub(crate) fn build_queue(
             }
         }
     }
+    // 按根键归并各分组，合并后的根键即曲目 ID。
     let mut merged: BTreeMap<String, Vec<MusicCandidate>> = BTreeMap::new();
     for (key, maps) in groups {
         merged.entry(root(&aliases, &key)).or_default().extend(maps);
     }
+    // 收藏夹条目匹配规则：校验和优先（忽略大小写），其次 beatmap ID，
+    // 仅有谱集 ID 的条目退回按谱集匹配。
     let entry_matches = |entry: &CollectionEntry, candidate: &MusicCandidate| {
         entry
             .checksum
@@ -76,6 +88,7 @@ pub(crate) fn build_queue(
     let mut resolved = BTreeSet::new();
     let mut tracks = Vec::new();
     for (id, mut maps) in merged {
+        // 任一候选满足请求过滤（客户端、查询命中、指定资源、收藏夹）即保留整个曲目。
         let selected = maps.iter().any(|m| {
             request.client.is_none_or(|c| c == m.client)
                 && m.matches
@@ -89,6 +102,7 @@ pub(crate) fn build_queue(
         if !selected {
             continue;
         }
+        // 播放源排序：请求指定的资源最优先，其次请求客户端，再按客户端与资源稳定排序。
         maps.sort_by_key(|m| {
             (
                 request
@@ -113,6 +127,7 @@ pub(crate) fn build_queue(
                 .into_iter()
                 .collect(),
         };
+        // 同一客户端指向同一音频文件的多个难度只保留一个播放源。
         let mut seen_assets = BTreeSet::new();
         let assets: Vec<_> = maps
             .iter()
@@ -122,6 +137,7 @@ pub(crate) fn build_queue(
         if assets.is_empty() {
             continue;
         }
+        // 标记收藏夹中已被本曲目覆盖的条目，用于统计本地缺失数。
         if let Some(entries) = collection {
             for (i, entry) in entries.iter().enumerate() {
                 if maps.iter().any(|m| entry_matches(entry, m)) {

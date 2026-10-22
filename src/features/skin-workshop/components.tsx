@@ -19,6 +19,7 @@ import {
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { Badge, Button, Card, EmptyState, Skeleton } from "../../shared/components/ui";
 import { cn } from "../../shared/lib/cn";
+import { formatBytes } from "../../shared/lib/format";
 import type {
   LocalSkinSummary,
   SkinAssetVariant,
@@ -28,18 +29,6 @@ import type {
 } from "../../shared/types/osu";
 import { useLocalSkinDetail } from "../local-analysis/api";
 import { useWorkshopAsset, useWorkshopConfig } from "./api";
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  const units = ["KB", "MB", "GB"];
-  let size = value / 1024;
-  let unit = units[0];
-  for (let index = 1; size >= 1024 && index < units.length; index += 1) {
-    size /= 1024;
-    unit = units[index];
-  }
-  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
-}
 
 export interface StagedItem {
   id: string;

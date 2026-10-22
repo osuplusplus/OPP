@@ -1,0 +1,4633 @@
+mod artwork;
+mod data;
+mod database;
+mod music;
+mod query;
+mod stage;
+
+#[cfg(test)]
+mod lazer_acceptance;
+
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    fs,
+    io::Cursor,
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
+        mpsc::{self, RecvTimeoutError},
+    },
+    thread,
+    time::{Duration, Instant},
+};
+
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use chrono::Utc;
+use image::{ImageFormat, ImageReader, Limits, codecs::jpeg::JpegEncoder, imageops::FilterType};
+use md5::{Digest, Md5};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use rayon::prelude::*;
+use tauri::{AppHandle, Emitter};
+use walkdir::WalkDir;
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+
+#[cfg(test)]
+use crate::domain::Ruleset;
+use crate::error::{CommandError, CommandResult};
+use crate::infrastructure::logging::global;
+
+use super::{
+    lazer_realm,
+    models::{
+        BeatmapQuery, Completeness, LocalArtwork, LocalBeatmapDetail, LocalBeatmapDifficultyRef,
+        LocalBeatmapSetSnapshot, LocalBeatmapSetSummary, LocalBeatmapSummary, LocalClient,
+        LocalIndexClientStatus, LocalIndexLoadPhase, LocalIndexLoadStatus, LocalLibrarySummary,
+        LocalScanProgress, LocalSkinAssetPayload, LocalSkinAssetSummary, LocalSkinDetail,
+        LocalSkinPreview, LocalSkinSummary, LocalSourceStatus, Page, ScanDiagnostic, SkinAssetKind,
+        SkinQuery,
+    },
+    parser::{
+        DIFFICULTY_ALGORITHM, calculate_strains, calculation_version, looks_like_beatmap,
+        looks_like_skin_config, parse_beatmap, parse_skin, read_prefix, sha256,
+    },
+    sources::{ResolvedSource, SourceResolver},
+};
+
+use data::{
+    Candidate, CandidateKind, INDEX_SCHEMA, IndexedData, IndexedEntry, LocalIndex,
+    SkinAssetLocation, directory_stamp, load_index, modified_iso, persist_index, stamp,
+};
+use query::{
+    apply_direction, audio_mime, beatmap_matches, compare_beatmap_sets,
+    enumerate_lazer_skin_assets, enumerate_skin_assets, find_skin_entry, option_f64_order,
+    skin_root, text_order,
+};
+#[cfg(test)]
+use query::{compare_beatmaps, page};
+
+/// 物化谱面集缓存的总大小上限，超出时按最近使用时间清理最旧目录。
+const MATERIALIZED_SETS_CACHE_LIMIT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+#[derive(Debug)]
+/// 文件发现阶段的中间结果：候选文件、源文件统计与可展示的诊断信息。
+struct Discovery {
+    candidates: Vec<Candidate>,
+    source_file_count: usize,
+    source_bytes: u64,
+    diagnostics: Vec<ScanDiagnostic>,
+}
+
+/// 本次扫描相对上次索引的变化计数，用于向客户端展示增量统计。
+#[derive(Debug, Default, Clone, Copy)]
+struct ScanChanges {
+    added: usize,
+    modified: usize,
+    removed: usize,
+    reused: usize,
+}
+
+/// 扫描进度发送器：节流事件频率，并保证前端看到的百分比单调递增。
+struct ProgressReporter {
+    emit_event: Arc<dyn Fn(LocalScanProgress) + Send + Sync>,
+    client: LocalClient,
+    // 节流基准时间与上次已发百分比：保证「最多 100ms 一条」且单调不减。
+    last_emit: Mutex<Instant>,
+    last_percent: Mutex<f64>,
+}
+
+impl ProgressReporter {
+    fn new(emit_event: Arc<dyn Fn(LocalScanProgress) + Send + Sync>, client: LocalClient) -> Self {
+        Self {
+            emit_event,
+            client,
+            last_emit: Mutex::new(Instant::now() - Duration::from_secs(1)),
+            last_percent: Mutex::new(0.0),
+        }
+    }
+
+    /// 常规更新最多每 100ms 一次；阶段结束时可用 `force` 立即发送。
+    fn emit(&self, phase: &str, processed: usize, total: usize, percent: f64, force: bool) {
+        let Ok(mut last_emit) = self.last_emit.lock() else {
+            return;
+        };
+        if !force && last_emit.elapsed() < Duration::from_millis(100) {
+            return;
+        }
+        let Ok(mut last_percent) = self.last_percent.lock() else {
+            return;
+        };
+        let percent = percent.clamp(*last_percent, 100.0);
+        *last_percent = percent;
+        *last_emit = Instant::now();
+        (self.emit_event)(LocalScanProgress {
+            client: self.client,
+            phase: phase.to_string(),
+            processed,
+            total,
+            percent,
+        });
+    }
+}
+
+/// 本地库扫描与查询服务。
+///
+/// 维护按客户端隔离的索引、皮肤资源定位表和可取消的扫描任务；CPU 密集的
+/// 解析工作由专用 Rayon 线程池完成，避免阻塞 Tauri 运行时。
+type BackgroundRequests = crate::infrastructure::flights::Flights<
+    (LocalClient, String, bool, String),
+    CommandResult<Option<String>>,
+>;
+
+/// 本地库扫描与查询服务的实现主体：按客户端维护索引快照与皮肤资源
+/// 定位表，对外提供查询、预览、导出与 lazer 资源物化能力。
+pub struct LocalAnalysisService {
+    // 收藏封面采样缓存：首次访问时计算，进程内驻留不再更新。
+    artwork_sample: Mutex<Option<Vec<LocalArtwork>>>,
+    // 相同键的并发后台请求合并为一次执行（single-flight，见 Flights）。
+    pub(super) background_requests: BackgroundRequests,
+    cache_dir: PathBuf,
+    sources: SourceResolver,
+    // 客户端 → 当前索引；读多写少，扫描完成后整体替换（Arc 快照语义）。
+    indexes: RwLock<BTreeMap<LocalClient, Arc<LocalIndex>>>,
+    // 皮肤资源 ID → 定位信息；替换资源或重扫后整体清空重建。
+    skin_assets: RwLock<BTreeMap<String, SkinAssetLocation>>,
+    // 每客户端的扫描取消标志；键存在即表示扫描进行中（同时充当互斥）。
+    scans: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
+    // 专用后台线程池：CPU 密集解析不占用 Tauri 运行时。
+    pool: &'static crate::infrastructure::tasks::WorkerPool,
+    // 缩略图缓存字节上限（原子读写，可在设置中调整）。
+    thumbnail_cache_limit_bytes: AtomicUsize,
+    // 索引加载阶段 + 每客户端监听/扫描状态，供前端轮询展示。
+    load_status: RwLock<LocalIndexLoadStatus>,
+    // 每客户端监听线程的停止标志；键存在即表示监听已启动。
+    watcher_stops: Mutex<BTreeMap<LocalClient, Arc<AtomicBool>>>,
+    // 纯音乐模式：置位后监听线程暂停文件事件。
+    music_only: AtomicBool,
+    database: RwLock<Option<Arc<crate::features::local_database::LocalDatabaseService>>>,
+    // 串行化索引的读档与写盘，避免同时读写同一批缓存文件。
+    persistence: Mutex<()>,
+    // 每客户端最近一次索引持久化方式（数据库/JSON）与错误信息。
+    storage_reports: RwLock<BTreeMap<LocalClient, super::models::LocalLibraryStorageStatus>>,
+    // 读档时发现数据库快照不兼容或损坏、需强制重扫重建的客户端集合。
+    repair_clients: Mutex<BTreeSet<LocalClient>>,
+}
+
+impl LocalAnalysisService {
+    /// 创建服务并初始化缓存目录（索引、缩略图、物化目录的根）。
+    pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
+        let cache_dir = app_data_dir.join("local-analysis");
+        fs::create_dir_all(&cache_dir)?;
+        fs::create_dir_all(cache_dir.join("thumbnails"))?;
+        let sources = SourceResolver::load(&cache_dir)?;
+        let pool = crate::infrastructure::tasks::background_pool()?;
+        Ok(Self {
+            artwork_sample: Mutex::new(None),
+            background_requests: BackgroundRequests::default(),
+            cache_dir,
+            sources,
+            indexes: RwLock::new(BTreeMap::new()),
+            skin_assets: RwLock::new(BTreeMap::new()),
+            scans: Mutex::new(BTreeMap::new()),
+            pool,
+            thumbnail_cache_limit_bytes: AtomicUsize::new(512 * 1024 * 1024),
+            load_status: RwLock::new(LocalIndexLoadStatus {
+                phase: LocalIndexLoadPhase::Loading,
+                error: None,
+                clients: [LocalClient::Stable, LocalClient::Lazer]
+                    .into_iter()
+                    .map(|client| (client, LocalIndexClientStatus::default()))
+                    .collect(),
+            }),
+            watcher_stops: Mutex::new(BTreeMap::new()),
+            music_only: AtomicBool::new(false),
+            database: RwLock::new(None),
+            persistence: Mutex::new(()),
+            storage_reports: RwLock::new(BTreeMap::new()),
+            repair_clients: Mutex::new(BTreeSet::new()),
+        })
+    }
+
+    /// 启动时从数据库快照或 JSON 缓存恢复两个客户端的索引。
+    ///
+    /// 单个客户端恢复失败只记录存储状态、不阻塞启动；恢复结束后统一
+    /// 推进加载阶段（`Ready` / `Error`），待修复客户端再强制重扫一次。
+    pub fn load_cached_indexes(&self) {
+        let result = (|| -> CommandResult<()> {
+            // 与写盘互斥，避免恢复期间读到正在替换的缓存文件。
+            let _guard = self
+                .persistence
+                .lock()
+                .map_err(|_| database::state_error())?;
+            let mut loaded = BTreeMap::new();
+            for client in [LocalClient::Stable, LocalClient::Lazer] {
+                match self.restore_library(client) {
+                    Ok(Some(index)) => {
+                        loaded.insert(client, Arc::new(index));
+                    }
+                    Ok(None) => {}
+                    Err(error) => self.report_storage_error(client, error),
+                }
+            }
+            let mut indexes = self
+                .indexes
+                .write()
+                .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "本地索引状态已损坏"))?;
+            for (client, index) in loaded {
+                indexes.entry(client).or_insert(index);
+            }
+            // Publish the restored revision as well as the ready phase. A page can
+            // miss the loading phase while its summary request still sees no index.
+            for (client, index) in indexes.iter() {
+                self.update_client_status(*client, |status| {
+                    status.last_scan_at = Some(index.summary.scanned_at.clone());
+                });
+            }
+            drop(indexes);
+            self.trim_thumbnail_cache()?;
+            Ok(())
+        })();
+        // 恢复成功后处理待修复客户端：强制重扫以重建数据库快照。
+        if result.is_ok() {
+            let repairs = self
+                .repair_clients
+                .lock()
+                .map(|mut clients| {
+                    std::mem::take(&mut *clients)
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            for client in repairs {
+                // A pre-existing database snapshot can contain duplicate
+                // Lazer resource keys. Rebuild it once after detecting the
+                // mismatch so the next launch can restore the cache normally.
+                let _ = self.scan(client, true, Arc::new(|_| {}));
+            }
+        }
+        if let Ok(mut status) = self.load_status.write() {
+            let clients = status.clients.clone();
+            *status = match result {
+                Ok(()) => LocalIndexLoadStatus {
+                    phase: LocalIndexLoadPhase::Ready,
+                    error: None,
+                    clients,
+                },
+                Err(error) => LocalIndexLoadStatus {
+                    phase: LocalIndexLoadPhase::Error,
+                    error: Some(error.message),
+                    clients,
+                },
+            };
+        }
+    }
+
+    /// 在后台监听 Stable/Lazer 数据目录，文件变化经短暂去抖后自动触发增量扫描。
+    ///
+    /// 监听线程会自行跟随设置中的数据目录变化，因此用户切换安装位置后无需重启 OPP。
+    pub fn start_watchers(self: &Arc<Self>, app: AppHandle) {
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            let should_start = self
+                .watcher_stops
+                .lock()
+                .map(|stops| !stops.contains_key(&client))
+                .unwrap_or(false);
+            if !should_start {
+                continue;
+            }
+            let stop = Arc::new(AtomicBool::new(false));
+            if let Ok(mut stops) = self.watcher_stops.lock() {
+                stops.insert(client, Arc::clone(&stop));
+            }
+            let service = Arc::clone(self);
+            let app_handle = app.clone();
+            let _ = thread::Builder::new()
+                .name(format!("opp-local-watch-{client}"))
+                .spawn(move || service.watch_source(client, app_handle, stop));
+        }
+    }
+
+    /// 单个客户端的监听主循环：数据目录变化时重建 watcher；文件事件
+    /// 去抖后触发一次增量扫描；与手动扫描撞车（`SCAN_IN_PROGRESS`）时
+    /// 等待对方结束后重试。
+    fn watch_source(self: Arc<Self>, client: LocalClient, app: AppHandle, stop: Arc<AtomicBool>) {
+        let mut watched_roots = Vec::<PathBuf>::new();
+        let mut watcher: Option<RecommendedWatcher> = None;
+        let (events_tx, events_rx) = mpsc::sync_channel::<()>(1);
+        while !stop.load(AtomicOrdering::Relaxed) {
+            // 纯音乐模式下暂停监听，丢弃已注册的监听根。
+            if self.music_only.load(AtomicOrdering::Relaxed) {
+                watcher = None;
+                watched_roots.clear();
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+            // 设置中的数据目录可能被用户切换：监听根变化时重建 watcher。
+            let roots = self.watch_roots(client);
+            if roots != watched_roots {
+                watcher = None;
+                watched_roots = roots.clone();
+                if !roots.is_empty() {
+                    let tx = events_tx.clone();
+                    let callback_roots = roots.clone();
+                    match RecommendedWatcher::new(
+                        move |result: notify::Result<notify::Event>| {
+                            if result.as_ref().is_ok_and(|event| {
+                                watch_event_relevant(client, &callback_roots, event)
+                            }) {
+                                let _ = tx.try_send(());
+                            }
+                        },
+                        Config::default(),
+                    ) {
+                        Ok(mut next) => {
+                            let mut failed = false;
+                            for root in &roots {
+                                if next.watch(root, RecursiveMode::Recursive).is_err() {
+                                    failed = true;
+                                    break;
+                                }
+                            }
+                            if failed {
+                                self.update_client_status(client, |status| {
+                                    status.phase = "error".into();
+                                });
+                            } else {
+                                watcher = Some(next);
+                                self.update_client_status(client, |status| {
+                                    if status.phase == "idle" || status.phase == "error" {
+                                        status.phase = "watching".into();
+                                    }
+                                });
+                            }
+                        }
+                        Err(_) => self.update_client_status(client, |status| {
+                            status.phase = "error".into();
+                        }),
+                    }
+                } else {
+                    self.update_client_status(client, |status| status.phase = "idle".into());
+                }
+            }
+
+            match events_rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(()) => {
+                    // 文件写入通常会产生多个事件，合并一秒内的事件以避免重复扫描。
+                    let debounce = Instant::now();
+                    while debounce.elapsed() < Duration::from_secs(1)
+                        && !stop.load(AtomicOrdering::Relaxed)
+                        && events_rx.recv_timeout(Duration::from_millis(250)).is_ok()
+                    {
+                    }
+                    if stop.load(AtomicOrdering::Relaxed) {
+                        break;
+                    }
+                    let now = Utc::now().to_rfc3339();
+                    self.update_client_status(client, |status| {
+                        status.phase = "pending".into();
+                        status.pending_changes = status.pending_changes.saturating_add(1);
+                        status.last_change_at = Some(now.clone());
+                    });
+                    let service_for_emit = Arc::clone(&self);
+                    let app_for_emit = app.clone();
+                    let emit = Arc::new(move |progress: LocalScanProgress| {
+                        let _ = app_for_emit.emit("local-scan-progress", progress);
+                    });
+                    let mut emit: Option<Arc<dyn Fn(LocalScanProgress) + Send + Sync>> = Some(emit);
+                    loop {
+                        let Some(handler) = emit.take() else { break };
+                        match self.scan(client, false, handler) {
+                            Ok(_) => break,
+                            Err(error) if error.code == "SCAN_IN_PROGRESS" => {
+                                // 手动扫描与文件事件同时发生时，等待当前扫描结束再补一次增量扫描。
+                                if stop.load(AtomicOrdering::Relaxed) {
+                                    break;
+                                }
+                                thread::sleep(Duration::from_millis(500));
+                                emit = Some(Arc::new({
+                                    let app_for_emit = app.clone();
+                                    move |progress: LocalScanProgress| {
+                                        let _ = app_for_emit.emit("local-scan-progress", progress);
+                                    }
+                                }));
+                            }
+                            Err(_) => {
+                                service_for_emit.update_client_status(client, |status| {
+                                    status.phase = "error".into();
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            let _ = &watcher;
+        }
+    }
+
+    /// 计算客户端需要监听的根目录。
+    ///
+    /// Stable 分别监听 Songs 与 Skins（重复时去重）；Lazer 只监听数据
+    /// 根目录，`client.realm` 与 `files/` 都在其下。目录不存在时不注册。
+    fn watch_roots(&self, client: LocalClient) -> Vec<PathBuf> {
+        let Ok(source) = self.sources.resolve(client) else {
+            return Vec::new();
+        };
+        let mut roots = Vec::new();
+        match client {
+            LocalClient::Stable => {
+                if let Some(root) = source.beatmap_root.filter(|path| path.is_dir()) {
+                    roots.push(root);
+                }
+                if let Some(root) = source.skin_root.filter(|path| path.is_dir())
+                    && !roots.iter().any(|existing| existing == &root)
+                {
+                    roots.push(root);
+                }
+            }
+            LocalClient::Lazer => {
+                if let Some(root) = source
+                    .repository_root
+                    .and_then(|path| path.parent().map(Path::to_path_buf))
+                    .filter(|path| path.is_dir())
+                {
+                    roots.push(root);
+                }
+            }
+        }
+        roots
+    }
+
+    fn update_client_status<F>(&self, client: LocalClient, update: F)
+    where
+        F: FnOnce(&mut LocalIndexClientStatus),
+    {
+        if let Ok(mut status) = self.load_status.write()
+            && let Some(client_status) = status.clients.get_mut(&client)
+        {
+            update(client_status);
+        }
+    }
+
+    pub fn index_load_status(&self) -> CommandResult<LocalIndexLoadStatus> {
+        self.load_status
+            .read()
+            .map(|status| status.clone())
+            .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "本地索引状态已损坏"))
+    }
+
+    /// 设置缩略图缓存上限（MB，夹取到 64–10240），并立即触发一次清理。
+    pub fn set_thumbnail_cache_limit_mb(&self, limit_mb: u32) -> CommandResult<()> {
+        let limit = usize::try_from(limit_mb.clamp(64, 10_240))
+            .unwrap_or(512)
+            .saturating_mul(1024 * 1024);
+        self.thumbnail_cache_limit_bytes
+            .store(limit, AtomicOrdering::Relaxed);
+        self.trim_thumbnail_cache()
+    }
+
+    /// 缩略图缓存总量超出上限时，按修改时间从旧到新删除直至达标。
+    fn trim_thumbnail_cache(&self) -> CommandResult<()> {
+        let directory = self.cache_dir.join("thumbnails");
+        let mut files = fs::read_dir(&directory)?
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let metadata = entry.metadata().ok()?;
+                metadata.is_file().then(|| {
+                    (
+                        entry.path(),
+                        metadata.len(),
+                        metadata
+                            .modified()
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        files.sort_by_key(|(_, _, modified)| *modified);
+        let limit = self
+            .thumbnail_cache_limit_bytes
+            .load(AtomicOrdering::Relaxed) as u64;
+        let mut total = files.iter().map(|(_, size, _)| *size).sum::<u64>();
+        for (path, size, _) in files {
+            if total <= limit {
+                break;
+            }
+            if fs::remove_file(path).is_ok() {
+                total = total.saturating_sub(size);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn source_statuses(&self) -> CommandResult<Vec<LocalSourceStatus>> {
+        [LocalClient::Stable, LocalClient::Lazer]
+            .into_iter()
+            .map(|client| self.source_status(client))
+            .collect()
+    }
+
+    pub fn source_status(&self, client: LocalClient) -> CommandResult<LocalSourceStatus> {
+        let mut resolved = self.sources.resolve(client)?;
+        if let Some(index) = self.current_index(client)?
+            && source_matches(&resolved, &index.source_root)
+        {
+            resolved.status.last_scanned_at = Some(index.summary.scanned_at.clone());
+        }
+        Ok(resolved.status)
+    }
+
+    /// 供其他模块（如工具页的 lazer 去重）读取带用户覆盖配置的已解析源路径。
+    pub fn resolved_source(&self, client: LocalClient) -> CommandResult<ResolvedSource> {
+        self.sources.resolve(client)
+    }
+
+    pub fn set_source(
+        &self,
+        client: LocalClient,
+        selected_path: &Path,
+    ) -> CommandResult<LocalSourceStatus> {
+        let mut resolved = self.sources.set_override(client, selected_path)?;
+        if let Some(index) = self.current_index(client)?
+            && source_matches(&resolved, &index.source_root)
+        {
+            resolved.status.last_scanned_at = Some(index.summary.scanned_at.clone());
+        }
+        Ok(resolved.status)
+    }
+
+    pub fn reset_source(&self, client: LocalClient) -> CommandResult<LocalSourceStatus> {
+        let mut resolved = self.sources.reset(client)?;
+        if let Some(index) = self.current_index(client)?
+            && source_matches(&resolved, &index.source_root)
+        {
+            resolved.status.last_scanned_at = Some(index.summary.scanned_at.clone());
+        }
+        Ok(resolved.status)
+    }
+
+    pub fn summary(&self, client: LocalClient) -> CommandResult<Option<LocalLibrarySummary>> {
+        let source = self.sources.resolve(client)?;
+        Ok(self
+            .current_index(client)?
+            .filter(|index| source_matches(&source, &index.source_root))
+            .map(|index| index.summary.clone()))
+    }
+
+    /// 请求取消该客户端正在进行的扫描；扫描在检查点感知后以
+    /// `SCAN_CANCELLED` 结束。
+    pub fn cancel_scan(&self, client: LocalClient) -> CommandResult<()> {
+        if let Some(cancel) = self
+            .scans
+            .lock()
+            .map_err(|_| CommandError::new("LOCAL_SCAN_STATE_ERROR", "扫描状态已损坏"))?
+            .get(&client)
+        {
+            cancel.store(true, AtomicOrdering::Relaxed);
+        }
+        Ok(())
+    }
+
+    /// 扫描指定客户端的本地库并返回新的库摘要。
+    ///
+    /// 同一客户端同时只允许一个扫描进行（否则返回 `SCAN_IN_PROGRESS`）；
+    /// `force` 为真时忽略增量缓存全量重建。扫描主体放入后台线程池，
+    /// 结束后按结果推进客户端阶段状态。
+    pub fn scan(
+        &self,
+        client: LocalClient,
+        force: bool,
+        emit_event: Arc<dyn Fn(LocalScanProgress) + Send + Sync>,
+    ) -> CommandResult<LocalLibrarySummary> {
+        let span =
+            global().map(|logger| logger.operation("local_analysis", format!("scan:{client}")));
+
+        // osu!lazer updates the Realm file while starting up even when its
+        // beatmap library did not change. The filesystem watcher cannot tell
+        // that metadata-only write from a library change, so avoid rebuilding
+        // the expensive Realm/blob index when the Realm content is identical
+        // to the last successful scan. Manual scans can still force a rebuild.
+        if !force
+            && client == LocalClient::Lazer
+            && let Some(summary) = self.reusable_lazer_summary()?
+        {
+            if let Some(mut span) = span {
+                span.finish_ok(Some(serde_json::json!({
+                    "client": client,
+                    "beatmaps": summary.beatmap_count,
+                    "beatmap_sets": summary.beatmap_set_count,
+                    "reused": true,
+                })));
+            }
+            return Ok(summary);
+        }
+
+        // 先登记取消标志再执行：键存在即互斥，并支持中途取消。
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut scans = self
+                .scans
+                .lock()
+                .map_err(|_| CommandError::new("LOCAL_SCAN_STATE_ERROR", "扫描状态已损坏"))?;
+            if scans.contains_key(&client) {
+                return Err(CommandError::new(
+                    "SCAN_IN_PROGRESS",
+                    format!("{client} 已有扫描正在进行"),
+                ));
+            }
+            scans.insert(client, Arc::clone(&cancel));
+        }
+
+        self.update_client_status(client, |status| {
+            status.phase = "scanning".into();
+            status.pending_changes = 0;
+        });
+
+        // CPU 密集流程切换到后台线程池，避免阻塞 Tauri 运行时。
+        let result = self
+            .pool
+            .install(|| self.run_scan(client, force, emit_event, &cancel));
+        // Lazer 扫描成功后记录 Realm 指纹，供下次复用判定比对。
+        if result.is_ok() && client == LocalClient::Lazer {
+            self.persist_lazer_fingerprint();
+        }
+        if let Ok(mut scans) = self.scans.lock() {
+            scans.remove(&client);
+        }
+        if let Some(mut span) = span {
+            match &result {
+                Ok(summary) => span.finish_ok(Some(serde_json::json!({
+                    "client": client,
+                    "beatmaps": summary.beatmap_count,
+                    "beatmap_sets": summary.beatmap_set_count,
+                }))),
+                Err(error) => span.finish_error(error),
+            }
+        }
+        self.update_client_status(client, |status| match &result {
+            Ok(summary) => {
+                status.phase = "watching".into();
+                status.pending_changes = 0;
+                status.last_scan_at = Some(summary.scanned_at.clone());
+            }
+            Err(error) if error.code == "SCAN_CANCELLED" => {
+                status.phase = "watching".into();
+            }
+            Err(_) => status.phase = "error".into(),
+        });
+        result
+    }
+
+    /// Return the cached Lazer summary when the Realm bytes are unchanged.
+    ///
+    /// This is deliberately a content check rather than an mtime check:
+    /// osu!lazer commonly touches `client.realm` during startup, which used to
+    /// make the watcher schedule a full scan on every application launch.
+    fn reusable_lazer_summary(&self) -> CommandResult<Option<LocalLibrarySummary>> {
+        let source = self.sources.resolve(LocalClient::Lazer)?;
+        if !source.status.valid {
+            return Ok(None);
+        }
+        let Some(source_root) = source_root(&source) else {
+            return Ok(None);
+        };
+        let Some(index) = self.current_index(LocalClient::Lazer)? else {
+            return Ok(None);
+        };
+        if index.source_root != source_root {
+            return Ok(None);
+        }
+        let Some(current) = self.lazer_realm_fingerprint(&source) else {
+            return Ok(None);
+        };
+        let cached = fs::read_to_string(self.lazer_fingerprint_path()).ok();
+        Ok((cached.as_deref() == Some(current.as_str())).then_some(index.summary.clone()))
+    }
+
+    /// 计算 lazer `client.realm` 整文件的 SHA-256，作为库内容指纹。
+    fn lazer_realm_fingerprint(&self, source: &ResolvedSource) -> Option<String> {
+        let files_root = source.repository_root.as_ref()?;
+        let realm_path = files_root.parent()?.join("client.realm");
+        let bytes = fs::read(realm_path).ok()?;
+        Some(sha256(&bytes))
+    }
+
+    fn lazer_fingerprint_path(&self) -> PathBuf {
+        self.cache_dir.join("lazer-realm-fingerprint.json")
+    }
+
+    /// 把当前 Realm 指纹写入缓存文件，供下次启动的复用判定比对。
+    fn persist_lazer_fingerprint(&self) {
+        let Ok(source) = self.sources.resolve(LocalClient::Lazer) else {
+            return;
+        };
+        let Some(fingerprint) = self.lazer_realm_fingerprint(&source) else {
+            return;
+        };
+        let target = self.lazer_fingerprint_path();
+        let _ = fs::write(&target, fingerprint.as_bytes());
+    }
+
+    /// 扫描主流程：发现候选 → 与上次索引比对增量 → 后台线程池并行解析
+    /// （时间戳未变的条目直接复用旧结果）→ 汇总构建并发布新索引。
+    fn run_scan(
+        &self,
+        client: LocalClient,
+        force: bool,
+        emit_event: Arc<dyn Fn(LocalScanProgress) + Send + Sync>,
+        cancel: &AtomicBool,
+    ) -> CommandResult<LocalLibrarySummary> {
+        check_cancelled(cancel)?;
+        let source = self.sources.resolve(client)?;
+        if !source.status.valid {
+            return Err(CommandError::new(
+                "INVALID_LOCAL_SOURCE",
+                source.status.validation_errors.join("；"),
+            ));
+        }
+        let source_root = source_root(&source)
+            .ok_or_else(|| CommandError::new("INVALID_LOCAL_SOURCE", "本地资源数据根目录不可用"))?;
+        let reporter = Arc::new(ProgressReporter::new(emit_event, client));
+        reporter.emit("discovery", 0, 0, 0.0, true);
+
+        let discovery = discover(&source, client, cancel, &reporter)?;
+        check_cancelled(cancel)?;
+        let total = discovery.candidates.len();
+        reporter.emit("indexing", 0, total, 5.0, true);
+
+        // 增量复用条件：schema、难度算法与数据根都一致，否则视为无上次索引。
+        let previous = if force {
+            None
+        } else {
+            self.current_index(client)?.filter(|index| {
+                index.schema == INDEX_SCHEMA
+                    && index.difficulty_algorithm == DIFFICULTY_ALGORITHM
+                    && index.source_root == source_root
+            })
+        };
+        let previous_entries = previous
+            .as_ref()
+            .map(|index| {
+                index
+                    .entries
+                    .iter()
+                    .map(|entry| (entry.key.clone(), entry.clone()))
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
+        let changes = scan_changes(&discovery.candidates, &previous_entries);
+        self.update_client_status(client, |status| {
+            status.added = changes.added;
+            status.modified = changes.modified;
+            status.removed = changes.removed;
+            status.reused = changes.reused;
+        });
+        let processed = AtomicUsize::new(0);
+        let reporter_for_pool = Arc::clone(&reporter);
+
+        // 解析阶段并行执行；取消以返回 None 的方式传播，稍后统一丢弃。
+        let mut entries = self.pool.install(|| {
+            discovery
+                .candidates
+                .par_iter()
+                .map(|candidate| {
+                    if cancel.load(AtomicOrdering::Relaxed) {
+                        return None;
+                    }
+                    // 时间戳相同的条目跳过解析与难度计算，直接复用上次结果。
+                    let entry = previous_entries
+                        .get(&candidate.key)
+                        .filter(|cached| cached.stamp == candidate.stamp)
+                        .cloned()
+                        .unwrap_or_else(|| process_candidate(client, candidate));
+                    let done = processed.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+                    let percent = if total == 0 {
+                        90.0
+                    } else {
+                        5.0 + (done as f64 / total as f64) * 85.0
+                    };
+                    reporter_for_pool.emit("beatmaps", done, total, percent, false);
+                    Some(entry)
+                })
+                .collect::<Vec<_>>()
+        });
+        check_cancelled(cancel)?;
+        // 丢弃取消产生的 None 后按稳定键排序，保证索引与持久化结果确定。
+        let mut entries = entries.drain(..).flatten().collect::<Vec<_>>();
+        entries.sort_by(|left, right| left.key.cmp(&right.key));
+        // 难度与皮肤统计已在解析阶段一并完成，仅保留阶段事件兼容前端展示。
+        reporter.emit("difficulty", total, total, 94.0, true);
+        reporter.emit("skins", total, total, 97.0, true);
+
+        // 合并发现阶段与逐条目解析产生的诊断。
+        let mut diagnostics = discovery.diagnostics;
+        diagnostics.extend(
+            entries
+                .iter()
+                .flat_map(|entry| entry.diagnostics.iter().cloned()),
+        );
+        let summary = build_summary(
+            client,
+            &source_root,
+            &entries,
+            discovery.source_file_count,
+            discovery.source_bytes,
+            diagnostics.len(),
+        );
+        let mut index = LocalIndex {
+            schema: INDEX_SCHEMA,
+            difficulty_algorithm: DIFFICULTY_ALGORITHM.to_string(),
+            source_root,
+            summary: summary.clone(),
+            diagnostics,
+            entries,
+            search_fields: Vec::new(),
+            resource_lookup: BTreeMap::new(),
+            beatmap_id_lookup: BTreeMap::new(),
+            set_id_lookup: BTreeSet::new(),
+            beatmap_md5_lookup: BTreeMap::new(),
+            beatmap_sets: BTreeMap::new(),
+            beatmap_orders: BTreeMap::new(),
+            skin_orders: BTreeMap::new(),
+        };
+        // 重建资源 ID / MD5 / 排序等运行时查找表。
+        index.rebuild_runtime_indexes();
+        check_cancelled(cancel)?;
+        reporter.emit("finalizing", total, total, 99.0, true);
+        self.store_and_publish(client, index)?;
+        reporter.emit("finalizing", total, total, 100.0, true);
+        Ok(summary)
+    }
+
+    /// 按排序键的预排序序列分页查询谱面；过滤命中计数与取页一次遍历完成。
+    pub fn query_beatmaps(&self, query: BeatmapQuery) -> CommandResult<Page<LocalBeatmapSummary>> {
+        let index = self.require_current_index(query.client)?;
+        let search = query.search.trim().to_lowercase();
+        let limit = query.limit.clamp(1, query::MAX_QUERY_LIMIT);
+        // 排序表在扫描时预计算；未知排序键得到空序列，结果为空。
+        let ordered = index
+            .beatmap_orders
+            .get(&query.sort)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let positions: Box<dyn Iterator<Item = &usize>> = match query.direction {
+            super::models::SortDirection::Asc => Box::new(ordered.iter()),
+            super::models::SortDirection::Desc => Box::new(ordered.iter().rev()),
+        };
+        let mut total = 0usize;
+        let mut items = Vec::with_capacity(limit);
+        for position in positions {
+            let Some(IndexedEntry {
+                data: IndexedData::Beatmap { summary, .. },
+                ..
+            }) = index.entries.get(*position)
+            else {
+                continue;
+            };
+            if index.matches(*position, &query, &search) {
+                if total >= query.offset && items.len() < limit {
+                    items.push(summary.clone());
+                }
+                total += 1;
+            }
+        }
+        Ok(Page {
+            items,
+            total,
+            offset: query.offset,
+            limit,
+        })
+    }
+
+    /// Resolve a local standard beatmap by its stable online id for consumers
+    /// that need the original bytes rather than a paginated UI result.
+    pub fn beatmap_path_by_id(
+        &self,
+        client: LocalClient,
+        beatmap_id: i32,
+    ) -> CommandResult<Option<(String, String)>> {
+        let index = self.require_current_index(client)?;
+        let entry = index
+            .beatmap_id_lookup
+            .get(&beatmap_id)
+            .and_then(|position| index.entries.get(*position));
+        let Some(entry) = entry else {
+            return Ok(None);
+        };
+        let IndexedData::Beatmap { summary, .. } = &entry.data else {
+            return Ok(None);
+        };
+        let path = entry.physical_path.canonicalize().map_err(|error| {
+            CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                format!("本地谱面文件不可用：{error}"),
+            )
+        })?;
+        Ok(Some((
+            path.to_string_lossy().into_owned(),
+            summary.resource.resource_id.clone(),
+        )))
+    }
+
+    /// 任一客户端本地库包含该谱面集 ID 时返回真（下载去重判断用）。
+    pub(crate) fn contains_beatmapset_id(&self, beatmapset_id: i32) -> bool {
+        [LocalClient::Stable, LocalClient::Lazer]
+            .into_iter()
+            .filter_map(|client| self.require_current_index(client).ok())
+            .any(|index| index.set_id_lookup.contains(&beatmapset_id))
+    }
+
+    /// 汇总两个客户端本地库中的全部在线谱面集 ID（正值、去重、升序）。
+    ///
+    /// 未扫描的客户端直接跳过；本地自制的谱面集没有在线 ID（0 或负值），
+    /// 不参与云端备份。
+    pub(crate) fn collect_beatmapset_ids(&self) -> Vec<i32> {
+        let mut ids = BTreeSet::new();
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            if let Ok(index) = self.require_current_index(client) {
+                ids.extend(index.set_id_lookup.iter().copied().filter(|id| *id > 0));
+            }
+        }
+        ids.into_iter().collect()
+    }
+
+    /// 按在线谱面集 ID 汇总本地难度快照，供备份恢复构建收藏条目。
+    ///
+    /// 同一集合 Stable 优先，Stable 命中后不再读 Lazer 副本；单次遍历
+    /// 条目表分组，输入集合外的条目不进入结果。
+    pub(crate) fn local_sets_by_id(
+        &self,
+        ids: &BTreeSet<i32>,
+    ) -> CommandResult<HashMap<i32, LocalBeatmapSetSnapshot>> {
+        let mut snapshots: HashMap<i32, LocalBeatmapSetSnapshot> = HashMap::new();
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            let Ok(index) = self.require_current_index(client) else {
+                continue;
+            };
+            for entry in &index.entries {
+                let IndexedData::Beatmap { summary, .. } = &entry.data else {
+                    continue;
+                };
+                let Some(set_id) = summary.beatmap_set_id else {
+                    continue;
+                };
+                if set_id <= 0 || !ids.contains(&set_id) {
+                    continue;
+                }
+                if client == LocalClient::Lazer && snapshots.contains_key(&set_id) {
+                    continue;
+                }
+                let snapshot = snapshots
+                    .entry(set_id)
+                    .or_insert_with(|| LocalBeatmapSetSnapshot {
+                        beatmapset_id: set_id,
+                        title: non_empty_or(&summary.title_unicode, &summary.title),
+                        artist: non_empty_or(&summary.artist_unicode, &summary.artist),
+                        creator: summary.creator.clone(),
+                        client,
+                        difficulties: Vec::new(),
+                    });
+                snapshot.difficulties.push(LocalBeatmapDifficultyRef {
+                    beatmap_id: summary.beatmap_id,
+                    checksum: entry
+                        .beatmap_md5
+                        .as_deref()
+                        .map(|value| value.to_ascii_lowercase()),
+                    ruleset: Some(summary.ruleset.to_string()),
+                    difficulty_name: if summary.difficulty_name.trim().is_empty() {
+                        "未知难度".to_string()
+                    } else {
+                        summary.difficulty_name.clone()
+                    },
+                });
+            }
+        }
+        Ok(snapshots)
+    }
+
+    /// 按谱面集分页查询：`total` 为过滤后的集合总数；先部分排序截出
+    /// 当前页需要的集合，再仅对页内集合重建完整难度列表。
+    pub fn query_beatmap_sets(
+        &self,
+        query: BeatmapQuery,
+    ) -> CommandResult<Page<LocalBeatmapSetSummary>> {
+        let index = self.require_current_index(query.client)?;
+        let search = query.search.trim().to_lowercase();
+        let limit = query.limit.clamp(1, query::MAX_QUERY_LIMIT);
+        let mut sets = Vec::new();
+        let mut total = 0usize;
+        for (set_key, positions) in &index.beatmap_sets {
+            let maps = positions
+                .iter()
+                .filter_map(|position| match &index.entries.get(*position)?.data {
+                    IndexedData::Beatmap { summary, detail }
+                        if index.matches(*position, &query, &search) =>
+                    {
+                        Some((summary, detail.as_ref()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let Some(set) = stage::summarize_set_header(set_key, maps) else {
+                continue;
+            };
+            total += 1;
+            sets.push(set);
+        }
+        // 只需保住 offset+limit 个最优集合：部分选择代替全量排序。
+        let capacity = query.offset.saturating_add(limit).min(sets.len());
+        if capacity > 0 && capacity < sets.len() {
+            sets.select_nth_unstable_by(capacity, |left, right| {
+                apply_direction(
+                    compare_beatmap_sets(left, right, query.sort),
+                    query.direction,
+                )
+            });
+            sets.truncate(capacity);
+        }
+        sets.sort_unstable_by(|left, right| {
+            apply_direction(
+                compare_beatmap_sets(left, right, query.sort),
+                query.direction,
+            )
+        });
+        // 仅对当前页的集合回填完整难度列表。
+        let items = sets
+            .into_iter()
+            .skip(query.offset)
+            .take(limit)
+            .map(|mut set| {
+                let maps = index.beatmap_sets[&set.set_key]
+                    .iter()
+                    .filter(|position| index.matches(**position, &query, &search))
+                    .filter_map(|position| match &index.entries[*position].data {
+                        IndexedData::Beatmap { summary, detail } => {
+                            Some((summary, detail.as_ref()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                set.difficulties = stage::summarize_set(&set.set_key, maps)
+                    .expect("matching set")
+                    .difficulties;
+                set
+            })
+            .collect();
+        Ok(Page {
+            items,
+            total,
+            offset: query.offset,
+            limit,
+        })
+    }
+
+    /// 返回谱面详情；`strains` 不入索引，请求时即时计算后附带返回。
+    pub fn beatmap_detail(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+    ) -> CommandResult<LocalBeatmapDetail> {
+        let index = self.require_current_index(client)?;
+        let entry = index
+            .resource(resource_id)
+            .filter(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
+            .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面资源"))?;
+        let mut detail = match &entry.data {
+            IndexedData::Beatmap { detail, .. } => detail.as_ref().clone(),
+            _ => unreachable!("entry matched beatmap"),
+        };
+        let bytes = fs::read(&entry.physical_path).map_err(|error| {
+            CommandError::new(
+                "LOCAL_RESOURCE_READ_ERROR",
+                format!("无法读取谱面资源：{error}"),
+            )
+        })?;
+        detail.strains = Some(
+            calculate_strains(&bytes)
+                .map_err(|message| CommandError::new("LOCAL_DIFFICULTY_ERROR", message))?,
+        );
+        Ok(detail)
+    }
+
+    /// 返回消费方可直接使用的谱面文件路径；Lazer 会先物化谱面集目录。
+    pub fn beatmap_file_path(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+    ) -> CommandResult<String> {
+        let index = self.require_current_index(client)?;
+        let entry = index
+            .resource(resource_id)
+            .filter(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
+            .ok_or_else(|| {
+                CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "Local beatmap was not found")
+            })?;
+        let path = entry.physical_path.canonicalize().map_err(|error| {
+            CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                format!("The local beatmap file is unavailable: {error}"),
+            )
+        })?;
+        // Stable：谱面就是 Songs 目录下的 .osu 文件，直接返回。
+        // Lazer：谱面是无扩展名的内容寻址 blob，且音频 / 背景等关联文件
+        // 分散在其它 blob 中——按 Realm 清单物化成 Stable 式目录布局后
+        // 返回，live render / 训练器等消费方按"谱面同目录"语义即可解析。
+        match client {
+            LocalClient::Stable => {
+                if !path.is_file()
+                    || !path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("osu"))
+                {
+                    return Err(CommandError::new(
+                        "LOCAL_RESOURCE_NOT_FOUND",
+                        "The local beatmap file is unavailable",
+                    ));
+                }
+                Ok(path.to_string_lossy().into_owned())
+            }
+            LocalClient::Lazer => self.materialize_lazer_beatmap(entry, &path),
+        }
+    }
+
+    /// lazer 谱面集物化缓存根目录。
+    fn materialized_sets_root(&self) -> PathBuf {
+        self.cache_dir.join("materialized-sets")
+    }
+
+    /// lazer 皮肤物化根目录（danser 的 OsuSkinsDir 与 live render 的
+    /// 皮肤加载共用）。
+    fn staged_skins_root(&self) -> PathBuf {
+        self.cache_dir.join("staged-skins")
+    }
+
+    /// 把一个 lazer 皮肤按 Realm 清单物化成 Stable 布局目录。返回
+    /// (目录名, 目录路径)；目录名经 Windows 非法字符净化，danser 的
+    /// -skin 参数必须使用同一名字才能匹配到目录。
+    fn stage_lazer_skin_entry(&self, entry: &IndexedEntry) -> CommandResult<(String, PathBuf)> {
+        let IndexedData::Skin { detail } = &entry.data else {
+            unreachable!("entry matched skin")
+        };
+        let name = detail.summary.name.trim();
+        let safe_name = name
+            .chars()
+            .map(|character| {
+                if matches!(
+                    character,
+                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                ) {
+                    '_'
+                } else {
+                    character
+                }
+            })
+            .collect::<String>()
+            .trim_matches(['.', ' '])
+            .to_string();
+        if safe_name.is_empty() {
+            return Err(CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                format!("皮肤名「{name}」无法用作目录名"),
+            ));
+        }
+        // Different Realm skins can share the same display name. Keep their
+        // staged files separate so selecting one cannot overwrite another.
+        let safe_name = format!(
+            "{safe_name}-{}",
+            &sha256(detail.summary.resource.resource_id.as_bytes())[..12]
+        );
+        let directory = self.staged_skins_root().join(&safe_name);
+        fs::create_dir_all(&directory)?;
+        let files = entry.lazer_files.as_ref().ok_or_else(|| {
+            CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                format!("皮肤「{name}」缺少 Realm 文件清单，请重新扫描后重试"),
+            )
+        })?;
+        let files_root = self.lazer_files_root(LocalClient::Lazer)?;
+        for file in files {
+            let file_name = file.filename.trim();
+            if file_name.is_empty() || file_name.contains(['/', '\\']) {
+                continue;
+            }
+            let destination = directory.join(file_name);
+            if fs::metadata(&destination).is_ok_and(|metadata| metadata.len() == file.size) {
+                continue;
+            }
+            let source = files_root.join(lazer_realm::blob_relative_path(&file.hash));
+            fs::copy(&source, &destination).map_err(|error| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_READ_ERROR",
+                    format!("无法读取 lazer 皮肤文件 {file_name}：{error}"),
+                )
+            })?;
+        }
+        Ok((safe_name, directory))
+    }
+
+    /// live render 实际选用 lazer 皮肤时（skin_path = "lazer:<resource_id>"）
+    /// 按资源 ID 物化，返回皮肤目录。
+    pub fn materialize_lazer_skin(&self, skin_resource_id: &str) -> CommandResult<PathBuf> {
+        let index = self.require_current_index(LocalClient::Lazer)?;
+        let entry = index
+            .entries
+            .iter()
+            .find(|entry| {
+                matches!(
+                    &entry.data,
+                    IndexedData::Skin { detail }
+                        if detail.summary.resource.resource_id == skin_resource_id
+                )
+            })
+            .ok_or_else(|| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_NOT_FOUND",
+                    "未在 lazer 本地索引中找到该皮肤，请重新扫描后重试",
+                )
+            })?;
+        self.stage_lazer_skin_entry(entry)
+            .map(|(_, directory)| directory)
+    }
+
+    /// 为 Danser 本地渲染准备 lazer 资源。
+    ///
+    /// Danser 只认 Stable 目录布局（OsuSongsDir / OsuSkinsDir），而 lazer
+    /// 的谱面与皮肤都在 Realm + files/ 内容寻址存储中。这里按回放 MD5
+    /// 物化谱面集、按名称导出皮肤，返回 (Songs 目录, Skins 根目录, 实际
+    /// 生效的皮肤名)。皮肤目录名必须与 danser -skin 参数一致，因此对
+    /// Windows 非法字符净化后把净化名一并返回，调用方用它覆盖参数。
+    pub fn stage_lazer_danser_resources(
+        &self,
+        beatmap_md5: &str,
+        skin_name: Option<&str>,
+    ) -> CommandResult<(PathBuf, PathBuf, Option<String>)> {
+        let index = self.require_current_index(LocalClient::Lazer)?;
+        let target = beatmap_md5.trim().to_ascii_lowercase();
+        let entry = index
+            .beatmap_md5_lookup
+            .get(&target)
+            .and_then(|position| index.entries.get(*position))
+            .ok_or_else(|| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_NOT_FOUND",
+                    "未在 lazer 本地索引中找到回放对应的谱面，请先完成本地扫描",
+                )
+            })?;
+        let beatmap_path = self.materialize_lazer_beatmap(entry, &entry.physical_path)?;
+        let songs_dir = Path::new(&beatmap_path)
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "谱面集目录不可用"))?;
+
+        let skins_root = self.staged_skins_root();
+        fs::create_dir_all(&skins_root)?;
+        let mut staged_skin = None;
+        if let Some(name) = skin_name.map(str::trim).filter(|name| !name.is_empty()) {
+            let skin_entry = index
+                .entries
+                .iter()
+                .find(|entry| {
+                    matches!(
+                        &entry.data,
+                        IndexedData::Skin { detail }
+                            if detail.summary.name.eq_ignore_ascii_case(name)
+                    )
+                })
+                .ok_or_else(|| {
+                    CommandError::new(
+                        "LOCAL_RESOURCE_NOT_FOUND",
+                        format!("未在 lazer 本地索引中找到皮肤「{name}」"),
+                    )
+                })?;
+            staged_skin = Some(self.stage_lazer_skin_entry(skin_entry)?.0);
+        }
+        Ok((songs_dir, skins_root, staged_skin))
+    }
+
+    /// 把 lazer 谱面集按 Realm 文件清单物化为普通目录布局，返回该谱面
+    /// .osu 的路径。关联文件（音频/背景/故事板/背景视频等）以原始文件名
+    /// 放在同一目录完整物化，使依赖 Stable 目录语义的消费方（live render
+    /// 的 BGM / 背景 / 故事板视频解析、danser 渲染等）直接可用；容量
+    /// 清理按最近使用时间回收，不在物化时挑文件。
+    fn materialize_lazer_beatmap(
+        &self,
+        entry: &IndexedEntry,
+        blob_path: &Path,
+    ) -> CommandResult<String> {
+        let IndexedData::Beatmap { summary, .. } = &entry.data else {
+            unreachable!("entry matched beatmap")
+        };
+        let Some(files) = entry.lazer_files.as_ref() else {
+            return Err(CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "The local beatmap file is unavailable: Realm file manifest missing",
+            ));
+        };
+        let files_root = self.lazer_files_root(LocalClient::Lazer)?;
+        // 目录名含清单指纹：集内文件集合或内容变化时改用新目录，
+        // 不与旧缓存混用；残留的旧目录由容量清理统一回收。
+        let fingerprint = sha256(
+            files
+                .iter()
+                .map(|file| format!("{}\n{}", file.filename, file.hash))
+                .collect::<String>()
+                .as_bytes(),
+        );
+        let directory = self
+            .materialized_sets_root()
+            .join(format!("set-{}", &fingerprint[..32]));
+        fs::create_dir_all(&directory)?;
+        let mut beatmap_file = None;
+        for file in files {
+            let name = file.filename.trim();
+            // 清单文件名来自 osz 的原始条目；防御性排除带分隔符的名字，
+            // 避免写出物化目录之外。
+            if name.is_empty() || name.contains(['/', '\\']) {
+                continue;
+            }
+            // 内容哈希与谱面一致的清单条目即 .osu 本体，记下其原始文件名。
+            if file
+                .hash
+                .eq_ignore_ascii_case(&summary.resource.content_hash)
+            {
+                beatmap_file = Some(name.to_string());
+            }
+            let destination = directory.join(name);
+            if fs::metadata(&destination).is_ok_and(|metadata| metadata.len() == file.size) {
+                continue;
+            }
+            let source = files_root.join(lazer_realm::blob_relative_path(&file.hash));
+            if let Err(error) = fs::copy(&source, &destination) {
+                return Err(CommandError::new(
+                    "LOCAL_RESOURCE_READ_ERROR",
+                    format!("无法读取 lazer 谱面集文件 {name}：{error}"),
+                ));
+            }
+        }
+        // 清单缺失 .osu 条目（异常数据）时退回以内容哈希命名，保证有可用路径。
+        let beatmap_file =
+            beatmap_file.unwrap_or_else(|| format!("{}.osu", summary.resource.content_hash));
+        let beatmap_path = directory.join(&beatmap_file);
+        if !beatmap_path.is_file() {
+            fs::copy(blob_path, &beatmap_path).map_err(|error| {
+                CommandError::new(
+                    "LOCAL_RESOURCE_READ_ERROR",
+                    format!("无法读取 lazer 谱面文件：{error}"),
+                )
+            })?;
+        }
+        // 最近使用标记：容量清理按它排序，仅重写文件时不更新目录 mtime。
+        let _ = fs::write(directory.join(".last-used"), fingerprint.as_bytes());
+        self.trim_materialized_sets();
+        Ok(beatmap_path.to_string_lossy().into_owned())
+    }
+
+    /// 物化缓存超出容量上限时按最近使用时间删除最旧的集合目录。只识别
+    /// 本模块创建的 `set-` 前缀目录，训练器等写入的其它目录不受影响。
+    fn trim_materialized_sets(&self) {
+        let root = self.materialized_sets_root();
+        let Ok(entries) = fs::read_dir(&root) else {
+            return;
+        };
+        let mut sets = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("set-"))
+            })
+            .map(|path| {
+                let modified = fs::metadata(path.join(".last-used"))
+                    .and_then(|metadata| metadata.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let size = WalkDir::new(&path)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                    .filter_map(|entry| entry.metadata().ok())
+                    .filter(|metadata| metadata.is_file())
+                    .map(|metadata| metadata.len())
+                    .sum::<u64>();
+                (path, size, modified)
+            })
+            .collect::<Vec<_>>();
+        let mut total = sets.iter().map(|(_, size, _)| *size).sum::<u64>();
+        if total <= MATERIALIZED_SETS_CACHE_LIMIT_BYTES {
+            return;
+        }
+        sets.sort_by_key(|(_, _, modified)| *modified);
+        for (path, size, _) in sets {
+            if total <= MATERIALIZED_SETS_CACHE_LIMIT_BYTES {
+                break;
+            }
+            if fs::remove_dir_all(&path).is_ok() {
+                total = total.saturating_sub(size);
+            }
+        }
+    }
+
+    /// 按 MD5 定位谱面；输入先 trim 并转小写后再查表。
+    pub fn find_beatmap_by_md5(
+        &self,
+        client: LocalClient,
+        beatmap_md5: &str,
+    ) -> CommandResult<Option<LocalBeatmapSummary>> {
+        let index = self.require_current_index(client)?;
+        let target = beatmap_md5.trim().to_ascii_lowercase();
+        Ok(index
+            .beatmap_md5_lookup
+            .get(&target)
+            .and_then(|position| index.entries.get(*position))
+            .and_then(|entry| match &entry.data {
+                IndexedData::Beatmap { summary, .. } => Some(summary.clone()),
+                _ => None,
+            }))
+    }
+
+    /// Resolves a collection of stable MD5 hashes in one pass over the local
+    /// index. This avoids the quadratic file scan that results from resolving
+    /// every game-collection entry independently.
+    pub fn find_beatmaps_by_md5(
+        &self,
+        client: LocalClient,
+        checksums: &BTreeSet<String>,
+    ) -> CommandResult<BTreeMap<String, LocalBeatmapSummary>> {
+        if checksums.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let index = self.require_current_index(client)?;
+        let found = checksums
+            .iter()
+            .filter_map(|checksum| {
+                let position = index.beatmap_md5_lookup.get(checksum)?;
+                let entry = index.entries.get(*position)?;
+                let IndexedData::Beatmap { summary, .. } = &entry.data else {
+                    return None;
+                };
+                Some((checksum.clone(), summary.clone()))
+            })
+            .collect::<BTreeMap<_, _>>();
+        Ok(found)
+    }
+
+    /// 缩略图（960×540）尺寸的背景读取便捷入口。
+    pub fn beatmap_background(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+    ) -> CommandResult<Option<String>> {
+        self.beatmap_background_sized(
+            client,
+            resource_id,
+            super::models::BackgroundSize::Thumbnail,
+        )
+    }
+
+    /// 读取谱面背景并缩放为 JPEG data URL。
+    ///
+    /// 缓存键由 路径+大小+mtime+目标尺寸 组成，源图变化自动失效；
+    /// 解码设有像素与内存上限，超过 32 MB 的背景直接返回 `None`。
+    pub fn beatmap_background_sized(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+        size: super::models::BackgroundSize,
+    ) -> CommandResult<Option<String>> {
+        let span =
+            global().map(|logger| logger.operation("local_analysis", "read_beatmap_background"));
+        let result = (|| {
+            let index = self.require_current_index(client)?;
+            let entry = index
+                .resource(resource_id)
+                .filter(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
+                .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面资源"))?;
+            let detail = match &entry.data {
+                IndexedData::Beatmap { detail, .. } => detail,
+                _ => unreachable!("entry matched beatmap"),
+            };
+            let background_name = detail.background_file.trim();
+            if background_name.is_empty() {
+                return Ok(None);
+            }
+            let background = match client {
+                LocalClient::Stable => {
+                    let Some(beatmap_directory) = entry.physical_path.parent() else {
+                        return Ok(None);
+                    };
+                    let Ok(directory) = beatmap_directory.canonicalize() else {
+                        return Ok(None);
+                    };
+                    let Ok(background) = beatmap_directory.join(background_name).canonicalize()
+                    else {
+                        return Ok(None);
+                    };
+                    if !background.starts_with(&directory) {
+                        return Ok(None);
+                    }
+                    background
+                }
+                // Lazer：背景文件在谱面集的 Realm 文件清单里按原始文件名匹配，
+                // 实际内容从 files/ 内容寻址目录按哈希取回。
+                LocalClient::Lazer => {
+                    let Some(files) = entry.lazer_files.as_ref() else {
+                        return Ok(None);
+                    };
+                    let Some(file) = files
+                        .iter()
+                        .find(|file| file.filename.eq_ignore_ascii_case(background_name))
+                    else {
+                        return Ok(None);
+                    };
+                    let files_root = self.lazer_files_root(client)?;
+                    files_root.join(lazer_realm::blob_relative_path(&file.hash))
+                }
+            };
+            let metadata_result = fs::metadata(&background);
+            if let Some(s) = &span {
+                s.fs_op("metadata", &background, &metadata_result);
+            }
+            let Ok(metadata) = metadata_result else {
+                return Ok(None);
+            };
+            // 非常规文件或超过 32 MB 的背景直接放弃。
+            if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
+                return Ok(None);
+            }
+
+            let stamp = stamp(&metadata);
+            let cache_key = sha256(
+                format!(
+                    "{}:{}:{}:{size:?}",
+                    background.to_string_lossy(),
+                    stamp.bytes,
+                    stamp.modified_ms
+                )
+                .as_bytes(),
+            );
+            let thumbnail_path = self
+                .cache_dir
+                .join("thumbnails")
+                .join(format!("{cache_key}.jpg"));
+            let cache_result = fs::read(&thumbnail_path);
+            if let Some(s) = &span {
+                s.fs_op("read_cache", &thumbnail_path, &cache_result);
+            }
+            let thumbnail = if let Ok(bytes) = cache_result {
+                bytes
+            } else {
+                let read_result =
+                    ImageReader::open(&background).and_then(ImageReader::with_guessed_format);
+                if let Some(s) = &span {
+                    s.fs_op("read", &background, &read_result);
+                }
+                let mut reader = match read_result {
+                    Ok(reader) => reader,
+                    Err(_) => return Ok(None),
+                };
+                let mut limits = Limits::default();
+                limits.max_image_width = Some(8_192);
+                limits.max_image_height = Some(8_192);
+                limits.max_alloc = Some(128 * 1024 * 1024);
+                reader.limits(limits);
+                let decode_result = reader.decode();
+                if let Some(s) = &span {
+                    s.io("decode_image", &decode_result);
+                }
+                let Ok(image) = decode_result else {
+                    return Ok(None);
+                };
+                let (width, height) = match size {
+                    super::models::BackgroundSize::Thumbnail => (960, 540),
+                    super::models::BackgroundSize::Stage => (1920, 1080),
+                };
+                // 缩略图恒缩放；Stage 尺寸只缩不放，避免放大已小于目标的图。
+                let thumbnail = if matches!(size, super::models::BackgroundSize::Thumbnail)
+                    || image.width() > width
+                    || image.height() > height
+                {
+                    image.resize(width, height, FilterType::Triangle)
+                } else {
+                    image
+                };
+                let mut bytes = Vec::new();
+                if JpegEncoder::new_with_quality(&mut bytes, 78)
+                    .encode_image(&thumbnail)
+                    .is_err()
+                {
+                    return Ok(None);
+                }
+                // 先写临时文件再原子改名，避免并发读到半张缩略图。
+                let temporary = thumbnail_path.with_extension("jpg.tmp");
+                let write_result = fs::write(&temporary, &bytes);
+                if let Some(s) = &span {
+                    s.fs_op("write", &temporary, &write_result);
+                }
+                if write_result.is_ok() {
+                    let rename_result = fs::rename(&temporary, &thumbnail_path);
+                    if let Some(s) = &span {
+                        s.fs_op("rename", &thumbnail_path, &rename_result);
+                    }
+                    let _ = self.trim_thumbnail_cache();
+                }
+                bytes
+            };
+            Ok(Some(format!(
+                "data:image/jpeg;base64,{}",
+                BASE64_STANDARD.encode(thumbnail)
+            )))
+        })();
+        crate::infrastructure::logging::finish_span(span, result)
+    }
+
+    /// 按预排序序列分页查询皮肤；搜索词匹配名称 / 作者 / 版本字段。
+    pub fn query_skins(&self, query: SkinQuery) -> CommandResult<Page<LocalSkinSummary>> {
+        let index = self.require_current_index(query.client)?;
+        let search = query.search.trim().to_lowercase();
+        let limit = query.limit.clamp(1, query::MAX_QUERY_LIMIT);
+        let ordered = index
+            .skin_orders
+            .get(&query.sort)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let positions: Box<dyn Iterator<Item = &usize>> = match query.direction {
+            super::models::SortDirection::Asc => Box::new(ordered.iter()),
+            super::models::SortDirection::Desc => Box::new(ordered.iter().rev()),
+        };
+        let mut total = 0usize;
+        let mut items = Vec::with_capacity(limit);
+        for position in positions {
+            let Some(IndexedEntry {
+                data: IndexedData::Skin { detail },
+                ..
+            }) = index.entries.get(*position)
+            else {
+                continue;
+            };
+            let item = &detail.summary;
+            if search.is_empty()
+                || [&item.name, &item.author, &item.version]
+                    .iter()
+                    .any(|value| value.to_lowercase().contains(&search))
+            {
+                if total >= query.offset && items.len() < limit {
+                    items.push(item.clone());
+                }
+                total += 1;
+            }
+        }
+        Ok(Page {
+            items,
+            total,
+            offset: query.offset,
+            limit,
+        })
+    }
+
+    pub fn skin_detail(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+    ) -> CommandResult<LocalSkinDetail> {
+        let index = self.require_current_index(client)?;
+        index
+            .entries
+            .iter()
+            .find_map(|entry| match &entry.data {
+                IndexedData::Skin { detail }
+                    if detail.summary.resource.resource_id == resource_id =>
+                {
+                    Some(detail.clone())
+                }
+                _ => None,
+            })
+            .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该 Skin 资源"))
+    }
+
+    /// 解析皮肤条目的根目录（皮肤工坊模块用）。
+    pub(crate) fn workshop_skin_root(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+    ) -> CommandResult<PathBuf> {
+        let index = self.require_current_index(client)?;
+        let entry = find_skin_entry(&index, resource_id)?;
+        skin_root(entry)
+    }
+
+    /// 取 Stable 的 Skins 目录（皮肤工坊模块用）。
+    pub(crate) fn workshop_stable_skins_root(&self) -> CommandResult<PathBuf> {
+        self.sources
+            .resolve(LocalClient::Stable)?
+            .skin_root
+            .ok_or_else(|| CommandError::new("LOCAL_SOURCE_INVALID", "未配置 Stable Skins 目录"))
+    }
+
+    /// 强制重扫 Stable 库，供皮肤工坊改动文件后刷新索引。
+    pub(crate) fn workshop_refresh_stable(&self) -> CommandResult<()> {
+        self.scan(LocalClient::Stable, true, Arc::new(|_| {}))
+            .map(|_| ())
+    }
+
+    /// 列出皮肤的可预览资源（图片与音频），按客户端各自的存储方式枚举。
+    pub fn skin_preview(
+        &self,
+        client: LocalClient,
+        resource_id: &str,
+    ) -> CommandResult<LocalSkinPreview> {
+        let index = self.require_current_index(client)?;
+        let entry = find_skin_entry(&index, resource_id)?;
+        let completeness = match &entry.data {
+            IndexedData::Skin { detail } => detail.summary.completeness,
+            _ => unreachable!("entry matched skin"),
+        };
+        let assets = match client {
+            LocalClient::Lazer => {
+                let files_root = self.lazer_files_root(client)?;
+                let files = entry.lazer_files.clone().unwrap_or_default();
+                self.index_lazer_skin_assets(&files_root, &files, resource_id)?
+                    .into_iter()
+                    .map(|location: SkinAssetLocation| location.summary)
+                    .collect::<Vec<_>>()
+            }
+            LocalClient::Stable => {
+                let root = skin_root(entry)?;
+                self.index_skin_assets(&root, resource_id)?
+            }
+        };
+        Ok(LocalSkinPreview {
+            skin_resource_id: resource_id.to_string(),
+            completeness,
+            images: assets
+                .iter()
+                .filter(|asset| asset.kind == SkinAssetKind::Image)
+                .cloned()
+                .collect(),
+            sounds: assets
+                .into_iter()
+                .filter(|asset| asset.kind == SkinAssetKind::Audio)
+                .collect(),
+        })
+    }
+
+    /// 读取单个皮肤资源并编码为 data URL：图片解码后限制到 1024 边长
+    /// 转 PNG，音频按内容魔数识别 MIME。
+    pub fn skin_asset(
+        &self,
+        client: LocalClient,
+        skin_resource_id: &str,
+        asset_resource_id: &str,
+    ) -> CommandResult<LocalSkinAssetPayload> {
+        let index = self.require_current_index(client)?;
+        let entry = find_skin_entry(&index, skin_resource_id)?;
+        // Lazer：皮肤资源按 Realm 登记的（文件名 → 哈希）清单解析，
+        // 实际文件从 files/ 内容寻址目录取回；Stable 仍按目录解析。
+        let (asset, path) = match client {
+            LocalClient::Lazer => {
+                let files_root = self.lazer_files_root(client)?;
+                let files = entry.lazer_files.clone().unwrap_or_default();
+                let locations =
+                    self.index_lazer_skin_assets(&files_root, &files, skin_resource_id)?;
+                let location = locations
+                    .into_iter()
+                    .find(|location| location.summary.resource_id == asset_resource_id)
+                    .ok_or_else(|| {
+                        CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该 Skin 预览资源")
+                    })?;
+                let hash = location.lazer_hash.clone().ok_or_else(|| {
+                    CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该 Skin 预览资源")
+                })?;
+                let path = files_root.join(lazer_realm::blob_relative_path(&hash));
+                (location.summary, path)
+            }
+            LocalClient::Stable => {
+                let root = skin_root(entry)?;
+                let cached = self
+                    .skin_assets
+                    .read()
+                    .map_err(|_| {
+                        CommandError::new("LOCAL_INDEX_STATE_ERROR", "Skin 预览索引状态已损坏")
+                    })?
+                    .get(asset_resource_id)
+                    .filter(|asset| {
+                        asset.skin_resource_id == skin_resource_id && asset.root == root
+                    })
+                    .cloned();
+                let asset = match cached {
+                    Some(asset) => asset,
+                    None => {
+                        self.index_skin_assets(&root, skin_resource_id)?;
+                        self.skin_assets
+                            .read()
+                            .map_err(|_| {
+                                CommandError::new(
+                                    "LOCAL_INDEX_STATE_ERROR",
+                                    "Skin 预览索引状态已损坏",
+                                )
+                            })?
+                            .get(asset_resource_id)
+                            .filter(|asset| {
+                                asset.skin_resource_id == skin_resource_id && asset.root == root
+                            })
+                            .cloned()
+                            .ok_or_else(|| {
+                                CommandError::new(
+                                    "LOCAL_RESOURCE_NOT_FOUND",
+                                    "未找到该 Skin 预览资源",
+                                )
+                            })?
+                    }
+                };
+                let asset = asset.summary;
+                let path = root.join(Path::new(&asset.logical_path));
+                let canonical_root = root.canonicalize().map_err(|error| {
+                    CommandError::new(
+                        "LOCAL_RESOURCE_READ_ERROR",
+                        format!("无法解析 Skin 目录：{error}"),
+                    )
+                })?;
+                let canonical_path = path.canonicalize().map_err(|error| {
+                    CommandError::new(
+                        "LOCAL_RESOURCE_READ_ERROR",
+                        format!("无法解析 Skin 资源：{error}"),
+                    )
+                })?;
+                // canonicalize 后必须仍在皮肤目录内，防止逻辑路径越界读取。
+                if !canonical_path.starts_with(&canonical_root) {
+                    return Err(CommandError::new(
+                        "LOCAL_RESOURCE_OUTSIDE_ROOT",
+                        "Skin 资源位于允许目录之外",
+                    ));
+                }
+                (asset, canonical_path)
+            }
+        };
+
+        let (mime_type, bytes) = match asset.kind {
+            SkinAssetKind::Image => {
+                let metadata = fs::metadata(&path).map_err(|error| {
+                    CommandError::new(
+                        "LOCAL_RESOURCE_READ_ERROR",
+                        format!("无法读取 Skin 图片信息：{error}"),
+                    )
+                })?;
+                if metadata.len() > 32 * 1024 * 1024 {
+                    return Err(CommandError::new(
+                        "LOCAL_RESOURCE_TOO_LARGE",
+                        "Skin 图片超过 32 MB 预览上限",
+                    ));
+                }
+                let mut reader = ImageReader::open(&path)
+                    .and_then(ImageReader::with_guessed_format)
+                    .map_err(|error| {
+                        CommandError::new(
+                            "LOCAL_IMAGE_DECODE_ERROR",
+                            format!("无法识别 Skin 图片：{error}"),
+                        )
+                    })?;
+                let mut limits = Limits::default();
+                limits.max_image_width = Some(8_192);
+                limits.max_image_height = Some(8_192);
+                limits.max_alloc = Some(128 * 1024 * 1024);
+                reader.limits(limits);
+                let image = reader.decode().map_err(|error| {
+                    CommandError::new(
+                        "LOCAL_IMAGE_DECODE_ERROR",
+                        format!("无法解码 Skin 图片：{error}"),
+                    )
+                })?;
+                let preview = if image.width() > 1_024 || image.height() > 1_024 {
+                    image.resize(1_024, 1_024, FilterType::Nearest)
+                } else {
+                    image
+                };
+                let mut cursor = Cursor::new(Vec::new());
+                preview
+                    .write_to(&mut cursor, ImageFormat::Png)
+                    .map_err(|error| {
+                        CommandError::new(
+                            "LOCAL_IMAGE_ENCODE_ERROR",
+                            format!("无法生成 Skin 图片预览：{error}"),
+                        )
+                    })?;
+                ("image/png".to_string(), cursor.into_inner())
+            }
+            SkinAssetKind::Audio => {
+                let bytes = fs::read(&path).map_err(|error| {
+                    CommandError::new(
+                        "LOCAL_RESOURCE_READ_ERROR",
+                        format!("无法读取 Skin 音效：{error}"),
+                    )
+                })?;
+                if bytes.len() > 24 * 1024 * 1024 {
+                    return Err(CommandError::new(
+                        "LOCAL_RESOURCE_TOO_LARGE",
+                        "Skin 音效超过 24 MB 预览上限",
+                    ));
+                }
+                let mime_type = audio_mime(&bytes).ok_or_else(|| {
+                    CommandError::new("LOCAL_AUDIO_FORMAT_ERROR", "无法识别 Skin 音效格式")
+                })?;
+                (mime_type.to_string(), bytes)
+            }
+        };
+        Ok(LocalSkinAssetPayload {
+            resource_id: asset.resource_id,
+            kind: asset.kind,
+            data_url: format!("data:{mime_type};base64,{}", BASE64_STANDARD.encode(bytes)),
+            mime_type,
+        })
+    }
+
+    /// 用指定文件替换皮肤内的一个资源（仅 Stable；Lazer 的内容寻址
+    /// 存储无法就地替换）。
+    ///
+    /// `save_as_new` 为真时先整目录复制为新皮肤并改写 `skin.ini` 名称，
+    /// 替换完成后清空资源缓存并强制重扫使索引一致。
+    pub fn replace_skin_asset(
+        &self,
+        client: LocalClient,
+        skin_resource_id: &str,
+        asset_resource_id: &str,
+        replacement_path: &Path,
+        save_as_new: bool,
+        new_skin_name: Option<&str>,
+    ) -> CommandResult<()> {
+        if client != LocalClient::Stable {
+            return Err(CommandError::new(
+                "LOCAL_SKIN_ASSET_UNAVAILABLE",
+                "Lazer 皮肤文件以内容哈希存储，就地替换会破坏 Realm 登记与哈希的一致性，暂不支持替换",
+            ));
+        }
+        let index = self.require_current_index(client)?;
+        let entry = find_skin_entry(&index, skin_resource_id)?;
+        let root = skin_root(entry)?;
+        self.index_skin_assets(&root, skin_resource_id)?;
+        let asset = self
+            .skin_assets
+            .read()
+            .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "Skin 资源索引状态已损坏"))?
+            .get(asset_resource_id)
+            .filter(|item| item.skin_resource_id == skin_resource_id && item.root == root)
+            .map(|item| item.summary.clone())
+            .ok_or_else(|| {
+                CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到要替换的 Skin 资源")
+            })?;
+        let source = replacement_path.canonicalize().map_err(|error| {
+            CommandError::new(
+                "SKIN_REPLACEMENT_READ_ERROR",
+                format!("无法读取替换文件：{error}"),
+            )
+        })?;
+        if !source.is_file() {
+            return Err(CommandError::new(
+                "SKIN_REPLACEMENT_INVALID",
+                "替换目标必须是文件",
+            ));
+        }
+        let extension = source
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if !extension.eq_ignore_ascii_case(&asset.extension) {
+            return Err(CommandError::new(
+                "SKIN_REPLACEMENT_FORMAT_MISMATCH",
+                format!(
+                    "请选择 .{} 格式的文件以替换 {}",
+                    asset.extension, asset.name
+                ),
+            ));
+        }
+        // 另存为新皮肤：整目录复制、写入新名称，再替换目标文件。
+        let target_root = if save_as_new {
+            let name = new_skin_name.unwrap_or("").trim();
+            if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+                return Err(CommandError::new(
+                    "SKIN_NAME_INVALID",
+                    "请输入有效的新 Skin 名称",
+                ));
+            }
+            let target = root.parent().unwrap_or(&root).join(name);
+            if target.exists() {
+                return Err(CommandError::new(
+                    "SKIN_NAME_EXISTS",
+                    "同名 Skin 已存在，请使用其他名称",
+                ));
+            }
+            copy_skin_directory(&root, &target)?;
+            set_skin_name(&target.join("skin.ini"), name)?;
+            target
+        } else {
+            root.clone()
+        };
+        let target = target_root.join(&asset.logical_path);
+        replace_file_with_backup(&source, &target)?;
+        // 磁盘内容已变：清空定位缓存并强制重扫，保证索引一致。
+        self.skin_assets
+            .write()
+            .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "Skin 资源索引状态已损坏"))?
+            .clear();
+        self.scan(client, true, Arc::new(|_| {}))?;
+        Ok(())
+    }
+
+    /// 把一个谱面集导出为 .osz。Lazer 按 Realm 文件清单从内容寻址存储
+    /// 取回原始文件；Stable 直接打包谱面集目录。
+    pub fn export_beatmap_set_osz(
+        &self,
+        client: LocalClient,
+        set_key: &str,
+        out_dir: &Path,
+    ) -> CommandResult<String> {
+        let index = self.require_current_index(client)?;
+        let positions = index
+            .beatmap_sets
+            .get(set_key)
+            .filter(|positions| !positions.is_empty())
+            .ok_or_else(|| CommandError::new("LOCAL_RESOURCE_NOT_FOUND", "未找到该谱面集"))?;
+        let first = &index.entries[positions[0]];
+        let IndexedData::Beatmap { summary, .. } = &first.data else {
+            return Err(CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "未找到该谱面集",
+            ));
+        };
+        let file_name = sanitize_export_name(&format!(
+            "{} - {} ({})",
+            summary.artist, summary.title, summary.creator
+        ));
+        let out_path = out_dir.join(format!("{file_name}.osz"));
+
+        let sources = match client {
+            LocalClient::Lazer => {
+                let files_root = self.lazer_files_root(client)?;
+                let files = positions
+                    .iter()
+                    .filter_map(|position| index.entries[*position].lazer_files.clone())
+                    .next()
+                    .ok_or_else(|| {
+                        CommandError::new(
+                            "LOCAL_EXPORT_UNAVAILABLE",
+                            "该谱面集缺少 Realm 文件清单，请重新扫描后重试",
+                        )
+                    })?;
+                files
+                    .iter()
+                    .map(|file| {
+                        (
+                            file.filename.clone(),
+                            files_root.join(lazer_realm::blob_relative_path(&file.hash)),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            }
+            LocalClient::Stable => {
+                let root = first
+                    .physical_path
+                    .parent()
+                    .ok_or_else(|| {
+                        CommandError::new("LOCAL_EXPORT_UNAVAILABLE", "谱面集目录不可用")
+                    })?
+                    .to_path_buf();
+                collect_directory_entries(&root)?
+            }
+        };
+        write_export_zip(&sources, &out_path)?;
+        Ok(out_path.to_string_lossy().into_owned())
+    }
+
+    /// 把一个皮肤导出为 .osk。Lazer 按 Realm 文件清单取回原始文件；
+    /// Stable 直接打包皮肤目录。
+    pub fn export_skin_osk(
+        &self,
+        client: LocalClient,
+        skin_resource_id: &str,
+        out_dir: &Path,
+    ) -> CommandResult<String> {
+        let index = self.require_current_index(client)?;
+        let entry = find_skin_entry(&index, skin_resource_id)?;
+        let IndexedData::Skin { detail } = &entry.data else {
+            return Err(CommandError::new(
+                "LOCAL_RESOURCE_NOT_FOUND",
+                "未找到该 Skin 资源",
+            ));
+        };
+        let author = detail.summary.author.trim();
+        let base_name = if author.is_empty() || author.eq_ignore_ascii_case("unknown") {
+            detail.summary.name.clone()
+        } else {
+            format!("{} ({})", detail.summary.name, author)
+        };
+        let out_path = out_dir.join(format!("{}.osk", sanitize_export_name(&base_name)));
+
+        let sources = match client {
+            LocalClient::Lazer => {
+                let files_root = self.lazer_files_root(client)?;
+                let files = entry.lazer_files.clone().ok_or_else(|| {
+                    CommandError::new(
+                        "LOCAL_EXPORT_UNAVAILABLE",
+                        "该皮肤缺少 Realm 文件清单，请重新扫描后重试",
+                    )
+                })?;
+                files
+                    .iter()
+                    .map(|file| {
+                        (
+                            file.filename.clone(),
+                            files_root.join(lazer_realm::blob_relative_path(&file.hash)),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            }
+            LocalClient::Stable => {
+                let root = skin_root(entry)?;
+                collect_directory_entries(&root)?
+            }
+        };
+        write_export_zip(&sources, &out_path)?;
+        Ok(out_path.to_string_lossy().into_owned())
+    }
+
+    /// 枚举 Stable 皮肤目录资源并写入共享定位缓存（键为资源 ID）。
+    fn index_skin_assets(
+        &self,
+        root: &Path,
+        skin_resource_id: &str,
+    ) -> CommandResult<Vec<LocalSkinAssetSummary>> {
+        let assets = enumerate_skin_assets(root, skin_resource_id);
+        let mut cache = self
+            .skin_assets
+            .write()
+            .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "Skin 预览索引状态已损坏"))?;
+        for asset in &assets {
+            cache.insert(
+                asset.resource_id.clone(),
+                SkinAssetLocation {
+                    skin_resource_id: skin_resource_id.to_string(),
+                    root: root.to_path_buf(),
+                    summary: asset.clone(),
+                    lazer_hash: None,
+                },
+            );
+        }
+        Ok(assets)
+    }
+
+    /// 为 lazer 皮肤建立资源索引：清单来自 Realm 登记的文件列表，
+    /// 每个条目携带内容哈希，读取时按 files/ 内容寻址解析。
+    fn index_lazer_skin_assets(
+        &self,
+        files_root: &Path,
+        files: &[lazer_realm::LazerRealmFile],
+        skin_resource_id: &str,
+    ) -> CommandResult<Vec<SkinAssetLocation>> {
+        let mut cache = self
+            .skin_assets
+            .write()
+            .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "Skin 预览索引状态已损坏"))?;
+        let locations = enumerate_lazer_skin_assets(files, skin_resource_id)
+            .into_iter()
+            .map(|summary| {
+                let hash = files
+                    .iter()
+                    .find(|file| file.filename == summary.logical_path)
+                    .map(|file| file.hash.clone())
+                    .unwrap_or_default();
+                SkinAssetLocation {
+                    skin_resource_id: skin_resource_id.to_string(),
+                    root: files_root.to_path_buf(),
+                    summary,
+                    lazer_hash: Some(hash),
+                }
+            })
+            .collect::<Vec<_>>();
+        for location in &locations {
+            cache.insert(location.summary.resource_id.clone(), location.clone());
+        }
+        Ok(locations)
+    }
+
+    /// 当前索引修订号（扫描时间戳）；后台请求键包含它，重扫后自动失效。
+    pub(super) fn background_revision(&self, client: LocalClient) -> CommandResult<String> {
+        Ok(self
+            .current_index(client)?
+            .map(|index| index.summary.scanned_at.clone())
+            .unwrap_or_default())
+    }
+
+    /// 取客户端当前索引；不校验数据源是否仍与索引记录匹配。
+    fn current_index(&self, client: LocalClient) -> CommandResult<Option<Arc<LocalIndex>>> {
+        self.indexes
+            .read()
+            .map(|indexes| indexes.get(&client).cloned())
+            .map_err(|_| CommandError::new("LOCAL_INDEX_STATE_ERROR", "本地索引状态已损坏"))
+    }
+
+    /// 取索引并要求数据源有效且数据根与索引记录一致，否则视为未扫描。
+    fn require_current_index(&self, client: LocalClient) -> CommandResult<Arc<LocalIndex>> {
+        let source = self.sources.resolve(client)?;
+        self.current_index(client)?
+            .filter(|index| source_matches(&source, &index.source_root))
+            .ok_or_else(|| {
+                CommandError::new("LOCAL_SCAN_REQUIRED", format!("请先扫描 {client} 本地资源"))
+            })
+    }
+
+    /// lazer 的 files/ 内容寻址根目录。
+    fn lazer_files_root(&self, client: LocalClient) -> CommandResult<PathBuf> {
+        let source = self.sources.resolve(client)?;
+        source
+            .repository_root
+            .clone()
+            .ok_or_else(|| CommandError::new("INVALID_LOCAL_SOURCE", "lazer files 仓库不可用"))
+    }
+}
+
+/// 展示文本回退：首选值非空用首选，否则用回退值。
+fn non_empty_or(preferred: &str, fallback: &str) -> String {
+    if preferred.trim().is_empty() {
+        fallback.to_string()
+    } else {
+        preferred.to_string()
+    }
+}
+
+/// 遍历已解析的数据源，筛选出可能的谱面和皮肤配置文件。
+fn copy_skin_directory(source: &Path, target: &Path) -> CommandResult<()> {
+    for entry in WalkDir::new(source).follow_links(false) {
+        let entry =
+            entry.map_err(|error| CommandError::new("SKIN_COPY_ERROR", error.to_string()))?;
+        let relative = entry.path().strip_prefix(source).map_err(|error| {
+            CommandError::new(
+                "SKIN_COPY_ERROR",
+                format!("无法确定 Skin 文件路径：{error}"),
+            )
+        })?;
+        let destination = target.join(relative);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&destination)?;
+        } else if entry.file_type().is_file() {
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(entry.path(), &destination)?;
+        }
+    }
+    Ok(())
+}
+
+/// 改写 `skin.ini` 中 `[General]` 节的 `Name:`；节或键缺失时补写。
+fn set_skin_name(config: &Path, name: &str) -> CommandResult<()> {
+    let text = fs::read_to_string(config).map_err(|error| {
+        CommandError::new(
+            "SKIN_CONFIG_WRITE_ERROR",
+            format!("无法读取新 Skin 配置：{error}"),
+        )
+    })?;
+    let mut in_general = false;
+    let mut changed = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if in_general && !changed {
+                lines.push(format!("Name: {name}"));
+                changed = true;
+            }
+            in_general = trimmed.eq_ignore_ascii_case("[General]");
+        }
+        if in_general
+            && trimmed
+                .split_once(':')
+                .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case("Name"))
+        {
+            lines.push(format!("Name: {name}"));
+            changed = true;
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    if in_general && !changed {
+        lines.push(format!("Name: {name}"));
+        changed = true;
+    }
+    if !changed {
+        lines.insert(0, "[General]".into());
+        lines.insert(1, format!("Name: {name}"));
+    }
+    fs::write(config, format!("{}\n", lines.join("\n"))).map_err(|error| {
+        CommandError::new(
+            "SKIN_CONFIG_WRITE_ERROR",
+            format!("无法更新新 Skin 名称：{error}"),
+        )
+    })?;
+    Ok(())
+}
+
+/// 「复制到临时文件 → 备份原文件 → 改名顶替」的替换流程，失败时回滚。
+fn replace_file_with_backup(source: &Path, target: &Path) -> CommandResult<()> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| CommandError::new("SKIN_REPLACEMENT_WRITE_ERROR", "Skin 资源路径无效"))?;
+    fs::create_dir_all(parent)?;
+    let temporary = target.with_extension(format!(
+        "{}.opp-replace",
+        target
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("tmp")
+    ));
+    let backup = target.with_extension(format!(
+        "{}.opp-backup",
+        target
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("bak")
+    ));
+    fs::copy(source, &temporary).map_err(|error| {
+        CommandError::new(
+            "SKIN_REPLACEMENT_WRITE_ERROR",
+            format!("无法写入替换文件：{error}"),
+        )
+    })?;
+    if target.exists() {
+        fs::rename(target, &backup).map_err(|error| {
+            CommandError::new(
+                "SKIN_REPLACEMENT_WRITE_ERROR",
+                format!("无法备份原资源：{error}"),
+            )
+        })?;
+    }
+    if let Err(error) = fs::rename(&temporary, target) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, target);
+        }
+        return Err(CommandError::new(
+            "SKIN_REPLACEMENT_WRITE_ERROR",
+            format!("无法完成资源替换：{error}"),
+        ));
+    }
+    if backup.exists() {
+        let _ = fs::remove_file(backup);
+    }
+    Ok(())
+}
+
+/// 发现阶段：收集全部待解析候选与源目录的文件统计。
+///
+/// Stable 递归遍历 Songs / Skins 目录；Lazer 以 `client.realm` 为权威
+/// 清单直接登记谱面与皮肤 blob，不做目录推断。
+fn discover(
+    source: &ResolvedSource,
+    client: LocalClient,
+    cancel: &AtomicBool,
+    reporter: &ProgressReporter,
+) -> CommandResult<Discovery> {
+    let mut discovery = Discovery {
+        candidates: Vec::new(),
+        source_file_count: 0,
+        source_bytes: 0,
+        diagnostics: Vec::new(),
+    };
+
+    match client {
+        LocalClient::Stable => {
+            if let Some(root) = source.beatmap_root.as_deref() {
+                discover_stable_tree(root, root, false, cancel, reporter, &mut discovery)?;
+            }
+            if let Some(root) = source.skin_root.as_deref() {
+                discover_stable_tree(root, root, true, cancel, reporter, &mut discovery)?;
+            }
+        }
+        LocalClient::Lazer => {
+            let files_root = source.repository_root.as_deref().ok_or_else(|| {
+                CommandError::new("INVALID_LOCAL_SOURCE", "lazer files 仓库不可用")
+            })?;
+            let data_root = files_root.parent().unwrap_or(files_root);
+            let realm_path = data_root.join("client.realm");
+            if !realm_path.is_file() {
+                return Err(CommandError::new(
+                    "REALM_NOT_FOUND",
+                    format!("未找到 client.realm：{}", realm_path.display()),
+                ));
+            }
+            // 以 Realm 为权威数据源：只索引 Realm 中登记的谱面 / 皮肤，
+            // 元数据、谱面集归属与文件清单都来自数据库而不是目录推断。
+            let realm = lazer_realm::read_realm_data(&realm_path)
+                .map_err(|message| CommandError::new("REALM_READ_FAILED", message))?;
+            for set in &realm.sets {
+                check_cancelled(cancel)?;
+                let set = Arc::new(set.clone());
+                discovery.source_file_count += set.files.len();
+                discovery.source_bytes = discovery
+                    .source_bytes
+                    .saturating_add(set.files.iter().map(|file| file.size).sum::<u64>());
+                for beatmap in &set.beatmaps {
+                    let physical =
+                        files_root.join(lazer_realm::blob_relative_path(&beatmap.sha256));
+                    let Ok(metadata) = fs::metadata(&physical) else {
+                        discovery.diagnostics.push(diagnostic(
+                            "REALM_FILE_MISSING",
+                            format!("Realm 登记的文件不存在：{}", beatmap.sha256),
+                            None,
+                        ));
+                        continue;
+                    };
+                    discovery.candidates.push(Candidate {
+                        // A content hash identifies the blob, not its Realm
+                        // membership. The same beatmap can be referenced by
+                        // more than one set; include the set id so SQLite's
+                        // unique resource key does not collapse those rows.
+                        key: format!(
+                            "lazer:beatmap:{}:{}",
+                            set.id,
+                            lazer_realm::blob_relative_path(&beatmap.sha256)
+                        ),
+                        physical_path: physical,
+                        logical_path: beatmap.sha256.clone(),
+                        known_hash: Some(beatmap.sha256.clone()),
+                        stamp: stamp(&metadata),
+                        kind: CandidateKind::Beatmap,
+                        lazer_beatmap: Some(Box::new(beatmap.clone())),
+                        lazer_set: Some(Arc::clone(&set)),
+                        lazer_skin: None,
+                    });
+                }
+                reporter.emit("discovery", discovery.candidates.len(), 0, 2.0, false);
+            }
+            for skin in &realm.skins {
+                check_cancelled(cancel)?;
+                let skin = Arc::new(skin.clone());
+                let Some(skin_ini) = skin.skin_ini.as_ref() else {
+                    continue;
+                };
+                discovery.source_file_count += skin.files.len();
+                discovery.source_bytes = discovery
+                    .source_bytes
+                    .saturating_add(skin.files.iter().map(|file| file.size).sum::<u64>());
+                let physical = files_root.join(lazer_realm::blob_relative_path(&skin_ini.hash));
+                let Ok(metadata) = fs::metadata(&physical) else {
+                    discovery.diagnostics.push(diagnostic(
+                        "REALM_FILE_MISSING",
+                        format!("Realm 登记的文件不存在：{}", skin_ini.hash),
+                        None,
+                    ));
+                    continue;
+                };
+                discovery.candidates.push(Candidate {
+                    key: format!(
+                        "lazer:skin:{}:{}",
+                        skin.id,
+                        lazer_realm::blob_relative_path(&skin_ini.hash)
+                    ),
+                    physical_path: physical,
+                    logical_path: skin_ini.hash.clone(),
+                    known_hash: Some(skin_ini.hash.clone()),
+                    stamp: stamp(&metadata),
+                    kind: CandidateKind::Skin {
+                        root: files_root.to_path_buf(),
+                    },
+                    lazer_beatmap: None,
+                    lazer_set: None,
+                    lazer_skin: Some(skin),
+                });
+                reporter.emit("discovery", discovery.candidates.len(), 0, 2.0, false);
+            }
+        }
+    }
+
+    Ok(discovery)
+}
+
+/// 对比本次候选与上次索引：时间戳相同计复用、不同计修改、新键计新增、
+/// 消失的键计删除。
+fn scan_changes(
+    candidates: &[Candidate],
+    previous_entries: &BTreeMap<String, IndexedEntry>,
+) -> ScanChanges {
+    let mut changes = ScanChanges::default();
+    let mut current_keys = BTreeSet::new();
+    for candidate in candidates {
+        current_keys.insert(candidate.key.as_str());
+        match previous_entries.get(&candidate.key) {
+            Some(previous) if previous.stamp == candidate.stamp => changes.reused += 1,
+            Some(_) => changes.modified += 1,
+            None => changes.added += 1,
+        }
+    }
+    changes.removed = previous_entries
+        .keys()
+        .filter(|key| !current_keys.contains(key.as_str()))
+        .count();
+    changes
+}
+
+/// 判断文件系统事件是否应触发重扫；读取类事件一律忽略。
+fn watch_event_relevant(client: LocalClient, roots: &[PathBuf], event: &notify::Event) -> bool {
+    // Reading a Realm snapshot, cover or audio file must not schedule another scan.
+    if matches!(event.kind, notify::EventKind::Access(_)) {
+        return false;
+    }
+    match client {
+        LocalClient::Stable => !event.paths.is_empty(),
+        LocalClient::Lazer => {
+            let Some(data_root) = roots.first() else {
+                return false;
+            };
+            // Lazer writes unrelated session/settings data to Realm during
+            // startup. Beatmap and skin blobs are content-addressed and are
+            // immutable, so library membership changes are represented by
+            // creates/removes (or a rename), not ordinary content updates.
+            let library_change = matches!(
+                event.kind,
+                notify::EventKind::Create(_)
+                    | notify::EventKind::Remove(_)
+                    | notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+            );
+            if !library_change {
+                return false;
+            }
+            event.paths.iter().any(|path| {
+                path == &data_root.join("client.realm") || path.starts_with(data_root.join("files"))
+            })
+        }
+    }
+}
+
+/// 递归遍历 Stable 的 Songs / Skins 目录收集候选。
+///
+/// 谱面按 `.osu` 扩展名识别；皮肤按 `skin.ini` 识别，其时间戳取整个
+/// 目录的聚合戳，目录内任一文件变化都会触发重新解析。
+fn discover_stable_tree(
+    tree_root: &Path,
+    logical_root: &Path,
+    skins: bool,
+    cancel: &AtomicBool,
+    reporter: &ProgressReporter,
+    discovery: &mut Discovery,
+) -> CommandResult<()> {
+    for entry in WalkDir::new(tree_root).follow_links(false) {
+        check_cancelled(cancel)?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                discovery
+                    .diagnostics
+                    .push(diagnostic("DISCOVERY_ERROR", error.to_string(), None));
+                continue;
+            }
+        };
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                discovery.diagnostics.push(diagnostic(
+                    "METADATA_ERROR",
+                    error.to_string(),
+                    Some(relative_path(logical_root, entry.path())),
+                ));
+                continue;
+            }
+        };
+        discovery.source_file_count += 1;
+        discovery.source_bytes = discovery.source_bytes.saturating_add(metadata.len());
+        let logical = relative_path(logical_root, entry.path());
+        let kind = if skins
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("skin.ini")
+        {
+            let root = entry.path().parent().unwrap_or(tree_root).to_path_buf();
+            Some(CandidateKind::Skin { root })
+        } else if !skins
+            && entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("osu"))
+        {
+            Some(CandidateKind::Beatmap)
+        } else {
+            None
+        };
+        if let Some(kind) = kind {
+            let candidate_stamp = match &kind {
+                CandidateKind::Skin { root } => directory_stamp(root),
+                _ => stamp(&metadata),
+            };
+            discovery.candidates.push(Candidate {
+                lazer_beatmap: None,
+                lazer_set: None,
+                lazer_skin: None,
+                key: format!(
+                    "stable:{}:{}",
+                    if skins { "skin" } else { "beatmap" },
+                    entry.path().to_string_lossy().to_lowercase()
+                ),
+                physical_path: entry.path().to_path_buf(),
+                logical_path: format!("{}/{}", if skins { "Skins" } else { "Songs" }, logical),
+                known_hash: None,
+                stamp: candidate_stamp,
+                kind,
+            });
+        }
+        reporter.emit("discovery", discovery.source_file_count, 0, 2.0, false);
+    }
+    Ok(())
+}
+
+/// 按候选类型解析单个文件；失败会编码为索引诊断而不是中止整个扫描。
+fn process_candidate(client: LocalClient, candidate: &Candidate) -> IndexedEntry {
+    let mut diagnostics = Vec::new();
+    let mut lazer_files: Option<Vec<lazer_realm::LazerRealmFile>> = None;
+    let data = match &candidate.kind {
+        CandidateKind::Beatmap => match fs::read(&candidate.physical_path) {
+            Ok(bytes) => match parse_beatmap(
+                client,
+                &bytes,
+                &candidate.logical_path,
+                modified_iso(&candidate.physical_path),
+                candidate.known_hash.as_deref(),
+            ) {
+                Ok(mut parsed) => {
+                    if let Some(message) = parsed.warning {
+                        diagnostics.push(diagnostic(
+                            "DIFFICULTY_SKIPPED",
+                            message,
+                            Some(candidate.logical_path.clone()),
+                        ));
+                    }
+                    // Lazer：用 Realm 的权威元数据覆盖推断结果——
+                    // 谱面集归属、unicode 元数据、在线 ID、MD5 全部来自数据库。
+                    if let (Some(beatmap), Some(set)) = (
+                        candidate.lazer_beatmap.as_ref(),
+                        candidate.lazer_set.as_ref(),
+                    ) {
+                        parsed.summary.set_key = format!("realm:{}", set.id);
+                        parsed.summary.set_grouping_inferred = false;
+                        parsed.summary.beatmap_set_id =
+                            (set.online_id > 0).then_some(set.online_id as i32);
+                        parsed.summary.beatmap_id =
+                            (beatmap.online_id > 0).then_some(beatmap.online_id as i32);
+                        parsed.summary.artist = set.artist.clone();
+                        parsed.summary.artist_unicode = set.artist_unicode.clone();
+                        parsed.summary.title = set.title.clone();
+                        parsed.summary.title_unicode = set.title_unicode.clone();
+                        parsed.summary.creator = set.creator.clone();
+                        parsed.summary.resource.logical_path = None;
+                        parsed.detail.summary = parsed.summary.clone();
+                        lazer_files = Some(set.files.clone());
+                    }
+                    IndexedData::Beatmap {
+                        summary: parsed.summary,
+                        detail: Box::new(parsed.detail),
+                    }
+                }
+                Err(message) => {
+                    diagnostics.push(diagnostic(
+                        "BEATMAP_PARSE_ERROR",
+                        message,
+                        Some(candidate.logical_path.clone()),
+                    ));
+                    IndexedData::Ignored
+                }
+            },
+            Err(error) => {
+                diagnostics.push(diagnostic(
+                    "RESOURCE_READ_ERROR",
+                    error.to_string(),
+                    Some(candidate.logical_path.clone()),
+                ));
+                IndexedData::Ignored
+            }
+        },
+        CandidateKind::Skin { root } => match fs::read(&candidate.physical_path) {
+            Ok(bytes) => {
+                // Lazer：皮肤文件分散在内容寻址存储中，不能按目录枚举，
+                // 清单（inventory）改由 Realm 登记的文件列表填充。
+                let skin_root = (client == LocalClient::Stable).then_some(root.as_path());
+                match parse_skin(
+                    client,
+                    &bytes,
+                    &candidate.logical_path,
+                    modified_iso(&candidate.physical_path),
+                    candidate.known_hash.as_deref(),
+                    skin_root,
+                ) {
+                    Ok(mut detail) => {
+                        if let Some(skin) = candidate.lazer_skin.as_ref() {
+                            detail.summary.completeness = Completeness::Complete;
+                            detail.summary.resource.logical_path = None;
+                            detail.inventory = Some(lazer_skin_inventory(&skin.files));
+                            detail.summary.resource_count =
+                                detail.inventory.as_ref().map(|value| value.file_count);
+                            detail.summary.total_bytes =
+                                detail.inventory.as_ref().map(|value| value.total_bytes);
+                            lazer_files = Some(skin.files.clone());
+                        }
+                        IndexedData::Skin { detail }
+                    }
+                    Err(message) => {
+                        diagnostics.push(diagnostic(
+                            "SKIN_PARSE_ERROR",
+                            message,
+                            Some(candidate.logical_path.clone()),
+                        ));
+                        IndexedData::Ignored
+                    }
+                }
+            }
+            Err(error) => {
+                diagnostics.push(diagnostic(
+                    "RESOURCE_READ_ERROR",
+                    error.to_string(),
+                    Some(candidate.logical_path.clone()),
+                ));
+                IndexedData::Ignored
+            }
+        },
+        CandidateKind::Unknown => process_unknown(client, candidate, &mut diagnostics),
+    };
+    let content_hash = match &data {
+        IndexedData::Beatmap { summary, .. } => Some(summary.resource.content_hash.clone()),
+        IndexedData::Skin { detail } => Some(detail.summary.resource.content_hash.clone()),
+        IndexedData::Ignored => candidate.known_hash.clone(),
+    };
+
+    // MD5 优先取 Realm 登记值（收藏夹 / 游戏会话按 MD5 查谱面依赖它），
+    // 缺失时回退为直接对文件计算。
+    let beatmap_md5 = match (&data, candidate.lazer_beatmap.as_ref()) {
+        (IndexedData::Beatmap { .. }, Some(plan)) if !plan.md5.is_empty() => {
+            Some(plan.md5.to_ascii_lowercase())
+        }
+        _ => matches!(data, IndexedData::Beatmap { .. })
+            .then(|| fs::read(&candidate.physical_path).ok())
+            .flatten()
+            .map(|bytes| format!("{:x}", Md5::digest(bytes))),
+    };
+    IndexedEntry {
+        key: candidate.key.clone(),
+        physical_path: candidate.physical_path.clone(),
+        stamp: candidate.stamp.clone(),
+        content_hash,
+        beatmap_md5,
+        lazer_files,
+        data,
+        diagnostics,
+    }
+}
+
+/// 清理导出文件名中的非法字符，并限制长度。
+fn sanitize_export_name(raw: &str) -> String {
+    let mut name: String = raw
+        .chars()
+        .map(|character| match character {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            other => other,
+        })
+        .take(120)
+        .collect();
+    name = name.trim().trim_end_matches('.').to_string();
+    if name.is_empty() {
+        "export".to_string()
+    } else {
+        name
+    }
+}
+
+/// 递归收集目录下所有文件，zip 条目名为相对路径（统一使用 `/`）。
+fn collect_directory_entries(root: &Path) -> CommandResult<Vec<(String, PathBuf)>> {
+    WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| {
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .map_err(|error| {
+                    CommandError::new(
+                        "LOCAL_EXPORT_UNAVAILABLE",
+                        format!("无法计算相对路径：{error}"),
+                    )
+                })?
+                .to_string_lossy()
+                .replace('\\', "/");
+            Ok((relative, entry.path().to_path_buf()))
+        })
+        .collect()
+}
+
+/// 把 (zip 条目名, 源文件) 列表写出为一个 zip 归档。
+fn write_export_zip(sources: &[(String, PathBuf)], out_path: &Path) -> CommandResult<()> {
+    let file = fs::File::create(out_path).map_err(|error| {
+        CommandError::new(
+            "LOCAL_EXPORT_WRITE_ERROR",
+            format!("无法创建导出文件：{error}"),
+        )
+    })?;
+    let mut archive = ZipWriter::new(file);
+    for (name, source) in sources {
+        // 全部存储模式(压缩等级 0,最快):皮肤素材几乎都是已压缩格式
+        // (png/音频),二次压缩只有 CPU 开销没有体积收益。
+        let options = SimpleFileOptions::default()
+            .large_file(true)
+            .compression_method(CompressionMethod::Stored);
+        archive.start_file(name.clone(), options).map_err(|error| {
+            CommandError::new(
+                "LOCAL_EXPORT_WRITE_ERROR",
+                format!("写入 zip 失败：{error}"),
+            )
+        })?;
+        let mut reader = fs::File::open(source).map_err(|error| {
+            CommandError::new(
+                "LOCAL_EXPORT_READ_ERROR",
+                format!("无法读取 {}：{error}", source.display()),
+            )
+        })?;
+        std::io::copy(&mut reader, &mut archive).map_err(|error| {
+            CommandError::new(
+                "LOCAL_EXPORT_WRITE_ERROR",
+                format!("写入 zip 失败：{error}"),
+            )
+        })?;
+    }
+    archive.finish().map_err(|error| {
+        CommandError::new(
+            "LOCAL_EXPORT_WRITE_ERROR",
+            format!("完成 zip 失败：{error}"),
+        )
+    })?;
+    Ok(())
+}
+
+/// 由 Realm 登记的皮肤文件清单构建资源统计。
+fn lazer_skin_inventory(files: &[lazer_realm::LazerRealmFile]) -> super::models::SkinInventory {
+    let mut by_extension = BTreeMap::new();
+    for file in files {
+        let extension = std::path::Path::new(&file.filename)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_default();
+        *by_extension.entry(extension).or_default() += 1;
+    }
+    super::models::SkinInventory {
+        file_count: files.len(),
+        total_bytes: files.iter().map(|file| file.size).sum(),
+        by_extension,
+    }
+}
+
+/// 未知类型候选：先读 64 KB 前缀嗅探，疑似谱面 / 皮肤配置才完整解析。
+fn process_unknown(
+    client: LocalClient,
+    candidate: &Candidate,
+    diagnostics: &mut Vec<ScanDiagnostic>,
+) -> IndexedData {
+    let prefix = match read_prefix(&candidate.physical_path, 64 * 1024) {
+        Ok(prefix) => prefix,
+        Err(message) => {
+            diagnostics.push(diagnostic(
+                "RESOURCE_READ_ERROR",
+                message,
+                Some(candidate.logical_path.clone()),
+            ));
+            return IndexedData::Ignored;
+        }
+    };
+    if !looks_like_beatmap(&prefix) && !looks_like_skin_config(&prefix) {
+        return IndexedData::Ignored;
+    }
+    let bytes = match fs::read(&candidate.physical_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            diagnostics.push(diagnostic(
+                "RESOURCE_READ_ERROR",
+                error.to_string(),
+                Some(candidate.logical_path.clone()),
+            ));
+            return IndexedData::Ignored;
+        }
+    };
+    if looks_like_beatmap(&prefix) {
+        match parse_beatmap(
+            client,
+            &bytes,
+            &candidate.logical_path,
+            modified_iso(&candidate.physical_path),
+            candidate.known_hash.as_deref(),
+        ) {
+            Ok(mut parsed) => {
+                parsed.summary.resource.logical_path = None;
+                parsed.detail.summary.resource.logical_path = None;
+                if let Some(message) = parsed.warning {
+                    diagnostics.push(diagnostic("DIFFICULTY_SKIPPED", message, None));
+                }
+                IndexedData::Beatmap {
+                    summary: parsed.summary,
+                    detail: Box::new(parsed.detail),
+                }
+            }
+            Err(message) => {
+                diagnostics.push(diagnostic("BEATMAP_PARSE_ERROR", message, None));
+                IndexedData::Ignored
+            }
+        }
+    } else {
+        match parse_skin(
+            client,
+            &bytes,
+            &candidate.logical_path,
+            modified_iso(&candidate.physical_path),
+            candidate.known_hash.as_deref(),
+            None,
+        ) {
+            Ok(mut detail) => {
+                detail.summary.resource.logical_path = None;
+                IndexedData::Skin { detail }
+            }
+            Err(message) => {
+                diagnostics.push(diagnostic("SKIN_PARSE_ERROR", message, None));
+                IndexedData::Ignored
+            }
+        }
+    }
+}
+
+/// 从完整索引聚合库级统计；推断分组会单独记录，避免与在线谱面集混淆。
+fn build_summary(
+    client: LocalClient,
+    source_root: &str,
+    entries: &[IndexedEntry],
+    source_file_count: usize,
+    source_bytes: u64,
+    diagnostic_count: usize,
+) -> LocalLibrarySummary {
+    let beatmaps = entries.iter().filter_map(|entry| match &entry.data {
+        IndexedData::Beatmap { summary, .. } => Some(summary),
+        _ => None,
+    });
+    let mut set_keys = BTreeSet::new();
+    let mut beatmap_count = 0usize;
+    let mut inferred = false;
+    let mut mode_counts = BTreeMap::new();
+    for beatmap in beatmaps {
+        beatmap_count += 1;
+        set_keys.insert(beatmap.set_key.clone());
+        inferred |= beatmap.set_grouping_inferred;
+        *mode_counts
+            .entry(beatmap.ruleset.to_string())
+            .or_insert(0usize) += 1;
+    }
+    let skin_count = entries
+        .iter()
+        .filter(|entry| matches!(entry.data, IndexedData::Skin { .. }))
+        .count();
+
+    LocalLibrarySummary {
+        client,
+        // Lazer 现在以 Realm 为权威数据源，索引完整性与 Stable 一致。
+        completeness: Completeness::Complete,
+        source_root: source_root.to_string(),
+        scanned_at: Utc::now().to_rfc3339(),
+        beatmap_count,
+        beatmap_set_count: set_keys.len(),
+        beatmap_set_count_inferred: inferred,
+        skin_count,
+        source_file_count,
+        source_bytes,
+        diagnostic_count,
+        mode_counts,
+        calculation: calculation_version(),
+    }
+}
+
+fn source_root(source: &ResolvedSource) -> Option<String> {
+    source.status.data_root.clone()
+}
+
+/// 数据源有效且数据根与索引记录一致时，索引才允许继续复用。
+fn source_matches(source: &ResolvedSource, indexed_root: &str) -> bool {
+    source.status.valid && source_root(source).as_deref() == Some(indexed_root)
+}
+
+fn relative_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn diagnostic(
+    code: impl Into<String>,
+    message: impl Into<String>,
+    logical_path: Option<String>,
+) -> ScanDiagnostic {
+    ScanDiagnostic {
+        code: code.into(),
+        message: message.into(),
+        logical_path,
+        resource_id: None,
+    }
+}
+
+fn check_cancelled(cancel: &AtomicBool) -> CommandResult<()> {
+    if cancel.load(AtomicOrdering::Relaxed) {
+        Err(CommandError::new("SCAN_CANCELLED", "本地资源扫描已取消"))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::Ordering;
+
+    use super::super::models::BeatmapSort;
+    use super::*;
+
+    pub(super) const OSU_FIXTURE: &str = r#"osu file format v14
+
+[General]
+AudioFilename: audio.mp3
+Mode: 0
+
+[Metadata]
+Title:Fixture
+TitleUnicode:测试谱面
+Artist:Artist
+ArtistUnicode:艺术家
+Creator:Mapper
+Version:Normal
+BeatmapID:-1
+BeatmapSetID:-1
+
+[Difficulty]
+HPDrainRate:5
+CircleSize:4
+OverallDifficulty:6
+ApproachRate:7
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[Events]
+0,0,"bg.jpg",0,0
+2,1200,1400
+
+[TimingPoints]
+0,500,4,2,0,100,1,0
+
+[HitObjects]
+256,192,1000,1,0,0:0:0:0:
+256,192,1500,1,0,0:0:0:0:
+256,192,2000,8,0,2500
+"#;
+
+    fn beatmap(resource_id: &str, title: &str, stars: f64) -> LocalBeatmapSummary {
+        LocalBeatmapSummary {
+            resource: super::super::models::LocalResourceRef {
+                resource_id: resource_id.into(),
+                client: LocalClient::Stable,
+                content_hash: "hash".into(),
+                logical_path: None,
+            },
+            set_key: "set".into(),
+            set_grouping_inferred: false,
+            beatmap_id: None,
+            beatmap_set_id: None,
+            title: title.into(),
+            title_unicode: title.into(),
+            artist: "artist".into(),
+            artist_unicode: "artist".into(),
+            creator: "creator".into(),
+            difficulty_name: "diff".into(),
+            ruleset: Ruleset::Osu,
+            format_version: 14,
+            stars: Some(stars),
+            max_pp: Some(100.0),
+            max_combo: Some(1),
+            bpm: 180.0,
+            length_ms: 1_000.0,
+            object_count: 1,
+            cs: 4.0,
+            ar: 8.0,
+            od: 7.0,
+            hp: 5.0,
+            average_nps: 1.0,
+            peak_nps: 1.0,
+            modified_at: None,
+            analysis_status: "ready".into(),
+        }
+    }
+
+    #[test]
+    fn pagination_caps_page_size() {
+        let result = page((0..600).collect::<Vec<_>>(), 10, 1_000);
+        assert_eq!(result.total, 600);
+        assert_eq!(result.limit, 500);
+        assert_eq!(result.items.len(), 500);
+    }
+
+    #[test]
+    fn difficulty_sort_places_missing_values_last() {
+        assert_eq!(option_f64_order(Some(2.0), None), Ordering::Less);
+        assert_eq!(
+            compare_beatmaps(
+                &beatmap("a", "z", 2.0),
+                &beatmap("b", "a", 3.0),
+                BeatmapSort::Stars
+            ),
+            Ordering::Less
+        );
+    }
+
+    #[test]
+    fn corrupted_cache_is_ignored() {
+        let directory = tempfile::tempdir().expect("cache");
+        fs::write(
+            data::index_path(directory.path(), LocalClient::Stable),
+            "not json",
+        )
+        .expect("write");
+        assert!(load_index(directory.path(), LocalClient::Stable).is_none());
+    }
+
+    /// lazer 谱面是 files/ 内容寻址 blob（无 .osu 扩展名）：`beatmap_file_path`
+    /// 必须按 Realm 清单物化出 Stable 式目录（.osu 与音频 / 背景同名同目录），
+    /// 否则 live render 等消费方会收到 "The local beatmap file is unavailable"
+    /// 或解析不到 BGM / 背景。
+    #[test]
+    fn lazer_beatmap_file_path_materializes_set_layout() {
+        let beatmap_hash = "aa11000000000000000000000000000000000000000000000000000000000000";
+        let audio_hash = "bb22000000000000000000000000000000000000000000000000000000000000";
+        let video_hash = "cc33000000000000000000000000000000000000000000000000000000000000";
+        let beatmap_blob = "a/aa".to_string();
+        let cache = tempfile::tempdir().expect("cache");
+        let data = tempfile::tempdir().expect("lazer data");
+        fs::write(data.path().join("client.realm"), []).expect("realm");
+        let files_root = data.path().join("files");
+        for (hash, bytes) in [
+            (beatmap_hash, OSU_FIXTURE.as_bytes()),
+            (audio_hash, b"fake audio"),
+            (video_hash, b"fake video"),
+        ] {
+            let relative = lazer_realm::blob_relative_path(hash);
+            let blob = files_root.join(&relative);
+            fs::create_dir_all(blob.parent().expect("parent")).expect("dirs");
+            fs::write(&blob, bytes).expect("blob");
+        }
+
+        let service = LocalAnalysisService::new(cache.path()).expect("service");
+        let source = service
+            .sources
+            .set_override(LocalClient::Lazer, data.path())
+            .expect("lazer source");
+
+        let mut parsed = parse_beatmap(
+            LocalClient::Lazer,
+            OSU_FIXTURE.as_bytes(),
+            beatmap_hash,
+            None,
+            Some(beatmap_hash),
+        )
+        .expect("parse");
+        parsed.summary.set_key = "realm:test".into();
+        let entry = IndexedEntry {
+            key: format!("lazer:{beatmap_blob}"),
+            physical_path: files_root.join(&beatmap_blob),
+            stamp: data::FileStamp {
+                bytes: OSU_FIXTURE.len() as u64,
+                modified_ms: 0,
+            },
+            content_hash: Some(beatmap_hash.into()),
+            beatmap_md5: None,
+            lazer_files: Some(vec![
+                lazer_realm::LazerRealmFile {
+                    filename: "Artist - Title (Mapper).osu".into(),
+                    hash: beatmap_hash.into(),
+                    size: OSU_FIXTURE.len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "audio.mp3".into(),
+                    hash: audio_hash.into(),
+                    size: b"fake audio".len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "video.mp4".into(),
+                    hash: "cc33000000000000000000000000000000000000000000000000000000000000".into(),
+                    size: b"fake video".len() as u64,
+                },
+            ]),
+            data: IndexedData::Beatmap {
+                summary: parsed.summary.clone(),
+                detail: Box::new(parsed.detail),
+            },
+            diagnostics: Vec::new(),
+        };
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = source.status.data_root.clone().expect("data root");
+        index.entries = vec![entry];
+        index.rebuild_runtime_indexes();
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index));
+
+        let path = service
+            .beatmap_file_path(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+            .expect("materialized path");
+        let path = Path::new(&path);
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("Artist - Title (Mapper).osu")
+        );
+        assert_eq!(fs::read(path).expect("osu content"), OSU_FIXTURE.as_bytes());
+        let directory = path.parent().expect("set directory");
+        assert_eq!(
+            fs::read(directory.join("audio.mp3")).expect("audio content"),
+            b"fake audio"
+        );
+        // 视频完整物化：live render 的背景视频 / 故事板解析依赖
+        // "谱面同目录"语义找到视频文件。
+        assert_eq!(
+            fs::read(directory.join("video.mp4")).expect("video content"),
+            b"fake video"
+        );
+        // 重复请求复用已物化的文件，不重复复制。
+        let again = service
+            .beatmap_file_path(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+            .expect("path again");
+        assert_eq!(again, path.to_string_lossy());
+    }
+
+    /// lazer 音频按 Realm 哈希直接取 blob，不物化整个谱面集目录。
+    #[test]
+    fn lazer_audio_resolves_realm_hash_files_without_materializing_a_set() {
+        let beatmap_hash = "aa11000000000000000000000000000000000000000000000000000000000000";
+        let audio_hash = "bb22000000000000000000000000000000000000000000000000000000000000";
+        let video_hash = "cc33000000000000000000000000000000000000000000000000000000000000";
+        let beatmap_blob = "a/aa".to_string();
+        let cache = tempfile::tempdir().expect("cache");
+        let data = tempfile::tempdir().expect("lazer data");
+        fs::write(data.path().join("client.realm"), []).expect("realm");
+        let files_root = data.path().join("files");
+        for (hash, bytes) in [
+            (beatmap_hash, OSU_FIXTURE.as_bytes()),
+            (audio_hash, b"ID3test audio"),
+            (video_hash, b"fake video"),
+        ] {
+            let relative = lazer_realm::blob_relative_path(hash);
+            let blob = files_root.join(&relative);
+            fs::create_dir_all(blob.parent().expect("parent")).expect("dirs");
+            fs::write(&blob, bytes).expect("blob");
+        }
+
+        let service = LocalAnalysisService::new(cache.path()).expect("service");
+        let source = service
+            .sources
+            .set_override(LocalClient::Lazer, data.path())
+            .expect("lazer source");
+
+        let mut parsed = parse_beatmap(
+            LocalClient::Lazer,
+            OSU_FIXTURE.as_bytes(),
+            beatmap_hash,
+            None,
+            Some(beatmap_hash),
+        )
+        .expect("parse");
+        parsed.summary.set_key = "realm:test".into();
+        let entry = IndexedEntry {
+            key: format!("lazer:{beatmap_blob}"),
+            physical_path: files_root.join(lazer_realm::blob_relative_path(beatmap_hash)),
+            stamp: data::FileStamp {
+                bytes: OSU_FIXTURE.len() as u64,
+                modified_ms: 0,
+            },
+            content_hash: Some(beatmap_hash.into()),
+            beatmap_md5: None,
+            lazer_files: Some(vec![
+                lazer_realm::LazerRealmFile {
+                    filename: "Artist - Title (Mapper).osu".into(),
+                    hash: beatmap_hash.into(),
+                    size: OSU_FIXTURE.len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "audio.mp3".into(),
+                    hash: audio_hash.into(),
+                    size: b"ID3test audio".len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "video.mp4".into(),
+                    hash: "cc33000000000000000000000000000000000000000000000000000000000000".into(),
+                    size: b"fake video".len() as u64,
+                },
+            ]),
+            data: IndexedData::Beatmap {
+                summary: parsed.summary.clone(),
+                detail: Box::new(parsed.detail),
+            },
+            diagnostics: Vec::new(),
+        };
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = source.status.data_root.clone().expect("data root");
+        index.entries = vec![entry];
+        index.rebuild_runtime_indexes();
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index));
+
+        let payload = service
+            .beatmap_audio(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+            .expect("lazer audio");
+        assert_eq!(payload.mime_type, "audio/mpeg");
+        assert_eq!(
+            BASE64_STANDARD.decode(payload.bytes_base64).expect("bytes"),
+            b"ID3test audio"
+        );
+        assert!(!service.materialized_sets_root().exists());
+        fs::remove_file(files_root.join(lazer_realm::blob_relative_path(audio_hash)))
+            .expect("remove audio");
+        assert!(
+            service
+                .beatmap_audio(LocalClient::Lazer, &parsed.summary.resource.resource_id)
+                .is_err()
+        );
+    }
+
+    /// live render 的皮肤消费路径：lazer 皮肤以 "lazer:<resource_id>"
+    /// 引用，`materialize_lazer_skin` 在实际选用时才把 Realm 清单物化成
+    /// Stable 布局目录（原始文件名，可直接交给皮肤加载器）。
+    #[test]
+    fn materialize_lazer_skin_stages_on_demand() {
+        let skin_ini = "[General]\nName: 测试皮肤\nAuthor: Someone\nVersion: 1.0\n";
+        let ini_hash = "dd11000000000000000000000000000000000000000000000000000000000000";
+        let cursor_hash = "ee22000000000000000000000000000000000000000000000000000000000000";
+        let cache = tempfile::tempdir().expect("cache");
+        let data = tempfile::tempdir().expect("lazer data");
+        fs::write(data.path().join("client.realm"), []).expect("realm");
+        let files_root = data.path().join("files");
+        for (hash, bytes) in [
+            (ini_hash, skin_ini.as_bytes()),
+            (cursor_hash, b"fake cursor png"),
+        ] {
+            let blob = files_root.join(lazer_realm::blob_relative_path(hash));
+            fs::create_dir_all(blob.parent().expect("parent")).expect("dirs");
+            fs::write(&blob, bytes).expect("blob");
+        }
+
+        let service = LocalAnalysisService::new(cache.path()).expect("service");
+        service
+            .sources
+            .set_override(LocalClient::Lazer, data.path())
+            .expect("lazer source");
+
+        let detail = parse_skin(
+            LocalClient::Lazer,
+            skin_ini.as_bytes(),
+            ini_hash,
+            None,
+            Some(ini_hash),
+            None,
+        )
+        .expect("parse skin");
+        let resource_id = detail.summary.resource.resource_id.clone();
+        let entry = IndexedEntry {
+            key: format!("lazer:{}", lazer_realm::blob_relative_path(ini_hash)),
+            physical_path: files_root.join(lazer_realm::blob_relative_path(ini_hash)),
+            stamp: data::FileStamp {
+                bytes: skin_ini.len() as u64,
+                modified_ms: 0,
+            },
+            content_hash: Some(ini_hash.into()),
+            beatmap_md5: None,
+            lazer_files: Some(vec![
+                lazer_realm::LazerRealmFile {
+                    filename: "skin.ini".into(),
+                    hash: ini_hash.into(),
+                    size: skin_ini.len() as u64,
+                },
+                lazer_realm::LazerRealmFile {
+                    filename: "cursor.png".into(),
+                    hash: cursor_hash.into(),
+                    size: b"fake cursor png".len() as u64,
+                },
+            ]),
+            data: IndexedData::Skin { detail },
+            diagnostics: Vec::new(),
+        };
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = service
+            .sources
+            .resolve(LocalClient::Lazer)
+            .expect("resolve")
+            .status
+            .data_root
+            .expect("data root");
+        let mut other = entry.clone();
+        let other_id = format!("{resource_id}-other");
+        if let IndexedData::Skin { detail } = &mut other.data {
+            detail.summary.resource.resource_id = other_id.clone();
+        }
+        let other_hash = "ff33000000000000000000000000000000000000000000000000000000000000";
+        let other_blob = files_root.join(lazer_realm::blob_relative_path(other_hash));
+        fs::create_dir_all(other_blob.parent().unwrap()).unwrap();
+        fs::write(other_blob, b"different cursor").unwrap();
+        other.lazer_files.as_mut().unwrap()[1].hash = other_hash.into();
+        index.entries = vec![entry, other];
+        index.rebuild_runtime_indexes();
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index));
+
+        let directory = service
+            .materialize_lazer_skin(&resource_id)
+            .expect("staged skin directory");
+        assert!(directory.starts_with(cache.path().join("local-analysis").join("staged-skins")));
+        assert!(
+            directory
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("测试皮肤-")
+        );
+        let other_directory = service.materialize_lazer_skin(&other_id).unwrap();
+        assert_ne!(directory, other_directory);
+        assert_eq!(
+            fs::read(other_directory.join("cursor.png")).unwrap(),
+            b"different cursor"
+        );
+        assert_eq!(
+            fs::read(directory.join("skin.ini")).expect("skin.ini"),
+            skin_ini.as_bytes()
+        );
+        assert_eq!(
+            fs::read(directory.join("cursor.png")).expect("cursor"),
+            b"fake cursor png"
+        );
+    }
+
+    /// 构造一个空索引骨架（仅元数据，无条目）。
+    fn empty_index(algorithm: &str) -> LocalIndex {
+        LocalIndex {
+            schema: INDEX_SCHEMA,
+            difficulty_algorithm: algorithm.into(),
+            source_root: "fixture".into(),
+            summary: LocalLibrarySummary {
+                client: LocalClient::Stable,
+                completeness: Completeness::Complete,
+                source_root: "fixture".into(),
+                scanned_at: Utc::now().to_rfc3339(),
+                beatmap_count: 0,
+                beatmap_set_count: 0,
+                beatmap_set_count_inferred: false,
+                skin_count: 0,
+                source_file_count: 0,
+                source_bytes: 0,
+                diagnostic_count: 0,
+                mode_counts: BTreeMap::new(),
+                calculation: calculation_version(),
+            },
+            diagnostics: Vec::new(),
+            entries: Vec::new(),
+            search_fields: Vec::new(),
+            resource_lookup: BTreeMap::new(),
+            beatmap_id_lookup: BTreeMap::new(),
+            set_id_lookup: BTreeSet::new(),
+            beatmap_md5_lookup: BTreeMap::new(),
+            beatmap_sets: BTreeMap::new(),
+            beatmap_orders: BTreeMap::new(),
+            skin_orders: BTreeMap::new(),
+        }
+    }
+
+    /// 主缓存损坏时回退 .bak 备份；备份算法版本不同则整体失效。
+    #[test]
+    fn cache_recovers_from_backup_and_invalidates_algorithm_changes() {
+        let directory = tempfile::tempdir().expect("cache");
+        fs::write(
+            data::index_path(directory.path(), LocalClient::Stable),
+            "corrupted",
+        )
+        .expect("primary");
+        fs::write(
+            directory.path().join("stable-index.json.bak"),
+            serde_json::to_vec(&empty_index(DIFFICULTY_ALGORITHM)).expect("json"),
+        )
+        .expect("backup");
+        assert!(load_index(directory.path(), LocalClient::Stable).is_some());
+
+        fs::write(
+            directory.path().join("stable-index.json.bak"),
+            serde_json::to_vec(&empty_index("old algorithm")).expect("json"),
+        )
+        .expect("old backup");
+        assert!(load_index(directory.path(), LocalClient::Stable).is_none());
+    }
+
+    /// 以朴素参考实现对拍排序×方向×搜索词×深分页的全部组合。
+    #[test]
+    fn indexed_queries_match_reference_for_filters_sorting_and_deep_pages() {
+        use super::super::models::SortDirection;
+        let (_app, _source, service, _) = fixture_service();
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let original = service.require_current_index(LocalClient::Stable).unwrap();
+        let template = original
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
+            .unwrap();
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.source_root = original.source_root.clone();
+        for id in 0..40 {
+            let mut entry = template.clone();
+            if let IndexedData::Beatmap { summary, detail } = &mut entry.data {
+                summary.resource.resource_id = format!("resource-{id}");
+                summary.beatmap_id = Some(id);
+                summary.beatmap_set_id = Some(id / 4);
+                summary.set_key = format!("set-{}", id / 4);
+                summary.title = format!("Årtist {}", id % 7);
+                summary.creator = format!("Creator {}", id % 3);
+                summary.stars = (id % 5 != 0).then_some(f64::from(id % 8));
+                detail.tags = format!("测试 tag{}", id % 3);
+            }
+            index.entries.push(entry);
+        }
+        index.rebuild_runtime_indexes();
+        assert!(
+            matches!(&index.resource("resource-12").unwrap().data, IndexedData::Beatmap { summary, .. } if summary.beatmap_id == Some(12))
+        );
+        service
+            .indexes
+            .write()
+            .unwrap()
+            .insert(LocalClient::Stable, Arc::new(index));
+        let index = service.require_current_index(LocalClient::Stable).unwrap();
+        for sort in BeatmapSort::ALL {
+            for direction in [SortDirection::Asc, SortDirection::Desc] {
+                for search in [
+                    "",
+                    "ÅRTIST 测试",
+                    "tag1",
+                    "12",
+                    "no matches",
+                    "  测试  tag2 ",
+                ] {
+                    for offset in [0, 3, 900] {
+                        let query = BeatmapQuery {
+                            search: search.into(),
+                            sort,
+                            direction,
+                            offset,
+                            limit: 2,
+                            ..Default::default()
+                        };
+                        let normalized = search.trim().to_lowercase();
+                        let mut expected = index
+                            .beatmap_sets
+                            .iter()
+                            .filter_map(|(key, positions)| {
+                                let maps = positions
+                                    .iter()
+                                    .filter_map(|position| match &index.entries[*position].data {
+                                        IndexedData::Beatmap { summary, detail }
+                                            if beatmap_matches(
+                                                summary,
+                                                detail,
+                                                &query,
+                                                &normalized,
+                                            ) =>
+                                        {
+                                            Some((summary, detail.as_ref()))
+                                        }
+                                        _ => None,
+                                    })
+                                    .collect();
+                                stage::summarize_set(key, maps)
+                            })
+                            .collect::<Vec<_>>();
+                        expected.sort_by(|left, right| {
+                            apply_direction(compare_beatmap_sets(left, right, sort), direction)
+                        });
+                        let actual = service.query_beatmap_sets(query).unwrap();
+                        assert_eq!(actual.total, expected.len());
+                        let expected = expected
+                            .into_iter()
+                            .skip(offset)
+                            .take(2)
+                            .collect::<Vec<_>>();
+                        assert_eq!(
+                            serde_json::to_value(&actual.items).unwrap(),
+                            serde_json::to_value(expected).unwrap()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// 朴素逐集过滤 + 有界插入的实现，作为集合查询的对拍基准。
+    fn reference_set_query(
+        service: &LocalAnalysisService,
+        query: BeatmapQuery,
+    ) -> CommandResult<Page<LocalBeatmapSetSummary>> {
+        let index = service.require_current_index(query.client)?;
+        let search = query.search.trim().to_lowercase();
+        let limit = query.limit.clamp(1, query::MAX_QUERY_LIMIT);
+        let capacity = query
+            .offset
+            .saturating_add(limit)
+            .min(index.beatmap_sets.len());
+        let mut sets = Vec::with_capacity(capacity);
+        let mut total = 0usize;
+        for (set_key, positions) in &index.beatmap_sets {
+            let maps = positions
+                .iter()
+                .filter_map(|position| match &index.entries.get(*position)?.data {
+                    IndexedData::Beatmap { summary, detail }
+                        if beatmap_matches(summary, detail, &query, &search) =>
+                    {
+                        Some((summary, detail.as_ref()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let Some(set) = stage::summarize_set(set_key, maps) else {
+                continue;
+            };
+            total += 1;
+            reference_insert_bounded(&mut sets, set, capacity, |left, right| {
+                apply_direction(
+                    compare_beatmap_sets(left, right, query.sort),
+                    query.direction,
+                )
+            });
+        }
+        let items = sets.into_iter().skip(query.offset).take(limit).collect();
+        Ok(Page {
+            items,
+            total,
+            offset: query.offset,
+            limit,
+        })
+    }
+
+    /// 有界有序插入：最多保留 capacity 个最优元素。
+    fn reference_insert_bounded<T>(
+        items: &mut Vec<T>,
+        item: T,
+        capacity: usize,
+        compare: impl Fn(&T, &T) -> Ordering,
+    ) {
+        if capacity == 0 {
+            return;
+        }
+        let position = items
+            .binary_search_by(|current| compare(current, &item))
+            .unwrap_or_else(|position| position);
+        if position < capacity {
+            items.insert(position, item);
+            if items.len() > capacity {
+                items.pop();
+            }
+        }
+    }
+
+    /// Synthetic query benchmark; never reads the user's library.
+    #[test]
+    #[ignore = "release performance measurement"]
+    fn performance_query_matrix() {
+        let (_app, _source, service, _) = fixture_service();
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let original = service.require_current_index(LocalClient::Stable).unwrap();
+        let template = original
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.data, IndexedData::Beatmap { .. }))
+            .unwrap();
+        let lazer = tempfile::tempdir().unwrap();
+        fs::create_dir_all(lazer.path().join("files")).unwrap();
+        fs::write(lazer.path().join("client.realm"), []).unwrap();
+        service
+            .set_source(LocalClient::Lazer, lazer.path())
+            .unwrap();
+        for client in [LocalClient::Stable, LocalClient::Lazer] {
+            for size in [0, 1_000, 10_000] {
+                let mut index = empty_index(DIFFICULTY_ALGORITHM);
+                index.summary.client = client;
+                index.source_root = source_root(&service.sources.resolve(client).unwrap()).unwrap();
+                for id in 0..size {
+                    let mut entry = template.clone();
+                    if let IndexedData::Beatmap { summary, detail } = &mut entry.data {
+                        summary.resource.resource_id = format!("fixture-{id}");
+                        summary.set_key = format!("set-{}", id / 4);
+                        summary.beatmap_id = Some(id);
+                        summary.beatmap_set_id = Some(id / 4);
+                        summary.title = format!("Fixture {}", id / 4);
+                        detail.tags = format!("unicode 测试 group{}", id % 10);
+                    }
+                    index.entries.push(entry);
+                }
+                index.rebuild_runtime_indexes();
+                service
+                    .indexes
+                    .write()
+                    .unwrap()
+                    .insert(client, Arc::new(index));
+                for (name, search, offset) in [
+                    ("browse", "", 0),
+                    ("search", "测试 group3", 0),
+                    ("deep_page", "", 2000),
+                ] {
+                    let query = BeatmapQuery {
+                        client,
+                        search: search.into(),
+                        offset,
+                        limit: 12,
+                        ..Default::default()
+                    };
+                    for _ in 0..5 {
+                        std::hint::black_box(service.query_beatmap_sets(query.clone()).unwrap());
+                        std::hint::black_box(reference_set_query(&service, query.clone()).unwrap());
+                    }
+                    let mut samples = Vec::new();
+                    let mut reference_samples = Vec::new();
+                    for iteration in 0..30 {
+                        for optimized in if iteration % 2 == 0 {
+                            [false, true]
+                        } else {
+                            [true, false]
+                        } {
+                            let started = Instant::now();
+                            let page = if optimized {
+                                service.query_beatmap_sets(query.clone())
+                            } else {
+                                reference_set_query(&service, query.clone())
+                            }
+                            .unwrap();
+                            std::hint::black_box(page);
+                            let elapsed = started.elapsed().as_micros();
+                            if optimized {
+                                samples.push(elapsed);
+                            } else {
+                                reference_samples.push(elapsed);
+                            }
+                        }
+                    }
+                    samples.sort_unstable();
+                    reference_samples.sort_unstable();
+                    println!(
+                        "PERF {}",
+                        serde_json::json!({"client": client, "size": size, "scenario": name, "samples": 30,
+                        "median_us": samples[15], "p95_us": samples[28], "reference_median_us": reference_samples[15], "reference_p95_us": reference_samples[28]})
+                    );
+                }
+            }
+        }
+    }
+
+    /// 构造含 1 张谱面与 1 个皮肤的 Stable 临时目录及对应服务实例。
+    pub(super) fn fixture_service() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        LocalAnalysisService,
+        PathBuf,
+    ) {
+        let app_data = tempfile::tempdir().expect("app data");
+        let stable = tempfile::tempdir().expect("stable");
+        fs::write(stable.path().join("osu!.exe"), []).expect("exe");
+        fs::write(
+            stable.path().join("osu!.fixture.cfg"),
+            "BeatmapDirectory = Songs\nLastVersion = 20260725",
+        )
+        .expect("config");
+        let set = stable.path().join("Songs").join("1 Fixture");
+        fs::create_dir_all(&set).expect("songs");
+        let beatmap = set.join("fixture.osu");
+        fs::write(&beatmap, OSU_FIXTURE).expect("beatmap");
+        image::RgbImage::from_pixel(8, 8, image::Rgb([24, 48, 72]))
+            .save(set.join("bg.jpg"))
+            .expect("background");
+        let skin = stable.path().join("Skins").join("Fixture");
+        fs::create_dir_all(&skin).expect("skin");
+        fs::write(
+            skin.join("skin.ini"),
+            "[General]\nName: Fixture\nAuthor: OPP\nVersion: 2.7\n[Colours]\nCombo1: 255,120,180\n",
+        )
+        .expect("skin config");
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 255, 255, 128]))
+            .save(skin.join("cursor.png"))
+            .expect("skin image");
+        fs::write(
+            skin.join("normal-hitnormal.wav"),
+            b"RIFF\x04\x00\x00\x00WAVE",
+        )
+        .expect("skin sound");
+
+        let service = LocalAnalysisService::new(app_data.path()).expect("service");
+        service
+            .set_source(LocalClient::Stable, stable.path())
+            .expect("source");
+        (app_data, stable, service, beatmap)
+    }
+
+    /// 端到端冒烟：扫描、查询、背景缩略图与皮肤详情 / 预览 / 资源。
+    #[test]
+    fn stable_fixture_scans_queries_and_inventories_resources() {
+        let (_app_data, _stable, service, _beatmap) = fixture_service();
+        let cancel = AtomicBool::new(false);
+        let summary = service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("scan");
+        assert_eq!(summary.beatmap_count, 1);
+        assert_eq!(summary.beatmap_set_count, 1);
+        assert_eq!(summary.skin_count, 1);
+
+        let maps = service
+            .query_beatmaps(BeatmapQuery::default())
+            .expect("beatmaps");
+        assert_eq!(maps.total, 1);
+        assert_eq!(maps.items[0].title_unicode, "测试谱面");
+        assert_eq!(maps.items[0].ruleset, Ruleset::Osu);
+        let background = service
+            .beatmap_background(LocalClient::Stable, &maps.items[0].resource.resource_id)
+            .expect("background")
+            .expect("background data");
+        assert!(background.starts_with("data:image/jpeg;base64,"));
+
+        let skins = service.query_skins(SkinQuery::default()).expect("skins");
+        assert_eq!(skins.total, 1);
+        let detail = service
+            .skin_detail(LocalClient::Stable, &skins.items[0].resource.resource_id)
+            .expect("skin detail");
+        assert_eq!(detail.summary.accent_colors, vec![vec![255, 120, 180]]);
+        assert_eq!(detail.inventory.expect("inventory").file_count, 3);
+        let preview = service
+            .skin_preview(LocalClient::Stable, &skins.items[0].resource.resource_id)
+            .expect("skin preview");
+        assert_eq!(preview.images.len(), 1);
+        assert_eq!(preview.sounds.len(), 1);
+        let image = service
+            .skin_asset(
+                LocalClient::Stable,
+                &skins.items[0].resource.resource_id,
+                &preview.images[0].resource_id,
+            )
+            .expect("skin image payload");
+        assert!(image.data_url.starts_with("data:image/png;base64,"));
+        let audio = service
+            .skin_asset(
+                LocalClient::Stable,
+                &skins.items[0].resource.resource_id,
+                &preview.sounds[0].resource_id,
+            )
+            .expect("skin audio payload");
+        assert!(audio.data_url.starts_with("data:audio/wav;base64,"));
+    }
+
+    /// 通用搜索命中各元数据字段，多关键词按 AND 组合。
+    #[test]
+    fn universal_search_matches_metadata_and_combines_keywords() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        fs::write(
+            &beatmap,
+            OSU_FIXTURE
+                .replace("BeatmapID:-1", "BeatmapID:12345")
+                .replace("BeatmapSetID:-1", "BeatmapSetID:67890")
+                .replace(
+                    "Version:Normal",
+                    "Version:Normal\nSource:Anime Series\nTags:piano electronic",
+                ),
+        )
+        .expect("metadata");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        for search in [
+            "fixture",
+            "测试谱面",
+            "ARTIST",
+            "艺术家",
+            "mapper",
+            "normal",
+            "anime series",
+            "electronic",
+            "12345",
+            "67890",
+            "  ARTIST\tMapper   测试谱面  piano\n",
+            "67890 normal",
+        ] {
+            let query = BeatmapQuery {
+                search: search.into(),
+                ..BeatmapQuery::default()
+            };
+            assert_eq!(
+                service
+                    .query_beatmap_sets(query.clone())
+                    .expect("sets")
+                    .total,
+                1,
+                "{search}"
+            );
+            assert_eq!(
+                service.query_beatmaps(query.clone()).expect("maps").total,
+                1,
+                "{search}"
+            );
+            assert!(
+                service
+                    .random_beatmap_set(query, None)
+                    .expect("random")
+                    .is_some(),
+                "{search}"
+            );
+        }
+        for search in ["mapper missing", "1234", "6789"] {
+            let query = BeatmapQuery {
+                search: search.into(),
+                ..BeatmapQuery::default()
+            };
+            assert_eq!(
+                service
+                    .query_beatmap_sets(query.clone())
+                    .expect("sets")
+                    .total,
+                0,
+                "{search}"
+            );
+            assert!(
+                service
+                    .random_beatmap_set(query, None)
+                    .expect("random")
+                    .is_none(),
+                "{search}"
+            );
+        }
+        assert_eq!(
+            service
+                .query_beatmap_sets(BeatmapQuery {
+                    search: "artist mapper".into(),
+                    min_ar: Some(8.0),
+                    ..BeatmapQuery::default()
+                })
+                .expect("filtered")
+                .total,
+            0
+        );
+    }
+
+    /// 集内难度分组、min_ar 等结构过滤与整集 / 随机查询。
+    #[test]
+    fn groups_difficulties_and_applies_structural_filters() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        fs::write(
+            beatmap.with_file_name("hard.osu"),
+            OSU_FIXTURE
+                .replace("Version:Normal", "Version:Hard")
+                .replace("ApproachRate:7", "ApproachRate:9"),
+        )
+        .expect("hard");
+        let cancel = AtomicBool::new(false);
+        service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("scan");
+
+        let sets = service
+            .query_beatmap_sets(BeatmapQuery::default())
+            .expect("sets");
+        assert_eq!(sets.total, 1);
+        assert_eq!(sets.items[0].difficulties.len(), 2);
+
+        let filtered = service
+            .query_beatmap_sets(BeatmapQuery {
+                min_ar: Some(8.0),
+                ..BeatmapQuery::default()
+            })
+            .expect("filtered sets");
+        assert_eq!(filtered.total, 1);
+        assert_eq!(filtered.items[0].difficulties.len(), 1);
+        assert_eq!(filtered.items[0].difficulties[0].difficulty_name, "Hard");
+        let complete = service
+            .complete_beatmap_set(
+                LocalClient::Stable,
+                &filtered.items[0].set_key,
+                Ruleset::Osu,
+            )
+            .expect("complete set");
+        assert_eq!(complete.difficulties.len(), 2);
+        assert!(
+            service
+                .complete_beatmap_set(LocalClient::Stable, &complete.set_key, Ruleset::Mania)
+                .is_err()
+        );
+        let only = service
+            .random_beatmap_set(
+                BeatmapQuery {
+                    min_ar: Some(8.0),
+                    ..BeatmapQuery::default()
+                },
+                Some(&complete.set_key),
+            )
+            .expect("random")
+            .expect("single match");
+        assert_eq!(only.set_key, complete.set_key);
+        assert_eq!(only.difficulties.len(), 1);
+        assert!(
+            service
+                .random_beatmap_set(
+                    BeatmapQuery {
+                        min_ar: Some(11.0),
+                        ..BeatmapQuery::default()
+                    },
+                    None
+                )
+                .expect("no match")
+                .is_none()
+        );
+    }
+
+    /// 随机选题排除当前集，并遵循搜索词过滤。
+    #[test]
+    fn random_set_excludes_current_set_and_respects_search() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        let other = beatmap
+            .parent()
+            .expect("set folder")
+            .parent()
+            .expect("songs")
+            .join("Other");
+        fs::create_dir(&other).expect("other set");
+        fs::write(
+            other.join("other.osu"),
+            OSU_FIXTURE.replace("Title:Fixture", "Title:Other"),
+        )
+        .expect("map");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        let sets = service
+            .query_beatmap_sets(BeatmapQuery::default())
+            .expect("sets");
+        assert_eq!(sets.total, 2);
+        for _ in 0..8 {
+            let picked = service
+                .random_beatmap_set(BeatmapQuery::default(), Some(&sets.items[0].set_key))
+                .expect("pick")
+                .expect("match");
+            assert_eq!(picked.set_key, sets.items[1].set_key);
+        }
+        let picked = service
+            .random_beatmap_set(
+                BeatmapQuery {
+                    search: "Other".into(),
+                    ..BeatmapQuery::default()
+                },
+                None,
+            )
+            .expect("pick")
+            .expect("match");
+        assert_eq!(picked.title, "Other");
+    }
+
+    /// 音频读取附带 `PreviewTime`；`../` 越界路径被拒绝。
+    #[test]
+    fn local_audio_reads_preview_time_and_rejects_parent_traversal() {
+        let (_app_data, stable, service, beatmap) = fixture_service();
+        let audio = beatmap.parent().expect("set").join("audio.mp3");
+        fs::write(&audio, b"ID3test audio").expect("audio");
+        fs::write(
+            &beatmap,
+            OSU_FIXTURE.replace("Mode: 0", "Mode: 0\nPreviewTime: 1200"),
+        )
+        .expect("map");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        let id = service
+            .query_beatmaps(BeatmapQuery::default())
+            .expect("maps")
+            .items[0]
+            .resource
+            .resource_id
+            .clone();
+        let payload = service
+            .beatmap_audio(LocalClient::Stable, &id)
+            .expect("audio payload");
+        assert_eq!(payload.preview_time_ms, 1200.0);
+        assert_eq!(payload.mime_type, "audio/mpeg");
+        assert_eq!(
+            BASE64_STANDARD
+                .decode(payload.bytes_base64)
+                .expect("decode"),
+            b"ID3test audio"
+        );
+        fs::write(stable.path().join("outside.mp3"), b"ID3outside").expect("outside");
+        fs::write(
+            &beatmap,
+            OSU_FIXTURE.replace("audio.mp3", "../../outside.mp3"),
+        )
+        .expect("unsafe map");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("rescan");
+        let id = service
+            .query_beatmaps(BeatmapQuery::default())
+            .expect("maps")
+            .items[0]
+            .resource
+            .resource_id
+            .clone();
+        assert!(service.beatmap_audio(LocalClient::Stable, &id).is_err());
+    }
+
+    /// Stage 尺寸不放大已小于目标的图，且与缩略图缓存互不影响。
+    #[test]
+    fn stage_background_preserves_small_images_and_separates_cache_sizes() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        let background = beatmap.parent().expect("set").join("bg.jpg");
+        image::RgbImage::new(1500, 900)
+            .save(&background)
+            .expect("background");
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .expect("scan");
+        let id = service
+            .query_beatmaps(BeatmapQuery::default())
+            .expect("maps")
+            .items[0]
+            .resource
+            .resource_id
+            .clone();
+        let read_size = |url: String| {
+            let bytes = BASE64_STANDARD
+                .decode(url.split_once(',').expect("url").1)
+                .expect("decode");
+            let image = image::load_from_memory(&bytes).expect("image");
+            (image.width(), image.height())
+        };
+        let thumbnail = service
+            .beatmap_background(LocalClient::Stable, &id)
+            .expect("thumbnail")
+            .expect("image");
+        let stage = service
+            .beatmap_background_sized(
+                LocalClient::Stable,
+                &id,
+                super::super::models::BackgroundSize::Stage,
+            )
+            .expect("stage")
+            .expect("image");
+        assert_eq!(read_size(thumbnail), (900, 540));
+        assert_eq!(read_size(stage), (1500, 900));
+    }
+
+    /// 同一谱面集内的不同背景在收藏封面采样中各自保留。
+    #[test]
+    fn collection_artwork_keeps_distinct_backgrounds_within_one_set() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        fs::write(
+            beatmap.with_file_name("same-background.osu"),
+            OSU_FIXTURE.replace("Version:Normal", "Version:Hard"),
+        )
+        .unwrap();
+        fs::write(
+            beatmap.with_file_name("other-background.osu"),
+            OSU_FIXTURE
+                .replace("Version:Normal", "Version:Insane")
+                .replace("bg.jpg", "other.jpg"),
+        )
+        .unwrap();
+        service
+            .run_scan(
+                LocalClient::Stable,
+                false,
+                Arc::new(|_| {}),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let keys = service.collection_background_keys().unwrap();
+        assert_eq!(keys.len(), 3);
+        let sample = service.artwork_sample().unwrap();
+        assert_eq!(sample.len(), 2);
+        assert_eq!(
+            sample
+                .iter()
+                .map(|item| &item.resource_id)
+                .collect::<Vec<_>>(),
+            service
+                .artwork_sample()
+                .unwrap()
+                .iter()
+                .map(|item| &item.resource_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            keys.values()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            2
+        );
+    }
+
+    /// 增量扫描正确跟踪文件的新增与删除。
+    #[test]
+    fn incremental_scan_tracks_additions_and_deletions() {
+        let (_app_data, _stable, service, beatmap) = fixture_service();
+        let cancel = AtomicBool::new(false);
+        service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("first scan");
+
+        let added = beatmap.with_file_name("added.osu");
+        fs::write(
+            &added,
+            OSU_FIXTURE.replace("Version:Normal", "Version:Hard"),
+        )
+        .expect("add beatmap");
+        let summary = service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("incremental add");
+        assert_eq!(summary.beatmap_count, 2);
+
+        fs::remove_file(beatmap).expect("remove beatmap");
+        let summary = service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("incremental delete");
+        assert_eq!(summary.beatmap_count, 1);
+    }
+
+    /// 校验增量统计的复用 / 修改 / 新增 / 删除四类计数。
+    #[test]
+    fn scan_changes_counts_reused_modified_added_and_removed_entries() {
+        let (_app_data, _stable, service, _beatmap) = fixture_service();
+        let cancel = AtomicBool::new(false);
+        service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("first scan");
+        let index = service
+            .current_index(LocalClient::Stable)
+            .expect("index")
+            .expect("loaded index");
+        let previous = index
+            .entries
+            .iter()
+            .map(|entry| (entry.key.clone(), entry.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let source = service
+            .sources
+            .resolve(LocalClient::Stable)
+            .expect("source");
+        let discovery = discover(
+            &source,
+            LocalClient::Stable,
+            &cancel,
+            &ProgressReporter::new(Arc::new(|_| {}), LocalClient::Stable),
+        )
+        .expect("discovery");
+        let mut candidates = discovery.candidates;
+        let mut modified = candidates[0].clone();
+        modified.stamp.bytes = modified.stamp.bytes.saturating_add(1);
+        candidates[0] = modified;
+        candidates.pop();
+        let mut added = candidates[0].clone();
+        added.key.push_str(":added");
+        candidates.push(added);
+        let changes = scan_changes(&candidates, &previous);
+        assert_eq!(changes.added, 1);
+        assert_eq!(changes.modified, 1);
+        assert_eq!(changes.removed, 1);
+        assert_eq!(changes.reused, previous.len().saturating_sub(2));
+    }
+
+    /// 读取事件不触发扫描；写入 / 创建等库变化仍会触发。
+    #[test]
+    fn watcher_ignores_reads_but_keeps_library_changes() {
+        use notify::{
+            Event, EventKind,
+            event::{AccessKind, CreateKind, DataChange, ModifyKind},
+        };
+        let root = PathBuf::from("library");
+        let path = root.join("client.realm");
+        let roots = [root.clone()];
+        assert!(!watch_event_relevant(
+            LocalClient::Stable,
+            &roots,
+            &Event::new(EventKind::Access(AccessKind::Read)).add_path(path.clone())
+        ));
+        assert!(watch_event_relevant(
+            LocalClient::Stable,
+            &roots,
+            &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+                .add_path(path.clone())
+        ));
+        assert!(!watch_event_relevant(
+            LocalClient::Lazer,
+            &roots,
+            &Event::new(EventKind::Access(AccessKind::Read)).add_path(path.clone())
+        ));
+        assert!(!watch_event_relevant(
+            LocalClient::Lazer,
+            &roots,
+            &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+                .add_path(path.clone())
+        ));
+        assert!(watch_event_relevant(
+            LocalClient::Lazer,
+            &roots,
+            &Event::new(EventKind::Create(CreateKind::File)).add_path(path)
+        ));
+    }
+
+    /// 重启恢复索引后无需重扫即可公布修订号。
+    #[test]
+    fn restored_lazer_cache_publishes_its_revision_without_rescanning() {
+        let app_data = tempfile::tempdir().expect("cache");
+        let service = LocalAnalysisService::new(app_data.path()).expect("service");
+        let index = empty_index(DIFFICULTY_ALGORITHM);
+        let revision = index.summary.scanned_at.clone();
+        persist_index(&service.cache_dir, LocalClient::Lazer, &index).expect("save");
+        let restored = LocalAnalysisService::new(app_data.path()).expect("restart");
+        restored.load_cached_indexes();
+        assert!(
+            restored
+                .current_index(LocalClient::Lazer)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            restored.index_load_status().unwrap().clients[&LocalClient::Lazer]
+                .last_scan_at
+                .as_deref(),
+            Some(revision.as_str())
+        );
+    }
+
+    /// Realm 字节未变时直接复用缓存的库摘要。
+    #[test]
+    fn unchanged_lazer_realm_reuses_cached_summary() {
+        let app_data = tempfile::tempdir().expect("cache");
+        let lazer = tempfile::tempdir().expect("lazer");
+        fs::create_dir_all(lazer.path().join("files")).expect("files");
+        fs::write(lazer.path().join("client.realm"), b"realm fixture").expect("realm");
+        let service = LocalAnalysisService::new(app_data.path()).expect("service");
+        service
+            .set_source(LocalClient::Lazer, lazer.path())
+            .expect("source");
+
+        let mut index = empty_index(DIFFICULTY_ALGORITHM);
+        index.summary.client = LocalClient::Lazer;
+        index.source_root = service
+            .sources
+            .resolve(LocalClient::Lazer)
+            .expect("resolve")
+            .status
+            .data_root
+            .expect("data root");
+        service
+            .indexes
+            .write()
+            .expect("index lock")
+            .insert(LocalClient::Lazer, Arc::new(index.clone()));
+        service.persist_lazer_fingerprint();
+
+        let reused = service
+            .reusable_lazer_summary()
+            .expect("reuse check")
+            .expect("cached summary");
+        assert_eq!(reused.client, LocalClient::Lazer);
+        assert_eq!(reused.scanned_at, index.summary.scanned_at);
+    }
+
+    /// MD5 查表随索引持久化，重启后免读库即可命中。
+    #[test]
+    fn md5_lookup_is_persisted_and_reloaded_without_reading_the_library() {
+        let (app_data, _stable, service, beatmap) = fixture_service();
+        let checksum = format!(
+            "{:x}",
+            Md5::digest(fs::read(&beatmap).expect("beatmap bytes"))
+        );
+        let cancel = AtomicBool::new(false);
+        service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect("scan");
+        assert!(
+            service
+                .find_beatmap_by_md5(LocalClient::Stable, &checksum)
+                .expect("lookup")
+                .is_some()
+        );
+
+        let reloaded = LocalAnalysisService::new(app_data.path()).expect("reloaded service");
+        reloaded.load_cached_indexes();
+        assert!(
+            reloaded
+                .find_beatmap_by_md5(LocalClient::Stable, &checksum)
+                .expect("reloaded lookup")
+                .is_some()
+        );
+    }
+
+    /// 中途取消的扫描不落任何索引。
+    #[test]
+    fn cancelled_scan_does_not_create_an_index() {
+        let (_app_data, _stable, service, _beatmap) = fixture_service();
+        let cancel = AtomicBool::new(true);
+        let error = service
+            .run_scan(LocalClient::Stable, false, Arc::new(|_| {}), &cancel)
+            .expect_err("cancelled");
+        assert_eq!(error.code, "SCAN_CANCELLED");
+        assert!(
+            service
+                .summary(LocalClient::Stable)
+                .expect("summary")
+                .is_none()
+        );
+    }
+
+    /// 可选机器验收：需显式设置 `OPP_TEST_*_ROOT` 环境变量才运行。
+    #[test]
+    #[ignore = "requires explicit OPP_TEST_STABLE_ROOT / OPP_TEST_LAZER_ROOT"]
+    fn scans_opt_in_machine_acceptance_sources() {
+        let app_data = tempfile::tempdir().expect("app data");
+        let service = LocalAnalysisService::new(app_data.path()).expect("service");
+        let cancel = AtomicBool::new(false);
+        let mut scanned = 0usize;
+
+        for (variable, client) in [
+            ("OPP_TEST_STABLE_ROOT", LocalClient::Stable),
+            ("OPP_TEST_LAZER_ROOT", LocalClient::Lazer),
+        ] {
+            let Ok(path) = std::env::var(variable) else {
+                continue;
+            };
+            service
+                .set_source(client, Path::new(&path))
+                .expect("acceptance source");
+            let summary = service
+                .run_scan(client, true, Arc::new(|_| {}), &cancel)
+                .expect("acceptance scan");
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary).expect("summary json")
+            );
+            assert!(summary.beatmap_count > 0);
+            if client == LocalClient::Stable {
+                let skins = service
+                    .query_skins(SkinQuery {
+                        limit: 500,
+                        ..SkinQuery::default()
+                    })
+                    .expect("acceptance skins");
+                let mut image_count = 0usize;
+                let mut sound_count = 0usize;
+                let mut decoded_image = false;
+                for skin in &skins.items {
+                    let preview = service
+                        .skin_preview(client, &skin.resource.resource_id)
+                        .expect("acceptance skin preview");
+                    image_count += preview.images.len();
+                    sound_count += preview.sounds.len();
+                    if !decoded_image {
+                        decoded_image = preview.images.iter().any(|asset| {
+                            service
+                                .skin_asset(client, &skin.resource.resource_id, &asset.resource_id)
+                                .is_ok()
+                        });
+                    }
+                }
+                println!("stable skin preview assets: {image_count} images, {sound_count} sounds");
+                assert!(image_count > 0);
+                assert!(sound_count > 0);
+                assert!(decoded_image);
+            }
+            if client == LocalClient::Lazer {
+                // Realm 驱动后：谱面集分组、皮肤预览、背景都应可用。
+                assert!(!summary.beatmap_set_count_inferred);
+                let sets = service
+                    .query_beatmap_sets(BeatmapQuery {
+                        client,
+                        limit: 5,
+                        ..BeatmapQuery::default()
+                    })
+                    .expect("acceptance lazer sets");
+                assert!(!sets.items.is_empty());
+                assert_eq!(sets.items[0].completeness, Completeness::Complete);
+                let mut decoded_background = false;
+                for set in &sets.items {
+                    for difficulty in &set.difficulties {
+                        if service
+                            .beatmap_background(client, &difficulty.resource.resource_id)
+                            .expect("acceptance background call")
+                            .is_some()
+                        {
+                            decoded_background = true;
+                        }
+                    }
+                }
+                println!("lazer background decoded: {decoded_background}");
+                let skins = service
+                    .query_skins(SkinQuery {
+                        client,
+                        limit: 500,
+                        ..SkinQuery::default()
+                    })
+                    .expect("acceptance lazer skins");
+                let mut image_count = 0usize;
+                let mut decoded_image = false;
+                for skin in &skins.items {
+                    let preview = service
+                        .skin_preview(client, &skin.resource.resource_id)
+                        .expect("acceptance lazer skin preview");
+                    image_count += preview.images.len();
+                    if !decoded_image {
+                        decoded_image = preview.images.iter().any(|asset| {
+                            service
+                                .skin_asset(client, &skin.resource.resource_id, &asset.resource_id)
+                                .is_ok()
+                        });
+                    }
+                }
+                println!(
+                    "lazer skin preview assets: {image_count} images, decoded: {decoded_image}"
+                );
+                assert!(image_count > 0);
+                assert!(decoded_image);
+
+                // 导出 .osz / .osk：写出后重新打开校验条目数与内容。
+                let export_dir = tempfile::tempdir().expect("export dir");
+                let osz_path = service
+                    .export_beatmap_set_osz(client, &sets.items[0].set_key, export_dir.path())
+                    .expect("acceptance osz export");
+                let osz = std::fs::File::open(&osz_path).expect("osz exists");
+                let osz_entries = zip::ZipArchive::new(osz).expect("osz readable").len();
+                println!("osz exported: {osz_path} ({osz_entries} entries)");
+                assert!(osz_entries > sets.items[0].difficulties.len());
+
+                let osk_path = service
+                    .export_skin_osk(
+                        client,
+                        &skins.items[0].resource.resource_id,
+                        export_dir.path(),
+                    )
+                    .expect("acceptance osk export");
+                let osk = std::fs::File::open(&osk_path).expect("osk exists");
+                let osk_entries = zip::ZipArchive::new(osk).expect("osk readable").len();
+                println!("osk exported: {osk_path} ({osk_entries} entries)");
+                assert!(osk_entries > 1);
+            }
+            scanned += 1;
+        }
+
+        assert!(scanned > 0, "set at least one OPP_TEST_*_ROOT variable");
+    }
+}

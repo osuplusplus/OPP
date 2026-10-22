@@ -1,20 +1,25 @@
+//! 从玩家成绩挑选推荐“种子”：standard 取谱面 ID，Mania 额外解析成绩 Mod。
+
 use std::collections::HashSet;
 
 use osu_difficulty_runtime::ManiaGameMod;
 
 use crate::domain::Score;
 
+/// 推荐参考成绩（种子）的数量上限。
 pub const MAX_RECOMMENDATION_SEEDS: usize = 50;
 
 /// 附加 Mod 不改变键位排列，也不改变倍率，可以和标准倍率一起使用。
 const NEUTRAL_MANIA_MODS: [&str; 7] = ["NF", "SD", "PF", "HD", "FI", "FL", "CL"];
 
+/// 把用户给定的种子上限 clamp 到 [1, `MAX_RECOMMENDATION_SEEDS`]。
 pub fn requested_seed_limit(value: Option<usize>) -> usize {
     value
         .unwrap_or(MAX_RECOMMENDATION_SEEDS)
         .clamp(1, MAX_RECOMMENDATION_SEEDS)
 }
 
+/// 按成绩顺序取过去重后的谱面 ID，最多 limit 个。
 pub fn seed_ids(scores: &[Score], limit: usize) -> Vec<u64> {
     let mut seen = HashSet::new();
     scores
@@ -25,12 +30,14 @@ pub fn seed_ids(scores: &[Score], limit: usize) -> Vec<u64> {
         .collect()
 }
 
+/// Mania 种子：谱面 ID 加该成绩对应的 NM / DT / HT 变体。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ManiaSeed {
     pub beatmap_id: u64,
     pub game_mod: ManiaGameMod,
 }
 
+/// Mania 种子挑选结果，附两类被跳过成绩的计数（按谱面 ID 去重统计）。
 #[derive(Debug, Default)]
 pub struct ManiaSeedSelection {
     pub seeds: Vec<ManiaSeed>,
@@ -40,6 +47,8 @@ pub struct ManiaSeedSelection {
     pub outside_mod_pool_scores: usize,
 }
 
+/// 按成绩顺序挑选命中 Mod 池的 Mania 种子；同一 (谱面, Mod) 只取一个，
+/// 并统计不可用与池外的成绩数，供上层给出更精确的错误提示。
 pub fn mania_seed_ids(
     scores: &[Score],
     limit: usize,
@@ -87,6 +96,9 @@ pub fn mania_seed_ids(
     selection
 }
 
+/// 从成绩 Mod 列表推断标准 NM / DT / HT 变体：中性 Mod 直接忽略，
+/// NC / DC 分别折算为 DT / HT；遇到其他 Mod、两种倍率混用或自定义倍率
+/// 时返回 `None`——这些成绩无法对应到数据集的预计算特征。
 fn supported_mania_mod(score: &Score) -> Option<ManiaGameMod> {
     let mut game_mod = ManiaGameMod::Nm;
     for value in &score.mods {
@@ -151,12 +163,14 @@ mod tests {
         score_with_mods(beatmap_id, json!([]))
     }
 
+    // 种子保持成绩顺序、去重并截断到上限。
     #[test]
     fn seeds_are_ordered_deduplicated_and_limited() {
         let scores = vec![score(Some(8)), score(None), score(Some(8)), score(Some(9))];
         assert_eq!(seed_ids(&scores, 2), vec![8, 9]);
     }
 
+    // 种子上限 clamp 的边界行为。
     #[test]
     fn requested_limit_stays_within_the_supported_range() {
         assert_eq!(requested_seed_limit(None), MAX_RECOMMENDATION_SEEDS);
@@ -168,6 +182,7 @@ mod tests {
         );
     }
 
+    // NM / DT / HT 可作种子，其他 Mod 跳过并计数。
     #[test]
     fn mania_seeds_accept_nm_dt_ht_and_skip_other_mods() {
         let scores = vec![
@@ -202,6 +217,7 @@ mod tests {
         assert_eq!(selection.unusable_mod_scores, 1);
     }
 
+    // limit 只统计可用种子，不可用成绩不占名额。
     #[test]
     fn mania_seed_limit_counts_usable_no_mod_scores() {
         let scores = vec![
@@ -220,6 +236,7 @@ mod tests {
         assert_eq!(selection.unusable_mod_scores, 0);
     }
 
+    // 同一张图的不同 Mod 成绩是不同种子。
     #[test]
     fn different_supported_mods_of_the_same_map_are_distinct_seeds() {
         let scores = vec![
@@ -233,6 +250,7 @@ mod tests {
         assert_eq!(selection.unusable_mod_scores, 0);
     }
 
+    // 先按 Mod 池过滤再截断，保证种子都属于请求的池。
     #[test]
     fn reference_seeds_are_filtered_by_the_requested_mod_pool_before_the_limit() {
         let scores = vec![
@@ -283,6 +301,7 @@ mod tests {
         assert_eq!(mixed.outside_mod_pool_scores, 0);
     }
 
+    // 中性 Mod 与 NC / DC 别名不影响成绩可用性。
     #[test]
     fn neutral_mods_and_nightcore_aliases_stay_usable() {
         let scores = vec![
@@ -316,6 +335,7 @@ mod tests {
         assert_eq!(selection.unusable_mod_scores, 0);
     }
 
+    // 自定义倍率不能冒充标准 DT / HT。
     #[test]
     fn custom_clock_rates_never_stand_in_for_dt_or_ht() {
         let scores = vec![

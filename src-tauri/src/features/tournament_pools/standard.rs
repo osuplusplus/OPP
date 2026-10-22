@@ -17,6 +17,8 @@ fn invalid(message: &str) -> CommandError {
     CommandError::new("INVALID_OPP_POOL", message)
 }
 
+/// 判断 IPv4 是否为可公开访问地址：排除私网、回环、链路本地、广播、文档段、
+/// 0.0.0.0/8、组播及以上、CGNAT（100.64/10）、192.0.0.0/24 与 198.18/15 基准测试段。
 fn public_v4(ip: Ipv4Addr) -> bool {
     let [a, b, c, _] = ip.octets();
     !(ip.is_private()
@@ -31,6 +33,8 @@ fn public_v4(ip: Ipv4Addr) -> bool {
         || (a == 198 && (b == 18 || b == 19)))
 }
 
+/// 仅接受 2000::/3 全局单播地址；额外排除 6to4（2002::/16）、文档段
+/// （2001:db8::/32、3fff::/20）以及 2001:0000-01ff 特殊用途段。
 fn public_v6(ip: Ipv6Addr) -> bool {
     // Only global unicast; exclude documentation and transition/special-use ranges.
     let s = ip.segments();
@@ -40,6 +44,7 @@ fn public_v6(ip: Ipv6Addr) -> bool {
         && !(s[0] == 0x3fff && s[1] < 0x1000)
 }
 
+/// IP 是否公开可访问，供来源 URL 与 DNS 解析结果统一校验。
 pub(super) fn public_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => public_v4(ip),
@@ -47,6 +52,9 @@ pub(super) fn public_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// 校验并接受图池来源 URL（SSRF 防线）：长度不超过 1800、无凭据、无片段、
+/// 仅 443 端口的 HTTPS 地址；IP 直连须为公开地址，域名须含点且排除
+/// `localhost`/`.localhost`/`.local` 等本地域名。
 pub(super) fn source_url(raw: &str) -> CommandResult<Url> {
     let url = Url::parse(raw).map_err(|_| invalid("图池来源必须是公开 HTTPS 地址"))?;
     if raw.len() > 1800
@@ -77,6 +85,7 @@ pub(super) fn source_url(raw: &str) -> CommandResult<Url> {
     Ok(url)
 }
 
+/// OPP 标准 mappool v1 文档结构；`deny_unknown_fields` 使未知字段直接解析失败。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Document {
@@ -93,6 +102,7 @@ struct Document {
     entries: Vec<Entry>,
 }
 
+/// 文档中的单个图位；除 `beatmap_id`/`selection_type`/`position` 外的字段均可省略。
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Entry {
@@ -111,6 +121,8 @@ struct Entry {
     is_original: bool,
 }
 
+/// 解析并严格校验 OPP 标准 v1 文档：仅接受版本 1 与 osu!standard；标题与比赛信息
+/// 有长度上限，条目不超过 500，`selection_type` 不得有首尾空白且 (类型, 序号) 不得重复。
 pub(super) fn decode(bytes: &[u8], reference: &TournamentPoolRef) -> CommandResult<TournamentPool> {
     reference.validate()?;
     let doc: Document = serde_json::from_slice(bytes)
@@ -171,6 +183,9 @@ pub(super) fn decode(bytes: &[u8], reference: &TournamentPoolRef) -> CommandResu
     })
 }
 
+/// 拉取标准图池文档：先自行解析 DNS 并要求全部结果为公开地址，再用
+/// `resolve_to_addrs` 把连接钉死到这些地址（防 DNS rebinding / 解析结果被调包）；
+/// 全程不走代理、不跟随重定向，流式读取上限 2 MiB。
 pub(super) async fn fetch(reference: &TournamentPoolRef) -> CommandResult<TournamentPool> {
     let span = global().map(|log| log.operation("tournament_pools", "fetch_standard"));
     let result = async {

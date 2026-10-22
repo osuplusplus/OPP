@@ -1,3 +1,5 @@
+//! 本地数据库服务：管理“读配置 → 打开数据库 → 错误恢复”的状态机。
+//! 约束：已有配置（即使库当前不可用）绝不允许被覆盖式初始化，防止静默丢库。
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -18,15 +20,18 @@ use super::{
     models::{DatabasePhase, LocalDatabaseStatus},
 };
 
+/// 惰性加载的运行时状态；`loaded` 保证首次访问后才读磁盘，启动线程不做任何数据库 IO。
 #[derive(Default)]
 struct Runtime {
     loaded: bool,
+    /// 引导配置文件损坏（而非缺失），此状态下禁止覆盖式初始化。
     config_error: bool,
     config: Option<DatabaseConfig>,
     database: Option<LibraryDatabase>,
     error: Option<CommandError>,
 }
 
+/// 本地数据库状态机；所有方法先取 `runtime` 锁并确保已加载，再按状态分派。
 pub(crate) struct LocalDatabaseService {
     config_path: PathBuf,
     recommended: PathBuf,
@@ -34,6 +39,7 @@ pub(crate) struct LocalDatabaseService {
 }
 
 impl LocalDatabaseService {
+    /// 返回已配置的库目录，供其他 feature 定位数据文件；未配置时为 `None`。
     pub(crate) fn configured_directory(&self) -> CommandResult<Option<PathBuf>> {
         let mut runtime = self.lock()?;
         self.ensure_loaded(&mut runtime);
@@ -43,6 +49,8 @@ impl LocalDatabaseService {
             .map(|config| config.directory.clone()))
     }
 
+    /// 在已打开的数据库上执行操作：就绪时返回 `Some(结果)`；未配置返回 `Ok(None)`；
+    /// 处于错误态则返回先前记录的错误，让调用方感知失败原因。
     pub(crate) fn with_database<T>(
         &self,
         operation: &str,
@@ -60,6 +68,7 @@ impl LocalDatabaseService {
         finish_span(span, work(database)).map(Some)
     }
     // No database IO on the Tauri setup thread; the startup query opens it on the IO pool.
+    /// 配置文件固定为 `<应用数据目录>/local-database.json`，推荐目录为 `<应用数据目录>/datasets`。
     pub(crate) fn new(app_data_dir: &Path) -> Self {
         Self {
             config_path: app_data_dir.join("local-database.json"),
@@ -68,12 +77,15 @@ impl LocalDatabaseService {
         }
     }
 
+    /// 返回数据库状态快照（首次调用会触发一次加载）。
     pub(crate) fn status(&self) -> CommandResult<LocalDatabaseStatus> {
         let mut runtime = self.lock()?;
         self.ensure_loaded(&mut runtime);
         Ok(self.snapshot(&runtime))
     }
 
+    /// 首次初始化：仅在完全未配置且配置文件未损坏时允许；校验并创建目录、建库、写配置。
+    /// 指向同一目录的重复调用幂等返回就绪，其余情况一律拒绝，防止覆盖既有库。
     pub(crate) fn initialize(&self, directory: &str) -> CommandResult<LocalDatabaseStatus> {
         let mut runtime = self.lock()?;
         self.ensure_loaded(&mut runtime);
@@ -109,6 +121,7 @@ impl LocalDatabaseService {
         self.complete(&mut runtime, result)
     }
 
+    /// 关闭连接并从磁盘重新加载配置与数据库，用于路径恢复、文件解锁后的重试。
     pub(crate) fn retry(&self) -> CommandResult<LocalDatabaseStatus> {
         let mut runtime = self.lock()?;
         self.close(&mut runtime);
@@ -117,6 +130,7 @@ impl LocalDatabaseService {
         Ok(self.snapshot(&runtime))
     }
 
+    /// 重新定位：到新目录按 UUID 找回“同一个”数据库并更新配置；数据库正常使用中禁止换位置。
     pub(crate) fn locate(&self, directory: &str) -> CommandResult<LocalDatabaseStatus> {
         let mut runtime = self.lock()?;
         self.ensure_loaded(&mut runtime);
@@ -147,6 +161,7 @@ impl LocalDatabaseService {
         self.complete(&mut runtime, result)
     }
 
+    /// 应用退出时关闭数据库连接（尽力而为，拿不到锁则跳过）。
     pub(crate) fn shutdown(&self) {
         if let Ok(mut runtime) = self.lock() {
             self.close(&mut runtime);
@@ -164,6 +179,8 @@ impl LocalDatabaseService {
         }
     }
 
+    /// 惰性加载的唯一入口：读取配置（损坏则记 `config_error` 并保留错误），
+    /// 再按配置打开数据库并校验 UUID；任何失败只记入 `runtime.error`，不 panic。
     fn ensure_loaded(&self, runtime: &mut Runtime) {
         if runtime.loaded {
             return;
@@ -196,6 +213,9 @@ impl LocalDatabaseService {
         }
     }
 
+    /// 校验并规范化目录：必须是本机绝对路径的文件夹（拒绝 UNC/网络映射盘）。
+    /// `create` 模式下先找到已存在的祖先并校验后才创建目录，防止借新建子目录绕过网络盘检查；
+    /// 创建后对规范化结果再验一次，保证最终落库的路径仍是本地路径。
     fn resolve_directory(&self, directory: &str, create: bool) -> CommandResult<PathBuf> {
         let path = Path::new(directory);
         if directory.trim().is_empty() || !path.is_absolute() {
@@ -235,6 +255,7 @@ impl LocalDatabaseService {
         Ok(canonical)
     }
 
+    /// 状态变更操作的结果统一入口：成功清空错误，失败则记录并原样返回。
     fn complete(
         &self,
         runtime: &mut Runtime,
@@ -252,6 +273,7 @@ impl LocalDatabaseService {
         }
     }
 
+    /// 由运行时状态推导对外快照：阶段优先级为 就绪 > 错误 > 未配置。
     fn snapshot(&self, runtime: &Runtime) -> LocalDatabaseStatus {
         LocalDatabaseStatus {
             phase: if runtime.database.is_some() {
@@ -276,6 +298,7 @@ impl LocalDatabaseService {
         }
     }
 
+    /// 获取运行时锁；Mutex 中毒（持锁线程 panic）视为不可恢复，提示重启应用。
     fn lock(&self) -> CommandResult<MutexGuard<'_, Runtime>> {
         self.runtime.lock().map_err(|_| {
             CommandError::new("DATABASE_STATE_ERROR", "数据库运行状态异常，请重启 OPP")

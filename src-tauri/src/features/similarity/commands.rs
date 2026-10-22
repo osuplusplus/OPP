@@ -79,6 +79,8 @@ pub async fn query_similar_beatmaps(
     }
 }
 
+/// standard 查询：解析来源（索引 / 在线 / 本地文件）后，把目标分析与
+/// 近邻查询整体放到后台线程执行，避免阻塞异步运行时。
 async fn query_standard(
     request: SimilarityQueryRequest,
     directory: ConfiguredDataset,
@@ -105,6 +107,7 @@ async fn query_standard(
     .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "相似谱面查询任务意外停止"))?
 }
 
+/// Mania 查询：与 standard 相同的后台执行方式，并按 `target_mod` 取目标。
 async fn query_mania(
     request: SimilarityQueryRequest,
     directory: ConfiguredDataset,
@@ -224,6 +227,8 @@ pub async fn recommend_similar_beatmaps(
     }
 }
 
+/// standard 推荐：逐个种子构建目标——索引命中直接取，否则在线下载并即时
+/// 分析；单个种子失败只计入 skipped，全部失败才返回错误。
 async fn recommend_standard(
     request: SimilarityRecommendationRequest,
     seed_ids: Vec<u64>,
@@ -282,6 +287,8 @@ async fn recommend_standard(
     .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "推荐谱面查询任务意外停止"))?
 }
 
+/// Mania 推荐：按 (谱面, Mod) 构建种子目标，在线兜底分析时以成绩中的
+/// 谱面 ID 为准；键数不属于 4 / 6 / 7 的目标直接跳过。
 async fn recommend_mania(
     request: SimilarityRecommendationRequest,
     seeds: Vec<ManiaSeed>,
@@ -346,6 +353,8 @@ async fn recommend_mania(
     .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "Mania 推荐查询任务意外停止"))?
 }
 
+/// 解析 standard 查询来源，返回 (索引内谱面 ID, 可选 `.osu` 字节, 来源标签)：
+/// 索引命中时无需字节，在线或本地文件则交给运行时即时分析。
 async fn resolve_standard_source(
     source: &SimilaritySource,
     state: &AppState,
@@ -368,6 +377,8 @@ async fn resolve_standard_source(
     }
 }
 
+/// 解析 Mania 查询来源：比 standard 多一个“权威谱面 ID”，用于在线下载
+/// 文件的文件头 ID 过期时覆盖分析目标。
 async fn resolve_mania_source(
     source: &SimilaritySource,
     state: &AppState,
@@ -391,12 +402,14 @@ async fn resolve_mania_source(
     }
 }
 
+/// 在后台线程读取本地文件，避免大文件 IO 阻塞异步运行时。
 async fn read_local_source(path: String) -> CommandResult<Vec<u8>> {
     crate::infrastructure::tasks::background("similarity", move || read_local_osu(&path))
         .await
         .map_err(|_| CommandError::new("BEATMAP_READ_FAILED", "谱面文件读取任务意外停止"))?
 }
 
+/// 在后台线程打开 standard 数据集（打开含校验，可能耗时）。
 async fn load_standard_dataset(
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
     directory: String,
@@ -410,6 +423,7 @@ async fn load_standard_dataset(
     .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "相似谱面运行时意外停止"))?
 }
 
+/// 在后台线程打开 Mania 数据集（打开含校验，可能耗时）。
 async fn load_mania_dataset(
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
     directory: String,
@@ -421,6 +435,7 @@ async fn load_mania_dataset(
     .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "Mania 相似谱面运行时意外停止"))?
 }
 
+/// 所有种子都无法构建查询目标时返回的错误。
 fn no_usable_seed_error(ruleset: Ruleset) -> CommandError {
     CommandError::new(
         "NO_USABLE_RECOMMENDATION_SEEDS",
@@ -469,6 +484,7 @@ fn mania_seed_error_message(
     )
 }
 
+/// 用预留的视图运行时在后台线程体检索引，避免校验阻塞命令线程。
 async fn inspect(
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
     ruleset: Ruleset,
@@ -482,6 +498,7 @@ async fn inspect(
     .map_err(|_| CommandError::new("SIMILARITY_RUNTIME_ERROR", "本地索引校验任务意外停止"))
 }
 
+/// 单次命令调用绑定的目录与“视图”运行时（不改动应用级注册表）。
 struct ConfiguredDataset {
     path: String,
     runtime: Arc<crate::features::similarity::dataset::SimilarityRuntime>,
@@ -494,6 +511,7 @@ impl ConfiguredDataset {
     }
 }
 
+/// 读取已配置目录并预留视图运行时；未配置时返回明确的引导错误。
 fn required_directory(state: &AppState, ruleset: Ruleset) -> CommandResult<ConfiguredDataset> {
     configured_directory(state, ruleset)?
         .map(|path| ConfiguredDataset::new(state, ruleset, path))
@@ -742,6 +760,7 @@ mod compatibility_tests {
 mod tests {
     use super::*;
 
+    // 两种模式的索引目录配置相互独立，清除互不影响。
     #[test]
     fn settings_keep_standard_and_mania_directories_independent() {
         let mut settings = AppSettings::default();
@@ -767,6 +786,7 @@ mod tests {
         assert!(settings.mania_similarity_index_directory.is_none());
     }
 
+    // 不支持的模式读写目录配置直接报错。
     #[test]
     fn unsupported_rulesets_cannot_acquire_a_directory() {
         let settings = AppSettings::default();
@@ -777,6 +797,7 @@ mod tests {
         }
     }
 
+    // 请求访问器返回正确的模式与推荐参数。
     #[test]
     fn recommendation_request_selects_the_api_ruleset() {
         let request = SimilarityRecommendationRequest::Mania {

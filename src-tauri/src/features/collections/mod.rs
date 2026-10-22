@@ -1,10 +1,14 @@
 //! Stable 与 lazer 收藏的管理、分享、备份和下载。
 
+// 子模块按职责拆分：adapter（外部 CollectionManager shim 调用）、archive（压缩包导入）、
+// browser（浏览与搜索查询）、downloads（缺谱补齐下载）、service（业务编排与分片持久化）、
+// stable（游戏客户端同步）、task（后台任务的取消与进度）。
 mod adapter;
 mod archive;
 mod browser;
 mod downloads;
 mod models;
+// notebook 中的类型需被 tournament_pools 模块复用，因此放开为 crate 内可见。
 pub(crate) mod notebook;
 mod service;
 mod share;
@@ -31,6 +35,7 @@ pub use stable::{
 };
 pub use task::{begin_collection_task, cancel_collection_task};
 
+// 分页查询命令：收藏夹摘要 + 条目分页，避免前端整包拉取大收藏夹数据。
 mod paging;
 pub use paging::{
     list_collection_summaries, query_collection_entries, refresh_collection_summaries,

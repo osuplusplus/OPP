@@ -1,3 +1,4 @@
+//! `AppSettings` 各字段 serde 默认值函数的集中定义，由 `domain::models` 按字段引用。
 //下面是danser的default选项
 pub fn default_one() -> f64 {
     1.0

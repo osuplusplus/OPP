@@ -1,3 +1,5 @@
+//! 账号域凭据存储：基于 `keyring` 访问 Windows 凭据管理器与 Linux Secret Service，
+//! Client Secret 与 OAuth 令牌只落系统密钥环，不进入可同步的持久化文件。
 use chrono::{DateTime, Utc};
 use keyring::{Entry, Error as KeyringError};
 
@@ -6,15 +8,20 @@ use crate::{
     error::{CommandError, CommandResult},
 };
 
+/// keyring 服务名，作为所有账号域条目的统一命名空间。
 const SERVICE: &str = "com.opp.desktop";
+// OAuth 条目：Client Secret 与令牌分条存储；`osu-oauth-tokens` 是旧版合并 JSON
+// 条目，仅在读取时迁移为分条后删除。
 const CLIENT_SECRET_ENTRY: &str = "osu-oauth-client-secret";
 const LEGACY_TOKENS_ENTRY: &str = "osu-oauth-tokens";
 const ACCESS_TOKEN_ENTRY: &str = "osu-oauth-access-token";
 const REFRESH_TOKEN_ENTRY: &str = "osu-oauth-refresh-token";
 const TOKEN_EXPIRY_ENTRY: &str = "osu-oauth-token-expiry";
+// 第三方集成口令条目：OBS WebSocket 与 osu! IRC。
 const OBS_WEBSOCKET_PASSWORD_ENTRY: &str = "obs-websocket-password";
 const OSU_IRC_TOKEN_ENTRY: &str = "osu-irc-token";
 
+/// 账号域统一的密钥环访问层；自身无状态，每次读写都按服务名加条目名即时定位。
 #[derive(Default)]
 pub struct CredentialStore;
 
@@ -24,10 +31,12 @@ impl CredentialStore {
         Self::write_password(CLIENT_SECRET_ENTRY, secret)
     }
 
+    /// 读取 Client Secret；`None` 表示尚未配置，调用方据此提示补全凭据。
     pub fn get_client_secret(&self) -> CommandResult<Option<String>> {
         Self::read_password(CLIENT_SECRET_ENTRY)
     }
 
+    /// 将 `TokenSet` 分条写入密钥环并清理旧版合并条目；写入顺序见函数内说明。
     pub fn set_tokens(&self, tokens: &TokenSet) -> CommandResult<()> {
         // 分项存储令牌与过期时间，便于后续在不暴露令牌内容的前提下判断是否需要刷新。
         // Windows Credential Manager limits the size of a single credential.
@@ -45,6 +54,7 @@ impl CredentialStore {
         Self::delete(LEGACY_TOKENS_ENTRY)
     }
 
+    /// 读取当前令牌；发现旧版合并条目时现场迁移为分条存储。
     pub fn get_tokens(&self) -> CommandResult<Option<TokenSet>> {
         // 任一令牌字段缺失即视为未登录，避免构造不完整的认证状态。
         if let Some(access_token) = Self::read_secret(ACCESS_TOKEN_ENTRY)? {
@@ -72,6 +82,7 @@ impl CredentialStore {
         Ok(Some(tokens))
     }
 
+    /// 清空全部分条令牌与旧版合并条目，使用户回到未登录状态。
     pub fn clear_tokens(&self) -> CommandResult<()> {
         Self::delete(ACCESS_TOKEN_ENTRY)?;
         Self::delete(REFRESH_TOKEN_ENTRY)?;
@@ -79,6 +90,7 @@ impl CredentialStore {
         Self::delete(LEGACY_TOKENS_ENTRY)
     }
 
+    /// 保存 OBS WebSocket 密码；传空字符串表示删除已保存的密码。
     pub fn set_obs_websocket_password(&self, password: &str) -> CommandResult<()> {
         if password.is_empty() {
             Self::delete(OBS_WEBSOCKET_PASSWORD_ENTRY)
@@ -104,6 +116,7 @@ impl CredentialStore {
         Self::read_password(OSU_IRC_TOKEN_ENTRY)
     }
 
+    // 口令类条目（Client Secret、OBS、IRC）的读取路径。
     fn read_password(account: &str) -> CommandResult<Option<String>> {
         match Self::entry(account)?.get_password() {
             Ok(value) => Ok(Some(value)),
@@ -112,6 +125,7 @@ impl CredentialStore {
         }
     }
 
+    // 令牌类条目的读取路径，与 `write_secret` 的字节写入方式配对。
     fn read_secret(account: &str) -> CommandResult<Option<String>> {
         match Self::entry(account)?.get_secret() {
             Ok(value) => String::from_utf8(value).map(Some).map_err(|_| {
@@ -125,6 +139,7 @@ impl CredentialStore {
         }
     }
 
+    // 删除保持幂等：条目不存在同样视为成功。
     fn delete(account: &str) -> CommandResult<()> {
         match Self::entry(account)?.delete_credential() {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
@@ -174,6 +189,7 @@ mod tests {
 
     use super::CredentialStore;
 
+    // 旧条目可能带本地时区偏移，读取时必须归一为 UTC。
     #[test]
     fn parses_stored_expiry_as_utc() {
         let parsed = CredentialStore::parse_expiry("2026-07-25T12:34:56+08:00").unwrap();

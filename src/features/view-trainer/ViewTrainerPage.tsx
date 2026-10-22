@@ -24,73 +24,18 @@ import type {
   ViewTrainerRequest,
   ViewTrainerTimeline,
 } from "../../shared/types/osu";
+import { viewTrainerApi } from "./viewTrainerApi";
+import {
+  DEFAULT_DRAFT,
+  buildViewTrainerRequest,
+  clamp,
+  formatTime,
+  numberValue,
+  resolveEffectiveValues,
+  resolveWindow,
+  type ViewTrainerDraft,
+} from "./viewTrainerModel";
 
-type ViewTrainerDraft = {
-  rate: number;
-  bpm_locked: boolean;
-  target_bpm: number | null;
-  scale_ar: boolean;
-  scale_od: boolean;
-  lock_ar: boolean;
-  lock_od: boolean;
-  lock_cs: boolean;
-  lock_hp: boolean;
-  ar: number;
-  od: number;
-  cs: number;
-  hp: number;
-  min_bpm: number | null;
-  max_bpm: number | null;
-  start_time_ms: number | null;
-  end_time_ms: number | null;
-  no_spinners: boolean;
-  change_pitch: boolean;
-  window_ms: number;
-};
-const DEFAULT_DRAFT: ViewTrainerDraft = {
-  rate: 1,
-  bpm_locked: false,
-  target_bpm: null,
-  scale_ar: true,
-  scale_od: true,
-  lock_ar: false,
-  lock_od: false,
-  lock_cs: false,
-  lock_hp: false,
-  ar: 5,
-  od: 5,
-  cs: 4,
-  hp: 5,
-  min_bpm: null,
-  max_bpm: null,
-  start_time_ms: null,
-  end_time_ms: null,
-  no_spinners: false,
-  change_pitch: false,
-  window_ms: 30_000,
-};
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
-const formatTime = (ms: number) => {
-  const total = Math.max(0, Math.round(ms / 1000));
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-};
-const arToMs = (ar: number) =>
-  ar <= 5 ? 1800 - ar * 120 : 1200 - (ar - 5) * 150;
-const scaledAr = (ar: number, rate: number) =>
-  clamp(
-    arToMs(ar) / rate >= 1200
-      ? (1800 - arToMs(ar) / rate) / 120
-      : 5 + (1200 - arToMs(ar) / rate) / 150,
-    0,
-    11,
-  );
-const scaledOd = (od: number, rate: number) =>
-  Math.round(clamp((79.5 - (-6 * od + 79.5) / rate) / 6, 0, 11) * 10) / 10;
-function numberValue(value: string, fallback: number | null) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 function ToggleButton({
   locked,
   onClick,
@@ -171,8 +116,8 @@ export function ViewTrainerPage() {
       setImporting(false);
     });
     void desktopApi.liveRenderClose().catch(() => undefined);
-    void desktopApi
-      .viewTrainerGetTimeline(client, resourceId)
+    void viewTrainerApi
+      .getTimeline(client, resourceId)
       .then((value) => {
         if (cancelled) return;
         setTimeline(value);
@@ -298,24 +243,8 @@ export function ViewTrainerPage() {
     };
   }, [active]);
 
-  const effectiveRate =
-    draft.bpm_locked && draft.target_bpm && timeline?.primaryBpm
-      ? draft.target_bpm / timeline.primaryBpm
-      : draft.rate;
-  const effectiveAr =
-    !draft.lock_ar &&
-    draft.scale_ar &&
-    timeline &&
-    timeline.mode !== 1 &&
-    timeline.mode !== 3
-      ? scaledAr(timeline.ar, effectiveRate)
-      : draft.ar;
-  const effectiveOd =
-    !draft.lock_od && draft.scale_od && timeline
-      ? scaledOd(timeline.od, effectiveRate)
-      : draft.od;
-  const effectiveCs = draft.lock_cs ? draft.cs : (timeline?.cs ?? draft.cs);
-  const effectiveHp = draft.lock_hp ? draft.hp : (timeline?.hp ?? draft.hp);
+  const { rate: effectiveRate, ar: effectiveAr, od: effectiveOd, cs: effectiveCs, hp: effectiveHp } =
+    resolveEffectiveValues(draft, timeline);
   const mapDuration = timeline?.durationMs ?? duration;
   // 预览播的是 trainer 生成的谱面:skip intro 已把窗口起点平移到 0 并按
   // rate 压缩(t_gen = (t_map - start) / rate)。播放器的时刻/进度/seek
@@ -330,17 +259,7 @@ export function ViewTrainerPage() {
   // strain 图播放头(原谱时间轴;无预览时 null)。
   const playheadMap =
     active && generatedParams ? previewToMap(time) : null;
-  const windowLength = clamp(
-    draft.window_ms ?? 30_000,
-    5_000,
-    Math.max(5_000, mapDuration),
-  );
-  const start = clamp(
-    draft.start_time_ms ?? 0,
-    0,
-    Math.max(0, mapDuration - windowLength),
-  );
-  const end = Math.min(mapDuration, start + windowLength);
+  const { windowLength, start, end } = resolveWindow(draft, mapDuration);
   const strainValues = useMemo(() => {
     if (!timeline?.strainSeries.length) return [];
     const count = Math.max(
@@ -374,30 +293,22 @@ export function ViewTrainerPage() {
       : mapDuration,
   );
   const request = useMemo<ViewTrainerRequest>(
-    () => ({
-      client,
-      resourceId,
-      rate: effectiveRate,
-      bpmLocked: draft.bpm_locked,
-      targetBpm: draft.target_bpm,
-      ar: effectiveAr,
-      od: effectiveOd,
-      cs: effectiveCs,
-      hp: effectiveHp,
-      scaleAr: draft.scale_ar,
-      scaleOd: draft.scale_od,
-      lockAr: draft.lock_ar,
-      lockOd: draft.lock_od,
-      lockCs: draft.lock_cs,
-      lockHp: draft.lock_hp,
-      noSpinners: draft.no_spinners,
-      changePitch: draft.change_pitch,
-      previewOnly: false,
-      minBpm: draft.min_bpm,
-      maxBpm: draft.max_bpm,
-      startTimeMs: start || null,
-      endTimeMs: end >= mapDuration - 1 ? null : end,
-    }),
+    () =>
+      buildViewTrainerRequest({
+        client,
+        resourceId,
+        draft,
+        effective: {
+          rate: effectiveRate,
+          ar: effectiveAr,
+          od: effectiveOd,
+          cs: effectiveCs,
+          hp: effectiveHp,
+        },
+        start,
+        end,
+        mapDuration,
+      }),
     [
       client,
       draft,
@@ -488,7 +399,7 @@ export function ViewTrainerPage() {
     setError(null);
     await desktopApi.liveRenderClose().catch(() => undefined);
     try {
-      const generated = await desktopApi.viewTrainerGenerate({
+      const generated = await viewTrainerApi.generate({
         ...request,
         previewOnly: false,
       });
@@ -1147,8 +1058,8 @@ export function ViewTrainerPage() {
                 onClick={() => {
                   setImporting(true);
                   setError(null);
-                  void desktopApi
-                    .viewTrainerImport(client, resourceId, stagedDirectory)
+                  void viewTrainerApi
+                .importBeatmap(client, resourceId, stagedDirectory)
                     .then(setImportedPath)
                     .catch((caught) => setError(String(caught)))
                     .finally(() => setImporting(false));

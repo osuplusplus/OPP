@@ -1,3 +1,9 @@
+//! 文件关联与本地资源定位：管理 `.osz`（谱面）/`.osk`（皮肤）的默认打开
+//! 客户端——读写当前用户注册表 `HKCU\Software\Classes`（仅 Windows 支持写
+//! 入，读取失败或非 Windows 回退显示 stable）；另提供在资源管理器中定位
+//! stable/lazer 本地文件的命令，候选路径经白名单校验，不接受绝对路径与
+//! `..` 穿越。
+
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -9,9 +15,12 @@ use crate::{
     state::AppState,
 };
 
+/// `.osz`（谱面）与 `.osk`（皮肤）当前关联的默认打开客户端。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultFileClients {
+    /// `.osz` 谱面文件的默认打开客户端。
     pub beatmap: LocalClient,
+    /// `.osk` 皮肤文件的默认打开客户端。
     pub skin: LocalClient,
 }
 
@@ -20,6 +29,9 @@ fn explorer_select(path: &Path) -> CommandResult<()> {
         .map_err(|error| CommandError::new("EXPLORER_OPEN_FAILED", error.to_string()))
 }
 
+/// 在 `base` 目录下解析 `relative` 指向的文件：拒绝绝对路径与含 `..` 的
+/// 相对路径，canonicalize 后必须仍位于 `base` 内且是普通文件，防止前端
+/// 传入任意路径打开不该访问的文件。
 fn safe_candidate(base: &Path, relative: &str) -> Option<PathBuf> {
     let relative_path = Path::new(relative);
     if relative_path.is_absolute()
@@ -34,6 +46,9 @@ fn safe_candidate(base: &Path, relative: &str) -> Option<PathBuf> {
     (candidate.starts_with(&root) && candidate.is_file()).then_some(candidate)
 }
 
+/// 在资源管理器中定位本地资源：对安装目录与数据目录分别尝试原路径、
+/// `Songs/<相对路径>`、`Skins/<相对路径>` 三种拼法，取第一个真实存在的
+/// 文件；逻辑路径由前端从谱面/皮肤列表带入。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -68,6 +83,9 @@ pub fn open_local_resource_in_explorer(
         )
 }
 
+/// 读取 `.osz`/`.osk` 当前的关联客户端：HKCU `Software\Classes\<扩展名>`
+/// 的默认值是 ProgID，OPP 写入的 ProgID 以 `.stable`/`.lazer` 结尾；
+/// 被其他程序接管或读取失败时返回 `None`（调用方回退显示 stable）。
 #[cfg(windows)]
 fn registry_client(kind: &str) -> Option<LocalClient> {
     use winreg::{RegKey, enums::HKEY_CURRENT_USER};
@@ -85,6 +103,8 @@ fn registry_client(kind: &str) -> Option<LocalClient> {
     }
 }
 
+/// 读取两类文件的默认打开客户端；非 Windows 平台固定返回 stable
+///（该平台不支持文件关联设置，见 `set_default_file_client` 的错误说明）。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -105,6 +125,10 @@ pub fn get_default_file_clients() -> CommandResult<DefaultFileClients> {
     }
 }
 
+/// 把 `.osz`/`.osk` 的默认打开方式切到指定客户端：在 HKCU `Software\Classes`
+/// 下创建/更新 ProgID `OPP.<kind>.<stable|lazer>` 及其 `shell\open\command`
+///（命令为 `"<客户端exe>" "%1"`，双击文件即由该客户端打开），再把扩展名
+/// 的默认值指到该 ProgID；要求能解析出对应客户端的安装目录与可执行文件。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：更新运行时或持久化配置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。

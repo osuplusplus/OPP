@@ -6,7 +6,14 @@ import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { desktopApi, useCapabilities } from "../../shared/lib/tauri";
 import type { DefaultFileClients, OsuClient } from "../../shared/types/osu";
-import { BeatmapPreviewCard, DisplayGammaCard, FileAssociationCard, LazerDedupeCard, LazerDiskUsageCard, ManiaConverterCard, SpeedTestCard } from "./ToolsPage";
+import { BeatmapBackupCard } from "./cards/BeatmapBackupCard";
+import { BeatmapPreviewCard } from "./cards/BeatmapPreviewCard";
+import { DisplayGammaCard } from "./cards/DisplayGammaCard";
+import { FileAssociationCard } from "./cards/FileAssociationCard";
+import { LazerDedupeCard } from "./cards/LazerDedupeCard";
+import { LazerDiskUsageCard } from "./cards/LazerDiskUsageCard";
+import { ManiaConverterCard } from "./cards/ManiaConverterCard";
+import { SpeedTestCard } from "./cards/SpeedTestCard";
 import { OtdPanel } from "./OtdPanel";
 import { TosuPage } from "./TosuPage";
 import { VideoFixCard } from "./VideoFixCard";
@@ -20,7 +27,7 @@ export function GameToolsPage() {
 }
 
 export function BeatmapToolsPage() {
-  return <><ToolPageHeader title="谱面与预览" description="生成谱面预览、转换外部谱面格式，并修复导致 osu!stable 闪退的谱面视频。" /><div className="space-y-5"><BeatmapPreviewCard /><ManiaConverterCard /><VideoFixCard /></div></>;
+  return <><ToolPageHeader title="谱面与预览" description="备份谱面列表、生成谱面预览、转换外部谱面格式，并修复导致 osu!stable 闪退的谱面视频。" /><div className="space-y-5"><BeatmapBackupCard /><BeatmapPreviewCard /><ManiaConverterCard /><VideoFixCard /></div></>;
 }
 
 export function SystemToolsPage() {

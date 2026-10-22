@@ -1,3 +1,6 @@
+//! 在线谱面背景图缓存：经 Sayobot 获取原图，落盘为 `.bin` + `.mime` 两个文件，
+//! 以 base64 数据 URL 返回前端；查不到背景时写 `.missing` 负缓存避免反复请求。
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -16,20 +19,30 @@ use crate::{
     infrastructure::logging::global,
 };
 
+// 背景图大小上限（20 MiB）：读取前后都做校验，防止大图拖垮内存与前端渲染。
 const MAX_BACKGROUND_BYTES: usize = 20 * 1024 * 1024;
+// 负缓存有效期：24 小时内不再请求已知没有背景的谱面。
 const MISSING_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+// 背景文件名元数据与其静态原图均来自小夜镜像。
 const SAYOBOT_INFO_URL: &str = "https://api.sayobot.cn/v2/beatmapinfo";
 const SAYOBOT_FILES_URL: &str = "https://dl.sayobot.cn/beatmaps/files";
 
+/// 谱面背景图缓存，由 `AppState` 全局持有一份。
 pub struct OnlineArtworkCache {
+    /// 缓存根目录（应用数据目录下的 `online-beatmap-artwork`）。
     directory: PathBuf,
+    /// 独立 HTTP 客户端：20 秒超时，携带固定 UA 与 Referer。
     client: reqwest::Client,
+    /// 远端请求许可（容量 1）：背景抓取全局串行，避免打满镜像。
     requests: Semaphore,
+    /// 在途任务许可（容量 128）：限制同时处理的背景任务总数，超限快速失败。
     pending: Semaphore,
+    /// 单飞合并：同一谱面集的并发请求只触发一次真实抓取。
     flights: Flights<u64, CommandResult<Option<String>>>,
 }
 
 impl OnlineArtworkCache {
+    /// 创建缓存实例并确保缓存目录存在。
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
         let directory = app_data_dir.join("online-beatmap-artwork");
         fs::create_dir_all(&directory)?;
@@ -57,6 +70,7 @@ impl OnlineArtworkCache {
         })
     }
 
+    /// 读取或抓取背景图；同一 `beatmapset_id` 的并发调用会被合并为一次网络请求。
     pub async fn load_or_fetch(&self, beatmapset_id: u64) -> CommandResult<Option<String>> {
         self.flights
             .run(beatmapset_id, || async {
@@ -65,7 +79,10 @@ impl OnlineArtworkCache {
             .await
     }
 
+    /// 主流程：命中 `.bin` 缓存直接返回数据 URL；命中最新的 `.missing` 负缓存返回
+    /// `None`；否则取得全局串行许可后抓取远端，成功时写入图片与 MIME 并清除负缓存标记。
     async fn load_once(&self, beatmapset_id: u64) -> CommandResult<Option<String>> {
+        // 在途任务达到上限时快速失败，而不是无界排队。
         let _pending = self
             .pending
             .try_acquire()
@@ -109,6 +126,7 @@ impl OnlineArtworkCache {
             return Ok(None);
         }
 
+        // 缓存未命中才占用唯一的远端请求名额。
         let permit = self
             .requests
             .acquire()
@@ -164,6 +182,7 @@ impl OnlineArtworkCache {
         }
     }
 
+    /// 读取缓存图片并转成数据 URL；超过大小上限或读取失败均视为未命中。
     fn read_cached(
         image_path: &Path,
         mime_path: &Path,
@@ -180,10 +199,13 @@ impl OnlineArtworkCache {
         if bytes.is_empty() || bytes.len() > MAX_BACKGROUND_BYTES {
             return None;
         }
+        // `.mime` 伴随文件缺失时用魔数嗅探兜底。
         let mime = fs::read_to_string(mime_path).unwrap_or_else(|_| sniff_mime(&bytes).into());
         Some(to_data_url(&bytes, &mime))
     }
 
+    /// 从小夜抓取原图：先经 `v2/beatmapinfo` 取得背景文件名，再拼接静态文件地址下载。
+    /// 元数据无背景或图片下载失败返回 `None`（记为未找到），网络异常则向上抛错。
     async fn fetch(
         &self,
         beatmapset_id: u64,
@@ -233,6 +255,7 @@ impl OnlineArtworkCache {
         if !response.status().is_success() {
             return Ok(None);
         }
+        // 先按 `Content-Length` 预检大小，流式读取时还会累计校验。
         if response
             .headers()
             .get(CONTENT_LENGTH)
@@ -276,6 +299,7 @@ impl OnlineArtworkCache {
     }
 }
 
+/// 从小夜元数据中取第一个非空背景文件名；`status != 0` 表示查询失败，一律视为无背景。
 fn background_filename(metadata: &Value) -> Option<&str> {
     if metadata.get("status").and_then(Value::as_i64) != Some(0) {
         return None;
@@ -289,6 +313,7 @@ fn background_filename(metadata: &Value) -> Option<&str> {
         .find(|name| !name.trim().is_empty())
 }
 
+/// 拼接原图下载地址；`Url` 的路径段会自动做百分号编码以处理中文文件名。
 fn original_background_url(beatmapset_id: u64, file_name: &str) -> CommandResult<Url> {
     let mut url = Url::parse(SAYOBOT_FILES_URL)
         .map_err(|error| CommandError::new("INVALID_URL", error.to_string()))?;
@@ -299,6 +324,7 @@ fn original_background_url(beatmapset_id: u64, file_name: &str) -> CommandResult
     Ok(url)
 }
 
+/// 判断负缓存标记是否仍在有效期内（按文件修改时间计算）。
 fn missing_cache_is_fresh(path: &Path) -> bool {
     fs::metadata(path)
         .and_then(|metadata| metadata.modified())
@@ -307,6 +333,7 @@ fn missing_cache_is_fresh(path: &Path) -> bool {
         .is_some_and(|age| age < MISSING_CACHE_TTL)
 }
 
+/// 仅接受白名单内的图片 MIME，避免把错误页等非图片内容写入缓存。
 fn normalize_image_mime(value: &str) -> Option<&str> {
     match value
         .split(';')
@@ -323,6 +350,7 @@ fn normalize_image_mime(value: &str) -> Option<&str> {
     }
 }
 
+/// 按魔数嗅探图片类型，作为 `.mime` 伴随文件缺失时的兜底。
 fn sniff_mime(bytes: &[u8]) -> &'static str {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
@@ -335,11 +363,13 @@ fn sniff_mime(bytes: &[u8]) -> &'static str {
     }
 }
 
+/// 编码为 base64 数据 URL；MIME 不在白名单时退回魔数嗅探。
 fn to_data_url(bytes: &[u8], mime: &str) -> String {
     let mime = normalize_image_mime(mime).unwrap_or_else(|| sniff_mime(bytes));
     format!("data:{mime};base64,{}", STANDARD.encode(bytes))
 }
 
+// 元数据解析、URL 编码与数据 URL 生成的单元测试。
 #[cfg(test)]
 mod tests {
     use super::{background_filename, original_background_url, to_data_url};

@@ -2,6 +2,8 @@
 //! Windows 用 WS_CHILD 子窗口(或属主弹出窗口兜底);Linux 用 X11 子窗口
 
 use crate::error::{CommandError, CommandResult};
+mod commands;
+pub use commands::*;
 use osu_replay_render::skin::Skin as _;
 use osu_replay_render::{build_atlas, draw, game, hitsound, render::Renderer, scene, skin};
 use std::collections::HashMap;
@@ -40,8 +42,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 /// 内部渲染分辨率(16:9;原生窗口上 letterbox 等比缩放)。
 const RENDER_W: u32 = 1280;
 const RENDER_H: u32 = 720;
+/// 每帧清屏色(不透明深灰蓝,即 letterbox 留白区的颜色)。
 const CLEAR: [f64; 4] = [0.055, 0.055, 0.075, 1.0];
 
+/// 预览区域矩形(物理像素,相对 WebView 视口左上角):前端随布局/
+/// 滚动/缩放变化持续上报,后端据此定位与显隐原生窗口。
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PreviewRect {
     /// 物理像素(= CSS px × window.devicePixelRatio),相对 WebView 视口
@@ -141,11 +146,17 @@ impl Default for LiveOptions {
     }
 }
 
+/// `live-render-time` 事件负载:会话状态快照。可见播放时逐帧推送,
+/// 不可见播放时按 100ms 节流;暂停/seek/开关会话时立即推送。
 #[derive(Clone, serde::Serialize)]
 pub struct LiveRenderState {
+    /// 会话是否存活(打开后 true,关闭/异常清理后 false)。
     pub active: bool,
+    /// 是否播放中。
     pub playing: bool,
+    /// 当前回放时间(谱面时间轴 ms,前奏谱面可为负)。
     pub time_ms: f64,
+    /// 回放总时长 ms(末快照时间)。
     pub duration_ms: f64,
 }
 
@@ -156,8 +167,11 @@ pub struct LiveOpenInfo {
     pub duration_ms: f64,
 }
 
+/// 渲染线程命令。除 `Open`/`Close` 带回复信道外均为异步单向(调用端
+/// 不等待);单消费者按 FIFO 顺序处理。
 #[derive(Debug)]
 enum Cmd {
+    /// 打开/重开会话(旧会话先销毁),同步等待初始化结果。
     Open {
         app: Box<AppHandle>,
         beatmap_path: String,
@@ -169,20 +183,25 @@ enum Cmd {
         ffmpeg: Option<std::path::PathBuf>,
         reply: Sender<Result<LiveOpenInfo, String>>,
     },
+    /// 更新原生窗口定位/可见性(rect 归零或 suppressed 时隐藏)。
     Move {
         rect: PreviewRect,
     },
     /// 渲染参数原地生效(零重载):即时字段直接改 SceneState;
     /// bg 重建图集并热替换纹理;audio 懒加载/静音。
     SetOptions(LiveOptions),
+    /// 跳转回放时间(ms,处理侧钳制在 `t0..duration`)。
     Seek(f64),
     Play,
     Pause,
+    /// 关闭会话;清理完成后经 `reply` 回传(命令端同步等待)。
     Close {
         reply: Sender<()>,
     },
 }
 
+/// 渲染线程命令信道:静态单例,首次访问即拉起唯一的 live-render
+/// worker 线程。`Sender` 非 `Sync`,包一层 `Mutex` 仅为让静态量可跨线程发送。
 static CHANNEL: LazyLock<Mutex<Sender<Cmd>>> = LazyLock::new(|| {
     let (tx, rx) = channel::<Cmd>();
     std::thread::Builder::new()
@@ -192,7 +211,9 @@ static CHANNEL: LazyLock<Mutex<Sender<Cmd>>> = LazyLock::new(|| {
     Mutex::new(tx)
 });
 
+/// 有存活会话,或正在处理一条命令(处理期间也置真,见 `tracked_command`)。
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+/// 已投递未完成的命令数(`send` 加一,`tracked_command` 的守卫减一)。
 static PENDING: AtomicUsize = AtomicUsize::new(0);
 
 /// Keep the owning window alive while a native preview or export uses its resources.
@@ -200,6 +221,7 @@ pub(crate) fn is_busy() -> bool {
     ACTIVE.load(Ordering::Acquire) || PENDING.load(Ordering::Acquire) > 0
 }
 
+/// 向渲染线程投递一条命令(PENDING 先加一,发送失败则回退计数)。
 fn send(cmd: Cmd) {
     PENDING.fetch_add(1, Ordering::AcqRel);
     if CHANNEL.lock().unwrap().send(cmd).is_err() {
@@ -225,6 +247,8 @@ mod native {
         unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
     }
 
+    /// 注册 "OPPLiveRender" 窗口类(幂等;`ERROR_CLASS_ALREADY_EXISTS`
+    /// 视为成功,兼容同进程内已注册过的情况)。
     unsafe fn register_class() -> Result<(), String> {
         if CLASS_REGISTERED.get().is_some() {
             return Ok(());
@@ -255,6 +279,8 @@ mod native {
         Ok(())
     }
 
+    /// 创建 `WS_CHILD` 预览子窗口(父窗口客户区坐标);受子窗口线程
+    /// 亲和限制,只能经 `create_child_on_main` 在主线程调用。
     unsafe fn create_child(parent: isize, x: i32, y: i32, w: i32, h: i32) -> Result<isize, String> {
         unsafe { register_class() }?;
         let name: Vec<u16> = "OPPLiveRender\0".encode_utf16().collect();
@@ -355,6 +381,7 @@ mod native {
         (pt.x, pt.y)
     }
 
+    /// 屏幕坐标 (left, top, right, bottom)(popup 位置校对用)。
     pub fn window_rect(hwnd: isize) -> (i32, i32, i32, i32) {
         let mut rect: windows_sys::Win32::Foundation::RECT = unsafe { std::mem::zeroed() };
         unsafe { GetWindowRect(hwnd as HWND, &mut rect) };
@@ -654,12 +681,19 @@ struct Session {
     state: scene::SceneState,
     list: draw::DrawList,
     backend: Backend,
+    /// 当前回放时间(谱面时间轴 ms;播放中按 `game.rate` 推进)。
     t: f64,
+    /// 起始时间(首快照时间,前奏谱面为负;seek/重播的下限)。
     t0: f64,
+    /// 总时长 ms(末快照时间,到达即自动暂停)。
     duration: f64,
+    /// 是否播放中。
     playing: bool,
+    /// 墙钟锚点:每帧用 `now − clock` 换算时间轴增量,起播/seek 后重锚。
     clock: Instant,
+    /// 脏标记:有待重绘的帧(present 暂时失败时保持,见 worker)。
     dirty: bool,
+    /// 上次 `live-render-time` 事件时间(不可见播放时 100ms 节流)。
     last_emit: Instant,
     /// Z 序重压节奏(对抗 WebView2 抬升自己)。
     last_top_assert: Instant,
@@ -1014,6 +1048,8 @@ impl Session {
     }
 }
 
+/// 把 panic 载荷还原成可读消息(`String`/`&str` 载荷取原文,其余归为
+/// 「未知 panic」)。
 fn panic_msg(panic: &(dyn std::any::Any + Send)) -> String {
     panic
         .downcast_ref::<String>()
@@ -1051,6 +1087,9 @@ fn cleanup_session(session: &mut Option<Session>) {
     }
 }
 
+/// 渲染线程主循环:有会话时先排空积压命令再推进一帧(时间轴/音频/
+/// 音效/Z 序维持,循环间隔 1ms);无会话时阻塞等待首条命令。命令与
+/// 帧渲染都包 `catch_unwind`,panic 走 `cleanup_session` 兜底,线程永不退出。
 fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
     let mut session: Option<Session> = None;
 
@@ -1197,6 +1236,8 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
     }
 }
 
+/// 命令包装:PENDING 计数守卫(任何退出路径都递减)+ ACTIVE 维护
+/// (处理前置真,结束后按会话是否存活回写)。
 fn tracked_command(cmd: Cmd, session: &mut Option<Session>) {
     struct PendingCommand;
     impl Drop for PendingCommand {
@@ -1210,6 +1251,9 @@ fn tracked_command(cmd: Cmd, session: &mut Option<Session>) {
     ACTIVE.store(session.is_some(), Ordering::Release);
 }
 
+/// 命令分发。`SetOptions` 按增量顺序生效:即时字段 → 故事板/视频重建
+/// → 皮肤热切换 → 背景图/头像重建 → combo 色重映射 → 亮度 → 音频 →
+/// 音效;各重建分支失败时保留会话原状,后续字段继续生效。
 fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
     match cmd {
         Cmd::Open {
@@ -1784,6 +1828,9 @@ fn active_sb_slots(
     })
 }
 
+/// 构建会话:加载回放(`replay_path` 为空时按自动游玩预览谱面)→
+/// 背景图/皮肤/图集/场景 → 音效事件表 → 平台原生窗口 + wgpu surface
+/// 渲染器。渲染器初始化失败时连已建窗口一并销毁后再报错。
 fn open_session(
     app: &AppHandle,
     beatmap_path: &str,
@@ -2075,6 +2122,8 @@ fn open_session(
 
 // ---- Tauri commands ----------------------------------------------------------
 
+/// 打开实时预览会话(已有会话先销毁);同步等待渲染线程完成初始化,
+/// 返回回放总时长。`replay_path` 为空时按自动游玩预览谱面。
 #[tauri::command(async)]
 pub fn live_render_open(
     app: AppHandle,
@@ -2106,79 +2155,12 @@ pub fn live_render_open(
         .map_err(|e| CommandError::new("LIVE_RENDER", e))
 }
 
-/// 预览区域位置(物理 px = CSS px × devicePixelRatio)。原生窗口跟随
-/// 该 rect;无会话时 no-op。
-#[tauri::command]
-pub fn live_render_move(rect: PreviewRect) -> CommandResult<()> {
-    send(Cmd::Move { rect });
-    Ok(())
-}
-
-/// 渲染参数原地生效(零重载):即时字段改 SceneState;bg 重建图集并
-/// 热替换纹理;audio 懒加载/静音。不触碰 wgpu 设备/窗口/判定数据。
-#[tauri::command]
-pub fn live_render_set_options(
-    app: AppHandle,
-    state: tauri::State<'_, crate::state::AppState>,
-    options: LiveOptions,
-) {
-    // lazer 皮肤热切换 = 实际消费,此时物化;失败时回退内置皮肤并沿用
-    // 皮肤错误事件通道提示,其余参数照常生效。
-    let options = match resolve_lazer_skin(&state, options.clone()) {
-        Ok(options) => options,
-        Err(error) => {
-            let mut fallback = options;
-            fallback.skin_path = None;
-            let _ = app.emit("live-render-skin-error", error.message);
-            fallback
-        }
-    };
-    send(Cmd::SetOptions(options));
-}
-
-#[tauri::command]
-pub fn live_render_seek(time_ms: f64) {
-    send(Cmd::Seek(time_ms));
-}
-
-#[tauri::command]
-pub fn live_render_play() {
-    send(Cmd::Play);
-}
-
-#[tauri::command]
-pub fn live_render_pause() {
-    send(Cmd::Pause);
-}
-
-#[tauri::command]
-pub fn live_render_close() {
-    let (tx, rx) = channel();
-    send(Cmd::Close { reply: tx });
-    let _ = rx.recv();
-}
-
 /// 一个可选的用户皮肤(客户端 Skins 目录下的子目录)。
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveSkinEntry {
     pub name: String,
     pub path: String,
-}
-
-/// 枚举客户端已安装的皮肤。stable 读 Skins 目录；lazer 的皮肤登记在
-/// Realm 中，从本地索引列出并以 "lazer:<resource_id>" 作为引用路径，
-/// 实际选用时才物化成目录（见 resolve_lazer_skin）。安装目录与数据
-/// 目录下的 Skins/ 子目录会合并列出。
-#[tauri::command]
-pub async fn live_render_list_skins(
-    client: crate::features::local_analysis::LocalClient,
-    app: AppHandle,
-) -> CommandResult<Vec<LiveSkinEntry>> {
-    crate::infrastructure::tasks::blocking_io("live_render_list_skins", move || {
-        live_render_list_skins_blocking(client, app.state())
-    })
-    .await?
 }
 
 fn live_render_list_skins_blocking(
@@ -2411,12 +2393,17 @@ mod repro_tests {
 
 // ---- 视频导出(离屏渲染 → ffmpeg 管道 → mp4) --------------------------------
 
+/// 视频导出参数(分辨率/帧率独立于预览会话,消费见 `run_export`)。
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportParams {
+    /// 输出 mp4 路径(先写同目录 `.video.tmp.mp4`,混流/改名后落位)。
     pub out_path: String,
+    /// 输出宽度 px(与高度共同决定图集裁剪与故事板槽位)。
     pub width: u32,
+    /// 输出高度 px。
     pub height: u32,
+    /// 帧率:60 直接采用回放快照时间点,其余按等步长重采样。
     pub fps: u32,
     /// "x264" | "x265" | "nvenc" | "hevc_nvenc"。
     pub encoder: String,
@@ -2440,21 +2427,30 @@ fn default_true() -> bool {
     true
 }
 
+/// `live-render-export` 事件负载:导出进度(渲染阶段每 60 帧推送一次)。
 #[derive(Clone, serde::Serialize)]
 pub struct ExportProgress {
     /// "render" | "mux" | "done"。
     pub phase: &'static str,
+    /// 已写出的帧数。
     pub frame: u32,
+    /// 总帧数(含结算屏追加帧)。
     pub total: u32,
+    /// 状态说明文本。
     pub message: String,
 }
 
+/// 导出互斥:同时只允许一个导出任务(`ExportPermit` 管理)。
 static EXPORT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// 取消标志:导出循环逐帧检查,置真后终止并删除临时产物。
 static EXPORT_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// 导出互斥的 RAII 守卫:持有期间 `EXPORT_RUNNING` 为真,drop 时释放
+/// (含错误提前返回的路径)。
 struct ExportPermit<'a>(&'a std::sync::atomic::AtomicBool);
 
 impl<'a> ExportPermit<'a> {
+    /// 抢占运行标志,已被占用则报「已有导出任务在进行中」。
     fn acquire(running: &'a std::sync::atomic::AtomicBool) -> CommandResult<Self> {
         if running.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return Err(CommandError::new("LIVE_RENDER", "已有导出任务在进行中"));
@@ -2506,14 +2502,6 @@ pub struct FfmpegStatus {
     pub version: Option<String>,
     /// "manual" | "path" | "danser" | ""(未找到)。
     pub source: &'static str,
-}
-
-#[tauri::command]
-pub async fn live_render_get_ffmpeg_status(app: AppHandle) -> CommandResult<FfmpegStatus> {
-    crate::infrastructure::tasks::blocking_io("live_render_get_ffmpeg_status", move || {
-        live_render_get_ffmpeg_status_blocking(app.state())
-    })
-    .await
 }
 
 fn live_render_get_ffmpeg_status_blocking(
@@ -2568,16 +2556,6 @@ fn live_render_get_ffmpeg_status_blocking(
     }
 }
 
-/// 检测 NVENC 硬件编码可用性(h264_nvenc / hevc_nvenc 各一次微型
-/// 测试编码);返回 [h264 可用, hevc 可用]。无 FFmpeg = 均不可用。
-#[tauri::command]
-pub async fn live_render_check_nvenc(app: AppHandle) -> CommandResult<[bool; 2]> {
-    crate::infrastructure::tasks::blocking_io("live_render_check_nvenc", move || {
-        live_render_check_nvenc_blocking(app.state())
-    })
-    .await?
-}
-
 fn live_render_check_nvenc_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<[bool; 2]> {
@@ -2607,16 +2585,6 @@ fn live_render_check_nvenc_blocking(
             .unwrap_or(false)
     };
     Ok([probe("h264_nvenc"), probe("hevc_nvenc")])
-}
-
-/// 检测用户 FFmpeg(PATH 自动检测优先,danser 发行包兜底);
-/// 返回版本首行(None = 未找到)。
-#[tauri::command]
-pub async fn live_render_check_ffmpeg(app: AppHandle) -> CommandResult<Option<String>> {
-    crate::infrastructure::tasks::blocking_io("live_render_check_ffmpeg", move || {
-        live_render_check_ffmpeg_blocking(app.state())
-    })
-    .await?
 }
 
 fn live_render_check_ffmpeg_blocking(
@@ -2685,23 +2653,8 @@ pub fn live_render_export(
         .map_err(|e| CommandError::new("LIVE_RENDER", e))
 }
 
-#[tauri::command]
-pub fn live_render_export_cancel() {
-    use std::sync::atomic::Ordering;
-    EXPORT_CANCEL.store(true, Ordering::SeqCst);
-}
-
-/// 在系统中打开导出文件所在文件夹。
-#[tauri::command]
-pub fn live_render_open_export_output(path: String) -> CommandResult<()> {
-    let path = std::path::PathBuf::from(path);
-    if !path.is_absolute() {
-        return Err(CommandError::new("LIVE_RENDER", "路径必须是绝对路径"));
-    }
-    crate::infrastructure::platform::reveal_path(&path)
-        .map_err(|e| CommandError::new("LIVE_RENDER", format!("无法打开所在文件夹: {e}")))
-}
-
+/// 去除 GPU 回读每行的对齐 padding,压成紧凑 bgra 行序(ffmpeg
+/// rawvideo 按 `width×4` 步长消费;无 padding 时整块直拷)。
 fn repack_tight(bgra: &[u8], width: u32, height: u32, padded_row: u32, tight: &mut Vec<u8>) {
     tight.clear();
     if padded_row == width * 4 {
@@ -2783,6 +2736,10 @@ fn ffmpeg_encoder_args(encoder: &str, quality: u32) -> (&'static str, Vec<String
     (pix_fmt, args)
 }
 
+/// 导出主体(独立线程执行,与预览会话不共享任何 GPU 资源):离屏逐帧
+/// 渲染 → 回读去 padding → 有界信道写入 ffmpeg rawvideo 管道 → 编码出
+/// 纯视频临时 mp4 → 可选第二遍 ffmpeg 混入 BGM/音效轨。帧时间轴、
+/// 音量与 rate mod 处理均与桌面 CLI 导出同语义。
 fn run_export(
     app: &AppHandle,
     ffmpeg: &std::path::Path,
@@ -3203,6 +3160,7 @@ fn probe_sample_rate(ffmpeg: &std::path::Path, media: &std::path::Path) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    /// 准备失败路径也必须释放导出互斥(RAII 守卫 Drop 语义)。
     #[test]
     fn export_permit_releases_after_preparation_failure() {
         let running = std::sync::atomic::AtomicBool::new(false);

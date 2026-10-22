@@ -22,7 +22,6 @@ export function useScores(
     queryFn: () => desktopApi.getScores(ruleset, category, offset, limit),
     enabled,
     staleTime: 10 * 60_000,
-    retry: false,
   });
 
   const refresh = async () => {

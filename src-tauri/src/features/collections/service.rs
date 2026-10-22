@@ -1,3 +1,7 @@
+//! 收藏夹内部状态：内存镜像、分片持久化、并发更新与共享辅助函数。
+//! 持久化布局：`collections.json` 只存顺序与元数据，文件夹内容按 ID 哈希
+//! 分片存放在 `collections-data/` 下，写入一律走临时文件与备份回滚。
+
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -17,43 +21,57 @@ use super::{
 };
 use crate::error::{CommandError, CommandResult};
 
+// 本地存在性缓存的容量上限：最多 5 万条且序列化后不超过 16 MB。
 const MAX_PRESENCE_CACHE_ENTRIES: usize = 50_000;
 const MAX_PRESENCE_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
+/// 收藏夹库的内存模型；持久化时主文件仅保留顺序与元数据（见 `update`）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(super) struct CollectionFile {
+    /// 各文件夹修订号，写入时递增；仅运行期使用，不落盘。
     #[serde(skip)]
     pub(super) revisions: HashMap<String, u64>,
+    /// 全局修订号，任一文件夹写入后递增；仅运行期使用，不落盘。
     #[serde(skip)]
     pub(super) revision: u64,
+    /// 是否已完成“主文件 + 分片”的存储布局迁移。
     #[serde(default)]
     pub(super) sharded: bool,
+    /// 文件夹顺序；加载分片时按此顺序还原。
     #[serde(default)]
     pub(super) folder_order: Vec<String>,
     #[serde(default)]
     pub(super) folders: Vec<CollectionFolder>,
+    /// 最近一次读取或写回的 collection.db SHA-256 指纹。
     #[serde(default)]
     pub(super) stable_fingerprint: Option<String>,
+    /// 最近一次读取到的 collection.db 版本号，写回时沿用。
     #[serde(default)]
     pub(super) stable_version: Option<i32>,
+    /// 最近一次与外部来源同步的时间（RFC 3339）。
     #[serde(default)]
     pub(super) refreshed_at: Option<String>,
+    /// 谱面 MD5 → 是否已安装的缓存；条目绑定 stable 扫描时间。
     #[serde(default)]
     pub(super) local_presence_cache: HashMap<String, LocalPresenceCacheEntry>,
 }
 
+/// 缓存的单个 MD5 存在性结论；`scan_at` 与当前扫描时间一致时才可信。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct LocalPresenceCacheEntry {
     pub(super) present: bool,
     pub(super) scan_at: Option<String>,
 }
 
+/// `collections-cache.json` 的结构；与主库分离保存，解析失败时整体丢弃。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct CollectionCacheFile {
     #[serde(default)]
     local_presence_cache: HashMap<String, LocalPresenceCacheEntry>,
 }
 
+/// 最近一次成功落盘的字节快照，内容未变的文件直接跳过重写；
+/// `initialized` 表示已完成首次全量写入（分片迁移完成）。
 #[derive(Default)]
 struct CollectionPersistedBytes {
     initialized: bool,
@@ -62,6 +80,7 @@ struct CollectionPersistedBytes {
     folders: HashMap<String, Vec<u8>>,
 }
 
+/// 读取存在性缓存：仅当记录的扫描时间与给定时间一致时才返回结果。
 pub(super) fn cached_local_presence(
     cache: &HashMap<String, LocalPresenceCacheEntry>,
     checksum: &str,
@@ -73,16 +92,21 @@ pub(super) fn cached_local_presence(
         .map(|cached| cached.present)
 }
 
+/// 收藏夹状态服务：内存镜像、持久化互斥锁与条目级笔记本存储。
 pub struct CollectionService {
+    /// 条目级笔记、标签与图池快照存储。
     pub(crate) notebooks: super::notebook::NotebookStore,
     path: PathBuf,
     cache_path: PathBuf,
     folders_path: PathBuf,
+    /// 惰性加载的内存镜像；写路径由 `persist` 串行化。
     pub(super) value: LazyMutex<CollectionFile>,
+    /// 持久化锁与已落盘字节缓存，所有写入在此串行执行。
     persist: Mutex<CollectionPersistedBytes>,
 }
 
 impl CollectionService {
+    /// 以应用数据目录为根创建服务；文件内容在首次访问时才加载。
     pub fn new(app_data_dir: &Path) -> CommandResult<Self> {
         let root = app_data_dir.to_path_buf();
         Ok(Self {
@@ -95,6 +119,8 @@ impl CollectionService {
         })
     }
 
+    /// 加载主文件、存在性缓存与全部文件夹分片；
+    /// 单个分片损坏时跳过，未迁移的旧布局以内嵌条目为准。
     fn load_file(app_data_dir: &Path) -> CommandResult<CollectionFile> {
         // 收藏夹按文件夹拆分持久化，单个文件损坏不会使整个集合不可恢复。
         fs::create_dir_all(app_data_dir)?;
@@ -141,6 +167,7 @@ impl CollectionService {
         Ok(value)
     }
 
+    /// 全量更新：克隆镜像执行闭包后，写回变化的分片、清理删除项并更新主文件。
     pub(super) fn update<R>(
         &self,
         action: impl FnOnce(&mut CollectionFile) -> CommandResult<R>,
@@ -156,6 +183,7 @@ impl CollectionService {
         let cache = CollectionCacheFile {
             local_presence_cache: file.local_presence_cache.clone(),
         };
+        // 主文件只持久化顺序与元数据，条目内容保存在各文件夹分片中。
         let durable = CollectionFile {
             sharded: true,
             folder_order: file
@@ -223,6 +251,7 @@ impl CollectionService {
         Ok(result)
     }
 
+    /// 常规编辑的单文件夹快路径：只重新序列化目标分片，避免全量重写。
     /// Common edits copy and serialize only the selected folder, after initial migration.
     fn edit_folder<R>(
         &self,
@@ -257,6 +286,7 @@ impl CollectionService {
         Ok(result)
     }
 
+    /// 导出全部文件夹快照；来源状态由调用方构造后一并返回。
     pub(super) fn snapshot(
         &self,
         statuses: Vec<CollectionSourceStatus>,
@@ -271,6 +301,7 @@ impl CollectionService {
         })
     }
 
+    /// 新建 OPP 收藏夹；默认参与 stable 同步并立即标记待写回。
     pub(crate) fn create(&self, name: &str, creator: &str) -> CommandResult<CollectionFolder> {
         let name = validate_name(name)?;
         self.update(|file| {
@@ -299,6 +330,7 @@ impl CollectionService {
         })
     }
 
+    /// 重命名收藏夹；只读文件夹拒绝修改。
     pub(super) fn rename(&self, folder_id: &str, name: &str) -> CommandResult<()> {
         let name = validate_name(name)?;
         self.edit_folder(folder_id, |folder| {
@@ -309,6 +341,7 @@ impl CollectionService {
         })
     }
 
+    /// 删除文件夹，并同步清理其笔记本数据。
     pub(crate) fn delete(&self, folder_id: &str) -> CommandResult<()> {
         self.update(|file| {
             let index = file
@@ -323,6 +356,7 @@ impl CollectionService {
         self.notebooks.delete(folder_id)
     }
 
+    /// 批量追加条目；以 beatmap_id（缺失时退回校验和）判定重复，已存在则跳过。
     pub(crate) fn add_entries(
         &self,
         folder_id: &str,
@@ -345,6 +379,60 @@ impl CollectionService {
         })
     }
 
+    /// 大批量追加条目（备份恢复等数万条场景）：先建立既有键查找表再
+    /// 线性去重，避免 `add_entries` 每条目全量扫描的 O(n·m) 开销。
+    ///
+    /// 去重键优先级：beatmap_id → 校验和（忽略大小写）→ 谱面集 ID；
+    /// 最后一档专为无难度信息的占位条目服务，`same_entry` 本身无法
+    /// 匹配这类条目。
+    pub(crate) fn add_entries_bulk(
+        &self,
+        folder_id: &str,
+        candidates: Vec<CollectionCandidate>,
+    ) -> CommandResult<usize> {
+        self.edit_folder(folder_id, |folder| {
+            ensure_writable(folder)?;
+            let mut known_beatmap_ids = HashSet::new();
+            let mut known_checksums = HashSet::new();
+            let mut known_set_ids = HashSet::new();
+            for entry in &folder.entries {
+                remember_entry(
+                    entry,
+                    &mut known_beatmap_ids,
+                    &mut known_checksums,
+                    &mut known_set_ids,
+                );
+            }
+            let mut added = 0usize;
+            for candidate in candidates {
+                let entry = candidate_to_entry(candidate);
+                let duplicate = match entry.beatmap_id {
+                    Some(id) => known_beatmap_ids.contains(&id),
+                    None => match entry.checksum.as_deref() {
+                        Some(checksum) => known_checksums.contains(&checksum.to_ascii_lowercase()),
+                        None => entry
+                            .beatmapset_id
+                            .is_some_and(|id| known_set_ids.contains(&id)),
+                    },
+                };
+                if duplicate {
+                    continue;
+                }
+                remember_entry(
+                    &entry,
+                    &mut known_beatmap_ids,
+                    &mut known_checksums,
+                    &mut known_set_ids,
+                );
+                folder.entries.push(entry);
+                added += 1;
+            }
+            touch(folder);
+            Ok(added)
+        })
+    }
+
+    /// 读取图池快照：优先文件夹内嵌图池，缺失时回退笔记本。
     pub(crate) fn pool_snapshot(
         &self,
         folder_id: &str,
@@ -356,6 +444,7 @@ impl CollectionService {
         }
     }
 
+    /// 仅刷新展示元数据（异步在线拉取的结果），不改成员关系与个人记录。
     /// Update display metadata independently of game membership and personal records.
     pub(crate) fn save_pool_metadata(
         &self,
@@ -413,6 +502,8 @@ impl CollectionService {
         crate::infrastructure::logging::finish_span(span, result)
     }
 
+    /// 以 `external_id` 而非名称定位并整体替换链接的图池收藏夹；
+    /// 空图池或含无效谱面时直接拒绝，防止清空已有收藏。
     /// Replace one linked OPP folder in a single collection update, keyed by source rather than name.
     pub(crate) fn replace_tournament_pool(
         &self,
@@ -521,6 +612,7 @@ impl CollectionService {
         })
     }
 
+    /// 按 `external_id` 查找已链接的图池收藏夹。
     pub(crate) fn linked_pool(&self, source_id: &str) -> CommandResult<Option<CollectionFolder>> {
         Ok(self
             .value
@@ -533,6 +625,7 @@ impl CollectionService {
             .cloned())
     }
 
+    /// 让文件夹开始参与 `collection.db` 写回（需可写）。
     pub(crate) fn enable_stable_sync(&self, folder_id: &str) -> CommandResult<()> {
         self.edit_folder(folder_id, |folder| {
             ensure_writable(folder)?;
@@ -554,6 +647,7 @@ impl CollectionService {
     }
 }
 
+// 分片文件名取 ID 的 SHA-256 十六进制，避免任意 ID 字符进入文件系统。
 fn folder_storage_key(id: &str) -> String {
     format!("{:x}", Sha256::digest(id.as_bytes()))
 }
@@ -601,6 +695,7 @@ fn folder_mut<'a>(
         .ok_or_else(|| CommandError::new("COLLECTION_NOT_FOUND", "未找到收藏夹"))
 }
 
+/// 只读文件夹（来自 osu!lazer 数据）拒绝编辑。
 fn ensure_writable(folder: &CollectionFolder) -> CommandResult<()> {
     if folder.read_only {
         Err(CommandError::new(
@@ -612,6 +707,7 @@ fn ensure_writable(folder: &CollectionFolder) -> CommandResult<()> {
     }
 }
 
+/// 刷新更新时间；参与 stable 同步的文件夹同时置为待写回。
 pub(super) fn touch(folder: &mut CollectionFolder) {
     folder.updated_at = Utc::now().to_rfc3339();
     if folder.participates_in_stable() {
@@ -619,6 +715,7 @@ pub(super) fn touch(folder: &mut CollectionFolder) {
     }
 }
 
+/// 候选转换为条目；仅“本地来源且带校验和”的候选视为已解析。
 pub(super) fn candidate_to_entry(candidate: CollectionCandidate) -> CollectionEntry {
     // Online API responses may contain an official checksum even though the
     // beatmap is not installed locally. Only local candidates are resolved.
@@ -638,6 +735,7 @@ pub(super) fn candidate_to_entry(candidate: CollectionCandidate) -> CollectionEn
     }
 }
 
+/// 条目等价判定：双方都有 beatmap_id 时直接比较，否则退回忽略大小写的校验和。
 fn same_entry(left: &CollectionEntry, right: &CollectionEntry) -> bool {
     match (left.beatmap_id, right.beatmap_id) {
         (Some(a), Some(b)) => a == b,
@@ -649,6 +747,32 @@ fn same_entry(left: &CollectionEntry, right: &CollectionEntry) -> bool {
     }
 }
 
+/// 把条目的全部去重键记入查找表；批量插入路径专用。
+///
+/// beatmap_id 与校验和同时登记（两者都唯一指向一个难度）；谱面集 ID
+/// 仅在条目既无难度 ID 也无校验和（备份恢复等场景的占位条目）时登记，
+/// 避免同一集合的不同难度被误判为重复。
+fn remember_entry(
+    entry: &CollectionEntry,
+    beatmap_ids: &mut HashSet<i32>,
+    checksums: &mut HashSet<String>,
+    set_ids: &mut HashSet<i32>,
+) {
+    if let Some(id) = entry.beatmap_id {
+        beatmap_ids.insert(id);
+    }
+    if let Some(checksum) = entry.checksum.as_deref() {
+        checksums.insert(checksum.to_ascii_lowercase());
+    }
+    if entry.beatmap_id.is_none()
+        && entry.checksum.is_none()
+        && let Some(id) = entry.beatmapset_id
+    {
+        set_ids.insert(id);
+    }
+}
+
+/// 临时文件替换目标文件；目标已存在时先备份为 `.bak`，替换失败时回滚。
 pub(super) fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
     // 先用临时文件完整落盘，再替换目标，防止意外退出破坏收藏夹分片。
     if target.exists() {

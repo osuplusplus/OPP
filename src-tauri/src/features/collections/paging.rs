@@ -1,3 +1,5 @@
+//! 收藏夹的轻量分页查询：摘要列表 + 按修订号做乐观校验的条目分页，
+//! 让前端无需序列化整份收藏夹快照即可浏览大收藏夹。
 use super::{
     CollectionEntry, CollectionFolder, CollectionService, CollectionSource, CollectionSourceStatus,
 };
@@ -9,6 +11,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 
+/// 收藏夹摘要：不含条目列表，只带统计与一致性所需的 `revision`。
 #[derive(Debug, Serialize)]
 pub struct CollectionFolderSummary {
     pub id: String,
@@ -19,15 +22,20 @@ pub struct CollectionFolderSummary {
     pub pending_write: bool,
     pub stable_sync: bool,
     pub entry_count: usize,
+    /// 缺失条目对应的谱面集（或 checksum）去重后的数量。
     pub missing_count: usize,
+    /// 去重后的谱面集数量（忽略无效值 0）。
     pub beatmapset_count: usize,
+    /// 收藏夹当前修订号，供后续分页读取时校验数据是否已变化。
     pub revision: u64,
 }
+/// 摘要响应：全部收藏夹摘要 + 各来源状态。
 #[derive(Debug, Serialize)]
 pub struct CollectionSummaries {
     pub folders: Vec<CollectionFolderSummary>,
     pub sources: Vec<CollectionSourceStatus>,
 }
+/// 条目分页响应；`revision` 与请求时的值一致，前端可继续翻页。
 #[derive(Debug, Serialize)]
 pub struct CollectionEntryPage {
     pub items: Vec<CollectionEntry>,
@@ -36,6 +44,8 @@ pub struct CollectionEntryPage {
     pub limit: usize,
     pub revision: u64,
 }
+/// 由收藏夹生成摘要：缺失数按谱面集/checksum 去重；
+/// `pending_write` 仅对参与 Stable 同步的收藏夹展示。
 fn summary(folder: &CollectionFolder, revision: u64) -> CollectionFolderSummary {
     let missing_count = folder
         .entries
@@ -70,6 +80,7 @@ fn summary(folder: &CollectionFolder, revision: u64) -> CollectionFolderSummary 
     }
 }
 impl CollectionService {
+    /// 生成全部收藏夹摘要；修订号取自全局计数器在各自文件夹上的映射值。
     pub(super) fn summaries(
         &self,
         sources: Vec<CollectionSourceStatus>,
@@ -84,6 +95,9 @@ impl CollectionService {
             sources,
         })
     }
+    /// 读取一页条目。请求的 `revision` 与当前值不一致时返回
+    /// `COLLECTION_REVISION_CHANGED`，强制前端重新加载摘要。
+    /// `limit` 钳制到 [1,100]，越界 `offset` 自然返回空页。
     pub(super) fn entry_page(
         &self,
         folder_id: &str,
@@ -121,6 +135,7 @@ impl CollectionService {
     }
 }
 
+/// 列出全部收藏夹摘要（含各来源状态），在阻塞 IO 线程上执行。
 #[tauri::command]
 pub async fn list_collection_summaries(app: AppHandle) -> CommandResult<CollectionSummaries> {
     crate::infrastructure::tasks::blocking_io("list_collection_summaries", move || {
@@ -131,6 +146,7 @@ pub async fn list_collection_summaries(app: AppHandle) -> CommandResult<Collecti
     })
     .await?
 }
+/// 按 `offset`/`limit` 分页读取指定收藏夹的条目，须携带摘要返回的 `revision`。
 #[tauri::command]
 pub async fn query_collection_entries(
     app: AppHandle,
@@ -147,6 +163,7 @@ pub async fn query_collection_entries(
     .await?
 }
 
+// 分页行为的测试：并发编辑持久化、失败编辑不发布、过期修订号被拒绝。
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,6 +334,7 @@ mod tests {
     }
 }
 
+/// 先刷新指定客户端来源的收藏数据，再返回最新摘要（一步到位的入口）。
 #[tauri::command]
 pub async fn refresh_collection_summaries(
     app: AppHandle,

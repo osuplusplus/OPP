@@ -1,3 +1,4 @@
+import { osuBeatmapUrl } from "../../shared/lib/osuUrl";
 import { useEffect, useRef } from "react";
 import { MoreHorizontal, Music2, StickyNote, Tags, Trophy } from "lucide-react";
 import type { CollectionBrowseRow } from "../../shared/types/osu";
@@ -65,7 +66,7 @@ export function CollectionBeatmapRow({ row, search, onOpen, onRecord, onDetail, 
         if (local.resource.client === "stable" && local.resource.logical_path) await desktopApi.openLocalResourceInExplorer("stable", local.resource.logical_path);
         else { const directory = await desktopApi.chooseDirectory("选择 .osz 导出位置"); if (directory) onNotice(`已导出：${await desktopApi.exportLocalBeatmapSet(local.resource.client, local.set_key, directory)}`); }
       })}>{local?.resource.client === "lazer" ? "导出 .osz" : "打开本地文件"}</button>
-      <button disabled={!row.entry.beatmap_id} onClick={() => void run(() => desktopApi.openExternal(`https://osu.ppy.sh/beatmaps/${row.entry.beatmap_id}`))}>谱面官网</button>
+      <button disabled={!row.entry.beatmap_id} onClick={() => void run(() => desktopApi.openExternal(osuBeatmapUrl(row.entry.beatmap_id!)))}>谱面官网</button>
       {!local && <button disabled={row.read_only} onClick={() => void run(() => onDownload(row.folder_id))}>{row.is_custom || row.source_slot ? "导入收藏夹到 Stable" : "补齐收藏夹谱面"}</button>}
       <button onClick={() => void run(onRecord)}>编辑个人记录</button>
       <button className="is-danger" disabled={row.read_only} onClick={() => void run(() => onChanged(row.folder_id, row.entry.id))}>移出收藏夹</button>

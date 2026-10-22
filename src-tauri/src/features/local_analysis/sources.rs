@@ -1,3 +1,5 @@
+//! osu! stable / lazer 的安装与数据目录探测，以及用户手动覆盖路径
+//! （`sources.json`）的持久化管理。
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -14,14 +16,19 @@ use super::{
     parser::decode_text,
 };
 
+/// 数据源解析结果：探测状态加上各资源根目录（不可用时为 `None`）。
 #[derive(Debug, Clone)]
 pub struct ResolvedSource {
     pub status: LocalSourceStatus,
+    /// stable 谱面目录（默认 `Songs`，可被 `BeatmapDirectory` 配置改指他处）。
     pub beatmap_root: Option<PathBuf>,
+    /// stable 皮肤目录（安装根下的 `Skins`）。
     pub skin_root: Option<PathBuf>,
+    /// lazer `files/` 内容寻址仓库根目录。
     pub repository_root: Option<PathBuf>,
 }
 
+/// 客户端数据源探测接口；stable 与 lazer 各提供一个实现。
 pub trait LocalSourceAdapter: Send + Sync {
     fn resolve(&self, configured_path: Option<&Path>) -> ResolvedSource;
 }
@@ -44,6 +51,7 @@ impl LocalSourceAdapter for LazerAdapter {
     }
 }
 
+/// 用户手动覆盖路径，按客户端区分，持久化到 `sources.json`。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct SourceOverrides {
     stable: Option<PathBuf>,
@@ -66,6 +74,7 @@ impl SourceOverrides {
     }
 }
 
+/// 覆盖路径的加载、修改与持久化入口。
 pub struct SourceResolver {
     path: PathBuf,
     overrides: Mutex<SourceOverrides>,
@@ -74,6 +83,7 @@ pub struct SourceResolver {
 }
 
 impl SourceResolver {
+    /// 从应用数据目录加载覆盖配置；`sources.json` 缺失或损坏时回退为无覆盖。
     pub fn load(directory: &Path) -> CommandResult<Self> {
         // 用户覆盖路径独立保存；自动发现逻辑始终可在覆盖被重置后重新生效。
         fs::create_dir_all(directory)?;
@@ -91,6 +101,7 @@ impl SourceResolver {
         })
     }
 
+    /// 解析指定客户端的数据源：优先应用用户覆盖，其次平台自动探测。
     pub fn resolve(&self, client: LocalClient) -> CommandResult<ResolvedSource> {
         let overrides = self
             .overrides
@@ -100,6 +111,7 @@ impl SourceResolver {
         Ok(self.adapter(client).resolve(configured))
     }
 
+    /// 记录手动选择的目录：先探测校验，确认有效后才原子写入覆盖配置。
     pub fn set_override(
         &self,
         client: LocalClient,
@@ -132,6 +144,7 @@ impl SourceResolver {
         Ok(resolved)
     }
 
+    /// 清除覆盖配置并持久化，随后返回自动探测结果。
     pub fn reset(&self, client: LocalClient) -> CommandResult<ResolvedSource> {
         let mut overrides = self
             .overrides
@@ -160,6 +173,7 @@ impl SourceResolver {
     }
 }
 
+/// 用“备份旧文件 → 替换 → 失败回滚”的方式原子替换，避免中断留下截断的 JSON。
 fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
     if target.exists() {
         let backup = target.with_extension("json.bak");
@@ -182,6 +196,9 @@ fn atomic_replace(temporary: &Path, target: &Path) -> std::io::Result<()> {
     }
 }
 
+/// 探测 stable 安装：取手动路径或平台候选位置（注册表 / 常见目录），
+/// 允许直接选中 `Songs` 目录并向上回退到安装根，最后校验 `osu!.exe`
+/// 或 `Songs` 的存在。
 fn resolve_stable(configured_path: Option<&Path>) -> ResolvedSource {
     // Stable 的 Songs 目录可在配置中改名或改为相对路径，不能假设固定位置。
     let mode = if configured_path.is_some() {
@@ -259,6 +276,7 @@ fn resolve_stable(configured_path: Option<&Path>) -> ResolvedSource {
     }
 }
 
+/// lazer 探测入口：结合平台层从 `storage.ini` 的 `FullPath` 解析出的数据根。
 fn resolve_lazer(configured_path: Option<&Path>) -> ResolvedSource {
     resolve_lazer_with_ini(
         configured_path,
@@ -336,6 +354,8 @@ fn resolve_lazer_with_ini(
     }
 }
 
+/// 解析 stable 谱面目录：优先取 `BeatmapDirectory` 配置（相对路径按安装根
+/// 拼接），未配置时回退到 `Songs`。
 fn resolve_stable_beatmap_directory(root: &Path) -> Option<PathBuf> {
     if let Some(value) = latest_stable_config_value(root, "BeatmapDirectory") {
         let path = PathBuf::from(value);
@@ -348,10 +368,13 @@ fn resolve_stable_beatmap_directory(root: &Path) -> Option<PathBuf> {
     Some(root.join("Songs"))
 }
 
+/// 读取 stable 版本号（配置中的 `LastVersion`）。
 fn read_stable_version(root: &Path) -> Option<String> {
     latest_stable_config_value(root, "LastVersion")
 }
 
+/// stable 会为每个系统用户生成独立的 `osu!.<user>.cfg`；按修改时间从新到旧
+/// 查找第一个包含目标键的配置文件。
 fn latest_stable_config_value(root: &Path, key: &str) -> Option<String> {
     let mut configs = fs::read_dir(root)
         .ok()?
@@ -376,6 +399,7 @@ fn latest_stable_config_value(root: &Path, key: &str) -> Option<String> {
     })
 }
 
+/// 从 ini 文本中查找 `key = value` 行；键大小写不敏感，值去掉首尾引号。
 fn config_value(text: &str, wanted: &str) -> Option<String> {
     text.lines().find_map(|line| {
         let (key, value) = line.split_once('=')?;
@@ -385,10 +409,12 @@ fn config_value(text: &str, wanted: &str) -> Option<String> {
     })
 }
 
+/// 判定 lazer 数据根：必须同时包含 `client.realm` 文件与 `files` 目录。
 fn is_lazer_data_root(path: &Path) -> bool {
     path.join("client.realm").is_file() && path.join("files").is_dir()
 }
 
+/// 判定目录是否为 lazer 安装目录（安装器布局或自更新布局均可）。
 fn looks_like_lazer_install(path: &Path) -> bool {
     // Windows 安装器把 osu!.exe 直接放在安装目录；带 current/ 子目录的是
     // 自更新布局，两者都认。
@@ -398,6 +424,7 @@ fn looks_like_lazer_install(path: &Path) -> bool {
                 || path.join("current").join("sq.version").is_file()))
 }
 
+/// 从 `sq.version` 文件的 `<version>` 标签中提取 lazer 版本号。
 fn read_lazer_version(root: &Path) -> Option<String> {
     let text = fs::read_to_string(root.join("sq.version"))
         .or_else(|_| fs::read_to_string(root.join("current").join("sq.version")))
@@ -407,6 +434,7 @@ fn read_lazer_version(root: &Path) -> Option<String> {
     Some(version.trim().to_string())
 }
 
+/// 去掉 Windows 规范化路径的 `\\?\` 与 `\\?\UNC\` 前缀，得到可展示的路径。
 fn display_path(path: &Path) -> String {
     let value = path.to_string_lossy();
     if let Some(network_path) = value.strip_prefix(r"\\?\UNC\") {
@@ -422,6 +450,7 @@ fn display_path(path: &Path) -> String {
 mod tests {
     use super::*;
 
+    /// 安装根与其 `current/` 子目录都能读到 lazer 版本号。
     #[test]
     fn lazer_version_accepts_current_directory_as_install_root() {
         let directory = tempfile::tempdir().unwrap();
@@ -442,6 +471,7 @@ mod tests {
         );
     }
 
+    /// `BeatmapDirectory` 同时支持相对路径与绝对路径。
     #[test]
     fn resolves_relative_and_absolute_beatmap_directories() {
         let directory = tempfile::tempdir().expect("temp directory");
@@ -467,6 +497,7 @@ mod tests {
         );
     }
 
+    /// 目录特征校验：stable 认 `osu!.exe`/`Songs`，lazer 认 `client.realm`/`files`。
     #[test]
     fn validates_stable_and_lazer_features() {
         let stable = tempfile::tempdir().expect("stable");
@@ -512,6 +543,7 @@ mod tests {
         );
     }
 
+    /// 覆盖设置持久化后重新加载仍保持 `Override` 模式。
     #[test]
     fn manual_override_round_trips() {
         let app_data = tempfile::tempdir().expect("app data");
@@ -535,6 +567,7 @@ mod tests {
         );
     }
 
+    /// 本机验收测试：验证注册表 / XDG 等真实自动探测路径可用。
     #[test]
     #[ignore = "machine acceptance test"]
     fn auto_detects_opt_in_machine_sources() {

@@ -1,3 +1,6 @@
+//! 缺失谱面补齐：核对收藏条目的本地存在性、反查仅有旧 MD5 的条目、
+//! 从下载的 .osz 曲包提取精确 MD5 回填条目，再把曲包交给 osu! 导入。
+
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fs,
@@ -23,6 +26,7 @@ use crate::{
     state::AppState,
 };
 
+// 曲包处理防护上限：数量、单包与累计体积、文件数、压缩比，拦截异常归档与解压炸弹。
 const MAX_INSTALL_ARCHIVES: usize = 500;
 const MAX_ARCHIVE_COMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_ARCHIVE_FILES: usize = 10_000;
@@ -30,6 +34,7 @@ const MAX_OSU_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO: u64 = 200;
 const MAX_INSTALL_EXPANDED_BYTES: u64 = 1024 * 1024 * 1024;
 
+/// 从 .osz 内 .osu 文件解析出的谱面信息与按文件字节计算的 MD5，用于回填收藏条目。
 #[derive(Debug, Clone)]
 pub(super) struct DownloadedBeatmap {
     pub(super) beatmapset_id: Option<i32>,
@@ -41,6 +46,8 @@ pub(super) struct DownloadedBeatmap {
     pub(super) creator: String,
 }
 
+/// Tauri 命令：计算所选收藏夹的缺失谱面清单。
+/// 依次执行本地存在性核对（绑定扫描时间的缓存）与旧 MD5 的 osu! API 反查（需登录）。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -85,6 +92,7 @@ pub async fn get_collection_download_items(
         .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?
         .local_presence_cache
         .clone();
+    // 缓存仅当记录的扫描时间与最近一次 stable 扫描一致时命中，否则重新核对。
     let cached_resolution = resolution_candidates
         .iter()
         .filter_map(|(_, _, checksum, _)| {
@@ -193,6 +201,7 @@ pub async fn get_collection_download_items(
             )
         })?;
         let mut resolved = HashMap::<String, serde_json::Value>::new();
+        // 4 路并发反查；每项处理前检查任务开关，用户取消后立即中止。
         let lookups = stream::iter(unresolved_checksums.iter().cloned())
             .map(|checksum| {
                 let access_token = &access_token;
@@ -302,6 +311,7 @@ pub async fn get_collection_download_items(
         .value
         .lock()
         .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?;
+    // 汇总仍未解析但已知 beatmapset 的条目，按谱面集去重得到待下载清单。
     let mut seen = HashSet::new();
     let items = file
         .folders
@@ -332,6 +342,7 @@ pub async fn get_collection_download_items(
     Ok(items)
 }
 
+/// 提取 .osu 文本 `[Metadata]` 段中指定键的值；键名忽略大小写，容忍 BOM。
 fn osu_metadata_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     let mut in_metadata = false;
     for raw_line in text.lines() {
@@ -353,6 +364,8 @@ fn osu_metadata_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     None
 }
 
+/// 解析 .osu 文本：`BeatmapID` 缺失或无法解析即失败；
+/// MD5 按文件原始字节计算，与 collection.db 记录的难度校验和一致。
 pub(super) fn parse_downloaded_beatmap(bytes: &[u8]) -> Option<(i32, DownloadedBeatmap)> {
     let text = String::from_utf8_lossy(bytes);
     let beatmap_id = osu_metadata_value(&text, "BeatmapID")?.parse().ok()?;
@@ -395,6 +408,7 @@ pub(super) fn parse_downloaded_beatmap(bytes: &[u8]) -> Option<(i32, DownloadedB
     ))
 }
 
+/// Tauri 命令：读取已下载曲包并回填精确 MD5；曲包在 collection.db 写回后才交给 osu!。
 /// Reads downloaded archives and hydrates compact share-code entries with the
 /// exact MD5 required by collection.db. The archives are intentionally opened
 /// by osu! only after collection.db has been written.
@@ -441,6 +455,7 @@ pub fn install_collection_downloads(
         archive_total,
         format!("正在读取 {archive_total} 个曲包并计算 MD5"),
     );
+    // 每个曲包（及包内文件）处理前都检查任务开关，保证可随时取消。
     for value in archive_paths {
         ensure_collection_task_active(&state)?;
         let archive_path = PathBuf::from(value);
@@ -481,6 +496,7 @@ pub fn install_collection_downloads(
                     "本次任务的累计展开体积超过 1 GB",
                 ));
             }
+            // 非空文件若压缩大小为零或解压体积超过压缩体积 200 倍，视为解压炸弹。
             let compressed = file.compressed_size();
             if file.size() > 0
                 && (compressed == 0
@@ -530,7 +546,28 @@ pub fn install_collection_downloads(
         .local_analysis
         .summary(LocalClient::Stable)?
         .map(|summary| summary.scanned_at);
+    // 谱面集级回退索引：每个集合取最小 BeatmapID 的难度作为代表，
+    // 供没有难度 ID 的占位条目（备份恢复、曲包未解析集合）回填。
+    let mut downloaded_by_set = HashMap::<i32, (i32, DownloadedBeatmap)>::new();
+    for (&beatmap_id, map) in &downloaded {
+        let Some(set_id) = map.beatmapset_id else {
+            continue;
+        };
+        match downloaded_by_set.get_mut(&set_id) {
+            Some(current) if current.0 <= beatmap_id => {}
+            current_slot => {
+                let value = (beatmap_id, map.clone());
+                match current_slot {
+                    Some(current) => *current = value,
+                    None => {
+                        downloaded_by_set.insert(set_id, value);
+                    }
+                }
+            }
+        }
+    }
     ensure_collection_task_active(&state)?;
+    // 以曲包内 .osu 的精确 MD5 回填未解析条目，并预写存在性缓存避免重复扫描。
     state.collections.update(|file| {
         let mut resolved_entries = 0usize;
         let mut unresolved_entries = 0usize;
@@ -543,10 +580,23 @@ pub fn install_collection_downloads(
                 if entry.resolved {
                     continue;
                 }
-                let Some(map) = entry.beatmap_id.and_then(|id| downloaded.get(&id)) else {
+                // 优先按难度 ID 精确命中；占位条目没有难度 ID，退回按
+                // 谱面集代表难度回填，保证下载后流程能够收敛。
+                let representative = entry
+                    .beatmap_id
+                    .and_then(|id| downloaded.get(&id).map(|map| (id, map)))
+                    .or_else(|| {
+                        entry.beatmapset_id.and_then(|id| {
+                            downloaded_by_set
+                                .get(&id)
+                                .map(|(map_id, map)| (*map_id, map))
+                        })
+                    });
+                let Some((beatmap_id, map)) = representative else {
                     unresolved_entries += 1;
                     continue;
                 };
+                entry.beatmap_id = Some(beatmap_id);
                 entry.beatmapset_id = map.beatmapset_id.or(entry.beatmapset_id);
                 entry.checksum = Some(map.checksum.clone());
                 entry.ruleset = map.ruleset.clone().or(entry.ruleset.clone());
@@ -579,6 +629,7 @@ pub fn install_collection_downloads(
     })
 }
 
+/// Tauri 命令：把 .osz 逐个交给系统关联程序（osu!）导入，每个间隔 180ms。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。

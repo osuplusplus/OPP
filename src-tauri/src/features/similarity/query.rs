@@ -1,3 +1,6 @@
+//! 请求校验、运行时选项组装、查询/推荐响应聚合与错误映射。
+//! 聚合逻辑负责把多个种子的最近邻结果去重、排除后合并为一份推荐列表。
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use osu_difficulty_runtime::{
@@ -21,6 +24,7 @@ use crate::{
     },
 };
 
+/// 从查询请求组装 standard 运行时选项；请求不是 standard 时直接报模式不匹配。
 pub fn options_from_request(request: &SimilarityQueryRequest) -> CommandResult<QueryOptions> {
     let SimilarityQueryRequest::Osu {
         weighting,
@@ -37,6 +41,7 @@ pub fn options_from_request(request: &SimilarityQueryRequest) -> CommandResult<Q
     options_from_parts(*weighting, filters, *result_limit)
 }
 
+/// 组装 Mania 查询选项：始终排除同谱面集的其他难度，并校验 Mod 池。
 pub fn mania_options_from_request(
     request: &SimilarityQueryRequest,
 ) -> CommandResult<ManiaQueryOptions> {
@@ -60,6 +65,7 @@ pub fn mania_options_from_request(
     })
 }
 
+/// 推荐场景的 standard 选项：在查询校验之上扩大内部候选池上限。
 pub fn options_from_recommendation_request(
     request: &SimilarityRecommendationRequest,
 ) -> CommandResult<QueryOptions> {
@@ -81,6 +87,7 @@ pub fn options_from_recommendation_request(
     Ok(options)
 }
 
+/// 推荐场景的 Mania 选项：同样扩大内部候选池上限。
 pub fn mania_options_from_recommendation_request(
     request: &SimilarityRecommendationRequest,
 ) -> CommandResult<ManiaQueryOptions> {
@@ -105,6 +112,7 @@ pub fn mania_options_from_recommendation_request(
     })
 }
 
+/// Mod 池必须非空、无重复，且是 NM / DT / HT 的子集。
 fn validate_mania_mods(mods: &[ManiaGameMod]) -> CommandResult<()> {
     if mods.is_empty() || mods.len() > ManiaGameMod::ALL.len() {
         return Err(CommandError::new(
@@ -122,6 +130,8 @@ fn validate_mania_mods(mods: &[ManiaGameMod]) -> CommandResult<()> {
     Ok(())
 }
 
+/// 推荐用的内部候选池上限：(结果数 + 排除数) × 3 再夹到 [50, 150]。
+/// 之所以比最终结果多取，是因为按谱面集去重和排除会消耗大量候选。
 fn expanded_candidate_limit(result_limit: usize, excluded_count: usize) -> usize {
     result_limit
         .saturating_add(excluded_count)
@@ -129,6 +139,7 @@ fn expanded_candidate_limit(result_limit: usize, excluded_count: usize) -> usize
         .clamp(50, 150)
 }
 
+/// 结果条数限定在 5..=50。
 fn validate_result_limit(result_limit: usize) -> CommandResult<()> {
     if !(5..=50).contains(&result_limit) {
         return Err(CommandError::new(
@@ -139,6 +150,7 @@ fn validate_result_limit(result_limit: usize) -> CommandResult<()> {
     Ok(())
 }
 
+/// 逐项校验筛选范围与手动权重后构造 `QueryOptions`。
 fn options_from_parts(
     weighting: WeightingMode,
     filters: &QueryFilters,
@@ -197,6 +209,7 @@ fn options_from_parts(
     })
 }
 
+/// 五维难度权重与参数权重都必须是 0..=2 的有限值，且不允许全为零。
 fn validate_weights(difficulty: DifficultyWeights, parameter_weight: f32) -> CommandResult<()> {
     let weights = [
         difficulty.aim,
@@ -220,6 +233,7 @@ fn validate_weights(difficulty: DifficultyWeights, parameter_weight: f32) -> Com
     Ok(())
 }
 
+/// 单个筛选范围的通用校验：值有限、落在 [lower, upper] 内且 min 不超过 max。
 fn validate_range(
     minimum: Option<f32>,
     maximum: Option<f32>,
@@ -239,6 +253,7 @@ fn validate_range(
     Ok(())
 }
 
+/// 把运行时的 standard 查询结果转换为前端响应（透传来源标签与版本号）。
 pub fn response_from_runtime(
     target: RuntimeQueryTarget,
     response: RuntimeQueryResponse,
@@ -265,6 +280,7 @@ pub fn response_from_runtime(
     }
 }
 
+/// 把运行时的 Mania 查询结果转换为前端响应。
 pub fn mania_response_from_runtime(
     target: RuntimeManiaQueryTarget,
     results: Vec<RuntimeManiaQueryResult>,
@@ -298,6 +314,9 @@ pub fn mania_response_from_runtime(
     }
 }
 
+/// 聚合多个种子的 standard 查询批次：排除黑名单与种子自身（含同谱面集），
+/// 每个去重键只保留距离最小的候选并记录其来源种子，最后按最终距离排序
+/// 并截断到 result_limit。
 pub fn recommendation_response_from_runtime(
     kind: SimilarityRecommendationKind,
     batches: Vec<(RuntimeQueryTarget, RuntimeQueryResponse)>,
@@ -315,6 +334,7 @@ pub fn recommendation_response_from_runtime(
         .map(|(target, _)| target.record.beatmapset_id)
         .filter(|beatmapset_id| *beatmapset_id != 0)
         .collect::<HashSet<_>>();
+    // 键为“去重键”，值为该键当前最优（距离最小）的推荐候选。
     let mut nearest_by_set = HashMap::<(bool, u64), SimilarityRecommendationResult>::new();
     let mut dynamic_profiles = Vec::new();
 
@@ -327,6 +347,7 @@ pub fn recommendation_response_from_runtime(
         }
         let recommended_by = beatmap_from_parts(target.metadata, target.record);
         for result in response.results {
+            // 跳过黑名单、种子自身以及与任何种子同谱面集的其他难度。
             if excluded_beatmap_ids.contains(&result.record.beatmap_id)
                 || seed_ids.contains(&result.record.beatmap_id)
                 || (result.record.beatmapset_id != 0
@@ -363,6 +384,8 @@ pub fn recommendation_response_from_runtime(
     }
 }
 
+/// Mania 推荐聚合：沿用 standard 的排除与去重策略，但按种子键数分成
+/// 4K / 6K / 7K 三组，各组独立排序与截断。
 pub fn mania_recommendation_response_from_runtime(
     kind: SimilarityRecommendationKind,
     batches: Vec<(RuntimeManiaQueryTarget, Vec<RuntimeManiaQueryResult>)>,
@@ -380,6 +403,7 @@ pub fn mania_recommendation_response_from_runtime(
         .map(|(target, _)| target.record.beatmapset_id)
         .filter(|beatmapset_id| *beatmapset_id != 0)
         .collect::<HashSet<_>>();
+    // 各键数实际参与的种子数，用于分组结果里的 seed_count。
     let mut seeds_by_key = BTreeMap::<u8, usize>::from([(4, 0), (6, 0), (7, 0)]);
     let mut nearest_by_key =
         BTreeMap::<u8, HashMap<(bool, u64), ManiaSimilarityRecommendationResult>>::new();
@@ -395,6 +419,7 @@ pub fn mania_recommendation_response_from_runtime(
         );
         let nearest_by_set = nearest_by_key.entry(key_count).or_default();
         for result in results {
+            // 候选必须与种子同键数，且不得命中黑名单、种子自身或种子同谱面集。
             if result.record.key_count != key_count
                 || excluded_beatmap_ids.contains(&result.record.beatmap_id)
                 || seed_ids.contains(&result.record.beatmap_id)
@@ -449,6 +474,8 @@ pub fn mania_recommendation_response_from_runtime(
     }
 }
 
+/// 去重键：有谱面集 ID 时按键集去重（同图不同难度只留一张），
+/// 无谱面集 ID 的记录退回按谱面 ID，避免被错误合并。
 fn recommendation_key(beatmapset_id: u64, beatmap_id: u64) -> (bool, u64) {
     if beatmapset_id == 0 {
         (false, beatmap_id)
@@ -457,6 +484,7 @@ fn recommendation_key(beatmapset_id: u64, beatmap_id: u64) -> (bool, u64) {
     }
 }
 
+/// 仅当候选排序严格更优时才替换，打平时保留先到的候选以保证结果稳定。
 fn should_replace_standard(
     current: Option<&SimilarityRecommendationResult>,
     candidate: &SimilarityRecommendationResult,
@@ -464,6 +492,7 @@ fn should_replace_standard(
     current.is_none_or(|current| compare_standard_recommendations(candidate, current).is_lt())
 }
 
+/// standard 排序：最终距离优先，距离相等按谱面 ID 保证确定性。
 fn compare_standard_recommendations(
     left: &SimilarityRecommendationResult,
     right: &SimilarityRecommendationResult,
@@ -479,6 +508,7 @@ fn compare_standard_recommendations(
         })
 }
 
+/// `should_replace_standard` 的 Mania 版本。
 fn should_replace_mania(
     current: Option<&ManiaSimilarityRecommendationResult>,
     candidate: &ManiaSimilarityRecommendationResult,
@@ -486,6 +516,7 @@ fn should_replace_mania(
     current.is_none_or(|current| compare_mania_recommendations(candidate, current).is_lt())
 }
 
+/// Mania 排序：最终距离 → skill 分量 → 家族/键型匹配层级 → 谱面 ID。
 fn compare_mania_recommendations(
     left: &ManiaSimilarityRecommendationResult,
     right: &ManiaSimilarityRecommendationResult,
@@ -508,6 +539,7 @@ fn compare_mania_recommendations(
         })
 }
 
+/// 家族与键型匹配层级：都相同为 0，仅家族相同为 1，仅键型相同为 2，都不同为 3。
 fn mania_recommendation_tier(value: &ManiaSimilarityRecommendationResult) -> u8 {
     match (
         value.result.beatmap.family == value.recommended_by.family,
@@ -520,6 +552,7 @@ fn mania_recommendation_tier(value: &ManiaSimilarityRecommendationResult) -> u8 
     }
 }
 
+/// 把运行时元数据与特征记录拼装为 standard 谱面卡片。
 fn beatmap_from_parts(
     metadata: osu_difficulty_runtime::BeatmapMetadata,
     record: osu_difficulty_runtime::BeatmapFeatureRecord,
@@ -539,6 +572,7 @@ fn beatmap_from_parts(
     }
 }
 
+/// 把运行时元数据、特征记录与可选 MMA 键型记录拼装为 Mania 谱面卡片。
 fn mania_beatmap_from_parts(
     metadata: ManiaBeatmapMetadata,
     record: ManiaFeatureRecord,
@@ -567,6 +601,7 @@ fn mania_beatmap_from_parts(
     }
 }
 
+/// 把 MMA 记录转换为展示视图，分类名经 `mania_display_category` 归一化。
 fn mania_pattern_view(record: &ManiaMmaRecord) -> ManiaPatternView {
     ManiaPatternView {
         category: osu_difficulty_runtime::mania_display_category(record).to_owned(),
@@ -591,6 +626,7 @@ fn mania_pattern_view(record: &ManiaMmaRecord) -> ManiaPatternView {
     }
 }
 
+/// 把运行时错误映射为面向前端的稳定错误码，隐藏内部细节。
 pub fn map_runtime_error(error: RuntimeError) -> CommandError {
     // 不把索引的文件系统路径或运行时内部细节暴露给前端。
     match error.kind() {
@@ -608,6 +644,7 @@ pub fn map_runtime_error(error: RuntimeError) -> CommandError {
     }
 }
 
+/// 按运行时分析错误的文案细分：模式不符、键数不支持、Mod 特征表缺失。
 fn map_analysis_error(detail: String) -> CommandError {
     if detail.contains("only osu!standard") || detail.contains("only osu!mania") {
         CommandError::new(
@@ -652,6 +689,7 @@ mod tests {
         }
     }
 
+    // Mania 请求不得接受 standard 专属的 weighting 字段。
     #[test]
     fn request_wire_shape_is_discriminated_by_ruleset() {
         let mania: SimilarityQueryRequest = serde_json::from_value(serde_json::json!({
@@ -680,6 +718,7 @@ mod tests {
         );
     }
 
+    // Mania 推荐请求不得接受 standard 专属的 filters 字段。
     #[test]
     fn mania_recommendation_wire_shape_rejects_standard_only_fields() {
         let valid = serde_json::json!({
@@ -752,6 +791,7 @@ mod tests {
         assert!(options_from_request(&request).is_err());
     }
 
+    // Mania 选项不含 standard 的权重与筛选参数。
     #[test]
     fn mania_options_have_no_standard_weighting_or_filters() {
         let request = SimilarityQueryRequest::Mania {
@@ -766,6 +806,7 @@ mod tests {
         assert!(options_from_request(&request).is_err());
     }
 
+    // 分析错误按文案区分模式不匹配与键数不支持。
     #[test]
     fn analysis_errors_distinguish_ruleset_and_key_count_mismatches() {
         assert_eq!(
@@ -778,6 +819,7 @@ mod tests {
         );
     }
 
+    // 推荐的内部候选池应大于最终结果数，给去重留出余量。
     #[test]
     fn recommendation_uses_a_larger_internal_candidate_pool_per_ruleset() {
         let standard = SimilarityRecommendationRequest::Osu {
@@ -874,6 +916,7 @@ mod tests {
         }
     }
 
+    // 每个谱面集只保留最近来源，且种子谱面集内的难度全部排除。
     #[test]
     fn standard_recommendation_keeps_nearest_source_and_excludes_all_seed_sets() {
         let response = recommendation_response_from_runtime(
@@ -921,6 +964,7 @@ mod tests {
         assert_eq!(dynamic_profiles.len(), 1);
     }
 
+    // 先排除历史再截断，避免结果被黑名单占位后数量不足。
     #[test]
     fn recommendation_excludes_history_before_truncating_results() {
         let response = recommendation_response_from_runtime(
@@ -992,6 +1036,7 @@ mod tests {
         }
     }
 
+    // Mania 按键数独立分组，组内保留最近来源。
     #[test]
     fn mania_recommendations_group_independently_and_keep_nearest_source() {
         let response = mania_recommendation_response_from_runtime(
@@ -1044,6 +1089,7 @@ mod tests {
         assert_eq!(groups[2].results[0].result.beatmap.beatmap_id, 200);
     }
 
+    // 无谱面集 ID 的候选按谱面 ID 去重，不会被错误合并。
     #[test]
     fn zero_set_ids_do_not_collapse_unrelated_recommendations() {
         let response = mania_recommendation_response_from_runtime(

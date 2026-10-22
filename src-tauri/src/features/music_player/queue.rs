@@ -1,16 +1,26 @@
+//! 队列导航：封装顺序、列表循环、单曲循环与洗牌袋随机策略，
+//! 并维护前进历史以支持“上一首”。
 use super::models::PlayMode;
 use rand_core::{OsRng, RngCore};
 
+/// 队列导航状态：`history` 为前进历史（供“上一首”回退），`bag` 为随机模式洗牌袋。
 #[derive(Default)]
 pub(crate) struct Navigation {
     pub history: Vec<String>,
+    // 随机模式下尚未播出的曲目 ID，耗尽后重新洗牌填充。
     bag: Vec<String>,
 }
 impl Navigation {
+    /// 清空历史与洗牌袋；换队列或换播放模式时调用，避免旧状态串台。
     pub fn reset(&mut self) {
         self.history.clear();
         self.bag.clear();
     }
+    /// 计算下一首要播放的曲目 ID。
+    ///
+    /// `ended` 表示当前曲目自然播完：单曲循环此时重播当前曲，手动切歌则照常前进；
+    /// `Sequential` 播到队尾返回 `None`（停止），`RepeatAll` 回绕到队首；
+    /// 随机模式从洗牌袋取下一曲，袋空则排除当前曲后重新洗牌。
     pub fn next(
         &mut self,
         ids: &[String],
@@ -28,6 +38,7 @@ impl Navigation {
             self.bag
                 .retain(|id| ids.contains(id) && Some(id.as_str()) != current);
             if self.bag.is_empty() {
+                // 袋子耗尽：排除当前曲后重新填充并做 Fisher–Yates 洗牌（熵来自系统 RNG）。
                 self.bag = ids
                     .iter()
                     .filter(|id| Some(id.as_str()) != current)
@@ -49,6 +60,7 @@ impl Navigation {
         if let Some(current) = current
             && next.as_deref() != Some(current)
         {
+            // 真正前进时才记入历史；上限 1000 条防止无限增长。
             self.history.push(current.to_owned());
             if self.history.len() > 1000 {
                 self.history.remove(0);
@@ -56,6 +68,7 @@ impl Navigation {
         }
         next
     }
+    /// 回退到上一个仍存在于队列的曲目；历史耗尽时退到当前曲在队列中的前一首。
     pub fn previous(&mut self, ids: &[String], current: Option<&str>) -> Option<String> {
         while let Some(id) = self.history.pop() {
             if ids.contains(&id) {
@@ -71,10 +84,12 @@ impl Navigation {
 
 #[cfg(test)]
 mod tests {
+    // 覆盖导航状态机：顺序停止、循环回绕、单曲循环、随机不重复与历史回退。
     use super::*;
     fn ids() -> Vec<String> {
         vec!["a".into(), "b".into(), "c".into()]
     }
+    // 顺序模式到队尾停止；列表循环回绕；单曲循环自然播完重播、手动切歌前进。
     #[test]
     fn sequential_stops_and_repeat_wraps() {
         let mut n = Navigation::default();
@@ -95,6 +110,7 @@ mod tests {
             Some("c")
         );
     }
+    // 随机模式不重复访问剩余曲目，“上一首”按历史回退。
     #[test]
     fn shuffle_visits_every_song_and_previous_uses_history() {
         let mut n = Navigation::default();

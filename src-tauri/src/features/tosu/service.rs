@@ -1,3 +1,4 @@
+//! tosu 进程生命周期管理与 v2 实时 WebSocket 连接的建立、重连。
 use std::{
     collections::VecDeque,
     io::{BufRead, BufReader},
@@ -23,16 +24,23 @@ use super::models::{TosuLiveSnapshot, TosuLogEntry};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+// Windows 子进程启动标志：不弹出控制台窗口。
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+// 内存环形缓冲保留的日志条数上限，超出即丢弃最旧日志。
 const MAX_LOG_LINES: usize = 500;
 
+/// tosu 集成的共享运行时状态：托管子进程、日志缓冲与实时连接。
 pub struct TosuRuntime {
+    /// OPP 托管启动的 tosu 子进程；外部启动的实例不在此处。
     tosu_process: Mutex<Option<Child>>,
+    /// OPP 托管启动的 tosu-lyrics 代理子进程。
     lyrics_process: Mutex<Option<Child>>,
     logs: Mutex<VecDeque<TosuLogEntry>>,
+    /// 最近一次实时快照，供覆盖层等只读消费方读取。
     live: Mutex<Option<TosuLiveSnapshot>>,
+    /// 实时连接任务存活标志，防止重复拉起重连任务。
     connecting: std::sync::atomic::AtomicBool,
     last_error: Mutex<Option<String>>,
     /// 实时连接期望的 API 基地址。设置变更后由 `ensure_live_connection` 更新，
@@ -54,6 +62,7 @@ impl Default for TosuRuntime {
     }
 }
 
+/// 规范化 API 基地址：仅接受带主机的 HTTP(S)，剥离路径、查询、片段与末尾斜杠。
 pub fn normalize_base_url(input: &str) -> CommandResult<String> {
     let mut url = Url::parse(input.trim())
         .map_err(|_| CommandError::new("INVALID_TOSU_API_URL", "tosu API 地址无效"))?;
@@ -69,6 +78,7 @@ pub fn normalize_base_url(input: &str) -> CommandResult<String> {
     Ok(url.to_string().trim_end_matches('/').to_owned())
 }
 
+/// 从设置解析 tosu 可执行文件并校验；未配置时报 `TOSU_NOT_CONFIGURED`。
 pub fn executable_path(settings: &AppSettings) -> CommandResult<PathBuf> {
     let raw = settings.tosu_executable_path.as_deref().ok_or_else(|| {
         CommandError::new("TOSU_NOT_CONFIGURED", "请先在工具 > tosu 中选择 tosu.exe")
@@ -76,6 +86,7 @@ pub fn executable_path(settings: &AppSettings) -> CommandResult<PathBuf> {
     validate_executable(Path::new(raw))
 }
 
+/// 从设置解析 tosu-lyrics 代理可执行文件；平台回退策略见下方注释。
 pub fn lyrics_executable_path(settings: &AppSettings) -> CommandResult<PathBuf> {
     // 与 tosu 一致：Linux 优先使用 PATH 中的 tosu-proxy，回退用户配置；Windows
     // 仅使用用户配置。
@@ -95,6 +106,8 @@ pub fn lyrics_executable_path(settings: &AppSettings) -> CommandResult<PathBuf> 
     validate_lyrics_executable(Path::new(raw))
 }
 
+/// 校验路径是官方发行包命名（Windows `tosu.exe` / 其他平台 `tosu`）的文件，
+/// 返回规范化后的绝对路径。
 pub fn validate_executable(path: &Path) -> CommandResult<PathBuf> {
     // 仅接受存在的可执行文件；后续启动使用规范化路径避免配置中的相对路径漂移。
     let path = path.canonicalize().map_err(|_| {
@@ -122,6 +135,7 @@ pub fn validate_executable(path: &Path) -> CommandResult<PathBuf> {
     Ok(path)
 }
 
+/// 校验 tosu-lyrics 代理可执行文件（`tosu-proxy`），返回规范化后的绝对路径。
 pub fn validate_lyrics_executable(path: &Path) -> CommandResult<PathBuf> {
     let path = path.canonicalize().map_err(|_| {
         CommandError::new(
@@ -151,6 +165,7 @@ pub fn validate_lyrics_executable(path: &Path) -> CommandResult<PathBuf> {
     Ok(path)
 }
 
+/// 记录一条日志：按内容与来源粗分级别，写入全局日志、环形缓冲并广播前端事件。
 fn record(runtime: &TosuRuntime, app: &AppHandle, stream: &str, message: impl Into<String>) {
     let message = message.into();
     let lower = message.to_ascii_lowercase();
@@ -183,10 +198,12 @@ fn record(runtime: &TosuRuntime, app: &AppHandle, stream: &str, message: impl In
     let _ = app.emit("tosu-log", entry);
 }
 
+/// 记录 system 来源的日志（OPP 自身产生的事件，而非子进程输出）。
 pub fn log_system(runtime: &TosuRuntime, app: &AppHandle, message: impl Into<String>) {
     record(runtime, app, "system", message);
 }
 
+/// 解码一行子进程输出：先按 UTF-8，失败后自动检测编码（如 Windows 的 GBK）。
 fn decode_log_line(bytes: &[u8]) -> String {
     let bytes = bytes
         .strip_suffix(b"\n")
@@ -203,6 +220,7 @@ fn decode_log_line(bytes: &[u8]) -> String {
     text.into_owned()
 }
 
+/// 起后台线程逐行读取子进程输出并记录，避免管道缓冲区写满阻塞子进程。
 fn read_output<R: std::io::Read + Send + 'static>(
     reader: R,
     stream: &'static str,
@@ -244,6 +262,7 @@ pub fn is_lyrics_owned_running(runtime: &TosuRuntime) -> bool {
     is_process_running(&runtime.lyrics_process)
 }
 
+/// 探测托管的子进程是否存活：能收集到退出状态即视为已结束。
 fn is_process_running(process: &Mutex<Option<Child>>) -> bool {
     process
         .lock()
@@ -258,10 +277,11 @@ fn is_process_running(process: &Mutex<Option<Child>>) -> bool {
         .unwrap_or(false)
 }
 
+/// 检测系统中是否有任意 tosu 实例在运行（含用户自行启动的），探测方式按平台分支。
 pub fn process_running() -> bool {
     #[cfg(windows)]
     {
-        named_process_running("tosu.exe", "tosu")
+        crate::infrastructure::platform::named_process_running("tosu.exe", "tosu")
     }
     #[cfg(not(windows))]
     {
@@ -269,29 +289,9 @@ pub fn process_running() -> bool {
     }
 }
 
+/// 检测 tosu-proxy 歌词代理进程是否在运行（含外部启动的实例）。
 pub fn lyrics_process_running() -> bool {
-    named_process_running("tosu-proxy.exe", "tosu-proxy")
-}
-
-fn named_process_running(windows_name: &str, unix_name: &str) -> bool {
-    #[cfg(windows)]
-    {
-        let _ = unix_name;
-        Command::new("tasklist")
-            .creation_flags(CREATE_NO_WINDOW)
-            .args(["/FI", &format!("IMAGENAME eq {windows_name}"), "/NH"])
-            .output()
-            .map(|output| {
-                String::from_utf8_lossy(&output.stdout)
-                    .to_ascii_lowercase()
-                    .contains(&windows_name.to_ascii_lowercase())
-            })
-            .unwrap_or(false)
-    }
-    #[cfg(not(windows))]
-    {
-        crate::infrastructure::platform::unix_process_running(unix_name)
-    }
+    crate::infrastructure::platform::named_process_running("tosu-proxy.exe", "tosu-proxy")
 }
 
 /// 把路径安全地嵌入 bash 脚本（单引号包裹，内部单引号转义）。
@@ -327,7 +327,7 @@ fn spawn_elevated_tosu(
          kill \"$P\" 2>/dev/null; sleep 1; kill -9 \"$P\" 2>/dev/null; break; fi; sleep 1; done; \
          rm -f \"$F\"; wait \"$P\" 2>/dev/null",
         flag = shell_word(&flag),
-        exe = executable.display().to_string(),
+        exe = shell_word(executable),
         opp = std::process::id(),
     );
     let mut child = Command::new("pkexec")
@@ -351,6 +351,7 @@ fn spawn_elevated_tosu(
     Ok(())
 }
 
+/// 按设置随 tosu 启动歌词代理：已有外部代理则仅提示，未配置则静默跳过。
 fn start_lyrics_if_configured(runtime: Arc<TosuRuntime>, settings: &AppSettings, app: AppHandle) {
     if !settings.launch_tosu_lyrics_with_tosu || is_lyrics_owned_running(&runtime) {
         return;
@@ -411,6 +412,8 @@ fn start_lyrics_if_configured(runtime: Arc<TosuRuntime>, settings: &AppSettings,
     }
 }
 
+/// 启动 tosu：已有任意实例在运行则直接连接其 API；否则按平台拉起托管进程
+/// （Linux 经 pkexec 提权），最后确保实时 WebSocket 连接建立。
 pub fn start(
     runtime: Arc<TosuRuntime>,
     settings: &AppSettings,
@@ -518,6 +521,8 @@ pub fn cleanup_on_exit(runtime: &TosuRuntime) {
     }
 }
 
+/// 停止 tosu：托管子进程直接 kill；Linux 的提权实例走 `stop_external_tosu`，
+/// Windows 拒绝停止非 OPP 启动的实例。
 pub fn stop(runtime: &TosuRuntime, app: &AppHandle) -> CommandResult<()> {
     let mut guard = runtime
         .tosu_process
@@ -645,6 +650,8 @@ fn websocket_endpoint(base: &str) -> CommandResult<String> {
     Ok(url.to_string())
 }
 
+/// 确保实时连接任务在运行（全局单实例）；内部循环负责断线重连，地址在每次
+/// 重连前从 `live_base` 读取最新值，设置变更后无需重建任务。
 pub fn ensure_live_connection(runtime: Arc<TosuRuntime>, base: String, app: AppHandle) {
     use std::sync::atomic::Ordering;
     if let Ok(mut live_base) = runtime.live_base.lock() {

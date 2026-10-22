@@ -14,15 +14,21 @@ use crate::{
     infrastructure::local_database::fs_io,
 };
 
+/// 数据库引导配置（`local-database.json`）：记录库目录与身份 UUID。
+/// 独立于数据库文件本身存放，库所在磁盘不可用时仍可凭它恢复。
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DatabaseConfig {
+    /// 配置格式版本，当前固定为 1。
     pub(super) version: u32,
+    /// 数据库所在目录（保存时已规范化的绝对路径）。
     pub(super) directory: PathBuf,
+    /// 数据库身份标识，换盘迁移时用于校验“仍是同一个库”。
     pub(super) database_uuid: String,
 }
 
 impl DatabaseConfig {
+    /// 读取配置：优先主文件，主文件缺失时回退 `.json.bak` 备份；两者皆无返回 `None`（未配置）。
     pub(super) fn load(path: &Path) -> CommandResult<Option<Self>> {
         let backup = path.with_extension("json.bak");
         let primary_exists = fs_io("exists", path, path.try_exists())?;
@@ -53,6 +59,8 @@ impl DatabaseConfig {
         Ok(Some(config))
     }
 
+    /// 原子写入配置：写临时文件并 fsync → 旧主文件挪为 `.bak` → 发布新文件；
+    /// 发布失败时回滚备份。读取永远以主文件优先，`.bak` 仅作恢复手段保留。
     pub(super) fn save(&self, path: &Path) -> CommandResult<()> {
         let bytes = serde_json::to_vec_pretty(self)?;
         let temporary = path.with_extension("json.tmp");

@@ -1,3 +1,6 @@
+//! 收藏夹浏览器查询：跨文件夹检索、图位展开、分页与概览统计。
+//! 搜索为多关键字 AND 匹配并附带命中摘要；结果默认按图位自然排序。
+
 use super::{
     CollectionEntry, CollectionFolder,
     notebook::{PersonalRecord, PoolSnapshot},
@@ -15,33 +18,47 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, Manager};
 
+/// 浏览/搜索查询参数。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CollectionBrowseQuery {
+    /// 指定浏览的收藏夹；无搜索词时仅遍历该夹（`None` 为全部）。
+    /// 带搜索词时检索始终覆盖全部收藏夹，此值只用于补充图池上下文。
     pub folder_id: Option<String>,
+    /// 搜索词，按空白拆分为多个关键字，全部命中才保留该行。
     #[serde(default)]
     pub search: String,
+    /// 排序键：`title`、`stars`、`order`（保持收藏夹内顺序），缺省按图位自然排序。
     #[serde(default)]
     pub sort: String,
+    /// 分页起点；会被限制并对齐到最后一个有效页的起点。
     #[serde(default)]
     pub offset: usize,
+    /// 每页数量；缺省 50，实际收敛到 1..=100。
     pub limit: Option<usize>,
+    /// 按玩家名（忽略大小写）过滤本地成绩，影响最近成绩展示。
     pub player: Option<String>,
 }
+/// 单个命中字段说明：字段名与围绕关键字的摘要文本。
 #[derive(Serialize)]
 pub struct SearchHit {
     pub field: String,
     pub text: String,
 }
+/// 浏览结果中的一行：条目在某个收藏夹、某个图位下的展示数据。
 #[derive(Serialize)]
 pub struct CollectionBrowseRow {
+    /// 行唯一键：`收藏夹ID:条目ID:图位展开序号`。
     pub key: String,
     pub folder_id: String,
     pub folder_name: String,
     pub read_only: bool,
     pub entry: CollectionEntry,
     pub local: Option<LocalBeatmapSummary>,
+    /// 图池槽位附带的在线谱面元数据（星级等展示字段的回退来源）。
     pub metadata: Option<serde_json::Value>,
+    /// 展示用图位标签；用户手动指定的覆盖值优先。
     pub slot: String,
+    /// 图池原始图位标签，未经用户覆盖。
     pub source_slot: String,
     pub selected_by: String,
     pub pool_comment: String,
@@ -49,19 +66,24 @@ pub struct CollectionBrowseRow {
     pub is_original: bool,
     pub record: PersonalRecord,
     pub latest_score: Option<LocalScore>,
+    /// 记录指向的代表成绩仍能在笔记本或本地成绩中找到时为真。
     pub representative_available: bool,
     pub matches: Vec<SearchHit>,
 }
+/// 分页结果：`total`、`matching_folders` 与 `overview` 基于全部命中行，不受分页影响。
 #[derive(Serialize)]
 pub struct CollectionBrowsePage {
     pub items: Vec<CollectionBrowseRow>,
     pub total: usize,
     pub offset: usize,
     pub limit: usize,
+    /// 名称与创建者命中全部搜索词的收藏夹 ID。
     pub matching_folders: Vec<String>,
+    /// 当前浏览收藏夹关联的图池快照。
     pub pool: Option<PoolSnapshot>,
     pub overview: CollectionOverview,
 }
+/// 概览统计：本地已安装数、标记/笔记数、星数与 BPM 范围、总时长（毫秒）与图位组计数。
 #[derive(Default, Serialize)]
 pub struct CollectionOverview {
     pub local_count: usize,
@@ -86,6 +108,7 @@ fn collection_overview(rows: &[CollectionBrowseRow]) -> CollectionOverview {
             None => [next, next],
         });
     };
+    // 谱面级统计按 (收藏夹, 条目) 去重，图位组计数则统计每个图位行。
     for row in rows {
         if !row.slot.is_empty() {
             *groups.entry(slot_key(&row.slot).1).or_default() += 1;
@@ -125,13 +148,16 @@ fn collection_overview(rows: &[CollectionBrowseRow]) -> CollectionOverview {
     value.slots.sort_by_key(|(label, _)| slot_key(label));
     value
 }
+/// 背景图定位信息：客户端与资源 ID，前端据此请求实际图片。
 #[derive(Debug, Clone, Serialize)]
 pub struct CollectionArtwork {
     pub client: LocalClient,
     pub resource_id: String,
 }
 
+/// 本地资源元组：`(本地 MD5, 谱面摘要, 标签文本, 来源说明)`。
 type Resource = (Option<String>, LocalBeatmapSummary, String, String);
+/// 本地资源索引：按小写 MD5 与 beatmap_id 建倒排表，重复时保留最先出现的资源。
 struct Resources {
     items: Vec<Resource>,
     hashes: HashMap<String, usize>,
@@ -156,6 +182,7 @@ impl Resources {
             bids,
         })
     }
+    /// 查找条目对应的本地资源：优先校验和精确匹配，无校验和时回退 beatmap_id。
     fn find(&self, entry: &CollectionEntry) -> Option<&Resource> {
         let index = if let Some(hash) = entry.checksum.as_ref().filter(|h| !h.is_empty()) {
             self.hashes.get(&hash.to_lowercase())
@@ -166,6 +193,8 @@ impl Resources {
     }
 }
 
+/// 图位排序键：组别按 NM→HD→HR→DT→FM→其他→TB 的优先级，
+/// 组内按数字大小自然排序；空图位排在最后。
 fn slot_key(value: &str) -> (u8, String, u32) {
     if value.is_empty() {
         return (9, String::new(), 0);
@@ -186,6 +215,8 @@ fn slot_key(value: &str) -> (u8, String, u32) {
     };
     (rank, group, position)
 }
+/// 多关键字 AND 检索：所有分词都命中任一字段才算匹配；
+/// 摘要从最早命中位置前约 30 字符起截取 180 字符。
 fn hits(fields: &[(String, String)], tokens: &[String]) -> Option<Vec<SearchHit>> {
     if !tokens.iter().all(|token| {
         fields
@@ -227,6 +258,7 @@ fn hits(fields: &[(String, String)], tokens: &[String]) -> Option<Vec<SearchHit>
             .collect(),
     )
 }
+/// 汇总条目匹配本地成绩可用的全部哈希：条目校验和、本地索引 MD5 与内容哈希。
 fn hashes(entry: &CollectionEntry, local: Option<&Resource>) -> Vec<String> {
     let mut hashes: Vec<_> = entry.checksum.iter().cloned().collect();
     if let Some((md5, map, _, _)) = local {
@@ -241,6 +273,7 @@ fn score_time(score: &LocalScore) -> Option<chrono::DateTime<chrono::FixedOffset
         .as_ref()
         .and_then(|time| chrono::DateTime::parse_from_rfc3339(time).ok())
 }
+/// 取出文件夹与条目；条目已被移除时报 `COLLECTION_ENTRY_NOT_FOUND`。
 fn entry_folder(
     state: &AppState,
     folder_id: &str,
@@ -264,6 +297,7 @@ fn browse(state: &AppState, query: CollectionBrowseQuery) -> CommandResult<Colle
         query,
     )
 }
+/// 浏览/检索核心：遍历收藏夹生成结果行，条目占多个图位时按槽位展开为多行。
 fn browse_folders(
     collections: &super::CollectionService,
     local_scores: &crate::features::local_scores::LocalScoreService,
@@ -289,6 +323,7 @@ fn browse_folders(
         }
         if query.folder_id.as_ref() == Some(&folder.id) {
             pool = notebook.pool.clone();
+            // 兼容旧式 external_id（`tournament:provider:season:category`）链接的图池。
             // Collections linked before notebooks existed can still explicitly resync.
             if pool.is_none() {
                 let parts: Vec<_> = folder
@@ -342,6 +377,7 @@ fn browse_folders(
                 })
                 .cloned()
                 .collect();
+            // 代表成绩 ID 仍能在笔记本记录或本地成绩中找到时才视为可用。
             let representative_available = record.representative.as_ref().is_none_or(|r| {
                 record
                     .scores
@@ -355,6 +391,7 @@ fn browse_folders(
                 .chain(&scores)
                 .max_by(|a, b| score_time(a).cmp(&score_time(b)))
                 .cloned();
+            // 同一谱面占据多个图位时为每个槽位生成一行；无图位信息时以单个 None 占位。
             let slots: Vec<_> = notebook
                 .pool
                 .as_ref()
@@ -369,6 +406,7 @@ fn browse_folders(
                 .unwrap_or_else(|| vec![None]);
             for (index, slot) in slots.into_iter().enumerate() {
                 let source_slot = slot.map(|s| s.label.clone()).unwrap_or_default();
+                // 用户手动指定的图位标签优先于图池原始标签。
                 let label = record
                     .slot_override
                     .clone()
@@ -482,6 +520,7 @@ fn browse_folders(
     }
     let total = rows.len();
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
+    // 将 offset 限制并对齐到最后一个有效页的起点，避免越界产生空页。
     let offset = query.offset.min(total.saturating_sub(1) / limit * limit);
     let overview = collection_overview(&rows);
     Ok(CollectionBrowsePage {
@@ -495,6 +534,7 @@ fn browse_folders(
     })
 }
 
+/// Tauri 命令：执行收藏夹浏览/全局搜索，返回分页行、概览与图池上下文。
 #[tauri::command]
 pub async fn query_collection_browser(
     app: AppHandle,
@@ -506,6 +546,7 @@ pub async fn query_collection_browser(
     })
     .await?
 }
+/// Tauri 命令：读取条目的个人记录（笔记、标签、成绩与代表成绩）。
 #[tauri::command]
 pub async fn get_collection_record(
     app: AppHandle,
@@ -526,6 +567,7 @@ pub async fn get_collection_record(
     .await?
 }
 
+/// Tauri 命令：保存条目的个人记录。
 #[tauri::command]
 pub async fn save_collection_record(
     app: AppHandle,
@@ -546,6 +588,7 @@ pub async fn save_collection_record(
     })
     .await?
 }
+/// Tauri 命令：列出条目的本地成绩，按条目规则集过滤，可按玩家名过滤。
 #[tauri::command]
 pub async fn get_collection_entry_scores(
     app: AppHandle,
@@ -572,6 +615,7 @@ pub async fn get_collection_entry_scores(
     })
     .await?
 }
+/// Tauri 命令：汇总收藏夹谱面背景（按资源去重），从 offset 起轮转返回至多 24 张。
 #[tauri::command]
 pub async fn get_collection_artwork(
     app: AppHandle,
@@ -624,12 +668,14 @@ pub async fn get_collection_artwork(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // 图位自然排序：数字按大小比较，未知组排在 FM 与 TB 之间，空值最后。
     #[test]
     fn natural_slots_unknowns_and_unassigned() {
         let mut slots = vec!["TB1", "NM10", "", "LZ2", "HD1", "NM2", "LZ1"];
         slots.sort_by_key(|s| slot_key(s));
         assert_eq!(slots, ["NM2", "NM10", "HD1", "LZ1", "LZ2", "TB1", ""]);
     }
+    // 跨字段 AND 检索与摘要截取。
     #[test]
     fn searches_fragments_across_fields_and_snippets() {
         let fields = vec![
@@ -641,6 +687,7 @@ mod tests {
         assert!(matched[0].text.contains("失误"));
         assert!(hits(&fields, &["不存在".into()]).is_none());
     }
+    // 全局搜索可命中其他收藏夹的笔记；重复图位各自成行且分页与序列化体积可控。
     #[test]
     fn global_search_reaches_unloaded_notes_and_preserves_duplicate_slots() {
         let dir = tempfile::tempdir().unwrap();

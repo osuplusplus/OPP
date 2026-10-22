@@ -24,8 +24,10 @@ use std::{
 use tauri::AppHandle;
 use uuid::Uuid;
 
+// 同时最多 2 个下载，控制对镜像的并发压力；进度文案中的“最多同时 2 个”与此对应。
 const DOWNLOAD_CONCURRENCY: usize = 2;
 
+/// 用 `buffer_unordered` 将任务流的并发限制在 `DOWNLOAD_CONCURRENCY`。
 fn concurrent_jobs<I, F>(jobs: I) -> impl Stream<Item = F::Output>
 where
     I: IntoIterator<Item = F>,
@@ -34,6 +36,8 @@ where
     stream::iter(jobs).buffer_unordered(DOWNLOAD_CONCURRENCY)
 }
 
+/// 执行整个批量下载：结果按完成顺序（而非提交顺序）回收。
+/// 因取消而失败的项目不计入失败也不计入成功，仅由最终 `cancelled` 标志表达。
 pub async fn run(
     app: &AppHandle,
     state: &AppState,
@@ -96,6 +100,7 @@ pub async fn run(
                     path.to_string_lossy().into_owned(),
                 )
             }
+            // 取消导致的失败不进入统计；并发窗口内尚未启动的任务不会产生任何结果。
             Err(error) if error.code == "DOWNLOAD_CANCELLED" => continue,
             Err(error) => {
                 result.failed += 1;
@@ -117,6 +122,7 @@ pub async fn run(
         *counts.lock().expect("download progress lock") = updated.clone();
         emit_progress(app, progress_for_item(phase, updated, item, Some(message)));
     }
+    // 结束时直接读取消标志，作为最终判定依据。
     result.cancelled = cancel.load(Ordering::Relaxed);
     result
 }
@@ -129,6 +135,7 @@ fn check_cancel(cancel: &AtomicBool) -> CommandResult<()> {
     }
 }
 
+/// 下载单个谱面集：已存在且校验通过则跳过；已存在但过期时先备份旧包再原子替换。
 async fn download_one(
     app: &AppHandle,
     state: &AppState,
@@ -139,9 +146,11 @@ async fn download_one(
     counts: &Mutex<DownloadProgressCounts>,
 ) -> CommandResult<(PathBuf, bool)> {
     check_cancel(cancel)?;
+    // 未开启覆盖时先探测既有文件，命中且校验通过即可跳过下载。
     let existing = (!request.overwrite)
         .then(|| find_existing_beatmapset(destination, item.beatmapset_id))
         .flatten();
+    // 既有文件打不开或校验不过视为过期，稍后用新包替换。
     let stale_existing = existing
         .as_ref()
         .filter(|path| {
@@ -155,6 +164,7 @@ async fn download_one(
     }
 
     let started = Instant::now();
+    // 上报时间初值回拨 1 秒，保证首个进度回调不被节流拦截。
     let mut last_emit = started - Duration::from_secs(1);
     let mut last_bytes = 0;
     let mut speed = 0.0;
@@ -166,12 +176,14 @@ async fn download_one(
         cancel,
         |bytes, total| {
             let now = Instant::now();
+            // 进度事件节流：非完成点最多每 100ms 上报一次。
             if bytes != 0
                 && now.duration_since(last_emit) < Duration::from_millis(100)
                 && total != Some(bytes)
             {
                 return;
             }
+            // 用指数加权平滑瞬时速度，避免进度条速度读数剧烈抖动。
             if bytes == 0 {
                 speed = 0.0;
             } else {
@@ -203,6 +215,7 @@ async fn download_one(
         item,
         download.suggested_filename.as_deref(),
     ));
+    // 先写临时 `.part` 文件再改名，保证目标路径上不会出现半截压缩包。
     let temporary = destination.join(format!(
         ".opp-{}-{}.part",
         item.beatmapset_id,
@@ -248,6 +261,7 @@ async fn download_one(
     Ok((target, false))
 }
 
+// 并发上限与“慢任务不阻塞后续任务”的行为测试。
 #[cfg(test)]
 mod tests {
     use super::*;

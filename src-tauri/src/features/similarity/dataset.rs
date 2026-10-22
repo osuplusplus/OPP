@@ -1,3 +1,7 @@
+//! 相似谱面数据集的加载与缓存运行时。
+//! 以目录路径为键缓存只读数据集实例；目录变更或清空缓存时通过更换
+//! “加载槽位”做代际隔离，在途的旧加载无法把过期数据写回注册表。
+
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -10,11 +14,13 @@ use crate::{
     features::similarity::models::{SimilarityIndexState, SimilarityIndexStatus},
 };
 
+/// 一次加载的预留：目标目录加共享的“已加载数据集”槽位。
 struct CachedDataset<T> {
     directory: PathBuf,
     dataset: Arc<Mutex<Option<Arc<T>>>>,
 }
 
+/// 分模式持有的数据集缓存，随 `AppState` 存活整个应用生命周期。
 #[derive(Default)]
 pub struct SimilarityRuntime {
     standard: Mutex<Option<CachedDataset<Dataset>>>,
@@ -22,6 +28,8 @@ pub struct SimilarityRuntime {
 }
 
 impl SimilarityRuntime {
+    /// 预留一个“视图”运行时：与注册表共享当前加载槽位，但自身不持有
+    /// 注册表，之后的清空操作不会影响它已拿到的槽位。
     /// Reserve a generation before async waits or worker admission. This view
     /// shares its load slot, but cannot change the application's registry.
     pub fn prepared(&self, ruleset: Ruleset, directory: Option<&str>) -> Self {
@@ -42,6 +50,7 @@ impl SimilarityRuntime {
         view
     }
 
+    /// 清空指定模式的缓存槽位；在途加载仍持有旧槽位，只是无法再发布回来。
     pub fn clear(&self, ruleset: Ruleset) {
         match ruleset {
             Ruleset::Osu => clear_cache(&self.standard),
@@ -50,6 +59,7 @@ impl SimilarityRuntime {
         }
     }
 
+    /// 体检索引目录：区分未配置、目录缺失、数据集无效、不兼容与就绪五种结果。
     pub fn inspect(&self, ruleset: Ruleset, directory: Option<&str>) -> SimilarityIndexStatus {
         if matches!(ruleset, Ruleset::Taiko | Ruleset::Fruits) {
             return SimilarityIndexStatus::unsupported(ruleset);
@@ -111,10 +121,12 @@ impl SimilarityRuntime {
         }
     }
 
+    /// 打开（或复用缓存的）standard 数据集；并发调用只会真正打开一次。
     pub fn standard_dataset(&self, directory: &str) -> Result<Arc<Dataset>, RuntimeError> {
         cached_dataset(&self.standard, directory, |path| Dataset::open(path))
     }
 
+    /// 打开（或复用缓存的）Mania 数据集；并发调用只会真正打开一次。
     pub fn mania_dataset(&self, directory: &str) -> Result<Arc<ManiaDataset>, RuntimeError> {
         cached_dataset(&self.mania, directory, |path| ManiaDataset::open(path))
     }
@@ -126,6 +138,7 @@ fn clear_cache<T>(cache: &Mutex<Option<CachedDataset<T>>>) {
     }
 }
 
+/// 先预留槽位再加锁检查的去重加载：并发到达时只有一个调用执行 `open`。
 fn cached_dataset<T>(
     cache: &Mutex<Option<CachedDataset<T>>>,
     directory: &str,
@@ -144,6 +157,7 @@ fn cached_dataset<T>(
     Ok(dataset)
 }
 
+/// 以目录为键预留加载槽位；注册表已指向其他目录或被清空时启用新槽位。
 fn reserve_dataset<T>(
     cache: &Mutex<Option<CachedDataset<T>>>,
     directory: &str,
@@ -192,6 +206,7 @@ fn unavailable_status(
     }
 }
 
+/// 把数据集打开错误折叠为 `Incompatible` 或 `Invalid` 状态（不含路径细节）。
 fn status_from_error(
     ruleset: Ruleset,
     directory: &str,
@@ -218,6 +233,7 @@ fn status_copy_for_error(kind: RuntimeErrorKind) -> (SimilarityIndexState, &'sta
 mod tests {
     use super::*;
 
+    // 清空后的新配置不会被旧目录的预留加载顶替。
     #[test]
     fn queued_generation_cannot_replace_new_configuration() {
         let runtime = SimilarityRuntime::default();
@@ -245,6 +261,7 @@ mod tests {
         assert!(!Arc::ptr_eq(&registry.as_ref().unwrap().dataset, &old_slot));
     }
 
+    // 并发加载共享槽位只打开一次；清空后旧加载与新代际互不污染。
     #[test]
     fn concurrent_loads_share_a_slot_and_clear_detaches_old_work() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -287,6 +304,7 @@ mod tests {
         );
     }
 
+    // 未配置目录是各支持模式的正常状态。
     #[test]
     fn unconfigured_is_a_normal_per_ruleset_status() {
         let runtime = SimilarityRuntime::default();
@@ -297,6 +315,7 @@ mod tests {
         }
     }
 
+    // Taiko / Catch 无论目录如何都直接返回 unsupported。
     #[test]
     fn unsupported_rulesets_are_explicit() {
         let runtime = SimilarityRuntime::default();
@@ -307,6 +326,7 @@ mod tests {
         }
     }
 
+    // 目录缺失返回 Missing，且不泄露运行时内部细节。
     #[test]
     fn missing_directory_does_not_expose_runtime_details() {
         let status = SimilarityRuntime::default()
@@ -316,6 +336,7 @@ mod tests {
         assert!(status.records_by_key_count.is_none());
     }
 
+    // 空目录对两种支持模式都是 Invalid（缺数据集文件）。
     #[test]
     fn incomplete_directories_are_invalid_for_each_supported_ruleset() {
         let directory = tempfile::tempdir().expect("temporary directory");
@@ -326,12 +347,14 @@ mod tests {
         }
     }
 
+    // 运行时的 Incompatible 错误映射到同名状态。
     #[test]
     fn incompatible_runtime_errors_map_to_the_incompatible_state() {
         let (state, _) = status_copy_for_error(RuntimeErrorKind::Incompatible);
         assert_eq!(state, SimilarityIndexState::Incompatible);
     }
 
+    // 端到端查询：需环境变量指向真实 standard 索引，默认跳过。
     #[test]
     #[ignore = "requires explicit OPP_SIMILARITY_INDEX"]
     fn queries_an_opt_in_standard_similarity_index() {
@@ -353,6 +376,7 @@ mod tests {
         assert!(!results.is_empty());
     }
 
+    // 打开并查询真实 Mania 索引，同时校验整个过程不改动数据集目录。
     #[test]
     #[ignore = "requires explicit OPP_MANIA_SIMILARITY_INDEX"]
     fn opens_the_opt_in_mania_similarity_index() {

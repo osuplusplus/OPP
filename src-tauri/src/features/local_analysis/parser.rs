@@ -1,3 +1,5 @@
+//! `.osu` 谱面与 `skin.ini` 的解析：文本编码探测、基础指标统计、
+//! rosu-pp 难度计算与按游戏模式的 strain 曲线导出。
 use std::{
     collections::{BTreeMap, VecDeque},
     fs,
@@ -19,9 +21,13 @@ use super::models::{
     SkinConfigEntry, SkinConfigSection, SkinInventory, StrainAnalysis, StrainSeries,
 };
 
+/// 难度算法标识（引擎版本 / 上游 osu! 提交 / 计算假定）。写入索引后，
+/// 算法变化会使旧索引失效并触发重新计算。
 pub const DIFFICULTY_ALGORITHM: &str =
     "rosu-pp 4.0.1 (2026-04-12) / ppy-osu@28c846b (2025-10-13) / NoMod + max SS pp";
 
+/// 构造计算版本元数据；各规则集版本号对齐上游 osu! 的难度算法版本，
+/// 用于判断缓存结果的时效。
 pub fn calculation_version() -> LocalCalculationVersion {
     LocalCalculationVersion {
         engine: "rosu-pp".into(),
@@ -52,6 +58,7 @@ pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// 取 SHA-256 的前 16 个十六进制字符，作为 `resource_id` 中的短标识。
 fn short_hash(value: &str) -> String {
     let digest = sha256(value.as_bytes());
     digest[..16].to_string()
@@ -95,6 +102,7 @@ pub fn decode_text(bytes: &[u8]) -> String {
     decoded.trim_start_matches('\u{feff}').to_string()
 }
 
+/// 依据文件头 `osu file format v` 判断是否为 `.osu`（只解码前 64 字节）。
 pub fn looks_like_beatmap(bytes: &[u8]) -> bool {
     let prefix_len = bytes.len().min(64);
     decode_text(&bytes[..prefix_len])
@@ -102,6 +110,8 @@ pub fn looks_like_beatmap(bytes: &[u8]) -> bool {
         .starts_with("osu file format v")
 }
 
+/// 通过 `[General]` 分节与 `Name`/`Author` 键识别 `skin.ini` 内容，
+/// 与 `.osu` 的 `[General]`（含 `AudioFilename`）区分开。
 pub fn looks_like_skin_config(bytes: &[u8]) -> bool {
     let text = decode_text(bytes);
     let mut has_general = false;
@@ -211,6 +221,8 @@ pub fn parse_beatmap(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| sha256(bytes));
     let path_component = short_hash(logical_path);
+    // stable 中同一份内容可能被复制到多个目录，ID 需带路径短哈希区分；
+    // lazer 按内容寻址存储，内容哈希本身即唯一。
     let resource_id = match client {
         LocalClient::Stable => {
             format!("stable:beatmap:{content_hash}:{path_component}")
@@ -232,6 +244,7 @@ pub fn parse_beatmap(
         first_time,
         rosu_map::section::hit_objects::HitObject::end_time,
     );
+    // 时长按首个物件起点到最后一个物件的结束时间计算。
     let length_ms = (last_time - first_time).max(0.0);
     let break_duration_ms = map
         .breaks
@@ -247,6 +260,8 @@ pub fn parse_beatmap(
     };
     let peak_nps = peak_nps(&map);
 
+    // analysis_status：ready 正常完成；skipped_suspicious 被安全检查跳过
+    // 难度计算；difficulty_failed 结构解析失败。后两者只降级为警告。
     let mut warning = None;
     let mut stars = None;
     let mut max_pp = None;
@@ -442,6 +457,7 @@ pub fn calculate_strains(bytes: &[u8]) -> Result<StrainAnalysis, String> {
     })
 }
 
+/// 将逐物件的 reading strain 折叠到固定 section 时间轴，每个 section 取峰值。
 fn object_strains_to_sections(
     values: &[f64],
     object_times: &[f64],
@@ -468,6 +484,7 @@ fn object_strains_to_sections(
     sections
 }
 
+/// 解析 `R,G,B[,A]` 形式的颜色；分量数不是 3 或 4 时返回 `None`。
 fn parse_color(value: &str) -> Option<Vec<u8>> {
     let components = value
         .split(',')
@@ -517,6 +534,7 @@ pub fn parse_skin_config(text: &str) -> Vec<SkinConfigSection> {
     sections
 }
 
+/// 跨所有分节按首次出现查找键（大小写不敏感）。
 fn config_value(sections: &[SkinConfigSection], key: &str) -> Option<String> {
     sections
         .iter()
@@ -589,6 +607,7 @@ pub fn parse_skin(
         .and_then(|name| name.to_str())
         .unwrap_or("Legacy skin")
         .to_string();
+    // skin.ini 缺 Name 键时回退到目录名（旧版 / 第三方皮肤常见）。
     let summary = LocalSkinSummary {
         resource: LocalResourceRef {
             resource_id,
@@ -623,6 +642,7 @@ pub fn parse_skin(
     })
 }
 
+/// 只读取文件前 `limit` 字节，供格式嗅探使用，避免整读大文件。
 pub fn read_prefix(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     use std::io::Read;
 
@@ -638,6 +658,7 @@ pub fn read_prefix(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
 
+    /// 构造覆盖四种游戏模式的最小 `.osu` 测试数据。
     fn fixture(mode: u8, hit_objects: &str) -> String {
         format!(
             r#"osu file format v14
@@ -676,6 +697,7 @@ SliderTickRate:1
         )
     }
 
+    /// 内容嗅探能区分 `.osu` 与 `skin.ini`。
     #[test]
     fn detects_lazer_file_types_by_content() {
         assert!(looks_like_beatmap(b"osu file format v14\n[General]\n"));
@@ -687,6 +709,7 @@ SliderTickRate:1
         ));
     }
 
+    /// 带 UTF-16LE BOM 的 stable 配置文件可正确解码。
     #[test]
     fn decodes_utf16_configuration_files() {
         let bytes = "BeatmapDirectory = CustomSongs\nLastVersion = b20260711.1"
@@ -698,6 +721,7 @@ SliderTickRate:1
         assert!(decode_text(&with_bom).contains("LastVersion = b20260711.1"));
     }
 
+    /// 重复键按原始顺序保留，颜色值被解析为分量。
     #[test]
     fn skin_parser_preserves_duplicate_keys_and_colors() {
         let parsed =
@@ -706,6 +730,7 @@ SliderTickRate:1
         assert_eq!(parsed[1].entries[0].color, Some(vec![1, 2, 3]));
     }
 
+    /// Unicode 元数据、物件统计、密度指标与 NoMod 难度一次性产出。
     #[test]
     fn parses_unicode_objects_density_and_nomod_difficulty() {
         let source = fixture(
@@ -740,6 +765,7 @@ SliderTickRate:1
         assert!(parsed.detail.calculated_at.contains('T'));
     }
 
+    /// 四种模式的 strain 序列键与统一 section 时间轴。
     #[test]
     fn exposes_native_strain_series_for_all_rulesets() {
         let circles = (0..16)
@@ -808,6 +834,7 @@ SliderTickRate:1
         }
     }
 
+    /// 逐物件值折叠为 section 峰值，并验证 section 边界归属。
     #[test]
     fn folds_object_strains_into_section_peaks() {
         let values = [1.0, 3.0, 2.0, 4.0];
@@ -819,6 +846,7 @@ SliderTickRate:1
         );
     }
 
+    /// 损坏的谱面文件返回错误而不是 panic。
     #[test]
     fn damaged_beatmap_is_rejected_without_panicking() {
         let result = parse_beatmap(

@@ -1,5 +1,7 @@
+//! 社区功能的请求/响应契约。
 use serde::{Deserialize, Serialize};
 
+/// 游标式分页结果，`next_cursor` 为 `None` 表示没有下一页。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommunityPage<T> {
     pub items: Vec<T>,
@@ -7,6 +9,7 @@ pub struct CommunityPage<T> {
     pub server_time: String,
 }
 
+/// 列表查询过滤条件，`None` 字段不会进入请求 URL。
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct CommunityQuery {
     pub q: Option<String>,
@@ -18,6 +21,7 @@ pub struct CommunityQuery {
     pub limit: Option<u32>,
 }
 
+/// 创建/更新房间的请求体，合法性由服务层统一校验。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LobbyInput {
     pub title: String,
@@ -29,6 +33,7 @@ pub struct LobbyInput {
     pub ends_at: String,
 }
 
+/// 房间数据，含房主 osu 身份、活动属性与生命周期时间。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommunityLobby {
     pub id: String,
@@ -48,6 +53,7 @@ pub struct CommunityLobby {
     pub updated_at: String,
 }
 
+/// 赛事数据；报名与举办时间未公布时为 `None`。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommunityTournament {
     pub id: String,
@@ -72,6 +78,7 @@ pub struct CommunityTournament {
 mod tests {
     use super::CommunityTournament;
 
+    /// 未公布的时间字段必须保持 `null`，补齐后可正常读取。
     #[test]
     fn tournament_contract_preserves_unpublished_dates() {
         let payload = serde_json::json!({

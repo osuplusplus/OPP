@@ -1,3 +1,4 @@
+import { osuUserUrl } from "../shared/lib/osuUrl";
 import { useEffect, useRef } from "react";
 import {
   Database,
@@ -109,7 +110,7 @@ export function Sidebar({ profile, loading }: { profile?: OwnProfile; loading: b
         </NavGroup>
       </nav>
       <GameLauncher />
-      <div className="mt-2 shrink-0"><NavItem icon={Wrench} label="工具集合" onboarding="tools" to="/tools" /><NavItem icon={Settings} label="设置" onboarding="settings" to="/settings" />{loading ? <div className="mt-2 flex items-center gap-3 px-2 py-1"><Skeleton className="size-8 rounded-lg" /><Skeleton className="h-3 w-20" /></div> : profile ? <div className="mt-2 flex items-center gap-3 border-t border-white/[0.06] px-2 pt-3"><Avatar className="size-8 rounded-lg border border-white/10" profile={profile} /><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{profile.username}</p></div><button aria-label="在浏览器中打开个人主页" className="grid size-8 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)]" onClick={() => void desktopApi.openExternal(`https://osu.ppy.sh/users/${profile.id}`)} title="在浏览器中打开个人主页" type="button"><ExternalLink className="size-3.5" /></button></div> : null}</div>
+      <div className="mt-2 shrink-0"><NavItem icon={Wrench} label="工具集合" onboarding="tools" to="/tools" /><NavItem icon={Settings} label="设置" onboarding="settings" to="/settings" />{loading ? <div className="mt-2 flex items-center gap-3 px-2 py-1"><Skeleton className="size-8 rounded-lg" /><Skeleton className="h-3 w-20" /></div> : profile ? <div className="mt-2 flex items-center gap-3 border-t border-white/[0.06] px-2 pt-3"><Avatar className="size-8 rounded-lg border border-white/10" profile={profile} /><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">{profile.username}</p></div><button aria-label="在浏览器中打开个人主页" className="grid size-8 shrink-0 place-items-center rounded-md text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)]" onClick={() => void desktopApi.openExternal(osuUserUrl(profile.id))} title="在浏览器中打开个人主页" type="button"><ExternalLink className="size-3.5" /></button></div> : null}</div>
     </aside>
   );
 }

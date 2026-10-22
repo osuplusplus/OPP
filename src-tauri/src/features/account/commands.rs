@@ -1,3 +1,4 @@
+//! 账号域 Tauri 命令层：OAuth 登录与注销、带缓存的资料与成绩查询、设置与导出。
 use chrono::{Duration, Utc};
 use tauri::{AppHandle, Manager, State};
 
@@ -12,10 +13,14 @@ use crate::{
 
 use super::{oauth, token::ensure_access_token};
 
+/// 个人资料缓存的默认保鲜期（秒）。
 const PROFILE_CACHE_SECONDS: i64 = 300;
+/// 成绩缓存的默认保鲜期（秒）。
 const SCORE_CACHE_SECONDS: i64 = 600;
+/// 手动强制刷新的每缓存键冷却时间（秒）。
 const MANUAL_REFRESH_SECONDS: i64 = 60;
 
+/// 查询登录状态：凭据是否配置齐全、是否已持有令牌、回调地址与当前用户信息。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -43,6 +48,8 @@ pub async fn get_auth_status(app: AppHandle) -> CommandResult<AuthStatus> {
     .await?
 }
 
+/// 校验并保存 Client ID 与 Client Secret，随后清空旧令牌、头像与全部资料缓存，
+/// 用户需以新凭据重新登录。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：校验并持久化用户配置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -88,6 +95,7 @@ pub fn save_oauth_credentials(
     })
 }
 
+/// 发起一次可取消的 OAuth 登录，返回授权链接与五分钟会话有效期。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：初始化可取消的异步流程。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -95,6 +103,7 @@ pub async fn begin_oauth_login(app: AppHandle) -> CommandResult<PendingOAuth> {
     oauth::begin(app).await
 }
 
+/// 取消正在等待浏览器回调的 OAuth 登录会话。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -102,6 +111,7 @@ pub fn cancel_oauth_login(state: State<'_, AppState>) -> CommandResult<()> {
     oauth::cancel(&state)
 }
 
+/// 断开账号：登出 BeatmapHub，可选撤销服务端令牌，并清除本地令牌与缓存。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -133,6 +143,8 @@ pub async fn disconnect_osu(
     Ok(DisconnectResult { revoked, warning })
 }
 
+/// 读取当前用户资料：默认命中 5 分钟缓存，强制刷新受 60 秒冷却限制，
+/// 网络瞬断时回退陈旧缓存并在结果中标记 `stale`。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -144,6 +156,7 @@ pub async fn get_own_profile(
     let key = format!("profile:{ruleset}");
     let store = state.store.clone();
     let lookup_key = key.clone();
+    // 持久化缓存的读写经 `blocking_io` 卸载，避免同步磁盘 IO 阻塞异步命令运行时。
     let cached = crate::infrastructure::tasks::blocking_io("read_profile_cache", move || {
         store.read_cached(|persisted| persisted.cache.get(&lookup_key).cloned())
     })
@@ -188,6 +201,7 @@ pub async fn get_own_profile(
     }
 }
 
+/// 分页读取成绩：缓存 10 分钟、强制刷新受冷却限制，且需先加载过资料确定用户。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -257,6 +271,7 @@ pub async fn get_scores(
     }
 }
 
+/// 清空资料/成绩缓存、手动刷新记录与头像缓存目录。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：清除可安全重建的本地缓存。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -268,6 +283,7 @@ pub fn clear_profile_cache(state: State<'_, AppState>) -> CommandResult<()> {
     state.avatar_cache.clear()
 }
 
+/// 读取应用设置；下载目录未设置时自动补平台默认值并持久化。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -288,6 +304,7 @@ pub async fn get_settings(app: AppHandle) -> CommandResult<AppSettings> {
     .await?
 }
 
+/// 上报全局引导已完成版本，只升不降。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：记录用户已完成的引导状态。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -302,6 +319,7 @@ pub async fn mark_onboarding_seen(version: u32, app: AppHandle) -> CommandResult
     .await?
 }
 
+/// 上报单页引导版本；`page_id` 限 ASCII 字母数字与 `-_`，版本只升不降。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：记录用户已完成的引导状态。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -332,6 +350,7 @@ pub async fn mark_page_onboarding_seen(
     .await?
 }
 
+/// 持久化新设置：钳制缓存上限、补默认下载目录，并让覆盖层配置即时生效。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：更新持久化设置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -367,6 +386,8 @@ fn default_download_directory() -> Option<String> {
     crate::infrastructure::platform::default_download_dir().map(|path| path.display().to_string())
 }
 
+/// 下载 o!rdr 渲染视频到用户设置的导出目录；仅允许 `issou.best` 域，
+/// 文件名做白名单字符替换后再拼路径。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：将资源导出到用户指定的位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -493,6 +514,7 @@ fn scores_from_cache(record: &CacheRecord, stale: bool) -> CommandResult<Cached<
     })
 }
 
+// 仅瞬态错误允许回退陈旧缓存；认证类错误必须上抛，促使用户重新登录。
 fn can_use_stale_cache(error: &CommandError) -> bool {
     matches!(
         error.code.as_str(),

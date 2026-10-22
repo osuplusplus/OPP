@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 
 const directory = resolve(process.argv[2] ?? "dist");
 const manifest = JSON.parse(readFileSync(resolve(directory, ".vite/manifest.json"), "utf8"));
-for (const entry of ["index.html", "mini-player.html"]) {
+for (const entry of ["index.html", "mini-player.html", "overlay.html"]) {
   const visited = new Set();
   const files = new Set();
   function visit(key) {

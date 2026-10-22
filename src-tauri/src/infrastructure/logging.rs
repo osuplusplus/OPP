@@ -1,3 +1,8 @@
+//! 结构化 JSONL 日志设施。
+//!
+//! 所有日志先脱敏再经有界通道交给专用写盘线程，业务线程不会阻塞在文件 IO 上；
+//! 队列满时普通日志按计数合并补报、错误级日志落应急文件，
+//! 历史日志按修改时间轮转，仅保留最近 5 份。
 use chrono::Utc;
 use serde::Serialize;
 use std::{
@@ -18,22 +23,30 @@ use uuid::Uuid;
 use crate::error::CommandError;
 use crate::error::CommandResult;
 
+/// 可克隆的日志句柄：只持有通道发送端与应急文件路径，写盘由后台线程完成。
 #[derive(Clone)]
 pub struct Logger {
     tx: SyncSender<WriterMessage>,
+    // 队列满时被丢弃的普通日志计数，由写盘线程定期合并成一条补报。
     dropped: Arc<AtomicU64>,
+    // 队列满或写盘线程已退出时，紧急日志直接追加到该应急文件。
     fallback: Arc<Mutex<PathBuf>>,
     directory: PathBuf,
 }
 
+/// 写盘线程的消息：`Record` 携带序列化后的行与“是否需立即落盘”的紧急标记，
+/// `Shutdown` 携带应答通道，写盘线程排空后回执，用于优雅退出。
 enum WriterMessage {
     Record(String, bool),
     Shutdown(mpsc::Sender<()>),
 }
 
+// 全局唯一实例：init 之后常驻；未初始化时 global() 返回 None，调用方静默跳过日志。
 static LOGGER: OnceLock<Logger> = OnceLock::new();
+// 保证 panic 钩子只安装一次，重复 init 不会重复链挂或覆盖前一个钩子。
 static PANIC_HOOK: OnceLock<()> = OnceLock::new();
 
+/// 单条 JSONL 记录的序列化结构；可选字段缺省时不输出键，保持每行紧凑。
 #[derive(Serialize)]
 struct LogRecord {
     timestamp: String,
@@ -48,6 +61,7 @@ struct LogRecord {
     fields: Option<serde_json::Value>,
 }
 
+/// 事件附加信息：相对 span 起点的耗时（毫秒）与任意结构化字段。
 #[derive(Default)]
 struct EventDetails {
     duration_ms: Option<u128>,
@@ -63,6 +77,9 @@ impl EventDetails {
     }
 }
 
+/// 初始化日志系统：创建目录、轮转旧文件、启动写盘线程并安装 panic 钩子。
+///
+/// 文件名带时间戳与短 UUID，避免同秒多次启动互相覆盖；各步失败一律不阻断应用启动。
 pub fn init(app_data_dir: &Path) -> Logger {
     let directory = app_data_dir.join("logs");
     let _ = fs::create_dir_all(&directory);
@@ -91,6 +108,10 @@ pub fn init(app_data_dir: &Path) -> Logger {
     logger
 }
 
+/// 写盘线程主循环：普通记录累计 64 条、空闲 250ms 或遇到紧急记录才 flush，
+/// 在刷盘频率与宕机丢失风险之间取折中；收到 `Shutdown` 时最终刷新并退出。
+///
+/// 每轮醒来先把丢弃计数合并补报成一条告警；目标文件打不开时全部退回 stderr。
 fn write_records(path: PathBuf, rx: mpsc::Receiver<WriterMessage>, lost: Arc<AtomicU64>) {
     use std::io::{BufWriter, Write};
     let mut file = fs::OpenOptions::new()
@@ -147,10 +168,12 @@ fn write_records(path: PathBuf, rx: mpsc::Receiver<WriterMessage>, lost: Arc<Ato
     }
 }
 
+/// 获取全局日志句柄；尚未 init（典型如单元测试）时返回 None。
 pub fn global() -> Option<&'static Logger> {
     LOGGER.get()
 }
 
+/// 把 panic 记为 CRITICAL 日志后链回原钩子：崩溃现场可查，且不影响默认终止行为。
 fn install_panic_hook() {
     let _ = PANIC_HOOK.get_or_init(|| {
         let previous = std::panic::take_hook();
@@ -180,6 +203,11 @@ fn install_panic_hook() {
     });
 }
 
+/// 文本形式的凭据脱敏：定位敏感键（token、password、authorization 等，不区分大小写），
+/// 把其后 `=` 或 `:` 引出的值替换为 `<redacted>`。
+///
+/// 带引号的值以配对引号为界，裸值以空白或 `&`、`,`、`}` 等常见分隔符为界；
+/// 这是尽力而为的兜底，不承诺覆盖所有泄漏形态。
 pub fn sanitize(input: &str) -> String {
     let mut out = input.to_string();
     for key in [
@@ -233,10 +261,15 @@ pub fn sanitize(input: &str) -> String {
 }
 
 impl Logger {
+    /// 记录一条不带附加字段与 `request_id` 的日志。
     pub fn log(&self, level: &str, target: &str, message: impl AsRef<str>) {
         self.event(level, target, message, None, None, EventDetails::default());
     }
 
+    /// 所有日志的统一出口：组装记录、脱敏、序列化后经有界通道发给写盘线程。
+    ///
+    /// 队列已满时 ERROR/CRITICAL 改走应急文件、普通日志仅累加丢弃计数；
+    /// 通道已断（写盘线程退出）则一律走应急文件，保证退出阶段的错误不丢。
     fn event(
         &self,
         level: &str,
@@ -284,6 +317,7 @@ impl Logger {
         }
     }
 
+    /// 绕过队列把单行直接追加到应急文件；应急文件也不可用时退回 stderr。
     fn write_fallback(&self, line: &str) {
         use std::io::Write;
         // Windows release builds have no console: preserve errors in a separate
@@ -301,6 +335,9 @@ impl Logger {
         }
     }
 
+    /// 创建操作 span：生成贯穿全程的 `request_id` 并先记一条开始事件。
+    ///
+    /// 即使调用方提前 return 忘记收尾，`LogSpan` 析构时也会补记 WARN，不会静默丢失。
     pub fn operation(&self, target: impl Into<String>, operation: impl Into<String>) -> LogSpan {
         let target = target.into();
         let operation = operation.into();
@@ -327,6 +364,7 @@ impl Logger {
         }
     }
 
+    /// 把 [`CommandError`] 连同错误码、来源与回溯记为 ERROR 事件。
     pub fn log_command_error(&self, target: &str, error: &CommandError) {
         self.event(
             "ERROR",
@@ -343,6 +381,8 @@ impl Logger {
     }
 }
 
+/// 递归脱敏 JSON 值：字符串走 [`sanitize`]，键名命中敏感词时整个值替换为 `<redacted>`；
+/// 数值、布尔等非字符串标量原样保留，避免破坏错误码等诊断字段。
 fn sanitize_json(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::String(value) => serde_json::Value::String(sanitize(&value)),
@@ -378,6 +418,9 @@ fn sanitize_json(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// 一次操作的跟踪句柄：以 `request_id` 串联开始、各步骤与结束事件，并自带计时起点。
+///
+/// `finished` 保证结束事件至多记录一次，重复调用 finish 系列方法是安全的。
 pub struct LogSpan {
     logger: Logger,
     target: String,
@@ -406,6 +449,7 @@ impl LogSpan {
     }
 
     /// 记录操作失败
+    /// 结束事件优先沿用错误自带的 `request_id`，便于与命令入口的记录对齐。
     pub fn finish_error(&mut self, error: &CommandError) {
         if self.finished {
             return;
@@ -457,6 +501,7 @@ impl LogSpan {
     }
 
     /// 记录 IO 操作（文件/网络）
+    /// 成功记 DEBUG、失败记 ERROR；返回 `&Self` 支持链式调用。
     pub fn io<T, E>(&self, action: &str, result: &Result<T, E>) -> &Self
     where
         E: std::fmt::Display,
@@ -536,6 +581,7 @@ impl LogSpan {
     }
 
     /// 记录网络请求
+    /// 状态码 >= 400 记 WARN，其余（含无状态码）记 DEBUG。
     pub fn http_request(&self, method: &str, url: &str, status: Option<u16>) {
         let duration_ms = self.start_time.elapsed().as_millis();
         let level = if status.is_some_and(|s| s >= 400) {
@@ -562,6 +608,7 @@ impl LogSpan {
 }
 
 impl Drop for LogSpan {
+    // 兜底：未显式 finish 就被丢弃时补记 WARN，暴露“只有开始没有下文”的操作。
     fn drop(&mut self) {
         if !self.finished {
             self.finished = true;
@@ -578,12 +625,14 @@ impl Drop for LogSpan {
     }
 }
 
+/// 函数版错误日志：与 `log_error!` 宏用途相同，适合不便于宏展开的调用点。
 pub fn log_error(target: &str, error: &CommandError) {
     if let Some(logger) = global() {
         logger.log_command_error(target, error);
     }
 }
 
+/// 轮转策略：按修改时间只保留最近 5 个 `.jsonl`/`.txt`，更早的删除；个别失败静默忽略。
 pub fn prune(directory: &Path) {
     let mut files = fs::read_dir(directory)
         .ok()
@@ -606,6 +655,7 @@ pub fn prune(directory: &Path) {
     }
 }
 
+/// 枚举目录内日志文件并按创建时间倒序返回，供前端日志面板展示。
 pub fn list(directory: &Path) -> Vec<LogFileInfo> {
     let mut result = fs::read_dir(directory)
         .ok()
@@ -638,6 +688,7 @@ pub fn list(directory: &Path) -> Vec<LogFileInfo> {
     result
 }
 
+/// 单个日志文件的展示信息：文件名、大小与创建时间。
 #[derive(serde::Serialize, Clone)]
 pub struct LogFileInfo {
     pub name: String,
@@ -645,20 +696,24 @@ pub struct LogFileInfo {
     pub created_at: String,
 }
 
+/// 返回日志目录的绝对路径。
 #[tauri::command]
 pub fn get_log_directory(logger: State<'_, Logger>) -> String {
     logger.directory().to_string_lossy().into_owned()
 }
+/// 列出全部日志文件的元信息。
 #[tauri::command]
 pub fn list_log_files(logger: State<'_, Logger>) -> Vec<LogFileInfo> {
     list(logger.directory())
 }
+/// 用系统默认程序打开日志目录。
 #[tauri::command]
 pub fn open_log_directory(app: AppHandle, logger: State<'_, Logger>) -> CommandResult<()> {
     app.opener()
         .open_path(logger.directory().to_string_lossy(), None::<&str>)
         .map_err(|e| CommandError::from_error("LOG_OPEN_FAILED", e))
 }
+/// 打开指定日志文件；先校验名字不含路径分量、扩展名合法且确实存在，防止路径穿越。
 #[tauri::command]
 pub fn open_log_file(app: AppHandle, logger: State<'_, Logger>, name: String) -> CommandResult<()> {
     let path = logger.directory().join(&name);
@@ -675,6 +730,7 @@ pub fn open_log_file(app: AppHandle, logger: State<'_, Logger>, name: String) ->
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| CommandError::from_error("LOG_OPEN_FAILED", e))
 }
+/// 接收前端日志，经统一脱敏管道落盘。
 #[tauri::command]
 pub fn write_client_log(
     logger: State<'_, Logger>,
@@ -767,6 +823,7 @@ pub fn finish_span_ok<T>(mut span: Option<LogSpan>, result: T) -> T {
     result
 }
 
+/// 按结果自动选择 `finish_ok` 或 `finish_error`，并把原结果透传给调用方。
 pub fn finish_span<T>(
     mut span: Option<LogSpan>,
     result: Result<T, CommandError>,
@@ -801,6 +858,7 @@ pub(crate) fn shutdown() {
 mod tests {
     use super::*;
 
+    // 验证键值对文本中的凭据会被替换为 <redacted>。
     #[test]
     fn redacts_credentials() {
         let value = sanitize("token=secret password=hunter2&ok=1");
@@ -809,6 +867,7 @@ mod tests {
         assert!(value.contains("<redacted>"));
     }
 
+    // 验证 JSON 递归脱敏只命中敏感键，不影响错误码等诊断字段。
     #[test]
     fn redacts_nested_fields_but_keeps_diagnostic_codes() {
         let value = sanitize_json(serde_json::json!({
@@ -825,6 +884,7 @@ mod tests {
 #[cfg(test)]
 mod writer_tests {
     use super::*;
+    // 队列满时普通日志计数丢弃，错误日志落应急文件且内容已脱敏。
     #[test]
     fn overloaded_error_logs_have_a_sanitized_file_fallback() {
         let dir = tempfile::tempdir().unwrap();
@@ -848,6 +908,7 @@ mod writer_tests {
         );
     }
 
+    // 关闭时先补报合并的溢出计数，再按 FIFO 排空全部已入队记录。
     #[test]
     fn shutdown_drains_records_and_reports_aggregated_overflow() {
         let dir = tempfile::tempdir().unwrap();

@@ -17,7 +17,7 @@ export function ArtworkMosaic({ candidates, animated = true }: { candidates: Loc
     return () => { document.removeEventListener("visibilitychange", visibility); media?.removeEventListener("change", motion); };
   }, []);
   const distinct = [...new Map(candidates.map(item => [`${item.client}:${item.resource_id}`, item])).values()].slice(0, 24);
-  const images = useQueries({ queries: distinct.map((item) => ({ queryKey: ["local-mosaic-image", item.client, item.resource_id], queryFn: () => desktopApi.getLocalBeatmapBackground(item.client, item.resource_id, "thumbnail"), staleTime: Infinity, gcTime: 5 * 60_000, retry: false, enabled: visible })) });
+  const images = useQueries({ queries: distinct.map((item) => ({ queryKey: ["local-mosaic-image", item.client, item.resource_id], queryFn: () => desktopApi.getLocalBeatmapBackground(item.client, item.resource_id, "thumbnail"), staleTime: Infinity, gcTime: 5 * 60_000, enabled: visible })) });
   const urls = mosaicTiles(images.flatMap(image => image.data ? [image.data] : []));
   return <div className="artwork-mosaic-backdrop" aria-hidden="true"><div className={`artwork-mosaic-grid ${animated && visible && !reduced ? "is-moving" : ""}`}>
     {urls.map((url, i) => <img src={url} alt="" key={`${i}:${url.slice(-48)}`} onError={event => { event.currentTarget.hidden = true; }} />)}

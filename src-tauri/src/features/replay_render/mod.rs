@@ -1,3 +1,6 @@
+//! 基于 o!rdr 的在线回放渲染：校验并提交渲染任务，随后经 WebSocket 监听
+//! 进度，把状态变化以 `ordr-render-progress` 事件推送给前端。
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -19,6 +22,7 @@ use crate::{
 mod events;
 use events::ReplayRenderProgress;
 
+/// 渲染用皮肤来源：官方皮肤名或 o!rdr 账号下自定义皮肤的数字 ID。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RenderSkinKind {
@@ -26,6 +30,7 @@ pub enum RenderSkinKind {
     Custom,
 }
 
+/// 开发者模拟模式：跳过验证直接成功，或模拟接口/WebSocket 失败便于联调。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RenderDeveloperMode {
@@ -34,6 +39,8 @@ pub enum RenderDeveloperMode {
     WebsocketFailure,
 }
 
+/// 前端可选提供的渲染参数集合；缺省值与上游 `RenderOptions::default()`
+/// 对齐，保证不传选项时行为与 o!rdr 推荐默认一致。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ReplayRenderOptions {
@@ -88,6 +95,7 @@ pub struct ReplayRenderOptions {
     pub ignore_fail: bool,
 }
 
+/// 逐字段取自 `RenderOptions::default()`，避免两处默认值漂移。
 impl Default for ReplayRenderOptions {
     fn default() -> Self {
         let o = RenderOptions::default();
@@ -145,10 +153,12 @@ impl Default for ReplayRenderOptions {
     }
 }
 
+/// 一次渲染提交请求。
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReplayRenderRequest {
     pub client: LocalClient,
     pub replay_path: String,
+    /// 渲染署名，展示在视频计分板上。
     pub username: String,
     #[serde(default)]
     pub options: ReplayRenderOptions,
@@ -156,7 +166,9 @@ pub struct ReplayRenderRequest {
     pub skin_kind: RenderSkinKind,
     #[serde(default = "default_skin")]
     pub skin: String,
+    /// o!rdr 验证密钥，可缩短排队等待。
     pub verification_key: Option<String>,
+    /// 开发者模拟模式，与验证密钥互斥。
     pub developer_mode: Option<RenderDeveloperMode>,
 }
 
@@ -167,6 +179,7 @@ fn default_skin() -> String {
     "default".into()
 }
 
+/// 提交成功后返回的任务句柄；后续状态变化通过进度事件推送。
 #[derive(Debug, Clone, Serialize)]
 pub struct ReplayRenderJob {
     pub render_id: u32,
@@ -174,6 +187,7 @@ pub struct ReplayRenderJob {
     pub description: String,
 }
 
+/// 校验并转换渲染参数：分辨率白名单、光标大小与音量/暗度范围。
 fn options_from(input: ReplayRenderOptions) -> CommandResult<RenderOptions> {
     let resolution = match input.resolution.as_str() {
         "720x480" => RenderResolution::SD480,
@@ -208,6 +222,7 @@ fn options_from(input: ReplayRenderOptions) -> CommandResult<RenderOptions> {
             ));
         }
     }
+    // cursor_scale_to_cs 与 discord_user_id 不对前端开放，固定为关闭。
     Ok(RenderOptions {
         resolution,
         global_volume: input.global_volume,
@@ -263,6 +278,7 @@ fn options_from(input: ReplayRenderOptions) -> CommandResult<RenderOptions> {
     })
 }
 
+/// 构造验证方式：开发者模拟与验证密钥互斥，同时提供视为配置错误。
 fn verification(request: &ReplayRenderRequest) -> CommandResult<Option<Verification>> {
     if request.developer_mode.is_some()
         && request
@@ -288,10 +304,13 @@ fn verification(request: &ReplayRenderRequest) -> CommandResult<Option<Verificat
     })
 }
 
+/// 向前端广播一次渲染进度事件；失败静默忽略（监听端可能已关闭）。
 fn emit(app: &AppHandle, event: ReplayRenderProgress) {
     let _ = app.emit("ordr-render-progress", event);
 }
 
+/// 后台监听 o!rdr WebSocket，把匹配 `render_id` 的进度/完成/失败事件
+/// 转发给前端；连接或读取出错以 `monitor_error` 收尾该任务的通知。
 fn monitor_render(app: AppHandle, render_id: u32) {
     tauri::async_runtime::spawn(async move {
         let mut socket = match OrdrWebsocket::connect().await {
@@ -328,6 +347,7 @@ fn monitor_render(app: AppHandle, render_id: u32) {
             let Ok(event) = raw.deserialize() else {
                 continue;
             };
+            // 同一条 WebSocket 上会有其他任务的事件，按 render_id 过滤。
             match event {
                 Event::RenderProgress(value) if value.render_id == render_id => emit(
                     &app,
@@ -370,6 +390,8 @@ fn monitor_render(app: AppHandle, render_id: u32) {
     });
 }
 
+/// 提交 o!rdr 渲染任务：校验署名与参数、定位回放对应的本地谱面并上传，
+/// 返回任务句柄并启动进度监听。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：提交异步渲染任务。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -386,6 +408,7 @@ pub async fn submit_replay_render(
         ));
     }
     let replay = load_game_replay_file(request.client, &request.replay_path, &state)?;
+    // 回放内嵌谱面 MD5，用于在本地索引中找到对应谱面。
     let (beatmap_hash, _) = parse_replay_metadata(&replay)?;
     let beatmap = state
         .local_analysis
@@ -396,12 +419,14 @@ pub async fn submit_replay_render(
                 "未在本地谱面索引中找到该回放对应的谱面，请先扫描本地谱面",
             )
         })?;
+    // o!rdr 只渲染 osu!standard 回放，其他模式提前拒绝。
     if beatmap.ruleset != Ruleset::Osu {
         return Err(CommandError::new(
             "RENDER_RULESET_UNSUPPORTED",
             "o!rdr 当前仅支持 osu!standard 回放",
         ));
     }
+    // 未提交到 osu! 的本地谱面无法被 o!rdr 下载，渲染必然失败。
     if beatmap.beatmap_id.is_none() {
         return Err(CommandError::new(
             "RENDER_BEATMAP_UNAVAILABLE",

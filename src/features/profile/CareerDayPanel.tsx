@@ -1,3 +1,4 @@
+import { osuBeatmapUrl } from "../../shared/lib/osuUrl";
 import { Award, ExternalLink, FileImage, Film } from "lucide-react";
 import { Button, Skeleton } from "../../shared/components/ui";
 import { notification } from "../../shared/components/notifications";
@@ -36,7 +37,7 @@ export function CareerDayPanel({ date, detail, activity, loading, error, onRetry
               <div className="career-event-body"><p>{title}</p><span>{[score.beatmap?.version, scoreMods(score).join(" ")].filter(Boolean).join(" · ") || "谱面信息暂无"}</span></div>
               <strong>{formatCareerStat("pp", score.pp)}<small> PP</small></strong>
               {score.beatmap?.id ? <Button aria-label={`打开谱面 ${title}`} onClick={() => {
-                void desktopApi.openExternal(`https://osu.ppy.sh/beatmaps/${score.beatmap!.id}`).catch((openError) => notification.error("打开谱面失败", errorMessage(openError)));
+                void desktopApi.openExternal(osuBeatmapUrl(score.beatmap!.id!)).catch((openError) => notification.error("打开谱面失败", errorMessage(openError)));
               }} size="icon" variant="ghost"><ExternalLink className="size-4" /></Button> : null}
             </div>;
           }) : <p className="career-muted career-no-events">{events ? "没有 BP 新增或掉出" : "这一天有记录，没有 BP、奖章或本地媒体变化。"}</p>}

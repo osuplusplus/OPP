@@ -1,9 +1,10 @@
+//! 日志改造示例集：演示如何用 span 与各记录方法覆盖典型业务流程，供重构时对照。
 // 重构示例：为现有代码添加完善的日志
 //
 // 这个文件展示了如何将现有代码改造为使用新的日志系统
 
 use crate::error::{CommandError, CommandResult};
-use crate::infrastructure::logging::{global, finish_span};
+use crate::infrastructure::logging::{finish_span, global};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -53,8 +54,13 @@ pub fn read_config_new(path: &Path) -> CommandResult<String> {
 
 // 重构前：没有日志
 pub async fn download_and_extract_old(url: &str, dest: &Path) -> CommandResult<PathBuf> {
-    let response = reqwest::get(url).await?;
-    let bytes = response.bytes().await?;
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| CommandError::network(e.to_string()))?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| CommandError::network(e.to_string()))?;
     let temp_path = dest.join("temp.zip");
     fs::write(&temp_path, bytes)?;
 
@@ -76,7 +82,7 @@ pub async fn download_and_extract_new(url: &str, dest: &Path) -> CommandResult<P
     if let Some(ref s) = span {
         s.info(
             format!("开始下载文件: {}", url),
-            Some(serde_json::json!({ "url": url }))
+            Some(serde_json::json!({ "url": url })),
         );
     }
 
@@ -112,7 +118,7 @@ pub async fn download_and_extract_new(url: &str, dest: &Path) -> CommandResult<P
     if let Some(ref s) = span {
         s.info(
             format!("下载完成，大小: {} bytes", bytes.len()),
-            Some(serde_json::json!({ "size": bytes.len() }))
+            Some(serde_json::json!({ "size": bytes.len() })),
         );
     }
 
@@ -171,11 +177,16 @@ pub async fn download_file_simplified(url: &str, dest: &Path) -> CommandResult<P
     let span = global().map(|logger| logger.operation("downloader", "download_file"));
 
     if let Some(ref s) = span {
-        s.info(format!("下载文件: {}", url), Some(serde_json::json!({ "url": url })));
+        s.info(
+            format!("下载文件: {}", url),
+            Some(serde_json::json!({ "url": url })),
+        );
     }
 
     let result = async {
-        let response = reqwest::get(url).await?;
+        let response = reqwest::get(url)
+            .await
+            .map_err(|e| CommandError::network(e.to_string()))?;
         let status = response.status().as_u16();
 
         if let Some(ref s) = span {
@@ -186,7 +197,10 @@ pub async fn download_file_simplified(url: &str, dest: &Path) -> CommandResult<P
             return Err(CommandError::network(format!("HTTP 错误: {}", status)));
         }
 
-        let bytes = response.bytes().await?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| CommandError::network(e.to_string()))?;
         let file_path = dest.join("downloaded_file");
 
         fs::write(&file_path, &bytes)?;
@@ -207,12 +221,13 @@ pub async fn download_file_simplified(url: &str, dest: &Path) -> CommandResult<P
 // ============================================================
 
 pub fn batch_process_files(files: &[PathBuf]) -> CommandResult<usize> {
-    let mut span = global().map(|logger| logger.operation("batch_processor", "batch_process_files"));
+    let mut span =
+        global().map(|logger| logger.operation("batch_processor", "batch_process_files"));
 
     if let Some(ref s) = span {
         s.info(
             format!("开始批处理 {} 个文件", files.len()),
-            Some(serde_json::json!({ "total": files.len() }))
+            Some(serde_json::json!({ "total": files.len() })),
         );
     }
 
@@ -221,17 +236,23 @@ pub fn batch_process_files(files: &[PathBuf]) -> CommandResult<usize> {
 
     for (i, file) in files.iter().enumerate() {
         // 每处理 100 个文件记录一次进度
-        if i > 0 && i % 100 == 0 {
-            if let Some(ref s) = span {
-                s.info(
-                    format!("进度: {}/{} ({:.1}%)", i, files.len(), (i as f64 / files.len() as f64) * 100.0),
-                    Some(serde_json::json!({
-                        "processed": i,
-                        "total": files.len(),
-                        "errors": errors,
-                    }))
-                );
-            }
+        if i > 0
+            && i % 100 == 0
+            && let Some(ref s) = span
+        {
+            s.info(
+                format!(
+                    "进度: {}/{} ({:.1}%)",
+                    i,
+                    files.len(),
+                    (i as f64 / files.len() as f64) * 100.0
+                ),
+                Some(serde_json::json!({
+                    "processed": i,
+                    "total": files.len(),
+                    "errors": errors,
+                })),
+            );
         }
 
         match process_single_file(file) {
@@ -244,7 +265,7 @@ pub fn batch_process_files(files: &[PathBuf]) -> CommandResult<usize> {
                         Some(serde_json::json!({
                             "file": file.to_string_lossy(),
                             "error": e.code,
-                        }))
+                        })),
                     );
                 }
             }
@@ -277,32 +298,30 @@ pub fn load_with_fallback_and_logging(path: &Path) -> CommandResult<Config> {
     }
 
     match primary_result {
-        Ok(content) => {
-            match serde_json::from_str::<Config>(&content) {
-                Ok(config) => {
-                    if let Some(ref mut s) = span {
-                        s.finish_ok(Some(serde_json::json!({
-                            "source": "primary",
-                            "path": path.to_string_lossy(),
-                        })));
-                    }
-                    return Ok(config);
+        Ok(content) => match serde_json::from_str::<Config>(&content) {
+            Ok(config) => {
+                if let Some(ref mut s) = span {
+                    s.finish_ok(Some(serde_json::json!({
+                        "source": "primary",
+                        "path": path.to_string_lossy(),
+                    })));
                 }
-                Err(e) => {
-                    if let Some(ref s) = span {
-                        s.warn(
-                            format!("主配置文件格式错误: {}", e),
-                            Some(serde_json::json!({ "error": e.to_string() }))
-                        );
-                    }
+                return Ok(config);
+            }
+            Err(e) => {
+                if let Some(ref s) = span {
+                    s.warn(
+                        format!("主配置文件格式错误: {}", e),
+                        Some(serde_json::json!({ "error": e.to_string() })),
+                    );
                 }
             }
-        }
+        },
         Err(e) => {
             if let Some(ref s) = span {
                 s.warn(
                     format!("无法读取主配置文件: {}", e),
-                    Some(serde_json::json!({ "path": path.to_string_lossy() }))
+                    Some(serde_json::json!({ "path": path.to_string_lossy() })),
                 );
             }
         }
@@ -311,9 +330,12 @@ pub fn load_with_fallback_and_logging(path: &Path) -> CommandResult<Config> {
     // 尝试从备份加载
     let backup_path = path.with_extension("bak");
     if let Some(ref s) = span {
-        s.info("尝试从备份文件加载", Some(serde_json::json!({
-            "backup_path": backup_path.to_string_lossy()
-        })));
+        s.info(
+            "尝试从备份文件加载",
+            Some(serde_json::json!({
+                "backup_path": backup_path.to_string_lossy()
+            })),
+        );
     }
 
     let backup_result = fs::read_to_string(&backup_path);
@@ -321,16 +343,16 @@ pub fn load_with_fallback_and_logging(path: &Path) -> CommandResult<Config> {
         s.fs_op("read", &backup_path, &backup_result);
     }
 
-    if let Ok(content) = backup_result {
-        if let Ok(config) = serde_json::from_str::<Config>(&content) {
-            if let Some(ref mut s) = span {
-                s.finish_ok(Some(serde_json::json!({
-                    "source": "backup",
-                    "path": backup_path.to_string_lossy(),
-                })));
-            }
-            return Ok(config);
+    if let Ok(content) = backup_result
+        && let Ok(config) = serde_json::from_str::<Config>(&content)
+    {
+        if let Some(ref mut s) = span {
+            s.finish_ok(Some(serde_json::json!({
+                "source": "backup",
+                "path": backup_path.to_string_lossy(),
+            })));
         }
+        return Ok(config);
     }
 
     // 使用默认配置
@@ -349,23 +371,17 @@ pub fn load_with_fallback_and_logging(path: &Path) -> CommandResult<Config> {
 // 辅助类型和函数
 // ============================================================
 
-#[derive(serde::Deserialize, serde::Serialize)]
-struct Config {
+#[derive(serde::Deserialize, serde::Serialize, Default)]
+pub struct Config {
     // 配置字段
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Config {}
-    }
-}
-
-fn extract_zip(source: &Path, dest: &Path) -> CommandResult<()> {
+fn extract_zip(_source: &Path, _dest: &Path) -> CommandResult<()> {
     // 模拟解压操作
     Ok(())
 }
 
-fn process_single_file(path: &Path) -> CommandResult<()> {
+fn process_single_file(_path: &Path) -> CommandResult<()> {
     // 模拟文件处理
     Ok(())
 }

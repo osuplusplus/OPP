@@ -20,6 +20,7 @@ import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CollectionSharePreview,
   BeatmapDownloadProgress,
+  BeatmapDownloadResult,
   CommandError,
 } from "../../shared/types/osu";
 import { resolveDefaultDownloadProvider } from "../online-beatmaps/downloadProvider";
@@ -192,31 +193,64 @@ export function CollectionsPage() {
     setNotice(`准备下载 ${items.length} 个缺失曲包…`);
     updateCollectionTask({ phase: "downloading", message: `准备下载 ${items.length} 个缺失曲包…`, processed: 0, total: items.length });
     try {
-      const download = await desktopApi.downloadOnlineBeatmapsets({
-        destination,
-        provider: resolveDefaultDownloadProvider(settings),
-        overwrite: false,
-        include_video: settings.include_video_in_beatmap_downloads,
-        open_after_download: false,
-        items,
-      });
-      throwIfCollectionTaskCancelled();
-      const archivePaths = download.completed_paths ?? [];
-      if (!archivePaths.length) {
-        throw new Error(download.failed ? "缺失曲包下载失败，请检查下载源后重试。" : "没有找到可用于补齐收藏夹的曲包文件。");
+      // 单次批量下载与单次安装各限 500 个：缺失很多（如备份恢复）时
+      // 按批次顺序执行，逐批下载并回填 MD5，聚合结果供后续统一处理。
+      const BATCH_LIMIT = 500;
+      const batches: (typeof items)[] = [];
+      for (let offset = 0; offset < items.length; offset += BATCH_LIMIT) batches.push(items.slice(offset, offset + BATCH_LIMIT));
+      let completed = 0;
+      let skipped = 0;
+      let failed = 0;
+      const failures: BeatmapDownloadResult["failures"] = [];
+      const archivePaths: string[] = [];
+      let installedSets = 0;
+      let resolvedEntries = 0;
+      let unresolvedEntries = 0;
+      for (let index = 0; index < batches.length; index++) {
+        const download = await desktopApi.downloadOnlineBeatmapsets({
+          destination,
+          provider: resolveDefaultDownloadProvider(settings),
+          overwrite: false,
+          include_video: settings.include_video_in_beatmap_downloads,
+          open_after_download: false,
+          items: batches[index],
+        });
+        throwIfCollectionTaskCancelled();
+        completed += download.completed;
+        skipped += download.skipped;
+        failed += download.failed;
+        failures.push(...download.failures);
+        const paths = download.completed_paths ?? [];
+        archivePaths.push(...paths);
+        updateCollectionTask({
+          phase: "downloading",
+          message: `已下载 ${index + 1}/${batches.length} 批，累计 ${archivePaths.length} 个曲包…`,
+          processed: Math.min(items.length, completed + skipped + failed),
+          total: items.length,
+        });
+        if (!paths.length) continue;
+        setNotice(`正在统一读取本批 ${paths.length} 个曲包（累计 ${archivePaths.length} 个），并计算收藏难度 MD5…`);
+        updateCollectionTask({
+          phase: "installing",
+          message: `正在读取第 ${index + 1}/${batches.length} 批的 ${paths.length} 个曲包并计算收藏难度 MD5…`,
+          processed: 0,
+          total: paths.length,
+          errors: failures.map((failure) => `#${failure.beatmapset_id} ${failure.title}：${failure.message}`),
+        });
+        const install = await desktopApi.installCollectionDownloads(folderIds, paths);
+        throwIfCollectionTaskCancelled();
+        installedSets += install.installed_sets;
+        resolvedEntries += install.resolved_entries;
+        unresolvedEntries += install.unresolved_entries;
       }
-      setNotice(`正在统一读取 ${archivePaths.length} 个曲包，并计算收藏难度 MD5…`);
-      updateCollectionTask({
-        phase: "installing",
-        message: `正在读取 ${archivePaths.length} 个曲包并计算收藏难度 MD5…`,
-        processed: 0,
-        total: archivePaths.length,
-        errors: download.failures.map((failure) => `#${failure.beatmapset_id} ${failure.title}：${failure.message}`),
-      });
-      const install = await desktopApi.installCollectionDownloads(folderIds, archivePaths);
-      throwIfCollectionTaskCancelled();
+      if (!archivePaths.length) {
+        throw new Error(failed ? "缺失曲包下载失败，请检查下载源后重试。" : "没有找到可用于补齐收藏夹的曲包文件。");
+      }
       changed();
-      return { download, install };
+      return {
+        download: { destination, total: items.length, completed, skipped, failed, cancelled: false, failures, completed_paths: archivePaths },
+        install: { installed_sets: installedSets, resolved_entries: resolvedEntries, unresolved_entries: unresolvedEntries },
+      };
     } finally {
       collectionDownloadActive.current = false;
     }

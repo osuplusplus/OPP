@@ -14,7 +14,6 @@ export function useAuthStatus() {
       user_id: 10001,
       username: "Preview User",
     }),
-    retry: false,
     staleTime: 15_000,
   });
 }

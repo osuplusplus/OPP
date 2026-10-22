@@ -1,3 +1,4 @@
+import { osuUserUrl } from "../../shared/lib/osuUrl";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Copy, ExternalLink, Pencil, Square, Trash2 } from "lucide-react";
@@ -18,7 +19,7 @@ export function LobbyDetailDialog({ id, ownerId, onClose, onEdit, onChanged, res
   const canManage = Boolean(item && ownerId && item.owner_user_id === ownerId);
   const ended = item?.status === "closed" || item?.status === "ended";
   return <>
-    <AppDialog open onOpenChange={(open) => { if (!open && !action.isPending) onClose(); }} title={item?.title ?? "约玩详情"} description="找到搭子，约好时间，一起打图。" size="lg" closeDisabled={action.isPending} onCloseAutoFocus={restoreFocus} footer={item ? <div className="community-detail-actions"><Button onClick={() => void copyCommunityText(item.osu_user_id).then(setNotice)}><Copy size={15} />复制 osu! ID</Button><Button variant="primary" onClick={() => void communityApi.openExternal(`https://osu.ppy.sh/users/${item.osu_user_id}`).catch(() => setNotice("无法打开主页，请重试。"))}><ExternalLink size={15} />打开 osu! 主页</Button></div> : undefined}>
+    <AppDialog open onOpenChange={(open) => { if (!open && !action.isPending) onClose(); }} title={item?.title ?? "约玩详情"} description="找到搭子，约好时间，一起打图。" size="lg" closeDisabled={action.isPending} onCloseAutoFocus={restoreFocus} footer={item ? <div className="community-detail-actions"><Button onClick={() => void copyCommunityText(item.osu_user_id).then(setNotice)}><Copy size={15} />复制 osu! ID</Button><Button variant="primary" onClick={() => void communityApi.openExternal(osuUserUrl(item.osu_user_id)).catch(() => setNotice("无法打开主页，请重试。"))}><ExternalLink size={15} />打开 osu! 主页</Button></div> : undefined}>
       {detail.isPending ? <p role="status">正在加载约玩详情…</p> : detail.error ? <CommunityFailure error={detail.error} retry={() => void detail.refetch()} /> : item ? <div className="community-detail">
         <div className="community-tags"><span>{activityLabels[item.activity_type]}</span><span>{rulesetLabels[item.ruleset]}</span>{item.platform ? <span>{platformLabels[item.platform]}</span> : null}<span className={`community-status status-${item.status}`}>{statusLabels[item.status]}</span></div>
         <DetailField label="发布者">{item.osu_username} · osu! ID {item.osu_user_id}</DetailField><DetailField label="活动时间">{activityTime(item.starts_at)} — {activityTime(item.ends_at)}</DetailField>

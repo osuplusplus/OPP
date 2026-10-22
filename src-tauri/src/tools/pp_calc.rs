@@ -1,3 +1,8 @@
+//! 在线谱面 PP 计算：按「官方 osu! API → Catboy → Nerinyan」顺序下载
+//! `.osu`（全部失败才报错并附各自原因），再用 rosu-pp 4.0.1（ppy-osu
+//! rulesets 口径）在同一份难度属性上计算星数、指定成绩假设下的 PP 与
+//! 满分 PP。
+
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -12,8 +17,10 @@ use crate::{
 /// 前端提交的在线谱面 PP 计算参数；未填写的表现字段由 rosu-pp 使用默认值。
 pub struct BeatmapCalculationRequest {
     pub beatmap_id: u64,
+    /// Mod 缩写列表（如 `HD`、`DT`，大小写不敏感，`NM`/空表表示无 Mod）。
     #[serde(default)]
     pub mods: Vec<String>,
+    /// 目标准确率（单位：百分比，越界值会被夹取到 0–100）。
     pub accuracy: Option<f64>,
     pub misses: Option<u32>,
     pub combo: Option<u32>,
@@ -28,12 +35,17 @@ pub struct BeatmapCalculationResult {
     pub beatmap_id: u64,
     pub mods: Vec<String>,
     pub mode: String,
+    /// 星数（难度值，已包含 Mod 的影响）。
     pub stars: f64,
+    /// 按请求中的成绩假设（准确率/miss/combo/判定数）计算出的 PP。
     pub pp: f64,
+    /// 同一 Mod 组合下 SS 满分的 PP，供前端展示达成度对比。
     pub max_pp: f64,
+    /// 该谱面（含 Mod）的最大连击数。
     pub max_combo: u32,
     pub calculation_engine: String,
     pub calculated_at: String,
+    /// `.osu` 文件的下载来源标识，由成功的 provider 填写。
     pub source: String,
     pub star_algorithm: String,
     pub star_algorithm_date: String,
@@ -73,8 +85,10 @@ pub async fn calculate_beatmap_pp(
         let started = Instant::now();
         let map = rosu_pp::Beatmap::from_bytes(&bytes)
             .map_err(|error| CommandError::new("BEATMAP_PARSE_FAILED", error.to_string()))?;
+        // 模式字符串（"osu"/"taiko"/"catch"/"mania"）用于 Mod 合法性校验与算法标签。
         let mode = format!("{:?}", map.mode).to_lowercase();
         let bits = mod_bits(&request.mods, &mode)?;
+        // 难度属性（星数）只计算一次：满 PP 与成绩 PP 都复用同一份属性。
         let difficulty = rosu_pp::Difficulty::new().mods(bits).calculate(&map);
         let max_pp = difficulty.clone().performance().calculate().pp();
         let mut performance = difficulty.performance().mods(bits);
@@ -137,6 +151,7 @@ fn mod_bits(mods: &[String], mode: &str) -> CommandResult<u32> {
             "NC" => 512,
             "FL" => 1024,
             "SO" => 4096,
+            // FI/RD/MR 是 mania 专属 Mod，映射到高位比特；其他模式下直接拒绝。
             "FI" if mode == "mania" => 1 << 20,
             "RD" if mode == "mania" => 1 << 21,
             "MR" if mode == "mania" => 1 << 30,

@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 /// SQLite WAL requires a local filesystem; reject recognized network volumes.
+///
+/// SQLite 的 WAL 与原子改名在网络卷上不可靠，因此按平台识别网络位置
+/// （Windows 的 UNC 路径／映射网络盘，Linux 的 NFS、CIFS 等挂载）并直接拒绝。
 pub(crate) fn validate_local_database_directory(path: &Path) -> crate::error::CommandResult<()> {
     #[cfg(windows)]
     {
@@ -16,6 +19,7 @@ pub(crate) fn validate_local_database_directory(path: &Path) -> crate::error::Co
         use std::path::{Component, Prefix};
         use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
         use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
+        // 从路径前缀判别：UNC 前缀本身就是网络共享；盘符需查询驱动器类型。
         if let Some(Component::Prefix(prefix)) = path.components().next() {
             match prefix.kind() {
                 Prefix::UNC(_, _) | Prefix::VerbatimUNC(_, _) => {
@@ -49,6 +53,8 @@ pub(crate) fn validate_local_database_directory(path: &Path) -> crate::error::Co
     }
     #[cfg(target_os = "linux")]
     {
+        // 解析 /proc/self/mountinfo：找到覆盖目标路径的最长挂载点，
+        // 取其文件系统类型，再对照网络文件系统黑名单判断。
         let mount_path = Path::new("/proc/self/mountinfo");
         let mounts = crate::infrastructure::local_database::fs_io(
             "read_mounts",
@@ -234,6 +240,7 @@ pub fn game_process_running(client: &str) -> bool {
     }
     #[cfg(windows)]
     {
+        // Windows 端暂未实现该检测，恒为 false，调用方需自行降级处理。
         let _ = client;
         false
     }
@@ -268,6 +275,66 @@ fn any_process(predicate: impl Fn(&str) -> bool) -> bool {
     false
 }
 
+/// Windows 下用 tasklist 按 IMAGENAME 过滤判断进程是否在运行。
+#[cfg(windows)]
+pub fn windows_tasklist_running(image_name: &str) -> bool {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    Command::new("tasklist")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["/FI", &format!("IMAGENAME eq {image_name}"), "/NH"])
+        .output()
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .to_ascii_lowercase()
+                .contains(&image_name.to_ascii_lowercase())
+        })
+        .unwrap_or(false)
+}
+
+/// 按 `/proc` 的 cmdline 全文匹配（等价 `pgrep -f`）。OpenTabletDriver 等
+/// 以 dotnet／AppImage 方式启动时 comm 会被内核截断，只能靠命令行识别。
+#[cfg(not(windows))]
+pub fn unix_cmdline_running(needle: &str) -> bool {
+    let needle = needle.to_ascii_lowercase();
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        if entry
+            .file_name()
+            .to_str()
+            .and_then(|value| value.parse::<u32>().ok())
+            .is_none()
+        {
+            continue;
+        }
+        let Ok(cmdline) = fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&cmdline).replace('\0', " ");
+        if text.to_ascii_lowercase().contains(&needle) {
+            return true;
+        }
+    }
+    false
+}
+
+/// 跨平台进程检测：Windows 用 tasklist 按 IMAGENAME 查，其他平台按 `/proc` comm 精确匹配。
+pub fn named_process_running(windows_name: &str, unix_name: &str) -> bool {
+    #[cfg(windows)]
+    {
+        let _ = unix_name;
+        windows_tasklist_running(windows_name)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = windows_name;
+        unix_process_running(unix_name)
+    }
+}
+
 /// tosu 停止标志文件。pkexec 启动的 root 看门狗脚本轮询它：OPP 创建该文件
 /// 即视为停止指令（无需再次认证）；位于 `XDG_RUNTIME_DIR`（用户可写、root 可读）。
 #[cfg(not(windows))]
@@ -289,6 +356,7 @@ pub fn find_in_path(command: &str) -> Option<PathBuf> {
     }
     #[cfg(windows)]
     {
+        // Windows 同样执行查找：与类 Unix 的差异在于还需按 PATHEXT 补全扩展名。
         // 按真实 shell 语义扫描进程 PATH:先试原名(可能已带扩展),
         // 再按 PATHEXT(.EXE/.CMD/.BAT…)逐个拼接。
         let exts: Vec<String> = env::var("PATHEXT")
@@ -440,6 +508,7 @@ pub struct Capabilities {
     pub file_association: bool,
 }
 
+/// 汇总当前平台的能力开关；前端据此隐藏不支持的入口（如 Linux 下的伽马调节）。
 pub fn capabilities() -> Capabilities {
     Capabilities {
         os: current_os(),
@@ -457,6 +526,8 @@ pub fn get_capabilities() -> Capabilities {
 
 // ---- Windows 注册表探测 ------
 
+/// 扫描 Windows 卸载注册表（HKCU/HKLM 各自的 Uninstall 与 WOW6432Node 两个
+/// 视图），以 `DisplayName` 匹配目标程序并返回其安装目录。
 #[cfg(windows)]
 fn registry_install(matches_name: impl Fn(&str) -> bool) -> Option<PathBuf> {
     use winreg::{

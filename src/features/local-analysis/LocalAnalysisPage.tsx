@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { explicitLocalTarget } from "./navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
+import { formatBytes } from "../../shared/lib/format";
 import {
   ArrowLeft,
   Ban,
@@ -59,19 +60,6 @@ const phaseLabels: Record<LocalScanProgress["phase"], string> = {
   skins: "分析 Skin",
   finalizing: "保存索引",
 };
-
-function formatBytes(value?: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  if (value < 1024) return `${value} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let size = value / 1024;
-  let unit = units[0];
-  for (let index = 1; size >= 1024 && index < units.length; index += 1) {
-    size /= 1024;
-    unit = units[index];
-  }
-  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
-}
 
 function SourceBar({
   action,

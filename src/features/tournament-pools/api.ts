@@ -8,7 +8,7 @@ export const tournamentPoolKey = (reference: TournamentPoolRef) =>
 
 export function useTournamentPool(reference: TournamentPoolRef) {
   return useQuery({ queryKey: tournamentPoolKey(reference), queryFn: () => desktopApi.getTournamentPool(reference),
-    retry: false, staleTime: 0, refetchOnWindowFocus: false });
+    retry: false, refetchOnWindowFocus: false });
 }
 
 export function useSyncTournamentPool(reference: TournamentPoolRef) {

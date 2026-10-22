@@ -7,14 +7,8 @@ import { PageHeader } from "../../shared/components/PageHeader";
 import { Badge, Button, Card, EmptyState, SectionTitle } from "../../shared/components/ui";
 import { SearchAutocomplete } from "../../shared/components/SearchAutocomplete";
 import { desktopApi } from "../../shared/lib/tauri";
-import { APP_TIME_ZONE } from "../../shared/lib/format";
+import { APP_TIME_ZONE, formatBytes } from "../../shared/lib/format";
 import type { GameMediaItem, GameReplayPayload, GameScreenshotPayload } from "../../shared/types/osu";
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function fileName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;

@@ -1,3 +1,4 @@
+//! tosu 的 Tauri 命令层：状态查询、路径配置与进程启停。
 use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager, State};
@@ -17,6 +18,7 @@ fn settings(state: &AppState) -> CommandResult<AppSettings> {
     state.store.settings_snapshot()
 }
 
+/// 以 GET `/json/v2` 探测 API 是否可达：请求成功（任意状态码）即算可达。
 async fn api_reachable(base: &str) -> bool {
     let Ok(base) = service::normalize_base_url(base) else {
         return false;
@@ -28,6 +30,7 @@ async fn api_reachable(base: &str) -> bool {
         .is_ok()
 }
 
+/// 汇总 tosu 与歌词代理的安装、运行状态；Linux 下安装判定可回退 PATH 发现。
 fn current_status(state: &AppState, settings: &AppSettings, api_reachable: bool) -> TosuStatus {
     let configured_valid = settings
         .tosu_executable_path
@@ -93,6 +96,7 @@ fn current_status(state: &AppState, settings: &AppSettings, api_reachable: bool)
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// API 可达时顺带拉起实时 WebSocket 连接，保证状态页一打开就有数据流。
 pub async fn get_tosu_status(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -112,6 +116,7 @@ pub async fn get_tosu_status(
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 返回内存中保留的最近日志（条数上限见 service 模块）。
 pub fn get_tosu_logs(state: State<'_, AppState>) -> CommandResult<Vec<TosuLogEntry>> {
     Ok(service::logs(&state.tosu))
 }
@@ -119,6 +124,7 @@ pub fn get_tosu_logs(state: State<'_, AppState>) -> CommandResult<Vec<TosuLogEnt
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：更新运行时或持久化配置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 校验并持久化 tosu 路径（保存规范化绝对路径），返回最新状态。
 pub fn set_tosu_executable(path: String, state: State<'_, AppState>) -> CommandResult<TosuStatus> {
     let executable = service::validate_executable(PathBuf::from(path).as_path())?;
     let saved = executable.display().to_string();
@@ -132,6 +138,7 @@ pub fn set_tosu_executable(path: String, state: State<'_, AppState>) -> CommandR
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：更新运行时或持久化配置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 校验并持久化 tosu-lyrics 代理路径，返回最新状态。
 pub fn set_tosu_lyrics_executable(
     path: String,
     state: State<'_, AppState>,
@@ -148,10 +155,13 @@ pub fn set_tosu_lyrics_executable(
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：启动后台任务或外部服务。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
+/// 前端按钮入口，转发到 `start_managed_tosu`。
 pub fn start_tosu(state: State<'_, AppState>, app: AppHandle) -> CommandResult<()> {
     start_managed_tosu(&state, app)
 }
 
+/// 启动 tosu 并在后台等待 API 就绪（最多 15 秒），随后刷新选中的 OBS 浏览器源；
+/// 超时只记录日志不报错。
 pub fn start_managed_tosu(state: &AppState, app: AppHandle) -> CommandResult<()> {
     let settings = settings(state)?;
     service::start(state.tosu.clone(), &settings, app.clone())?;

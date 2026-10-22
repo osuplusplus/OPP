@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
+import { formatBytes } from "../../shared/lib/format";
 import {
   Badge,
   Button,
@@ -45,19 +46,6 @@ import {
 
 const PAGE_SIZE = 24;
 const SOUND_PAGE_SIZE = 40;
-
-function formatBytes(value?: number | null) {
-  if (value === null || value === undefined) return "—";
-  if (value < 1024) return `${value} B`;
-  const units = ["KB", "MB", "GB"];
-  let size = value / 1024;
-  let unit = units[0];
-  for (let index = 1; size >= 1024 && index < units.length; index += 1) {
-    size /= 1024;
-    unit = units[index];
-  }
-  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
-}
 
 function SkinSwatches({ skin }: { skin: LocalSkinSummary }) {
   const colors = skin.accent_colors.slice(0, 5);

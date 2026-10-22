@@ -1,3 +1,4 @@
+//! `build_queue` 目录合并逻辑与 `MusicRuntime` 状态恢复的单元测试。
 use super::{catalog::build_queue, models::QueueRequest, service::MusicRuntime};
 use crate::features::{
     collections::CollectionEntry,
@@ -34,6 +35,7 @@ fn candidate(
         }),
     }
 }
+// 相同线上谱集 ID 跨客户端合并为一曲，不同谱集即使同名也不合并。
 #[test]
 fn merges_online_sets_across_clients_but_not_different_mappers() {
     let (tracks, _) = build_queue(
@@ -49,6 +51,7 @@ fn merges_online_sets_across_clients_but_not_different_mappers() {
     assert_eq!(tracks[0].assets.len(), 2);
     assert_eq!(tracks[0].info.clients.len(), 2);
 }
+// 未提交谱集凭相同 .osu 校验和合并，且合并关系可传递。
 #[test]
 fn unsubmitted_sets_require_checksum_evidence_and_merge_transitively() {
     let (tracks, _) = build_queue(
@@ -65,6 +68,7 @@ fn unsubmitted_sets_require_checksum_evidence_and_merge_transitively() {
     assert_eq!(tracks.len(), 2);
     assert!(tracks.iter().any(|t| t.assets.len() == 4));
 }
+// 请求指定的难度与客户端排在播放源最前，另一客户端作为后备。
 #[test]
 fn selected_difficulty_is_first_and_other_client_is_a_fallback() {
     let mut req = request();
@@ -82,6 +86,7 @@ fn selected_difficulty_is_first_and_other_client_is_a_fallback() {
     assert_eq!(tracks[0].assets[0].resource_id, "chosen");
     assert_eq!(tracks[0].assets[1].client, LocalClient::Stable);
 }
+// 过滤条件只决定曲目去留，未匹配的备用客户端源仍随曲目保留。
 #[test]
 fn filtered_snapshot_keeps_unmatched_alternate_sources() {
     let a = candidate(LocalClient::Stable, "a", Some(1), "match", "1");
@@ -93,6 +98,7 @@ fn filtered_snapshot_keeps_unmatched_alternate_sources() {
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].assets.len(), 2);
 }
+// 收藏夹条目按校验和（忽略大小写）解析，未命中的计入 missing。
 #[test]
 fn collection_resolves_checksum_and_reports_unavailable_entries() {
     let entry = |hash: &str| CollectionEntry {
@@ -115,6 +121,7 @@ fn collection_resolves_checksum_and_reports_unavailable_entries() {
     assert_eq!(tracks.len(), 1);
     assert_eq!(missing, 1);
 }
+// 资源路径每次访问都重新校验：不得逃逸根目录，文件被删后立即失效。
 #[test]
 fn source_path_is_rechecked_and_cannot_escape_root() {
     let root = tempfile::tempdir().unwrap();
@@ -131,6 +138,7 @@ fn source_path_is_rechecked_and_cannot_escape_root() {
     assert!(asset.checked_path(&inside).is_err());
 }
 
+// 同一谱集内指向同一音频文件的多个难度只留一个源，不同谱集各自保留。
 #[test]
 fn same_audio_within_a_set_is_only_one_source_but_distinct_sets_survive() {
     let a = candidate(LocalClient::Stable, "a", Some(1), "audio", "a");
@@ -143,6 +151,7 @@ fn same_audio_within_a_set_is_only_one_source_but_distinct_sets_survive() {
     assert!(tracks.iter().all(|t| t.assets.len() == 1));
 }
 
+// 仅含谱集 ID 的收藏夹条目按谱集匹配；校验和未命中时报告缺失且不产出曲目。
 #[test]
 fn set_only_collection_entry_matches_without_hiding_missing_difficulties() {
     let mut entry: CollectionEntry = serde_json::from_value(serde_json::json!({
@@ -161,6 +170,7 @@ fn set_only_collection_entry_matches_without_hiding_missing_difficulties() {
     assert!(tracks.is_empty());
     assert_eq!(missing, 1);
 }
+// 重启后不自动播放但保留音量；状态文件损坏时回退默认值且仍可启动。
 #[test]
 fn restart_never_autoplays_and_recovers_from_corrupt_state() {
     let root = tempfile::tempdir().unwrap();

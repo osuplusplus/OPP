@@ -1,3 +1,4 @@
+//! 图池业务流程：按来源拉取图池、并发补全谱面元数据并保存为收藏夹文件夹。
 use std::{
     collections::{BTreeSet, HashMap},
     time::Duration,
@@ -16,6 +17,8 @@ use crate::{
     state::AppState,
 };
 
+/// 校验接口返回的谱面 JSON：须与请求的 `id` 一致、为 osu!standard 模式，
+/// 且谱面 `beatmapset_id` 与内嵌谱集 `id` 吻合，防止错配数据混入快照。
 pub(super) fn decode_beatmap(id: i32, value: Value) -> CommandResult<TournamentBeatmap> {
     let invalid = || {
         CommandError::new(
@@ -50,6 +53,8 @@ pub(super) fn decode_beatmap(id: i32, value: Value) -> CommandResult<TournamentB
     })
 }
 
+/// 加载图池主流程：校验引用后按 `provider` 分发到对应来源拉取，再并发补全谱面资料。
+/// `progress` 向前端回报阶段（fetching/enriching）；登录态可选，仅用于提高官方接口成功率。
 pub(super) async fn load(
     reference: &TournamentPoolRef,
     state: &AppState,
@@ -76,6 +81,7 @@ pub(super) async fn load(
     .await)
 }
 
+/// 按 `beatmap_id` 去重后并发（并发度 6）解析谱面资料；单条失败只记录错误，不拖垮整池。
 pub(super) async fn enrich<F, Fut>(mut pool: TournamentPool, resolve: F) -> TournamentPool
 where
     F: Fn(i32) -> Fut,
@@ -99,6 +105,7 @@ where
     pool
 }
 
+/// 把图池条目转换为收藏夹候选；未补全资料的条目以 `Beatmap #ID` 占位，规则固定为 osu!standard。
 pub(super) fn candidates(pool: &TournamentPool) -> Vec<CollectionCandidate> {
     pool.entries
         .iter()
@@ -124,6 +131,8 @@ pub(super) fn candidates(pool: &TournamentPool) -> Vec<CollectionCandidate> {
         .collect()
 }
 
+/// 为已保存但缺少元数据的图位补拉谱面资料（不重新请求图池来源、不改动成员关系）；
+/// 仅处理快照中无 `metadata` 且谱面仍在收藏夹内的槽位，返回（成功保存数，解析失败数）。
 pub(super) async fn repair_metadata(
     folder_id: &str,
     state: &AppState,
@@ -171,6 +180,8 @@ pub(super) async fn repair_metadata(
     ))
 }
 
+/// 把图池整体保存到 collections：按 `source_id` 替换式同步关联文件夹，并附带
+/// 完整快照（含每个槽位的原始谱面元数据），确保重启后无需重新请求来源。
 pub(super) fn save(
     pool: TournamentPool,
     state: &AppState,
@@ -211,6 +222,7 @@ pub(super) fn save(
     })
 }
 
+/// 本地优先打开：已关联的图池直接复用文件夹（不触发网络），否则调用 `load` 拉取后保存。
 pub(super) async fn open_or_import<F, Fut>(
     reference: &TournamentPoolRef,
     state: &AppState,
@@ -234,6 +246,8 @@ where
     })
 }
 
+/// 双通道谱面解析：已登录时优先走 osu! 官方接口，失败或未登录回退到 Nerinyan 镜像；
+/// 两个通道均有 15 秒超时，超时返回可重试的 `TOURNAMENT_BEATMAP_TIMEOUT`。
 async fn resolve_beatmap(
     id: i32,
     state: &AppState,

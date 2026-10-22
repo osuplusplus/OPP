@@ -36,7 +36,7 @@ export function CollectionExplorer({ folders, loading, failed, toolbar, onRetry,
   const [rename, setRename] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
-  const status = useQuery({ queryKey: ["local-score-status"], queryFn: () => desktopApi.refreshLocalScores(), staleTime: 0, retry: false, refetchOnWindowFocus: true });
+  const status = useQuery({ queryKey: ["local-score-status"], queryFn: () => desktopApi.refreshLocalScores(), refetchOnWindowFocus: true });
   const player = playerChoice ?? status.data?.default_player ?? null;
   const pageParam = search.trim() ? "resultsPage" : "page";
   const page = Math.max(0, Number(params.get(pageParam)) || 0);

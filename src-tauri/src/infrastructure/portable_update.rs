@@ -1,3 +1,6 @@
+//! Windows 便携版 EXE 自更新的替换与回滚机制：下载与 sha256 校验由上游完成，
+//! 本模块用当前 EXE 的临时副本充当更新助手，等主进程退出后原地改名换位，
+//! 新版本启动早期崩溃则回滚旧 EXE，应用稳定运行后再清理残留文件。
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
@@ -6,16 +9,24 @@ use std::{
     time::Duration,
 };
 
+/// 更新助手模式的命令行标志：EXE 临时副本以此参数启动，跳过正常应用初始化。
 const APPLY_UPDATE_FLAG: &str = "--opp-apply-portable-update";
 
+/// 一次便携更新涉及的四个路径，全部位于当前 EXE 所在目录。
 #[derive(Debug, Clone)]
 pub struct PortableUpdatePaths {
+    /// 正在运行的 EXE 原路径，更新后保持不变。
     pub current: PathBuf,
+    /// 校验通过、等待顶替原位的新版本 EXE。
     pub staged: PathBuf,
+    /// 旧版本备份，供回滚使用。
     pub backup: PathBuf,
+    /// 当前 EXE 的临时副本，充当更新助手进程。
     pub helper: PathBuf,
 }
 
+/// 由当前 EXE 路径与目标版本推导四个路径；staged、backup、helper 均为同目录
+/// 下的点前缀隐藏文件，避免被用户当作独立程序误运行。
 pub fn paths_for(current: &Path, version: &str) -> io::Result<PortableUpdatePaths> {
     let parent = current
         .parent()
@@ -51,6 +62,8 @@ pub fn launch_helper(paths: &PortableUpdatePaths) -> io::Result<()> {
     Ok(())
 }
 
+/// 非 Windows 没有“运行中 EXE 被锁定”的替换问题，也不走便携更新流程，
+/// 直接返回不支持。
 #[cfg(not(windows))]
 pub fn launch_helper(_paths: &PortableUpdatePaths) -> io::Result<()> {
     Err(io::Error::new(
@@ -103,9 +116,13 @@ pub fn schedule_stale_cleanup() {
     });
 }
 
+/// 非 Windows 没有替换流程，也不会产生需要清理的残留文件。
 #[cfg(not(windows))]
 pub fn schedule_stale_cleanup() {}
 
+/// 助手主流程：等旧进程退出并完成文件替换，拉起新版本并观察最初 8 秒
+///（80 次 × 100ms）；非零退出码视为更新失败，回滚旧 EXE 并重新启动，
+/// 用户主动正常关闭不当作失败。
 fn run_helper(current: &Path, staged: &Path, backup: &Path) -> io::Result<()> {
     remove_if_exists(backup)?;
     wait_for_exit_and_replace(current, staged, backup)?;
@@ -133,6 +150,9 @@ fn run_helper(current: &Path, staged: &Path, backup: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// 轮询把旧 EXE 改名为备份（最长 30 秒）：Windows 下旧进程未退出时文件被
+/// 锁定，改名会在其退出后自然成功；随后把 staged 顶替到原路径，顶替失败
+/// 立即把备份改回去。
 fn wait_for_exit_and_replace(current: &Path, staged: &Path, backup: &Path) -> io::Result<()> {
     let mut last_error = None;
     for _ in 0..300 {
@@ -153,11 +173,13 @@ fn wait_for_exit_and_replace(current: &Path, staged: &Path, backup: &Path) -> io
     Err(last_error.unwrap_or_else(|| io::Error::other("等待旧程序退出超时")))
 }
 
+/// 回滚：移除损坏的新 EXE，把备份恢复到原路径。
 fn rollback(current: &Path, backup: &Path) -> io::Result<()> {
     remove_if_exists(current)?;
     fs::rename(backup, current)
 }
 
+/// 幂等删除：目标不存在同样视为成功，便于重试清理。
 fn remove_if_exists(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -180,6 +202,7 @@ mod tests {
     #[cfg(unix)]
     use super::run_helper;
 
+    // 替换后原路径应为新内容，旧内容保留在备份文件中。
     #[test]
     fn replacement_keeps_the_original_path_and_backup() {
         let directory = tempdir().expect("tempdir");
@@ -195,6 +218,7 @@ mod tests {
         assert_eq!(fs::read(&backup).expect("read backup"), b"old");
     }
 
+    // 回滚应把备份内容恢复到原路径并清掉备份文件。
     #[test]
     fn rollback_restores_the_previous_executable() {
         let directory = tempdir().expect("tempdir");
@@ -209,6 +233,7 @@ mod tests {
         assert!(!backup.exists());
     }
 
+    // 新版本启动即失败时应恢复旧版本并重新拉起（仅在 Unix 上模拟）。
     #[cfg(unix)]
     #[test]
     fn early_startup_failure_restores_and_restarts_the_previous_executable() {

@@ -19,6 +19,7 @@ pub(crate) async fn ensure_access_token(state: &AppState) -> CommandResult<Strin
         .credentials
         .get_tokens()?
         .ok_or_else(CommandError::auth_required)?;
+    // 距过期不足 60 秒即视为需刷新，为请求在途时间留出余量。
     if tokens.expires_at > Utc::now() + Duration::seconds(60) {
         return Ok(tokens.access_token);
     }
@@ -41,6 +42,7 @@ pub(crate) async fn ensure_access_token(state: &AppState) -> CommandResult<Strin
         .await
     {
         Ok(response) => response,
+        // 刷新失败视为刷新令牌已失效：清空本地令牌，要求用户重新登录。
         Err(_) => {
             state.credentials.clear_tokens()?;
             state
@@ -49,6 +51,7 @@ pub(crate) async fn ensure_access_token(state: &AppState) -> CommandResult<Strin
             return Err(CommandError::auth_required());
         }
     };
+    // 服务端未返回新刷新令牌时沿用旧值。
     let refreshed = TokenSet {
         access_token: response.access_token,
         refresh_token: response.refresh_token.or(tokens.refresh_token),

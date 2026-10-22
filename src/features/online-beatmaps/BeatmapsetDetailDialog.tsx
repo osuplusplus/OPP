@@ -1,3 +1,4 @@
+import { osuBeatmapsetUrl } from "../../shared/lib/osuUrl";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import {
@@ -140,7 +141,7 @@ export function BeatmapsetDetailDialog({
                   <Button
                     onClick={() =>
                       desktopApi.openExternal(
-                        `https://osu.ppy.sh/beatmapsets/${beatmapset.id}`,
+                        osuBeatmapsetUrl(beatmapset.id),
                       )
                     }
                   >

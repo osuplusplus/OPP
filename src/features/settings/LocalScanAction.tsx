@@ -18,7 +18,6 @@ export function LocalScanAction({ client, onConfigure, allowRescan = false }: { 
     queryKey: localSourcesKey,
     queryFn: desktopApi.getLocalSources,
     staleTime: 30_000,
-    retry: false,
   });
   const summaryQuery = useLocalSummary(client);
   const source = sourcesQuery.data?.find((item) => item.client === client);

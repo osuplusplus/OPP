@@ -9,6 +9,7 @@ import { Button } from "./shared/components/ui";
 import { AppDialog } from "./shared/components/AppDialog";
 import { NotificationViewport } from "./shared/components/notifications";
 import { desktopApi, isTauri } from "./shared/lib/tauri";
+import { blockContextMenu } from "./shared/lib/entryBootstrap";
 import { musicApi } from "./features/music-player/api";
 import { LocalDatabaseGate } from "./features/local-database/DatabaseSetup";
 
@@ -28,11 +29,7 @@ function ThemeController() {
 }
 
 function WebContextMenuBlocker() {
-  useEffect(() => {
-    const block = (event: MouseEvent) => event.preventDefault();
-    window.addEventListener("contextmenu", block);
-    return () => window.removeEventListener("contextmenu", block);
-  }, []);
+  useEffect(() => blockContextMenu(window), []);
   return null;
 }
 

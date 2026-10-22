@@ -56,12 +56,15 @@ const MAX_FAILURES: usize = 50;
 /// 等待 ffmpeg 退出时的轮询间隔。
 const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(120);
 
+/// 扫描明细中的单个视频文件：路径与大小（字节）。
 #[derive(Debug, Clone, Serialize)]
 pub struct VideoFileEntry {
     pub path: String,
     pub size: u64,
 }
 
+/// 扫描汇总结果：视频总数与总大小、待修复（MP4 系容器）明细与合计、以及
+/// 已修复/空文件/其他容器的分类计数；`*_size` 单位为字节。
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct VideoScanResult {
     pub songs_root: String,
@@ -70,12 +73,15 @@ pub struct VideoScanResult {
     pub pending_count: u64,
     pub pending_size: u64,
     pub pending: Vec<VideoFileEntry>,
+    /// `pending` 明细超出 `MAX_PENDING_ENTRIES` 上限时为 `true`（计数仍是全量）。
     pub pending_truncated: bool,
     pub already_flv_count: u64,
     pub empty_count: u64,
     pub other_count: u64,
 }
 
+/// 修复进度事件载荷（事件名 `video-fix-progress`）；`phase` 取值为
+/// `scan`（扫描）、`copy`（无损重封装）、`transcode`（二次转码）。
 #[derive(Debug, Clone, Serialize)]
 pub struct VideoFixProgress {
     pub phase: &'static str,
@@ -91,6 +97,8 @@ pub struct VideoFixFailure {
     pub message: String,
 }
 
+/// 修复结果：成功分为无损重封装与二次转码两类计数，`fixed_size` 单位字节，
+/// 失败明细最多保留 `MAX_FAILURES` 条。
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct VideoFixResult {
     pub songs_root: String,
@@ -104,6 +112,7 @@ pub struct VideoFixResult {
     pub failed: Vec<VideoFixFailure>,
 }
 
+/// 扫描谱面目录并按容器类型分类汇总，不修改任何文件；在后台线程执行。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：扫描谱面目录中的视频文件并按容器类型分类。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -121,6 +130,8 @@ pub async fn scan_osu_videos(
     logging::finish_span(span, scanned)
 }
 
+/// 修复入口：抢占 `RUNNING` 防并发、解析 FFmpeg 路径（缺失直接报错），
+/// 实际修复在后台线程执行，进度经 `video-fix-progress` 事件推送。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：修复需要转换的谱面视频。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -174,6 +185,7 @@ pub fn cancel_video_fix() {
     }
 }
 
+/// 扫描谱面目录并按容器类型分类计数，明细超出上限时置位截断标记。
 fn scan(service: &LocalAnalysisService, requested: Option<&str>) -> CommandResult<VideoScanResult> {
     let songs_root = resolve_songs_root(service, requested)?;
     let scanned = scan_videos(&songs_root, None);
@@ -205,6 +217,7 @@ fn scan(service: &LocalAnalysisService, requested: Option<&str>) -> CommandResul
     Ok(result)
 }
 
+/// 修复流程包装：执行 `run_fix_inner` 并用日志 span 记录整体结果。
 fn run_fix(
     service: &LocalAnalysisService,
     requested: Option<&str>,
@@ -406,6 +419,7 @@ impl Drop for StagingGuard {
     }
 }
 
+/// ffmpeg 运行结果：退出状态与完整 stderr（失败诊断、码率解析都用它）。
 struct FfmpegOutcome {
     status: ExitStatus,
     stderr: String,
@@ -692,6 +706,7 @@ fn resolve_ffmpeg(state: &State<'_, AppState>) -> Option<PathBuf> {
     )
 }
 
+/// 进度上报节流器：非强制事件至少间隔 100ms，避免海量小文件刷爆 IPC。
 struct ProgressReporter {
     emit: Arc<dyn Fn(VideoFixProgress) + Send + Sync>,
     last_emit: Mutex<Instant>,

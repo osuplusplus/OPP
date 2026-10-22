@@ -1,5 +1,7 @@
 //! Tauri 命令清单，仅汇总并注册各模块的命令处理器。
 
+// 将各 feature / infrastructure / tools 的命令以短名重导出，
+// 供下方 `handler!` 宏展开时直接按短名引用。
 pub(crate) use crate::{
     features::{
         account::{
@@ -9,13 +11,15 @@ pub(crate) use crate::{
             save_oauth_credentials, update_settings,
         },
         beatmaphub::{
-            bootstrap_beatmaphub, create_beatmaphub_comment, delete_beatmaphub_comment,
-            delete_beatmaphub_pack, favorite_beatmaphub_pack, get_beatmaphub_auth_status,
-            get_beatmaphub_comments, get_beatmaphub_pack, get_beatmaphub_profile,
-            get_beatmaphub_recommendations, import_beatmaphub_pack, like_beatmaphub_pack,
-            login_beatmaphub, logout_beatmaphub, preview_beatmaphub_pack, publish_beatmaphub_pack,
-            rate_beatmaphub_pack, reconnect_beatmaphub, revoke_beatmaphub_device,
+            bootstrap_beatmaphub, create_beatmaphub_comment, delete_beatmap_backup,
+            delete_beatmaphub_comment, delete_beatmaphub_pack, favorite_beatmaphub_pack,
+            get_beatmap_backup, get_beatmaphub_auth_status, get_beatmaphub_comments,
+            get_beatmaphub_pack, get_beatmaphub_profile, get_beatmaphub_recommendations,
+            import_beatmaphub_pack, like_beatmaphub_pack, login_beatmaphub, logout_beatmaphub,
+            preview_beatmaphub_pack, publish_beatmaphub_pack, rate_beatmaphub_pack,
+            reconnect_beatmaphub, restore_beatmap_backup, revoke_beatmaphub_device,
             search_beatmaphub_packs, update_beatmaphub_comment, update_beatmaphub_pack,
+            upload_beatmap_backup,
         },
         career::{
             capture_career_snapshot, clear_career_history, get_career_calendar, get_career_day,
@@ -133,11 +137,14 @@ pub(crate) use crate::{
     },
 };
 
+/// 退出整个应用：走 Tauri 退出事件，从而触发 `lib.rs` 中的资源清理回调。
 #[tauri::command]
 pub(crate) fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// 生成完整的 `tauri::generate_handler` 命令注册列表，
+/// 供 `lib.rs` 的 `invoke_handler` 使用。
 macro_rules! handler {
     () => {
         tauri::generate_handler![
@@ -198,6 +205,10 @@ macro_rules! handler {
             update_beatmaphub_comment,
             delete_beatmaphub_comment,
             import_beatmaphub_pack,
+            upload_beatmap_backup,
+            get_beatmap_backup,
+            delete_beatmap_backup,
+            restore_beatmap_backup,
             get_capabilities,
             get_log_directory,
             list_log_files,
@@ -388,4 +399,5 @@ macro_rules! handler {
     };
 }
 
+// 宏需在定义之后再导出，供 `lib.rs` 的 `invoke_handler` 引用。
 pub(crate) use handler;

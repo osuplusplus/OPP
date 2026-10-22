@@ -1,3 +1,4 @@
+import { osuBeatmapsetUrl } from "../../shared/lib/osuUrl";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ExternalLink, FolderSearch, Heart, ImageIcon, ListMusic, Music4, PackageOpen, ScanSearch, WandSparkles } from "lucide-react";
 import type { LocalBeatmapSetSummary, LocalBeatmapSummary, OsuClient } from "../../shared/types/osu";
@@ -63,7 +64,7 @@ export function StageControls({ client, set, difficulty, focusSelection, volume,
         <button type="button" className="local-stage-button" onClick={() => { window.location.hash = `/view-trainer?${new URLSearchParams({ client, resource: id })}`; }}><WandSparkles />导入 Trainer</button>
         <button type="button" className="local-stage-button" disabled={!previewRoute} title={previewRoute ? "生成所选难度的谱面预览" : "该谱面没有在线 ID，暂不支持生成预览"} onClick={() => { if (previewRoute) window.location.hash = previewRoute; }}><ImageIcon />生成预览</button>
         {client === "stable" ? <button type="button" className="local-stage-button" disabled={!difficulty.resource.logical_path} onClick={() => { const path = difficulty.resource.logical_path; if (path) void run(() => desktopApi.openLocalResourceInExplorer(client, path)); }}><FolderSearch />打开文件</button> : <button type="button" className="local-stage-button" disabled={exporting} onClick={() => void exportSet()}><PackageOpen />{exporting ? "正在导出…" : "导出 .osz"}</button>}
-        <button type="button" className="local-stage-button" disabled={!set.beatmap_set_id} title={set.beatmap_set_id ? "打开谱面集官网" : "该谱面集尚未提交"} onClick={() => void run(() => desktopApi.openExternal(`https://osu.ppy.sh/beatmapsets/${set.beatmap_set_id}`))}><ExternalLink />谱面官网</button>
+        <button type="button" className="local-stage-button" disabled={!set.beatmap_set_id} title={set.beatmap_set_id ? "打开谱面集官网" : "该谱面集尚未提交"} onClick={() => void run(() => desktopApi.openExternal(osuBeatmapsetUrl(set.beatmap_set_id!)))}><ExternalLink />谱面官网</button>
         <button type="button" className="local-stage-button" onClick={() => void run(() => desktopApi.openNeteaseMusicSearch(set.artist_unicode || set.artist, set.title_unicode || set.title))}><Music4 />网易云搜索</button>
       </div>
     </div>

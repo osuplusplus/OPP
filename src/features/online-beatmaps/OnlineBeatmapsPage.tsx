@@ -1,3 +1,4 @@
+import { osuBeatmapDifficultyUrl, osuBeatmapsetUrl } from "../../shared/lib/osuUrl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Home, Music2 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
@@ -14,7 +15,7 @@ import { createDefaultSearchQuery, normalizePreviewUrl } from "./filters";
 import { similarityRouteForBeatmap } from "../similar-beatmaps/navigation";
 import { openCollectionDialog } from "../collections/events";
 import { useSettings } from "../settings/api";
-import { BeatmapPreviewCard } from "../tools/ToolsPage";
+import { BeatmapPreviewCard } from "../tools/cards/BeatmapPreviewCard";
 import { StageBackground } from "../../shared/components/StageBackground";
 import { BeatmapSearchHeading } from "../../shared/components/BeatmapSearchHeading";
 import { OnlineStageToolbar } from "./OnlineStageToolbar";
@@ -63,7 +64,7 @@ function OnlineBeatmapsClient({ ruleset, linkedQuery }: { ruleset: Ruleset; link
     const result = await desktopApi.getOnlineBeatmap(deepLink.beatmapId!);
     if (!beatmapsetIdFromLookup(result)) throw new Error("未找到该难度所属的谱面集。");
     return result;
-  }, enabled: view === "stage" && origin === "external" && selection === null && deepLink.beatmapId !== null, retry: false, staleTime: 5 * 60_000 });
+  }, enabled: view === "stage" && origin === "external" && selection === null && deepLink.beatmapId !== null, staleTime: 5 * 60_000 });
   const [manualDetailId, setManualDetailId] = useState<number | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [previewSet, setPreviewSet] = useState<OnlineBeatmapset | null>(null);
@@ -170,7 +171,7 @@ function OnlineBeatmapsClient({ ruleset, linkedQuery }: { ruleset: Ruleset; link
         </div> : <div key="browser" className="online-browser">
 
             {view === "stage" ? <main className="online-stage-focus">
-              {set ? <OnlineStageSong key={`${set.id}:${selection?.beatmapId ?? (origin === "external" ? deepLink.beatmapId : "")}`} initialBeatmapId={selection?.beatmapId ?? (origin === "external" ? deepLink.beatmapId : null)} set={set} ruleset={query.ruleset} playing={playingId === set.id} busy={downloads.busy} loading={detailQuery.isFetching} onPreview={() => preview(set)} onDownload={() => void startDownload([set])} onDetails={() => setManualDetailId(set.id)} onCollect={() => openCollectionDialog(collectionCandidates(set))} onVisualPreview={() => setPreviewSet(set)} onSimilar={(id, mode) => navigate(similarityRouteForBeatmap(id, mode))} onSearchTitle={() => apply(searchSameTitle(query, set))} onDifficultyWebsite={(id, mode) => { void desktopApi.openExternal(`https://osu.ppy.sh/beatmapsets/${set.id}#${mode}/${id}`).catch((error) => setNotice(errorMessage(error))); }} onWebsite={() => { void desktopApi.openExternal(`https://osu.ppy.sh/beatmapsets/${set.id}`).catch((error) => setNotice(errorMessage(error))); }} /> : <div className="online-stage-loading" role="status">{lookup.error || detailQuery.error ? "谱面加载失败" : "正在读取谱面…"}</div>}
+              {set ? <OnlineStageSong key={`${set.id}:${selection?.beatmapId ?? (origin === "external" ? deepLink.beatmapId : "")}`} initialBeatmapId={selection?.beatmapId ?? (origin === "external" ? deepLink.beatmapId : null)} set={set} ruleset={query.ruleset} playing={playingId === set.id} busy={downloads.busy} loading={detailQuery.isFetching} onPreview={() => preview(set)} onDownload={() => void startDownload([set])} onDetails={() => setManualDetailId(set.id)} onCollect={() => openCollectionDialog(collectionCandidates(set))} onVisualPreview={() => setPreviewSet(set)} onSimilar={(id, mode) => navigate(similarityRouteForBeatmap(id, mode))} onSearchTitle={() => apply(searchSameTitle(query, set))} onDifficultyWebsite={(id, mode) => { void desktopApi.openExternal(osuBeatmapDifficultyUrl(set.id, mode, id)).catch((error) => setNotice(errorMessage(error))); }} onWebsite={() => { void desktopApi.openExternal(osuBeatmapsetUrl(set.id)).catch((error) => setNotice(errorMessage(error))); }} /> : <div className="online-stage-loading" role="status">{lookup.error || detailQuery.error ? "谱面加载失败" : "正在读取谱面…"}</div>}
               {lookup.error || detailQuery.error ? <p className="online-notice" role="alert">{errorMessage(lookup.error || detailQuery.error)}<button onClick={() => { if (lookup.error) void lookup.refetch(); else void detailQuery.refetch(); }}>重试详情</button></p> : null}
             </main> : null}
 

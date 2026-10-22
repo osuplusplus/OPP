@@ -17,4 +17,5 @@ pub use commands::{
     update_settings,
 };
 pub use credentials::CredentialStore;
+// 令牌刷新是所有需要认证的域共用的能力，因此单独以 `pub(crate)` 暴露。
 pub(crate) use token::ensure_access_token;

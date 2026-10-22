@@ -1,3 +1,5 @@
+//! 在线谱面模块的 Tauri 命令层：搜索、收集、详情、背景图、镜像状态、批量下载与取消。
+
 use std::{
     collections::HashSet,
     path::PathBuf,
@@ -28,6 +30,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+/// 搜索始终走 osu! 官方 API；镜像只参与下载，不参与搜索。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：搜索远程资源。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -54,6 +57,7 @@ pub async fn search_online_beatmapsets(
     finish_span(span, result)
 }
 
+/// 按官方游标翻页收集去重结果，页间停留 150ms 以降低限流风险。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：收集远程资源的候选结果。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -65,6 +69,7 @@ pub async fn collect_online_beatmapsets(
     let limit = limit.clamp(1, MAX_COLLECT_RESULTS);
     query.cursor_string = None;
     let mut items = Vec::new();
+    // 谱面集 ID 去重；游标去重用于在 API 重复返回同一游标时终止翻页。
     let mut seen_ids = HashSet::new();
     let mut seen_cursors = HashSet::new();
     let mut available_total = None;
@@ -115,6 +120,7 @@ pub async fn collect_online_beatmapsets(
     })
 }
 
+/// 读取官方谱面集详情（需登录令牌）。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -140,6 +146,7 @@ pub async fn get_online_beatmap_background(
     state.online_artwork.load_or_fetch(beatmapset_id).await
 }
 
+/// 难度（beatmap）级元数据来自 Nerinyan 镜像。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -152,6 +159,7 @@ pub async fn get_online_beatmap(
     Ok(value)
 }
 
+/// 返回各镜像的健康状态与能力矩阵，供下载源选择器展示。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取当前状态或详情。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -161,6 +169,8 @@ pub async fn get_online_beatmap_provider_status(
     Ok(state.providers.statuses().await)
 }
 
+/// 批量下载入口：队列先去重，再由 `batch::run` 以受限并发执行，
+/// 全程经 `beatmap-download-progress` 事件汇报进度；同一时刻仅允许一个批量任务。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：下载所选资源。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -202,6 +212,7 @@ pub async fn download_online_beatmapsets(
 
     let state = app.state::<AppState>();
     let destination = prepare_destination(&request.destination)?;
+    // 同一谱面集只保留第一条，避免重复下载与重复计数。
     let mut unique_ids = HashSet::new();
     let items = request
         .items
@@ -211,6 +222,7 @@ pub async fn download_online_beatmapsets(
         .collect::<Vec<_>>();
     let cancel = Arc::new(AtomicBool::new(false));
     {
+        // 注册取消句柄并做单例互斥：已有批量任务在运行时直接拒绝。
         let mut runtime = state
             .beatmap_download
             .lock()
@@ -276,6 +288,7 @@ pub async fn download_online_beatmapsets(
         },
     );
 
+    // 请求未显式指定时，回落到用户设置中的“下载后自动打开”。
     let open_after_download = request.open_after_download.unwrap_or_else(|| {
         state
             .store
@@ -289,6 +302,7 @@ pub async fn download_online_beatmapsets(
         }
     }
 
+    // 仅当槽内仍是本次任务的句柄时才清空，避免误清后续任务。
     if let Ok(mut runtime) = state.beatmap_download.lock()
         && runtime
             .as_ref()
@@ -310,6 +324,7 @@ pub async fn download_online_beatmapsets(
     Ok(result)
 }
 
+/// 用系统默认程序打开下载产物；文件已不存在时返回可操作的错误提示。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -332,6 +347,7 @@ pub fn open_downloaded_path(app: AppHandle, path: String) -> CommandResult<()> {
     finish_span(span, result)
 }
 
+/// 仅置位取消标志；实际停止是协作式的，由下载循环在检查点感知并退出。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：请求取消正在进行的任务。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。

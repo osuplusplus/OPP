@@ -1,3 +1,7 @@
+//! 皮肤工坊业务编排：OSK 导入、资源浏览、组件级修改与发布写入。
+//! 所有修改先在临时副本上完成，再一次性换入原位（或另存为新皮肤）；
+//! 服务内互斥锁把工坊操作串行化，避免并发写坏皮肤目录。
+
 use std::{
     collections::HashSet,
     fs,
@@ -27,13 +31,17 @@ use super::{
     tree::{belongs_to, build_tree, index_assets},
 };
 
+/// 皮肤工坊服务；所有操作共用一把互斥锁串行执行。
 pub struct SkinWorkshopService {
+    /// `.osk` 解包内容与临时包状态的存放根目录。
     package_root: PathBuf,
     local_analysis: Arc<LocalAnalysisService>,
+    /// 包导入与各类写入共用的互斥锁，任一时刻仅允许一个工坊任务运行。
     lock: Mutex<()>,
 }
 
 impl SkinWorkshopService {
+    /// 创建服务并准备解包目录；在应用启动组装依赖时调用一次。
     pub fn new(
         app_data_dir: &Path,
         local_analysis: Arc<LocalAnalysisService>,
@@ -47,6 +55,10 @@ impl SkinWorkshopService {
         })
     }
 
+    /// 打开 `.osk` 皮肤包：清空旧解包目录、解压、定位 `skin.ini` 并生成摘要。
+    ///
+    /// 解析结果以 `package:skin:<uuid>` 标识并落盘为临时包状态；它可作为
+    /// 修改来源参与融合，但不允许被原地覆写（见 `execute_action`）。
     pub fn open_package(
         &self,
         path: &Path,
@@ -68,6 +80,7 @@ impl SkinWorkshopService {
                 "请选择 .osk Skin 文件",
             ));
         }
+        // 每次导入都是全新会话：直接清空旧解包目录，旧临时包 ID 随之失效。
         if self.package_root.exists() {
             fs::remove_dir_all(&self.package_root)?;
         }
@@ -84,9 +97,11 @@ impl SkinWorkshopService {
             let mut entry = archive.by_index(index).map_err(|error| {
                 CommandError::new("SKIN_PACKAGE_FORMAT_ERROR", error.to_string())
             })?;
+            // enclosed_name 拒绝 `../` 等逃逸路径（zip-slip 防护）。
             let Some(relative) = entry.enclosed_name() else {
                 continue;
             };
+            // 跳过压缩包内的符号链接条目，避免解出指向皮肤外的引用。
             if entry
                 .unix_mode()
                 .is_some_and(|mode| mode & 0o170000 == 0o120000)
@@ -118,6 +133,7 @@ impl SkinWorkshopService {
             .ok_or_else(|| {
                 CommandError::new("SKIN_PACKAGE_CONFIG_MISSING", ".osk 中没有 skin.ini")
             })?;
+        // osk 可能带一层包装目录，以 skin.ini 所在目录作为皮肤根目录。
         let skin_root = config.path().parent().unwrap_or(&extracted).to_path_buf();
         let bytes = fs::read(config.path())?;
         let mut summary = crate::features::local_analysis::parser::parse_skin(
@@ -130,6 +146,7 @@ impl SkinWorkshopService {
         )
         .map_err(|error| CommandError::new("SKIN_PACKAGE_CONFIG_INVALID", error))?
         .summary;
+        // 赋予临时包独立资源 ID，`package:skin:` 前缀是 skin_source 识别依据。
         summary.resource.resource_id = format!("package:skin:{}", Uuid::new_v4());
         summary.resource.logical_path = Some(source.to_string_lossy().to_string());
         let state = PackageState {
@@ -144,6 +161,7 @@ impl SkinWorkshopService {
         Ok(summary)
     }
 
+    /// 构建指定皮肤的资源分组目录树。
     pub fn tree(&self, client: LocalClient, skin_resource_id: &str) -> CommandResult<SkinTree> {
         let _guard = self.guard()?;
         self.ensure_stable(client)?;
@@ -155,6 +173,7 @@ impl SkinWorkshopService {
         })
     }
 
+    /// 列出某个分组（含子分组）下的全部资源变体。
     pub fn part_preview(
         &self,
         client: LocalClient,
@@ -182,6 +201,7 @@ impl SkinWorkshopService {
         })
     }
 
+    /// 读取单个资源并以 base64 `data:` URL 返回，供前端直接预览。
     pub fn asset(
         &self,
         client: LocalClient,
@@ -197,6 +217,7 @@ impl SkinWorkshopService {
             .ok_or_else(|| {
                 CommandError::new("SKIN_WORKSHOP_ASSET_NOT_FOUND", "未找到该 Skin 资源")
             })?;
+        // 图片/音频分别设 32MB 与 24MB 上限，防止超大文件撑爆前端内存。
         let limit = match asset.summary.kind {
             WorkshopAssetKind::Image => 32 * 1024 * 1024,
             WorkshopAssetKind::Audio => 24 * 1024 * 1024,
@@ -217,6 +238,7 @@ impl SkinWorkshopService {
         })
     }
 
+    /// 读取 `skin.ini` 的结构化文档（节、条目、错误与原始源码）。
     pub fn config(
         &self,
         client: LocalClient,
@@ -227,6 +249,7 @@ impl SkinWorkshopService {
         read_config(&root)
     }
 
+    /// 在目标皮肤上执行单条修改动作，按写入模式覆写原位或另存副本。
     pub fn execute_action(
         &self,
         target_skin_resource_id: &str,
@@ -236,6 +259,7 @@ impl SkinWorkshopService {
         let _guard = self.guard()?;
         let (summary, target_root) =
             self.skin_source(LocalClient::Stable, target_skin_resource_id)?;
+        // 临时包只存在于工坊目录且随时会被下次导入清空，禁止原地覆写。
         if target_skin_resource_id.starts_with("package:skin:")
             && matches!(&mode, SkinWorkshopWriteMode::Overwrite)
         {
@@ -249,6 +273,7 @@ impl SkinWorkshopService {
         })
     }
 
+    /// 执行预设工作流（当前仅 Mania 迁移），写入模式约束与单条动作一致。
     pub fn execute_preset(
         &self,
         target_skin_resource_id: &str,
@@ -279,6 +304,13 @@ impl SkinWorkshopService {
         }
     }
 
+    /// 统一的发布写入入口，所有修改都在临时副本上完成后才换入。
+    ///
+    /// `Overwrite`：复制原皮肤到临时目录，在副本上执行修改，成功后
+    /// “原目录改名备份、临时目录顶替”；顶替失败把备份改回原位回滚。
+    /// `CreateCopy`：在 Stable 皮肤根目录下以新名落一个副本，重名即拒绝，
+    /// 副本的 `skin.ini` 中 `Name` 会被改写为新目录名。
+    /// 两种模式成功后都刷新 Stable 索引，让前端立即看到新状态。
     fn execute_write(
         &self,
         current_name: &str,
@@ -294,13 +326,16 @@ impl SkinWorkshopService {
                 let transaction_id = Uuid::new_v4();
                 let temporary = parent.join(format!(".opp-direct-{transaction_id}"));
                 let backup = parent.join(format!(".opp-backup-{transaction_id}"));
+                // 修改全部发生在副本上，成功之前原目录保持原样可用。
                 copy_directory(target_root, &temporary)?;
                 if let Err(error) = operation(&temporary) {
                     let _ = fs::remove_dir_all(&temporary);
                     return Err(error);
                 }
+                // 先把原目录移走作为回滚凭据，再让副本顶替原位置。
                 fs::rename(target_root, &backup)?;
                 if let Err(error) = fs::rename(&temporary, target_root) {
+                    // 顶替失败：备份改回原位恢复原皮肤，并清掉残留副本。
                     let _ = fs::rename(&backup, target_root);
                     let _ = fs::remove_dir_all(&temporary);
                     return Err(error.into());
@@ -321,6 +356,8 @@ impl SkinWorkshopService {
                 if target.exists() {
                     return Err(CommandError::new("SKIN_NAME_EXISTS", "同名 Skin 已存在"));
                 }
+                // 复制 → 修改 → 改名 → 原子换入；任一步失败都清理临时目录，
+                // 目标名只在最终 rename 时出现，不会留下半成品皮肤。
                 let temporary = skins_root.join(format!(".opp-workshop-{}", Uuid::new_v4()));
                 let result = copy_directory(target_root, &temporary)
                     .and_then(|_| operation(&temporary))
@@ -340,6 +377,12 @@ impl SkinWorkshopService {
         }
     }
 
+    /// Mania 迁移预设：清空目标的全部 Mania 资源后，整块搬运来源的
+    /// Mania 资源与所有 `[Mania]` 配置节。
+    ///
+    /// Mania 资源由两部分判定：文件名前缀（`mania-`、`lightingn-`、
+    /// `lightingl-`）以及 `[Mania]` 节中引用的自定义资源名，后者覆盖
+    /// `NoteImage1: orb` 这类换皮配置，不迁移会留下指向缺失文件的键。
     fn migrate_mania(&self, target_root: &Path, source_root: &Path) -> CommandResult<()> {
         let source_references = mania_asset_references(source_root)?;
         let target_references = mania_asset_references(target_root)?;
@@ -356,6 +399,7 @@ impl SkinWorkshopService {
                 "来源 Skin 没有可迁移的 Mania 资源",
             ));
         }
+        // 先删后拷：来源中已不存在的旧变体（如多余帧）不会残留在目标里。
         for asset in index_assets(target_root)?.into_iter().filter(|asset| {
             is_mania_asset(&asset.summary.name)
                 || matches_asset_reference(&asset.summary.name, &target_references)
@@ -372,6 +416,7 @@ impl SkinWorkshopService {
         replace_config_sections(target_root, source_root, "Mania")
     }
 
+    /// 在给定根目录上落地单条动作；由 `execute_write` 在临时副本上调用。
     fn mutate_at(&self, target_root: &Path, action: &SkinWorkshopAction) -> CommandResult<()> {
         match action {
             SkinWorkshopAction::ReplaceComponent {
@@ -444,6 +489,10 @@ impl SkinWorkshopService {
         }
     }
 
+    /// 用本地文件替换皮肤内一个现有组件。
+    ///
+    /// 要求目标存在且为普通文件、扩展名一致（防止把 png 换成 jpg 破坏
+    /// 皮肤引用）；写入走“同目录临时文件 + 改名”，失败不留半截内容。
     fn replace_component_at(
         &self,
         root: &Path,
@@ -494,6 +543,10 @@ impl SkinWorkshopService {
         Ok(())
     }
 
+    /// 从来源皮肤复制组件到目标逻辑路径；目标已存在时退化为替换。
+    ///
+    /// 目标不存在时允许新建（含父目录），但父目录规范化后必须仍位于
+    /// 皮肤根目录内，扩展名同样必须一致。
     fn copy_component_at(
         &self,
         root: &Path,
@@ -528,6 +581,7 @@ impl SkinWorkshopService {
             ));
         }
         if let Some(parent) = target.parent() {
+            // 新建父目录后再校验其规范化结果仍在皮肤根内，双重防穿越。
             fs::create_dir_all(parent)?;
             let canonical_parent = parent.canonicalize()?;
             let canonical_root = root.canonicalize()?;
@@ -542,6 +596,10 @@ impl SkinWorkshopService {
         Ok(())
     }
 
+    /// 整组替换：删除目标中该分组的全部资源，再复制来源的同分组资源。
+    ///
+    /// 先删后拷可清掉来源里已不存在的旧变体（如多余帧文件），
+    /// 其他分组的资源不受影响。
     fn replace_part_from_root(
         &self,
         target_root: &Path,
@@ -577,6 +635,10 @@ impl SkinWorkshopService {
         Ok(())
     }
 
+    /// 解析资源 ID 到（摘要, 皮肤根目录）。
+    ///
+    /// `package:skin:` 前缀走临时包状态文件，其余交给本地分析索引；
+    /// 临时包只认最近一次导入的 ID，重启或再次导入后旧 ID 失效。
     fn skin_source(
         &self,
         client: LocalClient,
@@ -602,6 +664,7 @@ impl SkinWorkshopService {
         ))
     }
 
+    /// 组件浏览与融合只支持 Stable 的目录结构，Lazer 仅提供配置摘要。
     fn ensure_stable(&self, client: LocalClient) -> CommandResult<()> {
         if client != LocalClient::Stable {
             return Err(CommandError::new(
@@ -612,6 +675,7 @@ impl SkinWorkshopService {
         Ok(())
     }
 
+    /// 获取全局互斥；锁中毒说明上一个任务异常崩溃，状态不可信。
     fn guard(&self) -> CommandResult<std::sync::MutexGuard<'_, ()>> {
         self.lock
             .lock()
@@ -623,6 +687,7 @@ impl SkinWorkshopService {
     }
 }
 
+/// 扩展名到 MIME 的映射，未知扩展退回 `application/octet-stream`。
 fn mime_type(extension: &str, kind: WorkshopAssetKind) -> &'static str {
     match (kind, extension) {
         (WorkshopAssetKind::Image, "png") => "image/png",
@@ -638,6 +703,7 @@ fn mime_type(extension: &str, kind: WorkshopAssetKind) -> &'static str {
     }
 }
 
+/// 按 osu! 命名约定以文件名前缀判定 Mania 专属资源。
 fn is_mania_asset(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.starts_with("mania-")
@@ -645,6 +711,10 @@ fn is_mania_asset(name: &str) -> bool {
         || lower.starts_with("lightingl-")
 }
 
+/// 从 `[Mania]` 节收集被引用的资源名集合。
+///
+/// 值可能带引号或路径，统一取文件名去扩展名并剥掉 `@2x`；
+/// 只认已知会引用文件的键，避免把数值配置误当作文件名。
 fn mania_asset_references(root: &Path) -> CommandResult<HashSet<String>> {
     let document = read_config(root)?;
     if !document.errors.is_empty() {
@@ -697,6 +767,8 @@ fn mania_asset_references(root: &Path) -> CommandResult<HashSet<String>> {
     Ok(references)
 }
 
+/// 判断文件是否命中引用集合：文件名相等，或为“引用名 + 数字后缀”
+/// （osu! 动画帧命名，如 `orb-0.png` 命中 `NoteImage1: orb`）。
 fn matches_asset_reference(name: &str, references: &HashSet<String>) -> bool {
     let stem = Path::new(name)
         .file_stem()
@@ -716,6 +788,8 @@ fn matches_asset_reference(name: &str, references: &HashSet<String>) -> bool {
     })
 }
 
+/// 校验新皮肤名：拒绝空值、`.`/`..`、结尾点/空格与 Windows 非法字符，
+/// 防止拼出非法或越界的目录路径。
 fn validate_name(value: &str) -> CommandResult<String> {
     let name = value.trim();
     if name.is_empty()
@@ -736,6 +810,7 @@ fn validate_name(value: &str) -> CommandResult<String> {
 mod tests {
     use super::*;
 
+    // 发布名拒绝路径穿越与非法字符。
     #[test]
     fn rejects_unsafe_publish_names() {
         assert!(validate_name("../bad").is_err());
@@ -743,6 +818,7 @@ mod tests {
         assert_eq!(validate_name("My Skin").unwrap(), "My Skin");
     }
 
+    // 整组替换会清掉旧变体且不影响其他分组。
     #[test]
     fn complete_part_replacement_removes_old_variants_and_keeps_other_parts() {
         let app = tempfile::tempdir().expect("app");
@@ -767,6 +843,7 @@ mod tests {
         assert!(target.path().join("menu-back.png").is_file());
     }
 
+    // 组件替换拒绝路径穿越与扩展名变更。
     #[test]
     fn component_replacement_rejects_path_escape_and_format_changes() {
         let app = tempfile::tempdir().expect("app");
@@ -788,6 +865,7 @@ mod tests {
         );
     }
 
+    // 目标缺失时允许新建组件，同时仍拦截越界路径。
     #[test]
     fn copied_component_can_be_added_when_target_is_missing() {
         let app = tempfile::tempdir().expect("app");
@@ -810,6 +888,7 @@ mod tests {
         );
     }
 
+    // Mania 迁移只替换 Mania 资源与配置节，其余内容原样保留。
     #[test]
     fn mania_preset_replaces_resources_and_all_mania_sections_only() {
         let app = tempfile::tempdir().expect("app");

@@ -5,10 +5,10 @@ import { desktopApi } from "./tauri";
 export const communityIdentityKey = ["beatmaphub", "auth"] as const;
 export const communityProfileKey = ["beatmaphub", "profile"] as const;
 export function useCommunityIdentity() {
-  return useQuery({ queryKey: communityIdentityKey, queryFn: desktopApi.getBeatmapHubAuthStatus, retry: false, staleTime: 0, gcTime: 0 });
+  return useQuery({ queryKey: communityIdentityKey, queryFn: desktopApi.getBeatmapHubAuthStatus, gcTime: 0 });
 }
 export function useCommunityProfile(enabled: boolean) {
-  return useQuery({ queryKey: communityProfileKey, queryFn: desktopApi.getBeatmapHubProfile, enabled, retry: false, staleTime: 0, gcTime: 0 });
+  return useQuery({ queryKey: communityProfileKey, queryFn: desktopApi.getBeatmapHubProfile, enabled, gcTime: 0 });
 }
 export async function connectCommunityIdentity() {
   try { return await desktopApi.loginBeatmapHub(); }

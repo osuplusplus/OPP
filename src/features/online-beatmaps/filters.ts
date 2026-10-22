@@ -1,3 +1,4 @@
+import { absoluteOsuUrl } from "../../shared/lib/osuUrl";
 import type {
   OnlineBeatmap,
   OnlineBeatmapSearchQuery,
@@ -148,7 +149,7 @@ export function activeFilterCount(query: OnlineBeatmapSearchQuery): number {
 export function normalizePreviewUrl(value?: string): string | null {
   if (!value) return null;
   if (value.startsWith("//")) return `https:${value}`;
-  if (value.startsWith("/")) return `https://osu.ppy.sh${value}`;
+  if (value.startsWith("/")) return absoluteOsuUrl(value);
   return value;
 }
 

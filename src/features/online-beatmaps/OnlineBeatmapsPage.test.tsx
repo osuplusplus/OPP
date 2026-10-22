@@ -12,7 +12,7 @@ const localPreferences = vi.hoisted(() => ({ show_local_beatmap_presence: true, 
 vi.mock("../../shared/lib/tauri", () => ({ desktopApi: api }));
 vi.mock("../../app/ModeContext", () => ({ useMode: () => ({ ruleset: "osu" }) }));
 vi.mock("../settings/api", () => ({ settingsQueryKey: ["settings"], useSettings: () => ({ data: { ...localPreferences, beatmap_download_directory: "C:/Maps", default_beatmap_download_provider: "sayobot", reduce_motion: true, preview_volume: 65 } }) }));
-vi.mock("../tools/ToolsPage", () => ({ BeatmapPreviewCard: () => <div>Visual preview</div> }));
+vi.mock("../tools/cards/BeatmapPreviewCard", () => ({ BeatmapPreviewCard: () => <div>Visual preview</div> }));
 vi.mock("../../shared/components/StageBackground", () => ({ StageBackground: ({ source }: { source: string }) => <div data-testid="artwork" data-source={source} /> }));
 vi.mock("./BeatmapsetDetailDialog", () => ({ BeatmapsetDetailDialog: ({ beatmapsetId, initialBeatmapId }: { beatmapsetId: number | null; initialBeatmapId: number | null }) => beatmapsetId ? <div data-testid="detail-link">{beatmapsetId}/{initialBeatmapId}</div> : null }));
 

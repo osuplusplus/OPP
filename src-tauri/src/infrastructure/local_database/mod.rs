@@ -13,11 +13,14 @@ use crate::{
 };
 
 pub(crate) const FILE_NAME: &str = "library.sqlite3";
+/// 当前 schema 版本，必须与 `MIGRATIONS` 数组长度保持一致。
 pub(crate) const SCHEMA_VERSION: u32 = 2;
 const APPLICATION_ID: i32 = 0x4f50504c; // OPPL
+/// 按版本升序的迁移脚本；v1 额外写入身份元数据（见 `migrate`）。
 const MIGRATIONS: &[&str] = &[include_str!("schema_v1.sql"), include_str!("schema_v2.sql")];
 pub(crate) mod library;
 
+/// 包装一次文件系统操作：记录日志并统一把 IO 错误转为 `DATABASE_PATH_ERROR`。
 pub(crate) fn fs_io<T>(
     operation: &str,
     path: &Path,
@@ -33,10 +36,12 @@ pub(crate) fn fs_io<T>(
     )
 }
 
+/// 已打开的本地索引库：连接、身份 UUID 与打开后的 schema 版本。
 #[derive(Debug)]
 pub(crate) struct LibraryDatabase {
     // Only the feature service's mutex may access this connection.
     pub(crate) connection: Connection,
+    /// 数据库身份标识；配置中记住的就是这个值，换库时据此识别。
     pub(crate) uuid: String,
     pub(crate) version: u32,
 }
@@ -59,6 +64,7 @@ fn verify_integrity(connection: &Connection) -> CommandResult<()> {
     finish_span(span, result)
 }
 
+/// 常规打开：`allow_create` 为真（用户主动采用目录）时附带完整性检查。
 pub(crate) fn open(
     directory: &Path,
     allow_create: bool,
@@ -69,6 +75,7 @@ pub(crate) fn open(
     finish_span(span, result)
 }
 
+/// 恢复场景打开：禁止新建、必须匹配既有 UUID，并执行完整性检查。
 pub(crate) fn open_for_recovery(
     directory: &Path,
     expected_uuid: &str,
@@ -80,6 +87,8 @@ pub(crate) fn open_for_recovery(
     )
 }
 
+/// 打开主流程：预留/校验文件、验证身份与版本、配置 PRAGMA、迁移并验证可写；
+/// 新建失败时只清理本次创建的文件。
 fn open_inner(
     directory: &Path,
     allow_create: bool,
@@ -93,6 +102,7 @@ fn open_inner(
         ));
     }
     let path = directory.join(FILE_NAME);
+    // 主库缺失但残留 -wal/-shm 时拒绝新建，避免旧日志拼接进新库造成损坏。
     if allow_create && !fs_io("exists", &path, path.try_exists())? {
         for suffix in ["-wal", "-shm"] {
             let sidecar = directory.join(format!("{FILE_NAME}{suffix}"));
@@ -104,6 +114,7 @@ fn open_inner(
             }
         }
     }
+    // 拒绝符号链接等非普通文件，避免跟随链接把库写到意外位置。
     if fs_io("exists", &path, path.try_exists())? {
         let metadata = fs_io("symlink_metadata", &path, fs::symlink_metadata(&path))?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -243,6 +254,7 @@ fn read_version(connection: &Connection) -> CommandResult<u32> {
         .map_err(sql_error)
 }
 
+/// 校验文件确为 OPP 索引库：`application_id`、元数据表身份与（可选的）期望 UUID。
 fn validate_identity(
     connection: &Connection,
     expected_uuid: Option<&str>,
@@ -284,6 +296,8 @@ fn validate_identity(
     Ok(uuid)
 }
 
+/// 在单个立即事务内按序执行未应用的迁移；首版迁移同时写入身份元数据与
+/// `application_id`，每步更新 `user_version`，失败整体回滚。
 fn migrate(
     connection: &mut Connection,
     current: u32,
@@ -326,6 +340,7 @@ fn migrate(
     finish_span(span, result)
 }
 
+/// 以空查询验证关键表可访问、迁移记录与版本一致、必需索引存在。
 fn validate_schema(connection: &Connection) -> CommandResult<()> {
     for sql in [
         "SELECT singleton, database_uuid, created_at, purpose FROM database_meta LIMIT 0",
@@ -374,6 +389,7 @@ fn validate_schema(connection: &Connection) -> CommandResult<()> {
     Ok(())
 }
 
+/// 把 rusqlite 错误映射为用户可读的统一错误码（占用、只读、磁盘满、损坏等）。
 pub(crate) fn sql_error(error: rusqlite::Error) -> CommandError {
     use rusqlite::ErrorCode;
     let (code, message) = match error.sqlite_error_code() {

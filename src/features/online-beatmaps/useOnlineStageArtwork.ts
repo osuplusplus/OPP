@@ -11,7 +11,6 @@ export function useOnlineStageArtwork(set: OnlineBeatmapset | undefined, loadOri
     enabled: beatmapsetId !== null && loadOriginal,
     staleTime: Infinity,
     gcTime: 5 * 60_000,
-    retry: false,
   });
   const fallback = set?.covers?.["cover@2x"] ?? set?.covers?.cover ?? null;
   const source = original.data ?? fallback;

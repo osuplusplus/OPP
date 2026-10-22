@@ -1,3 +1,5 @@
+//! 查询目标来源的解析与获取：ID / 链接解析、本地 `.osu` 读取与在线兜底下载。
+
 use std::{fs, path::Path};
 
 use url::Url;
@@ -7,8 +9,11 @@ use crate::{
     features::online_beatmaps::providers::ProviderRegistry,
 };
 
+/// 单个 `.osu` 文件的大小上限（16 MiB），防止异常大文件拖垮即时分析。
 const MAX_OSU_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
+/// 解析用户输入的 Beatmap ID：纯数字，或 osu.ppy.sh 链接（支持
+/// `/beatmaps/{id}`、`/b/{id}` 以及谱面集页的 `#osu/{id}` fragment）。
 pub fn parse_beatmap_id(input: &str) -> CommandResult<u64> {
     let value = input.trim();
     if let Ok(id) = value.parse::<u64>()
@@ -54,6 +59,7 @@ pub fn parse_beatmap_id(input: &str) -> CommandResult<u64> {
     ))
 }
 
+/// 读取本地 `.osu` 文件：校验扩展名、必须是普通文件且不超过 16 MiB。
 pub fn read_local_osu(path: &str) -> CommandResult<Vec<u8>> {
     let path = Path::new(path);
     if path
@@ -83,6 +89,7 @@ pub fn read_local_osu(path: &str) -> CommandResult<Vec<u8>> {
     fs::read(path).map_err(|_| CommandError::new("BEATMAP_READ_FAILED", "无法读取选择的谱面文件"))
 }
 
+/// 索引未命中时的在线兜底：从 osu! 官方源下载 `.osu` 并复检大小与内容。
 pub async fn fetch_online_osu(
     providers: &ProviderRegistry,
     beatmap_id: u64,
@@ -99,6 +106,7 @@ pub async fn fetch_online_osu(
             "在线谱面文件超过 16 MiB，无法即时分析",
         ));
     }
+    // 官方接口可能返回非谱面内容，必须校验 `.osu` 文件头。
     if !download.bytes.starts_with(b"osu file format v") {
         return Err(CommandError::new(
             "INVALID_BEATMAP_FILE",
@@ -114,6 +122,7 @@ mod tests {
 
     use super::*;
 
+    // 数字 ID 与三种受支持的链接格式都能解析。
     #[test]
     fn parses_supported_ids_and_urls() {
         assert_eq!(parse_beatmap_id("123").expect("numeric id"), 123);
@@ -131,12 +140,14 @@ mod tests {
         );
     }
 
+    // 拒绝外域链接与不含具体难度的谱面集链接。
     #[test]
     fn rejects_foreign_or_set_only_urls() {
         assert!(parse_beatmap_id("https://example.com/b/1").is_err());
         assert!(parse_beatmap_id("https://osu.ppy.sh/beatmapsets/10").is_err());
     }
 
+    // 拒绝非 .osu 扩展名与超过大小上限的本地文件。
     #[test]
     fn rejects_non_osu_and_oversized_local_files() {
         let directory = tempfile::tempdir().expect("temporary directory");

@@ -1,3 +1,5 @@
+//! rino 图池来源：请求 ASC 星域杯官方 `map-selections` 接口，
+//! 按 `season`/`category` 过滤，仅接受 `approved` 与 `padding` 均为 true 的记录。
 use std::{collections::HashSet, time::Duration};
 
 use futures_util::StreamExt;
@@ -18,6 +20,8 @@ struct Response {
     data: Vec<Selection>,
 }
 
+/// 接口返回的单条选图记录（wire 格式为 camelCase）；
+/// `is_custome`/`is_origin` 是上游接口的既有拼写，必须原样映射、不能“修正”。
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Selection {
@@ -37,6 +41,9 @@ struct Selection {
     is_origin: bool,
 }
 
+/// 校验 rino 接口响应并转换为图池：响应不超过 500 条，逐条要求 `approved` 与
+/// `padding` 为 true、赛季/阶段与引用一致且 (模组, 序号) 不重复；
+/// 条目按 NM、HD、HR、DT、FM、LZ、TB 的固定顺序排序（未知类型排在最后）。
 pub(super) fn decode(bytes: &[u8], reference: &TournamentPoolRef) -> CommandResult<TournamentPool> {
     reference.validate()?;
     let response: Response = serde_json::from_slice(bytes)
@@ -103,6 +110,8 @@ pub(super) fn decode(bytes: &[u8], reference: &TournamentPoolRef) -> CommandResu
     })
 }
 
+/// 请求 rino 接口：固定端点附加 `season`/`category` 查询参数（`approved`、`padding`
+/// 恒为 true），不跟随重定向，流式读取上限 2 MiB，成功后交由 `decode` 校验。
 pub(super) async fn fetch(reference: &TournamentPoolRef) -> CommandResult<TournamentPool> {
     let span = global().map(|logger| logger.operation("tournament_pools", "fetch_rino"));
     let result = async {

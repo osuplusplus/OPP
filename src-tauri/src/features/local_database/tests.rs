@@ -1,3 +1,4 @@
+//! 本地数据库状态机测试：初始化幂等、换盘恢复、配置原子写与路径校验。
 use super::*;
 use crate::infrastructure::local_database::FILE_NAME;
 
@@ -5,6 +6,7 @@ fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// 初始化幂等、重启后保持身份，且不触碰应用目录里的既有文件。
 #[test]
 fn initializes_once_restarts_and_keeps_existing_data_untouched() {
     let app = tempfile::tempdir().unwrap();
@@ -48,6 +50,7 @@ fn initializes_once_restarts_and_keeps_existing_data_untouched() {
     assert!(!directory.join("career.sqlite3").exists());
 }
 
+/// 目录丢失后保留身份，只允许重新定位到同一 UUID 的库。
 #[test]
 fn lost_directory_retains_identity_and_relocates_only_same_database() {
     let app = tempfile::tempdir().unwrap();
@@ -82,6 +85,7 @@ fn lost_directory_retains_identity_and_relocates_only_same_database() {
     );
 }
 
+/// 库文件缺失时进入错误态，绝不悄悄重建空库。
 #[test]
 fn missing_file_is_not_recreated_even_if_directory_exists() {
     let app = tempfile::tempdir().unwrap();
@@ -101,6 +105,7 @@ fn missing_file_is_not_recreated_even_if_directory_exists() {
     assert!(!directory.join(FILE_NAME).exists());
 }
 
+/// 配置写入失败不丢库：目录创建成功但配置未发布时，仍可重试复用已建数据库。
 #[test]
 fn failed_config_write_leaves_database_reusable_for_retry() {
     let app = tempfile::tempdir().unwrap();
@@ -123,6 +128,7 @@ fn failed_config_write_leaves_database_reusable_for_retry() {
     );
 }
 
+/// 配置损坏阻止初始化；仅剩 `.bak` 备份时也能恢复（对应中断的发布流程）。
 #[test]
 fn invalid_config_blocks_creation_and_interrupted_publish_recovers_backup() {
     let app = tempfile::tempdir().unwrap();
@@ -157,6 +163,7 @@ fn invalid_config_blocks_creation_and_interrupted_publish_recovers_backup() {
     assert!(service.config_path.exists());
 }
 
+/// 非法路径不影响后续重试；只读库文件不得被报告为就绪。
 #[test]
 fn path_errors_are_retryable_and_readonly_library_is_not_reported_ready() {
     let app = tempfile::tempdir().unwrap();
@@ -190,6 +197,7 @@ fn path_errors_are_retryable_and_readonly_library_is_not_reported_ready() {
     assert_eq!(service.retry().unwrap().phase, DatabasePhase::Ready);
 }
 
+/// 并发初始化收敛到同一个库与同一 UUID。
 #[test]
 fn concurrent_initialization_shares_one_database_uuid() {
     let app = tempfile::tempdir().unwrap();
@@ -215,6 +223,7 @@ fn concurrent_initialization_shares_one_database_uuid() {
     assert!(uuids.iter().all(|uuid| uuid == &uuids[0]));
 }
 
+/// 库被其他连接占用时保持配置并报 `DATABASE_BUSY`，解锁后重试即就绪。
 #[test]
 fn busy_library_preserves_configuration_and_becomes_ready_after_unlock() {
     let app = tempfile::tempdir().unwrap();
@@ -237,6 +246,7 @@ fn busy_library_preserves_configuration_and_becomes_ready_after_unlock() {
     assert_eq!(service.retry().unwrap().phase, DatabasePhase::Ready);
 }
 
+/// 换盘时配置写入失败则维持原目录与身份，不产生半迁移状态。
 #[test]
 fn relocation_config_write_failure_keeps_original_location_and_identity() {
     let app = tempfile::tempdir().unwrap();
@@ -263,6 +273,7 @@ fn relocation_config_write_failure_keeps_original_location_and_identity() {
     );
 }
 
+/// Windows 网络（UNC）路径在创建任何目录之前即被拒绝。
 #[cfg(windows)]
 #[test]
 fn rejects_network_paths_before_creating_anything() {

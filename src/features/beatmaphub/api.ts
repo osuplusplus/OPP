@@ -41,34 +41,33 @@ export function useBeatmapHubRecommendations() {
   return useQuery({
     queryKey: beatmapHubRecommendationsKey,
     queryFn: () => desktopApi.getBeatmapHubRecommendations(20),
-    retry: false,
     staleTime: 0, gcTime: 0,
   });
 }
 
 export function useHubSearch(query: string) {
-  return useQuery({ queryKey: [...hubSearchKey, query], queryFn: () => desktopApi.searchBeatmapHubPacks(query), enabled: Boolean(query), retry: false, staleTime: 0, gcTime: 0 });
+  return useQuery({ queryKey: [...hubSearchKey, query], queryFn: () => desktopApi.searchBeatmapHubPacks(query), enabled: Boolean(query), gcTime: 0 });
 }
 export function useHubPreview(id: string, identity: string) {
-  return useQuery({ queryKey: [...hubPackKey, id, identity], queryFn: () => desktopApi.previewBeatmapHubPack(id), enabled: Boolean(id), retry: false, staleTime: 0, gcTime: 0 });
+  return useQuery({ queryKey: [...hubPackKey, id, identity], queryFn: () => desktopApi.previewBeatmapHubPack(id), enabled: Boolean(id), gcTime: 0 });
 }
 export function useHubComments(id: string) {
-  return useQuery({ queryKey: [...hubKey, "comments", id], queryFn: () => desktopApi.getBeatmapHubComments(id), enabled: Boolean(id), staleTime: 0, gcTime: 0, retry: false });
+  return useQuery({ queryKey: [...hubKey, "comments", id], queryFn: () => desktopApi.getBeatmapHubComments(id), enabled: Boolean(id), gcTime: 0 });
 }
 export function useHubCollections(enabled: boolean) {
-  return useQuery({ queryKey: ["collections", "summaries"], queryFn: desktopApi.listCollectionSummaries, enabled, retry: false });
+  return useQuery({ queryKey: ["collections", "summaries"], queryFn: desktopApi.listCollectionSummaries, enabled });
 }
 export function useHubDownloadConfig(enabled: boolean) {
   return useQuery({ queryKey: [...hubKey, "download-config"], queryFn: async () => {
     const [settings, sources] = await Promise.all([desktopApi.getSettings(), desktopApi.getLocalSources()]);
     const stable = sources.find((source) => source.client === "stable" && source.valid && source.install_root);
     return { settings, root: stable?.install_root ?? null };
-  }, enabled, retry: false, staleTime: 0, gcTime: 0 });
+  }, enabled, gcTime: 0 });
 }
 export function useHubMetadata(pack: BeatmapHubPack | undefined) {
   return useQuery({
     queryKey: [...hubKey, "metadata", pack?.id, pack?.manifest_hash, pack?.beatmapset_ids],
-    enabled: Boolean(pack), retry: false, staleTime: 0, gcTime: 0,
+    enabled: Boolean(pack), gcTime: 0,
     queryFn: async ({ signal }) => {
       const ids = pack!.beatmapset_ids;
       const resolved: OnlineBeatmapset[] = [];

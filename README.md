@@ -25,6 +25,7 @@ OPP 使用 Tauri 2、React 19 与 Rust 构建，支持 Windows x64 与 Linux。
 | 在线谱面 | 搜索、筛选、舞台预览、批量下载、多镜像回退与失败重试 |
 | 收藏与社区 | Stable／lazer 收藏读取、Stable 写回、分享码、BeatmapHub 曲包发现与发布 |
 | 比赛与练习 | OPP URI 图池导入、个人标签／笔记／成绩记录、Trainer 谱面生成与预览 |
+| 游戏内覆盖 | 热键呼出 HUD 与 Direct 面板、多人自动补缺（osu! IRC）、tosu 内嵌渲染，详见 [游戏内覆盖](./docs/游戏内覆盖.md) |
 | 相似谱面与分析 | Standard／Mania 本地数据集检索、最近成绩／BP 推荐、技能分析与 PP 计算 |
 | 本地资源 | Stable／lazer 谱面与皮肤浏览、增量索引、导出、Skin Workshop 与空间管理 |
 | 音乐与回放 | 本地谱库播放器、悬浮迷你播放器、实时回放预览、o!rdr 与 Danser 渲染 |

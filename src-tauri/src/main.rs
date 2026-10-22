@@ -1,3 +1,4 @@
+//! 二进制入口：优先拦截便携版更新助手请求，否则进入 Tauri 应用主流程。
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

@@ -38,7 +38,7 @@ import type {
   Ruleset,
   SimilaritySource,
 } from "../../shared/types/osu";
-import { BeatmapPreviewCard } from "../tools/ToolsPage";
+import { BeatmapPreviewCard } from "../tools/cards/BeatmapPreviewCard";
 import { useOnlineStageArtwork } from "../online-beatmaps/useOnlineStageArtwork";
 import type { RecommendationHistoryEntry } from "./recommendationHistory";
 import { SimilarityRadar } from "./SimilarityRadar";
@@ -107,7 +107,6 @@ function LocalSetCover({ client, resourceId }: { client: BeatmapQuery["client"];
     queryFn: () => desktopApi.getLocalBeatmapBackground(client, resourceId!, "thumbnail"),
     enabled: Boolean(resourceId),
     staleTime: Infinity,
-    retry: false,
   });
   return <span className="similarity-search-cover">{image.data ? <img src={image.data} alt="" /> : <Search />}</span>;
 }
@@ -150,7 +149,6 @@ export function SimilaritySearch({
     queryFn: () => desktopApi.queryLocalBeatmapSets(query),
     enabled: open && !isExplicit && !localSetChoices && !setChoices,
     placeholderData: (previous) => previous,
-    retry: false,
   });
   const items = local.data?.items ?? [];
   const localDifficulties = localSetChoices?.difficulties.filter((item) => item.ruleset === ruleset) ?? [];
@@ -368,7 +366,6 @@ function useBeatmapArtwork(beatmapsetId: number | null) {
     queryFn: () => desktopApi.getOnlineBeatmapset(beatmapsetId!),
     enabled: beatmapsetId !== null && beatmapsetId > 0,
     staleTime: Infinity,
-    retry: false,
   });
   return set.data;
 }

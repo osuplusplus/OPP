@@ -10,10 +10,16 @@ use x11_dl::{xfixes, xlib};
 // present，但不会参与指针命中测试，事件会落到下面的 WebView。
 const SHAPE_INPUT: i32 = 2;
 
+/// X11 预览子窗口:独占一条 X 连接,与 wgpu/EGL 的连接分离,因此
+/// 跨连接的操作(建窗/移动/查询)之后都要 `XSync` 才对另一侧可见。
 pub struct Window {
+    /// 动态加载的 libX11 函数表(x11_dl 运行时 dlopen)。
     xlib: xlib::Xlib,
+    /// 本窗口专用的 X 连接(仅渲染线程触碰,见下方 Send 说明)。
     display: *mut xlib::Display,
+    /// 父窗口(主窗口 XID)。
     parent: xlib::Window,
+    /// 本预览子窗口的 XID。
     xid: xlib::Window,
 }
 
@@ -150,6 +156,7 @@ impl Window {
         }
     }
 
+    /// 服务器侧的窗口实际尺寸(创建后校准渲染器用;查询失败回退 1×1)。
     pub fn size(&self) -> (u32, u32) {
         unsafe {
             let mut attributes: xlib::XWindowAttributes = std::mem::zeroed();
@@ -182,6 +189,7 @@ impl Window {
         )
     }
 
+    /// 销毁子窗口并关闭连接(须在 wgpu surface 释放之后调用)。
     pub fn destroy(self) {
         unsafe {
             (self.xlib.XDestroyWindow)(self.display, self.xid);
@@ -191,6 +199,8 @@ impl Window {
     }
 }
 
+/// 用 XFixes 把窗口 ShapeInput 设为空区域实现点击穿透(X server 不
+/// 支持 XFixes 时返回错误,由调用方清理已建资源)。
 unsafe fn make_input_transparent(
     display: *mut xlib::Display,
     xid: xlib::Window,
@@ -212,6 +222,7 @@ unsafe fn make_input_transparent(
     Ok(())
 }
 
+/// 查询父窗口实际尺寸后,把 viewport 坐标换算到父窗口像素空间。
 #[allow(clippy::too_many_arguments)]
 unsafe fn normalized_geometry(
     xlib: &xlib::Xlib,
@@ -240,6 +251,7 @@ unsafe fn normalized_geometry(
     )
 }
 
+/// 纯函数:按「父窗口 / 前端 viewport」比例缩放几何并钳制在父窗口内。
 #[allow(clippy::too_many_arguments)]
 fn scale_geometry(
     parent_w: i32,
@@ -330,6 +342,7 @@ mod tests {
         }
     }
 
+    /// XWayland 小数缩放(比例 ≠1)按比例换算;纯 X11(比例 1)原样通过。
     #[test]
     fn geometry_uses_parent_to_viewport_ratio() {
         assert_eq!(

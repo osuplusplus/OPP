@@ -1,3 +1,8 @@
+//! 谱面预览工具：借助 `osu_beatmap_preview` 库把在线谱面渲染成 GIF 片段或
+//! PNG 快照。`.osu` 文件按 Beatmap ID 缓存在系统临时目录，重复预览不再下载；
+//! 输出图片只允许从本工具的输出目录读取（防路径穿越）。std 模式输出区间
+//! GIF（1–30 秒），其余模式输出整图 PNG。
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -14,11 +19,16 @@ use crate::{
         LocalClient, StrainAnalysis,
         parser::{calculate_strains, parse_beatmap},
     },
+    infrastructure::http::{HttpClientSpec, http_client},
 };
 
+/// GIF 片段时长下限（单位：秒），与 `MAX_GIF_SECONDS` 共同限定预览区间。
 const MIN_GIF_SECONDS: f64 = 1.0;
+/// GIF 片段时长上限（单位：秒）：GIF 体积随时长快速膨胀，超限直接拒绝。
 const MAX_GIF_SECONDS: f64 = 30.0;
 
+/// 谱面元数据检查结果：标题、作者、模式与总时长；std 模式附带难度走势，
+/// 供前端选择预览区间时参考。
 #[derive(Debug, Clone, Serialize)]
 pub struct BeatmapPreviewInspection {
     pub bid: u32,
@@ -29,11 +39,15 @@ pub struct BeatmapPreviewInspection {
     pub creator: String,
     pub difficulty_name: String,
     pub ruleset: Ruleset,
+    /// 谱面总时长（单位：毫秒）。
     pub length_ms: f64,
+    /// std 模式的难度走势；其余模式用不到且序列化时省略。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strains: Option<StrainAnalysis>,
 }
 
+/// 前端预览请求：`start_seconds`/`end_seconds` 单位为秒，仅 std 模式使用
+/// （缺少时报错）；`mods` 缩写原样传给预览库影响渲染。
 #[derive(Debug, Clone, Deserialize)]
 pub struct BeatmapPreviewRequest {
     pub bid: u32,
@@ -43,6 +57,7 @@ pub struct BeatmapPreviewRequest {
     pub mods: Vec<String>,
 }
 
+/// 预览产物描述：输出文件路径、文件名与 MIME 类型，供前端展示与保存。
 #[derive(Debug, Clone, Serialize)]
 pub struct BeatmapPreviewResult {
     pub output_path: String,
@@ -50,16 +65,19 @@ pub struct BeatmapPreviewResult {
     pub mime_type: String,
 }
 
+/// 预览工具根目录：系统临时目录下的 `osu-beatmap-preview`。
 fn preview_root() -> PathBuf {
     std::env::temp_dir().join("osu-beatmap-preview")
 }
 
+/// `.osu` 缓存路径：`osu-download-cache/<bid>.osu`。
 fn beatmap_cache_path(bid: u32) -> PathBuf {
     preview_root()
         .join("osu-download-cache")
         .join(format!("{bid}.osu"))
 }
 
+/// 预览图片输出目录（`outputs`）；读取/保存仅放行该目录下的 gif/png 文件。
 fn output_root() -> PathBuf {
     preview_root().join("outputs")
 }
@@ -74,24 +92,27 @@ fn validate_bid(bid: u32) -> CommandResult<()> {
     Ok(())
 }
 
+/// 取得谱面字节：优先读本地缓存，未命中时从 `https://osu.ppy.sh/osu/<bid>`
+/// 下载（404 映射为 `BEATMAP_NOT_FOUND`）并写回缓存供下次复用。
 async fn ensure_beatmap_cached(bid: u32) -> CommandResult<Vec<u8>> {
     validate_bid(bid)?;
     let path = beatmap_cache_path(bid);
+    // 空文件视为缓存未命中，触发重新下载。
     if let Ok(bytes) = tokio::fs::read(&path).await
         && !bytes.is_empty()
     {
         return Ok(bytes);
     }
 
-    let response = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .user_agent("OPP/beatmap-preview")
-        .build()
-        .map_err(|error| CommandError::network(error.to_string()))?
-        .get(format!("https://osu.ppy.sh/osu/{bid}"))
-        .send()
-        .await
-        .map_err(|error| CommandError::network(format!("下载谱面失败：{error}")))?;
+    let response = http_client(HttpClientSpec {
+        timeout: Some(std::time::Duration::from_secs(20)),
+        ua_note: " beatmap-preview",
+        connect_timeout: None,
+    })?
+    .get(format!("https://osu.ppy.sh/osu/{bid}"))
+    .send()
+    .await
+    .map_err(|error| CommandError::network(format!("下载谱面失败：{error}")))?;
 
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(CommandError::new(
@@ -120,6 +141,8 @@ async fn ensure_beatmap_cached(bid: u32) -> CommandResult<Vec<u8>> {
     Ok(bytes)
 }
 
+/// 解析谱面字节得到元数据检查结果；仅 std 模式额外计算难度走势
+/// （`calculate_strains` 只支持 std）。
 fn inspect_bytes(bid: u32, bytes: &[u8]) -> CommandResult<BeatmapPreviewInspection> {
     let parsed = parse_beatmap(
         LocalClient::Stable,
@@ -152,6 +175,8 @@ fn inspect_bytes(bid: u32, bytes: &[u8]) -> CommandResult<BeatmapPreviewInspecti
     })
 }
 
+/// 组装预览库参数：std 模式必须给出 `[start, end]` 区间（秒），校验通过后
+/// 输出区间 GIF；其余模式不设时间点，输出整图 PNG。
 fn preview_options(
     request: &BeatmapPreviewRequest,
     ruleset: Ruleset,
@@ -167,6 +192,7 @@ fn preview_options(
         let end = request.end_seconds.ok_or_else(|| {
             CommandError::new("PREVIEW_RANGE_REQUIRED", "std 预览需要选择结束时间")
         })?;
+        // 终点允许 1 毫秒容差抵消浮点误差，但不得超出谱面末尾。
         if !start.is_finite() || !end.is_finite() || start < 0.0 || end > length_seconds + 0.001 {
             return Err(CommandError::new(
                 "INVALID_PREVIEW_RANGE",
@@ -192,6 +218,8 @@ fn preview_options(
     Ok(options)
 }
 
+/// 校验并规范化输出路径：必须位于输出目录内、是普通文件、扩展名为 gif/png。
+/// 双方先 canonicalize 再做前缀比对，阻止 `..` 或绝对路径穿越到任意文件。
 fn validated_output(path: &str) -> CommandResult<PathBuf> {
     let candidate = PathBuf::from(path).canonicalize().map_err(|error| {
         CommandError::new(
@@ -224,6 +252,7 @@ fn validated_output(path: &str) -> CommandResult<PathBuf> {
     }
 }
 
+/// 从预览库返回的 JSON（`preview-img` 字段为输出路径）提取并校验结果。
 fn result_from_value(value: serde_json::Value) -> CommandResult<BeatmapPreviewResult> {
     let output_path = value
         .get("preview-img")
@@ -250,6 +279,8 @@ fn result_from_value(value: serde_json::Value) -> CommandResult<BeatmapPreviewRe
     })
 }
 
+/// 检查在线谱面元数据：确保 `.osu` 已缓存后解析标题、模式、时长与难度
+/// 走势；解析放到后台线程执行，避免阻塞命令线程。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：检查资源的元数据或可用性。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -260,6 +291,8 @@ pub async fn inspect_beatmap_preview(bid: u32) -> CommandResult<BeatmapPreviewIn
         .map_err(|error| CommandError::new("PREVIEW_INSPECTION_TASK_FAILED", error.to_string()))?
 }
 
+/// 生成谱面预览图：元数据检查 → 参数校验 → 调用预览库渲染，全部在后台
+/// 线程完成；输出路径经 `validated_output` 校验后才返回给前端。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：生成派生资源或分析结果。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -279,6 +312,8 @@ pub async fn generate_beatmap_preview(
     .map_err(|error| CommandError::new("PREVIEW_GENERATION_TASK_FAILED", error.to_string()))?
 }
 
+/// 以二进制 `tauri::ipc::Response` 回传预览图片内容，文件系统读取走阻塞
+/// IO 线程池；路径限定在预览输出目录内。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：读取已生成或本地保存的内容。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -290,6 +325,8 @@ pub async fn read_beatmap_preview_output(path: String) -> CommandResult<Response
     .await?
 }
 
+/// 把预览图复制到用户选择的位置：目标扩展名必须与源一致（防止把 GIF 存成
+/// `.png` 误导用户），源路径仍限定在输出目录内；源等于目标时跳过复制。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：校验并持久化用户配置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -324,6 +361,8 @@ pub async fn save_beatmap_preview_output(
     .await?
 }
 
+/// 在系统资源管理器中定位预览文件（复用平台层 `reveal_path`，Windows 上等
+/// 价于选中文件后打开所在文件夹）。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：在系统中打开资源或输出位置。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。

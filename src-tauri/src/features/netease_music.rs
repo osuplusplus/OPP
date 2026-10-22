@@ -1,3 +1,5 @@
+//! 网易云音乐集成：把“艺人 标题”拼成搜索词，
+//! 交由系统默认浏览器打开 music.163.com 的网页搜索。
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 

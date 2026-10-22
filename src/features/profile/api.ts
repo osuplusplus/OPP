@@ -12,7 +12,6 @@ export function useOwnProfile(ruleset: Ruleset) {
     queryKey: profileQueryKey(ruleset),
     queryFn: () => desktopApi.getOwnProfile(ruleset),
     staleTime: 5 * 60_000,
-    retry: false,
   });
 
   const refresh = async () => {

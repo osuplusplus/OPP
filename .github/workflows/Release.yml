@@ -137,8 +137,15 @@ jobs:
             throw "Expected exactly one Windows portable EXE, found $($portableAssets.Count)."
           }
           $assetUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/$($portableAssets[0])"
-          # 固定清单只保存客户端实际需要的版本号和便携 EXE 地址。
-          [ordered]@{ version = $version; url = $assetUrl } |
+          # 哈希实际发布的资产字节；客户端下载后按此值校验，镜像只承载字节不承载信任。
+          $hashDir = Join-Path $env:RUNNER_TEMP "update-manifest-hash"
+          gh release download $env:RELEASE_TAG --pattern $portableAssets[0] --dir $hashDir --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to download portable asset for hashing."
+          }
+          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $hashDir $portableAssets[0])).Hash.ToLowerInvariant()
+          # 清单保存版本号、便携 EXE 地址与 SHA256；客户端缺少校验值时拒绝自动更新。
+          [ordered]@{ version = $version; url = $assetUrl; sha256 = $sha256 } |
             ConvertTo-Json |
             Set-Content -Path "latest.json" -Encoding utf8
           gh release upload $env:RELEASE_TAG "latest.json" --clobber

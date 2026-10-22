@@ -30,7 +30,7 @@ export function ReplayIdentity({ provider, children }: { provider: RenderProvide
 
 function ReplayRow({ item, query }: { item: GameMediaItem; query: string }) {
   const workspace = useReplayWorkspace();
-  const info = useQuery({ queryKey: replayInfoKey(workspace.client, item.path), queryFn: ({ signal }) => inspectLibraryReplay(workspace.client, item.path, signal), staleTime: 30_000, retry: false });
+  const info = useQuery({ queryKey: replayInfoKey(workspace.client, item.path), queryFn: ({ signal }) => inspectLibraryReplay(workspace.client, item.path, signal), staleTime: 30_000 });
   if (!matchesReplay(item, query, info.data)) return null;
   return <div className="studio-library-row" data-current={workspace.replayPath === item.path}>
     <input type="checkbox" aria-label={`勾选 ${replayName(item.path)}`} checked={workspace.checked.includes(item.path)} onChange={() => workspace.toggleChecked(item.path)} />

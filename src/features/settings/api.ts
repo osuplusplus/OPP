@@ -61,6 +61,5 @@ export function useSettings() {
       overlay_irc_username: null,
     }),
     staleTime: Infinity,
-    retry: false,
   });
 }

@@ -1,9 +1,16 @@
+//! Malody `.mcz` 谱面批量转换为 osu! `.osz`：委托 `mania_converter` 库
+//!（内部按 ZIP 解包、重组资源后打包），逐文件独立处理，单个失败不影响
+//! 其余文件；输出为源文件同目录同名 `.osz`，已存在时不覆盖而是跳过。
+
 use std::path::{Path, PathBuf};
 
 use crate::error::{CommandError, CommandResult};
 
 use super::models::{ManiaConversionItem, ManiaConversionResult};
 
+/// 转换单个文件：校验存在且扩展名为 `.mcz`，目标 `.osz` 已存在则跳过，
+/// 否则交给 `process_mcz_file` 处理（第二参数传 `false` 跳过库内星级
+/// 计算）；所有失败都包装成状态条目，不向上抛错。
 fn convert_one(input: String) -> ManiaConversionItem {
     let path = PathBuf::from(&input);
     let invalid = |message: &str| ManiaConversionItem {
@@ -46,6 +53,8 @@ fn convert_one(input: String) -> ManiaConversionItem {
     }
 }
 
+/// 批量转换 `.mcz` 到 `.osz`：转换在后台线程逐个执行，避免大量解包/打包
+/// 阻塞命令线程；逐文件结果汇总为 `ManiaConversionResult` 返回。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：完成该功能模块的业务操作。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。

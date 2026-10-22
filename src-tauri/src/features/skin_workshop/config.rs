@@ -1,3 +1,7 @@
+//! skin.ini 的读取、解析与结构化回写。
+//! 所有写入先落临时文件再改名换入；回写时按原文件的编码与换行风格重新
+//! 编码，保证文件风格与用户手写内容一致。
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -12,6 +16,7 @@ use crate::{
 
 use super::models::{SkinConfigDocument, SkinConfigEntry, SkinConfigError, SkinConfigSection};
 
+/// 递归复制目录内容，符号链接一律跳过，防止复制出逃逸到皮肤外的引用。
 pub(crate) fn copy_directory(source: &Path, target: &Path) -> CommandResult<()> {
     // 发布前复制到独立工作目录，后续编辑不会直接修改用户正在使用的原始皮肤。
     fs::create_dir_all(target)?;
@@ -38,6 +43,7 @@ pub(crate) fn copy_directory(source: &Path, target: &Path) -> CommandResult<()> 
     Ok(())
 }
 
+/// 在皮肤根目录第一层按忽略大小写查找 `skin.ini`。
 fn find_skin_ini(root: &Path) -> Option<PathBuf> {
     fs::read_dir(root)
         .ok()?
@@ -51,6 +57,7 @@ fn find_skin_ini(root: &Path) -> Option<PathBuf> {
         .map(|entry| entry.path())
 }
 
+/// 读取并解析皮肤根目录下的 `skin.ini`，同时记录编码与换行风格。
 pub(crate) fn read_config(root: &Path) -> CommandResult<SkinConfigDocument> {
     let path = find_skin_ini(root)
         .ok_or_else(|| CommandError::new("SKIN_CONFIG_NOT_FOUND", "未找到 skin.ini 文件"))?;
@@ -72,6 +79,7 @@ pub(crate) fn read_config(root: &Path) -> CommandResult<SkinConfigDocument> {
     })
 }
 
+/// 把整份源码写回 `skin.ini`，编码跟随原文件，先写临时文件再换入。
 pub(crate) fn write_config_source(root: &Path, source: &str) -> CommandResult<()> {
     let path = find_skin_ini(root)
         .ok_or_else(|| CommandError::new("SKIN_CONFIG_NOT_FOUND", "未找到 skin.ini 文件"))?;
@@ -79,6 +87,7 @@ pub(crate) fn write_config_source(root: &Path, source: &str) -> CommandResult<()
     let bytes = encode_like(&original, source);
     let temporary = root.join("skin.ini.opp-workshop");
     fs::write(&temporary, bytes)?;
+    // Windows 上 rename 不能覆盖已存在文件，需先删除原文件再换名。
     if path.exists() {
         fs::remove_file(&path)?;
     }
@@ -86,6 +95,11 @@ pub(crate) fn write_config_source(root: &Path, source: &str) -> CommandResult<()
     Ok(())
 }
 
+/// 就地修改指定配置项的值。
+///
+/// 直接在原始文本行上改写而不是重建文档，以保留注释、空行与键的原始
+/// 大小写；`occurrence` 在同名节内选中第 N 个重复键（从 0 起）。
+/// 存在解析错误时拒绝写入，避免把语法问题进一步固化。
 pub(crate) fn update_config_entry(
     root: &Path,
     section: &str,
@@ -125,6 +139,7 @@ pub(crate) fn update_config_entry(
             && left.trim().eq_ignore_ascii_case(key)
         {
             if seen == occurrence {
+                // 保留冒号及其之前的原始内容（含缩进），值统一以单个空格分隔。
                 let colon = line.find(':').unwrap_or(line.len());
                 let prefix = &line[..=colon];
                 *line = format!("{prefix} {value}");
@@ -147,6 +162,10 @@ pub(crate) fn update_config_entry(
     write_config_source(root, &source)
 }
 
+/// 更新配置项；条目不存在时插入。
+///
+/// 先尝试按更新路径执行，仅当目标条目缺失时才进入插入流程，
+/// 避免对已存在的键产生重复行。
 pub(crate) fn upsert_config_entry(
     root: &Path,
     section: &str,
@@ -178,6 +197,8 @@ pub(crate) fn upsert_config_entry(
         .lines()
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
+    // 定位目标节的行区间：插入点取该节末尾（即下一节头之前）；
+    // 目标节是文件最后一节时插入点为文件末尾。
     let mut section_start = None;
     let mut section_end = lines.len();
     for (index, line) in lines.iter().enumerate() {
@@ -196,6 +217,7 @@ pub(crate) fn upsert_config_entry(
     if section_start.is_some() {
         lines.insert(section_end, format!("{key}: {value}"));
     } else {
+        // 节整体缺失：文件末尾空一行分隔后追加新节与条目。
         if !lines.is_empty() && !lines.last().is_some_and(|line| line.trim().is_empty()) {
             lines.push(String::new());
         }
@@ -209,6 +231,10 @@ pub(crate) fn upsert_config_entry(
     write_config_source(root, &source)
 }
 
+/// 用来源皮肤中同名配置节的全部内容整块替换目标皮肤中的对应节。
+///
+/// 皮肤 ini 允许同名节出现多次（如按按键数分段的多个 `[Mania]` 节），
+/// 因此搬运来源中所有匹配节、剔除目标中所有匹配节，其余节原样保留。
 pub(crate) fn replace_config_sections(
     target_root: &Path,
     source_root: &Path,
@@ -227,6 +253,7 @@ pub(crate) fn replace_config_sections(
     } else {
         "\n"
     };
+    // 收集来源中所有匹配节的原始行块（含节头），保持原有顺序与内容。
     let collect = |text: &str| {
         let lines = text.lines().collect::<Vec<_>>();
         let mut blocks = Vec::<Vec<String>>::new();
@@ -257,6 +284,7 @@ pub(crate) fn replace_config_sections(
             format!("来源 Skin 没有 [{section_name}] 配置节"),
         ));
     }
+    // 过滤掉目标中的同名节，其余行原样保留。
     let target_lines = target.source.lines().collect::<Vec<_>>();
     let mut kept = Vec::<String>::new();
     let mut skipping = false;
@@ -270,6 +298,7 @@ pub(crate) fn replace_config_sections(
             kept.push(line.to_string());
         }
     }
+    // 清掉尾部空行后重排：保留内容与来源节块之间统一用一个空行分隔。
     while kept.last().is_some_and(|line| line.trim().is_empty()) {
         kept.pop();
     }
@@ -287,6 +316,10 @@ pub(crate) fn replace_config_sections(
     write_config_source(target_root, &output)
 }
 
+/// 写入发布用皮肤名（`[General]` 节的 `Name` 条目）。
+///
+/// 已有 `Name` 时在原位置改写；否则在文件末尾追加节与条目，不重排既有
+/// 内容——重复节在皮肤 ini 中是合法用法（如多段 `[Mania]`）。
 pub(crate) fn set_skin_name(root: &Path, name: &str) -> CommandResult<()> {
     let document = read_config(root)?;
     if !document.errors.is_empty() {
@@ -319,6 +352,11 @@ pub(crate) fn set_skin_name(root: &Path, name: &str) -> CommandResult<()> {
     write_config_source(root, &source)
 }
 
+/// 把 skin.ini 文本解析为节与条目。
+///
+/// 语法约定：`[节名]` 开新节；`key: value` 为条目（值取冒号后去空白）；
+/// `//` 与 `;` 为注释行；首个节头之前的内容归入伪节 `Root`。
+/// 节名与键不合并去重，重复键靠 `occurrence` 区分（按小写计数）。
 fn parse_config(source: &str) -> (Vec<SkinConfigSection>, Vec<SkinConfigError>) {
     let mut sections = Vec::<SkinConfigSection>::new();
     let mut current = SkinConfigSection {
@@ -326,6 +364,7 @@ fn parse_config(source: &str) -> (Vec<SkinConfigSection>, Vec<SkinConfigError>) 
         entries: Vec::new(),
     };
     let mut errors = Vec::new();
+    // 以“节名小写 + 键小写”为组合键累计出现次数，得到每条目的 occurrence。
     let mut occurrences = std::collections::BTreeMap::<(String, String), usize>::new();
     for (index, raw) in source.lines().enumerate() {
         let line_number = index + 1;
@@ -341,6 +380,7 @@ fn parse_config(source: &str) -> (Vec<SkinConfigSection>, Vec<SkinConfigError>) 
                 });
                 continue;
             }
+            // 空的 `Root` 伪节不输出，避免给前端一个无意义的节。
             if !current.entries.is_empty() || current.name != "Root" {
                 sections.push(current);
             }
@@ -387,6 +427,7 @@ fn parse_config(source: &str) -> (Vec<SkinConfigSection>, Vec<SkinConfigError>) 
     (sections, errors)
 }
 
+/// 依据 BOM 嗅探编码，依据文本内容判定 `crlf` 或 `lf` 换行风格。
 fn format_metadata(bytes: &[u8], source: &str) -> (String, String) {
     let encoding = if bytes.starts_with(&[0xff, 0xfe]) {
         "utf-16le"
@@ -405,6 +446,8 @@ fn format_metadata(bytes: &[u8], source: &str) -> (String, String) {
     (encoding.into(), newline.into())
 }
 
+/// 按原文件的编码家族重新编码：UTF-16 LE/BE 保留 BOM 与字节序，
+/// UTF-8 系保留是否带 BOM，避免写入后编码风格漂移。
 fn encode_like(original: &[u8], source: &str) -> Vec<u8> {
     if original.starts_with(&[0xff, 0xfe]) {
         let mut bytes = vec![0xff, 0xfe];
@@ -427,6 +470,7 @@ fn encode_like(original: &[u8], source: &str) -> Vec<u8> {
     }
 }
 
+/// 把逻辑路径解析为皮肤根目录内的物理路径，拒绝越界路径。
 pub(crate) fn safe_child(root: &Path, logical_path: &str) -> CommandResult<PathBuf> {
     // 拒绝绝对路径和父目录穿越，所有工作区文件操作必须限制在皮肤根目录内。
     let relative = Path::new(logical_path);
@@ -453,6 +497,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    // 重复键按出现顺序编号，坏行按行号上报。
     #[test]
     fn config_parser_preserves_duplicates_and_reports_bad_lines() {
         let (sections, errors) = parse_config("[General]\r\nName: A\r\nName: B\r\nbroken\r\n");
@@ -460,6 +505,7 @@ mod tests {
         assert_eq!(errors[0].line, 4);
     }
 
+    // 结构化编辑不破坏 UTF-16 LE 与 CRLF 原始风格。
     #[test]
     fn structured_edit_keeps_utf16_and_crlf() {
         let root = tempdir().expect("root");
@@ -477,6 +523,7 @@ mod tests {
         assert!(document.source.contains("// comment"));
     }
 
+    // upsert 补齐缺失条目时不丢已有节与注释风格。
     #[test]
     fn upsert_adds_missing_entries_without_dropping_existing_config() {
         let root = tempdir().expect("root");

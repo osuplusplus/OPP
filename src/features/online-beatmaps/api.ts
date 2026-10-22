@@ -13,7 +13,6 @@ export function useTrendingBeatmapsets(ruleset: Ruleset) {
     queryFn: async () => (await desktopApi.searchOnlineBeatmapsets(trendingQuery(ruleset))).beatmapsets.slice(0, 5),
     staleTime: 15 * 60_000,
     gcTime: 30 * 60_000,
-    retry: false,
   });
 }
 
@@ -37,7 +36,6 @@ export function useOnlineBeatmapsets(
     refetchOnWindowFocus: false,
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.cursor_string || undefined,
-    retry: false,
   });
 }
 
@@ -47,7 +45,6 @@ export function useOnlineBeatmapsetDetail(beatmapsetId: number | null) {
     queryFn: () => desktopApi.getOnlineBeatmapset(beatmapsetId!),
     enabled: beatmapsetId !== null,
     staleTime: 5 * 60_000,
-    retry: false,
   });
 }
 
@@ -56,6 +53,5 @@ export function useOnlineBeatmapProviderStatus() {
     queryKey: ["online-beatmap-providers"],
     queryFn: () => desktopApi.getOnlineBeatmapProviderStatus(),
     staleTime: 60_000,
-    retry: false,
   });
 }

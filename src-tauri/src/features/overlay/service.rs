@@ -13,14 +13,19 @@ use crate::{
     state::AppState,
 };
 
+/// 覆盖层窗口标签；同一时刻至多存在一个覆盖层窗口。
 pub const OVERLAY_WINDOW_LABEL: &str = "overlay";
+/// 模式切换后广播给前端的事件名（载荷为 `"hud"` / `"panel"`）。
 const OVERLAY_MODE_EVENT: &str = "overlay-mode-changed";
 
 /// HUD 卡片与面板侧栏的逻辑尺寸（CSS px），实际渲染随系统 DPI 缩放。
 const HUD_SIZE: (f64, f64) = (340.0, 190.0);
+/// Direct 面板侧栏的逻辑尺寸（会按显示器工作区收缩）。
 const PANEL_SIZE: (f64, f64) = (460.0, 800.0);
+/// 窗口与屏幕边缘的逻辑间距。
 const CORNER_MARGIN: f64 = 16.0;
 
+/// 覆盖层形态：HUD 为点击穿透的状态卡片，Panel 为可交互的 Direct 侧栏。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayMode {
     Hud,
@@ -47,6 +52,7 @@ impl OverlayMode {
     }
 }
 
+// 进程内只有一个覆盖层窗口，用静态量记录当前模式即可。
 static CURRENT_MODE: Mutex<OverlayMode> = Mutex::new(OverlayMode::Hud);
 
 fn current_mode() -> OverlayMode {
@@ -61,6 +67,7 @@ pub fn current_mode_str() -> String {
     current_mode().as_str().to_owned()
 }
 
+/// 读取设置快照；存储读取失败时回退默认值，覆盖层不因此中断。
 fn settings_snapshot(app: &AppHandle) -> AppSettings {
     app.state::<AppState>()
         .store
@@ -68,6 +75,7 @@ fn settings_snapshot(app: &AppHandle) -> AppSettings {
         .unwrap_or_default()
 }
 
+/// 屏幕四角锚点，决定覆盖层在工作区内的停靠角。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Corner {
     TopLeft,
@@ -77,6 +85,7 @@ enum Corner {
 }
 
 impl Corner {
+    /// 解析设置字符串；未知取值回退右上角。
     fn parse(value: &str) -> Self {
         match value {
             "TopLeft" => Corner::TopLeft,
@@ -103,6 +112,7 @@ fn panel_size_on(monitor: &Monitor) -> (f64, f64) {
     )
 }
 
+/// 按锚点计算停靠位置：逻辑尺寸换算为物理像素，基于工作区（避开任务栏）。
 fn anchored_position(
     monitor: &Monitor,
     corner: Corner,
@@ -128,6 +138,7 @@ fn anchored_position(
     PhysicalPosition::new(x, y)
 }
 
+/// 取窗口当前所在显示器，查询失败时回退主显示器。
 fn overlay_monitor(window: &WebviewWindow) -> Option<Monitor> {
     window
         .current_monitor()
@@ -136,6 +147,8 @@ fn overlay_monitor(window: &WebviewWindow) -> Option<Monitor> {
         .or_else(|| window.primary_monitor().ok().flatten())
 }
 
+/// 创建覆盖层窗口：透明、无边框、置顶、跳过任务栏且初始不可见；创建后
+/// 立即把关闭请求改写为隐藏以保活 WebView。
 fn create_overlay_window(app: &AppHandle) -> CommandResult<WebviewWindow> {
     let builder = WebviewWindowBuilder::new(
         app,
@@ -228,6 +241,7 @@ fn apply_mode(app: &AppHandle, mode: OverlayMode) -> CommandResult<()> {
 /// 面板打开前的前台窗口（焦点归还用）。None = 未记录或前台就是覆盖层自身。
 static FOREGROUND_BEFORE_PANEL: Mutex<Option<isize>> = Mutex::new(None);
 
+/// 记录当前前台窗口句柄（覆盖层自身除外），供面板收起时归还焦点。
 #[cfg(windows)]
 fn remember_foreground(window: &WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
@@ -250,6 +264,7 @@ fn restore_foreground() {
     }
 }
 
+// 非 Windows 平台为空实现，焦点归还暂不处理。
 #[cfg(not(windows))]
 fn remember_foreground(_window: &WebviewWindow) {}
 
@@ -299,6 +314,7 @@ fn destroy_overlay_window(app: &AppHandle) {
     }
 }
 
+/// 任一客户端在运行即视为游戏中。
 fn game_running(app: &AppHandle) -> bool {
     app.state::<AppState>()
         .game_monitor
@@ -453,6 +469,7 @@ fn listen_download_progress(app: &AppHandle) {
     });
 }
 
+// 模式与角落锚点解析（含未知值回退）的单测。
 #[cfg(test)]
 mod tests {
     use super::*;

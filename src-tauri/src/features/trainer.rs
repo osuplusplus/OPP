@@ -1,3 +1,5 @@
+//! 训练器：按速率与难度参数把本地谱面重写为训练用谱面，
+//! 音频经 ffmpeg 裁剪变速后与谱面、资源一同落到输出目录。
 use std::{
     fs,
     hash::{Hash, Hasher},
@@ -18,10 +20,13 @@ use crate::{
 // Prevent overlapping preview requests from racing on the same staging path.
 static GENERATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+/// 生成训练谱面的一次请求：目标速率、四项难度与时间/BPM/转圈筛选条件。
 #[derive(Debug, Deserialize)]
 pub struct TrainerRequest {
     pub client: LocalClient,
+    /// 本地索引中的资源 ID，用于定位源 `.osu` 文件。
     pub resource_id: String,
+    /// 目标播放速率，允许范围 0.75×–2.00×。
     pub rate: f64,
     pub ar: f32,
     pub od: f32,
@@ -29,6 +34,8 @@ pub struct TrainerRequest {
     pub hp: f32,
     #[serde(default)]
     pub no_spinners: bool,
+    /// 变速是否连带变调：`true` 用 `asetrate`（音调随速率变化），
+    /// `false` 用 `atempo` 保持音高。
     #[serde(default)]
     pub change_pitch: bool,
     /// View Trainer sets this for visual-only previews so ffmpeg is never
@@ -41,6 +48,7 @@ pub struct TrainerRequest {
     pub end_time_ms: Option<f64>,
 }
 
+/// 生成结果：输出目录、谱面文件路径与筛选后保留的物件数量。
 #[derive(Debug, Serialize)]
 pub struct TrainerResult {
     pub directory: String,
@@ -48,6 +56,8 @@ pub struct TrainerResult {
     pub included_objects: usize,
 }
 
+/// 把标题替换为文件系统安全字符：去除 Windows 保留字符与首尾空白/点号，
+/// 截断到 80 字符，空结果回退为默认名。
 fn safe_name(value: &str) -> String {
     let value = value
         .chars()
@@ -67,6 +77,7 @@ fn safe_name(value: &str) -> String {
     }
 }
 
+/// 若该行以指定键开头且为 `key:value` 形式，则整体替换为新值，否则原样返回。
 fn update_key(line: &str, key: &str, value: impl std::fmt::Display) -> String {
     if line.trim_start().starts_with(key) && line.split_once(':').is_some() {
         format!("{key}:{value}")
@@ -75,10 +86,13 @@ fn update_key(line: &str, key: &str, value: impl std::fmt::Display) -> String {
     }
 }
 
+/// 读取 HitObjects 行第 3 列的出现时间（毫秒）。
 fn object_time(line: &str) -> Option<f64> {
     line.split(',').nth(2)?.trim().parse().ok()
 }
 
+/// 按新时间基准缩放单个物件的时间列；转圈与 mania hold 的结束时间
+/// （第 6 列）一并缩放，hold 尾部的附加字段保留原样。
 fn transform_hit_object(line: &str, start_ms: f64, rate: f64) -> String {
     let mut parts = line.split(',').map(str::to_string).collect::<Vec<_>>();
     if parts.len() < 3 {
@@ -109,6 +123,7 @@ fn transform_hit_object(line: &str, start_ms: f64, rate: f64) -> String {
     parts.join(",")
 }
 
+/// 取该时刻之前最近一条非继承计时点（beat_length>0）换算出的 BPM。
 fn bpm_at(timing_points: &[(f64, f64)], time: f64) -> Option<f64> {
     timing_points
         .iter()
@@ -117,6 +132,7 @@ fn bpm_at(timing_points: &[(f64, f64)], time: f64) -> Option<f64> {
         .and_then(|(_, beat_length)| (*beat_length > 0.0).then(|| 60_000.0 / *beat_length))
 }
 
+/// 解析 `[General]` 段的 `Mode` 判断是否为 osu!mania 谱面。
 fn is_mania_beatmap(source: &str) -> bool {
     let mut in_general = false;
     for line in source.lines() {
@@ -135,6 +151,8 @@ fn is_mania_beatmap(source: &str) -> bool {
     false
 }
 
+/// 校验参数后重写谱面文本：改写难度/元数据/音频引用键，按速率换算计时点
+/// 与物件时间，并按时间/BPM/转圈条件过滤物件；返回新文本与保留物件数。
 fn transform_beatmap(source: &str, request: &TrainerRequest) -> CommandResult<(String, usize)> {
     // 只重写可安全识别的元数据和 HitObjects，保留其余 .osu 段落以兼容原始谱面。
     if !(0.75..=2.0).contains(&request.rate) {
@@ -369,6 +387,8 @@ mod tests {
     }
 }
 
+/// 调用外部 ffmpeg 对源音频做裁剪与变速（是否变调见 `change_pitch`），
+/// 输出供生成谱面引用的标准化 MP3；Windows 下以无窗口方式启动进程。
 fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) -> CommandResult<()> {
     // Every generated chart gets a fresh, normalized BGM. Keeping the audio
     // transform in the same ffmpeg invocation as trim/rate changes guarantees
@@ -410,6 +430,7 @@ fn prepare_audio(source: &Path, destination: &Path, request: &TrainerRequest) ->
     }
 }
 
+/// 供前端调用的 Tauri 命令：按请求生成本地训练谱面并返回输出路径。
 #[tauri::command(async)]
 pub fn generate_trainer_beatmap(
     request: TrainerRequest,
@@ -447,6 +468,7 @@ pub fn stage_trainer_beatmap_at_path(
     generate_trainer_beatmap_from_path(request, source_path, Some(&root))
 }
 
+/// 从本地索引解析谱面源路径后进入共用生成流程。
 fn generate_trainer_beatmap_inner(
     request: TrainerRequest,
     state: &AppState,
@@ -460,6 +482,8 @@ fn generate_trainer_beatmap_inner(
     generate_trainer_beatmap_from_path(request, source_path, staging_root)
 }
 
+/// 生成主流程：暂存模式下以“内容+参数指纹”作目录键，命中即复用；
+/// 否则在 Songs 目录新建唯一目录，重写谱面、复制资源并按需生成音频。
 fn generate_trainer_beatmap_from_path(
     request: TrainerRequest,
     source_path: PathBuf,
@@ -487,6 +511,7 @@ fn generate_trainer_beatmap_from_path(
             .map(str::trim)
             .unwrap_or_default(),
     );
+    // 暂存目录键 = 源谱面/音频的内容指纹 + 全部请求参数，参数变化即得到新目录。
     let stage_key = if staging_root.is_some() {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         source_path.to_string_lossy().hash(&mut hasher);
@@ -550,6 +575,7 @@ fn generate_trainer_beatmap_from_path(
     fs::create_dir_all(&target_dir)
         .map_err(|error| CommandError::new("TRAINER_OUTPUT_FAILED", error.to_string()))?;
     let beatmap_path = target_dir.join("OPP Trainer.osu");
+    // 命中判定：谱面非空、目录里另有资源文件，且（非预览时）音频已生成。
     if beatmap_path.is_file() {
         let included_objects = fs::read_to_string(&beatmap_path)
             .ok()
@@ -653,6 +679,7 @@ fn generate_trainer_beatmap_from_path(
     })
 }
 
+/// 统计文本 `[HitObjects]` 段内格式完整的物件行数。
 fn count_hit_objects(source: &str) -> usize {
     let mut section = "";
     source

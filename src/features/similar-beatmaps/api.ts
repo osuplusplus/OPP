@@ -20,7 +20,6 @@ export function useSimilarityIndexStatus(ruleset: SimilarityRuleset) {
     queryKey: similarityIndexStatusKey(ruleset),
     queryFn: () => desktopApi.getSimilarityIndexStatus(ruleset),
     staleTime: 30_000,
-    retry: false,
   });
   const revalidate = useMutation({
     mutationFn: () => desktopApi.configureSimilarityIndex(ruleset, query.data?.directory ?? null),

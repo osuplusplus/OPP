@@ -32,8 +32,10 @@ use crate::{
 
 /// 取消标志：同一时间只应有一个去重任务，模块级原子量足够。
 static CANCELLED: AtomicBool = AtomicBool::new(false);
+/// 任务占用标志：配合 `compare_exchange` 保证同一时间只跑一个去重任务。
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// RAII 守卫：后台线程结束（含出错提前返回）时自动复位 `RUNNING`。
 struct RunningGuard;
 impl Drop for RunningGuard {
     fn drop(&mut self) {
@@ -44,41 +46,57 @@ impl Drop for RunningGuard {
 /// 单个失败条目的展示上限，避免异常文件系统（如整盘不支持硬链接）撑爆事件。
 const MAX_FAILURES: usize = 50;
 
+/// 前端进度事件载荷（事件名 `lazer-dedupe-progress`）。
 #[derive(Debug, Clone, Serialize)]
 pub struct LazerDedupeProgress {
+    /// 当前阶段：`scan-lazer`、`scan-stable`、`hash` 或 `link`。
     pub phase: &'static str,
+    /// 已处理数量；`scan-*` 阶段遍历前不知总数，`total` 恒为 0。
     pub processed: usize,
     pub total: usize,
+    /// 百分比（0–100，保留一位小数；无总数时为 0）。
     pub percent: f64,
 }
 
+/// 单个替换失败条目（路径 + 原因），最多保留 `MAX_FAILURES` 条。
 #[derive(Debug, Clone, Serialize)]
 pub struct LazerDedupeFailure {
     pub path: String,
     pub message: String,
 }
 
+/// 去重任务结果；除标注外 `*_size` 字段单位均为字节，`*_count` 为文件数。
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct LazerDedupeResult {
+    /// 是否为演练模式：只统计可释放空间，不实际替换文件。
     pub dry_run: bool,
+    /// 任务被取消时为 `true`，结果保留已累计的部分统计。
     pub cancelled: bool,
     pub lazer_files_root: String,
     pub stable_roots: Vec<String>,
+    /// lazer files 存储内的文件总数与总大小（含已硬链接与非常规命名的文件）。
     pub lazer_file_count: u64,
     pub lazer_total_size: u64,
+    /// 链接数已大于 1（此前已去重）的文件数与大小，本轮无需处理。
     pub already_linked_count: u64,
     pub already_linked_size: u64,
+    /// 实际计算了 SHA-256 的 stable 候选文件数（先按大小过滤，远小于全量）。
     pub hashed_stable_count: u64,
+    /// 哈希命中（lazer 副本在 stable 中有同内容文件）的配对总数，含跨卷部分。
     pub candidate_count: u64,
+    /// 同卷配对合计大小：可硬链接释放的空间，dry_run 下即为预估收益。
     pub reclaimable_size: u64,
+    /// 实际替换为硬链接成功的文件数与释放的空间。
     pub linked_count: u64,
     pub linked_size: u64,
+    /// 因跨卷（或读不到卷信息）无法硬链接而跳过的配对数与大小。
     pub skipped_cross_volume_count: u64,
     pub skipped_cross_volume_size: u64,
     pub failed_count: u64,
     pub failed: Vec<LazerDedupeFailure>,
 }
 
+/// 待匹配的 lazer 文件：文件名即内容 SHA-256，`volume` 用于同卷硬链接校验。
 struct LazerFile {
     hash: String,
     size: u64,
@@ -86,6 +104,9 @@ struct LazerFile {
     volume: u64,
 }
 
+/// 启动 lazer 去重任务：抢占 `RUNNING` 标志防并发，检测到 lazer 客户端
+/// 正在运行时拒绝执行；实际扫描与替换在后台线程进行，进度经
+/// `lazer-dedupe-progress` 事件推送。
 #[tauri::command]
 /// 供前端调用的 Tauri 命令：扫描并去重可安全识别的重复文件。
 /// 前端输入在命令层反序列化；失败统一通过 `CommandResult` 返回可展示的原因。
@@ -118,6 +139,7 @@ pub fn cancel_lazer_dedupe() {
     CANCELLED.store(true, Ordering::Relaxed);
 }
 
+/// 去重主流程（后台线程执行），各阶段细节见模块文档与行内注释。
 fn run(
     service: Arc<LocalAnalysisService>,
     dry_run: bool,
@@ -360,6 +382,8 @@ fn enumerate_files(
         .collect()
 }
 
+/// 流式计算文件 SHA-256（128 KiB 缓冲），返回小写十六进制摘要，可直接与
+/// lazer 的哈希文件名比对。
 fn hash_file(path: &Path) -> std::io::Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -379,6 +403,7 @@ fn is_content_hash(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// 进度上报节流器：非强制事件至少间隔 100ms，避免海量小文件刷爆 IPC。
 struct ProgressReporter {
     emit: Arc<dyn Fn(LazerDedupeProgress) + Send + Sync>,
     last_emit: Mutex<Instant>,
@@ -438,6 +463,10 @@ fn file_info(path: &Path) -> Option<FileInfo> {
     })
 }
 
+/// Windows 实现：`CreateFileW`（访问掩码 0 仅查询属性）+
+/// `GetFileInformationByHandle` 读取卷序列号、文件索引与链接数；
+/// `FILE_FLAG_BACKUP_SEMANTICS` 允许打开任意文件，`nFileIndexHigh/Low`
+/// 拼成 64 位文件标识。
 #[cfg(windows)]
 fn file_info(path: &Path) -> Option<FileInfo> {
     use std::os::windows::ffi::OsStrExt;
@@ -499,6 +528,7 @@ mod tests {
         );
     }
 
+    /// 端到端验证替换语义：替换后两路径同卷同 inode、链接数变为 2、暂存链接被清理。
     #[test]
     fn replaces_duplicate_with_hard_link() {
         let directory = tempfile::tempdir().expect("temp directory");

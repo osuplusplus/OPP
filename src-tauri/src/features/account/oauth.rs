@@ -1,3 +1,5 @@
+//! osu! OAuth 授权码登录：在本机 42831 端口接收浏览器回调，以随机 `state` 防 CSRF，
+//! 授权码就地换取令牌并写入系统凭据存储。
 use chrono::{Duration as ChronoDuration, Utc};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{
@@ -15,7 +17,9 @@ use crate::{
     state::AppState,
 };
 
+/// 浏览器回调地址，需与 osu! OAuth 应用中配置的 Callback URL 完全一致。
 pub const CALLBACK_URL: &str = "http://127.0.0.1:42831/oauth/callback";
+/// 回调 TCP 监听地址，对应 `CALLBACK_URL` 的主机与端口。
 const CALLBACK_ADDRESS: &str = "127.0.0.1:42831";
 const AUTHORIZATION_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 
@@ -31,6 +35,7 @@ pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
         return Err(CommandError::credentials_required());
     }
 
+    // 先绑定回调端口再返回授权链接：端口被占用时立即报错，用户不必白跑浏览器。
     let listener = TcpListener::bind(CALLBACK_ADDRESS).await.map_err(|error| {
         CommandError::new(
             "CALLBACK_PORT_OCCUPIED",
@@ -42,6 +47,7 @@ pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
     let authorization_url = build_authorization_url(&client_id, &csrf_state)?;
     let (cancel_tx, cancel_rx) = oneshot::channel();
 
+    // 全局同一时刻只保留一个待授权会话：先取消旧等待任务，再写入新会话的 state。
     {
         let mut runtime = app_state
             .oauth
@@ -56,6 +62,7 @@ pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
 
     let app_for_task = app.clone();
     let session_state = csrf_state.clone();
+    // 后台等待浏览器回调，结果通过 `oauth-result` 事件推送给前端。
     tauri::async_runtime::spawn(async move {
         let result = wait_for_callback(
             app_for_task.clone(),
@@ -79,6 +86,7 @@ pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
         let _ = app_for_task.emit("oauth-result", event);
 
         let state = app_for_task.state::<AppState>();
+        // 仅当仍是同一会话时才清理，避免误清后续新会话写入的 state。
         if let Ok(mut runtime) = state.oauth.lock()
             && runtime.state.as_deref() == Some(session_state.as_str())
         {
@@ -87,6 +95,7 @@ pub async fn begin(app: AppHandle) -> CommandResult<PendingOAuth> {
         }
     });
 
+    // 会话有效期 5 分钟，与回调等待超时（300 秒）保持一致。
     Ok(PendingOAuth {
         authorization_url,
         expires_at: Utc::now() + ChronoDuration::minutes(5),
@@ -106,6 +115,7 @@ pub fn cancel(app_state: &AppState) -> CommandResult<()> {
     Ok(())
 }
 
+/// 拼接 osu! 授权页链接；`scope` 固定为 `public identify`，不含写权限。
 fn build_authorization_url(client_id: &str, csrf_state: &str) -> CommandResult<String> {
     // state 与浏览器回调进行一一比对，不能省略或复用。
     let mut url = Url::parse(AUTHORIZATION_URL)
@@ -119,6 +129,8 @@ fn build_authorization_url(client_id: &str, csrf_state: &str) -> CommandResult<S
     Ok(url.into())
 }
 
+/// 在回调端口循环等待：匹配的回调结束流程；陈旧 `state` 或路径不符的回调在回复
+/// 浏览器后忽略并继续等待，直到成功、失败、超时（300 秒）或被取消。
 async fn wait_for_callback(
     app: AppHandle,
     listener: TcpListener,
@@ -165,6 +177,8 @@ async fn wait_for_callback(
     }
 }
 
+/// 判定回调错误能否忽略：陈旧 `state` 或路径不符通常来自旧会话与错误配置，
+/// 忽略后当前会话可继续等待真正的回调。
 fn is_ignorable_callback(result: &CommandResult<()>) -> bool {
     matches!(
         result,
@@ -176,6 +190,7 @@ fn is_ignorable_callback(result: &CommandResult<()>) -> bool {
     )
 }
 
+/// 校验回调参数并用授权码换取令牌，随后写入凭据存储并重置本地用户缓存。
 async fn process_callback(
     app: &AppHandle,
     stream: &mut TcpStream,
@@ -226,6 +241,7 @@ async fn process_callback(
         expires_at: Utc::now() + ChronoDuration::seconds(response.expires_in),
     };
     app_state.credentials.set_tokens(&tokens)?;
+    // 令牌已换绑新账号：旧的用户身份、缓存与手动刷新记录全部作废。
     app_state.store.update(|state| {
         state.token_expires_at = Some(tokens.expires_at);
         state.current_user_id = None;
@@ -236,6 +252,7 @@ async fn process_callback(
     Ok(())
 }
 
+/// 从回调查询串提取的字段；`error` 与 `error_description` 仅在用户拒绝授权时出现。
 #[derive(Debug, PartialEq, Eq)]
 struct CallbackQuery {
     code: Option<String>,
@@ -278,6 +295,7 @@ fn parse_callback_request(request: &str) -> CommandResult<CallbackQuery> {
     })
 }
 
+/// 向浏览器回写极简结果页；标题与消息先做 HTML 转义，防止回调内容注入页面。
 async fn write_browser_response(stream: &mut TcpStream, title: &str, message: &str, success: bool) {
     let color = if success { "#5ce1e6" } else { "#ff6a9d" };
     let safe_title = escape_html(title);
@@ -307,6 +325,7 @@ fn escape_html(value: &str) -> String {
 mod tests {
     use super::*;
 
+    // 授权链接必须携带回调地址与 `state`，缺失任一项都视为安全回归。
     #[test]
     fn authorization_url_contains_required_security_values() {
         let url = build_authorization_url("42", "state-value").expect("url");
@@ -332,6 +351,7 @@ mod tests {
         );
     }
 
+    // 成功与用户拒绝两类回调都必须解析出对应字段。
     #[test]
     fn callback_parser_handles_success_and_denial() {
         let success = parse_callback_request("GET /oauth/callback?code=abc&state=xyz HTTP/1.1\r\n")

@@ -50,6 +50,20 @@ export function byteSize(bytes?: number | null): string {
   return `${value.toFixed(value >= 100 || index === 0 ? 0 : 1)}${units[index]}`;
 }
 
+/** 以 1024 进制展示文件大小，完整单位标签（KB/MB/GB/TB），10 以上保留 1 位小数。 */
+export function formatBytes(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = value / 1024;
+  let unit = units[0];
+  for (let index = 1; size >= 1024 && index < units.length; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+}
+
 export function duration(seconds?: number | null): string {
   if (seconds === null || seconds === undefined) return "—";
   const hours = seconds / 3600;
