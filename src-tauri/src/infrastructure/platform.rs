@@ -380,6 +380,78 @@ pub fn find_in_path(command: &str) -> Option<PathBuf> {
     }
 }
 
+/// AppImage 运行时（AppRun）会把内置库目录注入动态链接器变量（`LD_LIBRARY_PATH`，
+/// 偶有 `LD_PRELOAD`／`LD_AUDIT`），并原样继承给 OPP 派生的所有子进程：系统程序
+/// （如 `xdg-open` → `kde-open`）会混载 AppImage 内置库与系统库，符号不匹配时直接
+/// 崩溃——SteamOS 上 OAuth 授权因此打不开浏览器（issue #51）。opener 插件在内部
+/// 派生进程、无法逐点注入环境，只能在启动早期从自身环境中把指向 `APPDIR` 的注入
+/// 剥离。此刻 OPP 自身的符号解析已完成，内置库之间另有 linuxdeploy 写入的
+/// `$ORIGIN` 相对 RUNPATH 兜底；剥离后子进程（xdg-open、danser、tosu、ffmpeg 等）
+/// 回到纯净的系统库解析环境。非 AppImage 运行（dev、deb）不会设置 `APPDIR`，
+/// 本函数不做任何事，用户自行设置的同名变量不受影响。
+pub fn strip_appimage_loader_env() {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(raw) = env::var_os("APPDIR") else {
+            return;
+        };
+        // AppRun 写入的条目与 APPDIR 逐字一致，按文本前缀比对即可。
+        let appdir = raw.to_string_lossy().trim_end_matches('/').to_string();
+        if let Some(current) = env::var_os("LD_LIBRARY_PATH") {
+            match library_path_without_appdir(&current.to_string_lossy(), &appdir) {
+                Some(filtered) => {
+                    // SAFETY: 仅在应用启动主线程、Tauri 运行时与其他线程拉起前调用。
+                    unsafe { env::set_var("LD_LIBRARY_PATH", filtered) };
+                }
+                None => unsafe { env::remove_var("LD_LIBRARY_PATH") },
+            }
+        }
+        for name in ["LD_PRELOAD", "LD_AUDIT"] {
+            if env::var_os(name)
+                .is_some_and(|value| references_appdir(&value.to_string_lossy(), &appdir))
+            {
+                // SAFETY: 同上。
+                unsafe { env::remove_var(name) };
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {}
+}
+
+/// 从 `LD_LIBRARY_PATH` 的冒号分隔条目中剔除指向 `appdir` 的条目，保留用户原有
+/// 条目；全部被剔除时返回 `None`（应删除该变量而不是留空）。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn library_path_without_appdir(value: &str, appdir: &str) -> Option<String> {
+    if value.is_empty() {
+        return None;
+    }
+    let kept: Vec<&str> = value
+        .split(':')
+        .filter(|entry| !entry_under_appdir(entry, appdir))
+        .collect();
+    if kept.is_empty() {
+        None
+    } else {
+        Some(kept.join(":"))
+    }
+}
+
+/// 判断单个 `LD_LIBRARY_PATH` 条目是否就是 `appdir` 或其子路径。
+/// 空条目（ld.so 视为当前目录）不属于 AppImage 注入，应保留原语义。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn entry_under_appdir(entry: &str, appdir: &str) -> bool {
+    let entry = entry.trim_end_matches('/');
+    !entry.is_empty() && (entry == appdir || entry.starts_with(&format!("{appdir}/")))
+}
+
+/// `LD_PRELOAD`／`LD_AUDIT` 是空格／冒号分隔的库名或路径混合列表，无法像库路径
+/// 那样逐条解析；只要文本中出现 APPDIR 路径即整体视为 AppImage 注入并删除。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn references_appdir(value: &str, appdir: &str) -> bool {
+    value.contains(appdir)
+}
+
 /// 在系统文件管理器中定位（尽量选中）给定文件或目录：Windows 走 `explorer.exe
 /// /select,`；类 Unix 经 freedesktop FileManager1 D-Bus 接口打开并选中文件，桌面
 /// 不支持时回退 `xdg-open` 打开所在目录。
@@ -591,4 +663,55 @@ fn uninstall_string_exe(value: &str) -> Option<PathBuf> {
     };
     let path = PathBuf::from(exe.trim());
     (!path.as_os_str().is_empty()).then_some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn library_path_keeps_user_entries_and_drops_appdir_ones() {
+        let appdir = "/tmp/.mount_OPPxYz";
+        let value = format!("{appdir}/usr/lib:/opt/custom/lib:{appdir}");
+        assert_eq!(
+            library_path_without_appdir(&value, appdir),
+            Some("/opt/custom/lib".to_string())
+        );
+    }
+
+    #[test]
+    fn library_path_removed_when_only_appdir_entries_remain() {
+        let appdir = "/tmp/.mount_OPPxYz";
+        assert_eq!(
+            library_path_without_appdir("/tmp/.mount_OPPxYz/usr/lib", appdir),
+            None
+        );
+        // 原值为空同样应删除变量，而不是保留空串。
+        assert_eq!(library_path_without_appdir("", appdir), None);
+    }
+
+    #[test]
+    fn library_path_prefix_must_align_on_path_component() {
+        let appdir = "/tmp/.mount_OPP";
+        // 前缀相似但不在 APPDIR 之下的目录不能被误删。
+        assert_eq!(
+            library_path_without_appdir("/tmp/.mount_OPPBACKUP/lib", appdir),
+            Some("/tmp/.mount_OPPBACKUP/lib".to_string())
+        );
+        // 条目末尾多余的斜杠仍视为 APPDIR 注入；空条目（当前目录语义）保留。
+        assert_eq!(
+            library_path_without_appdir("/tmp/.mount_OPP/usr/lib/:", appdir),
+            Some(String::new())
+        );
+    }
+
+    #[test]
+    fn preload_vars_detected_only_when_appdir_referenced() {
+        let appdir = "/tmp/.mount_OPPxYz";
+        assert!(references_appdir(
+            "/tmp/.mount_OPPxYz/usr/lib/libpreload.so",
+            appdir
+        ));
+        assert!(!references_appdir("mangohud.so", appdir));
+    }
 }

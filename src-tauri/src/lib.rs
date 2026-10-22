@@ -61,6 +61,9 @@ pub fn run_portable_update_helper_if_requested() -> bool {
 /// 退出事件中按顺序释放本地数据库、音乐运行时、tosu 与日志资源。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 须在任何子进程（opener 插件、danser、tosu、ffmpeg）派生前剥离 AppImage
+    // 泄漏给子进程的加载器变量，否则 OAuth 打开浏览器等操作可能崩溃（issue #51）。
+    infrastructure::platform::strip_appimage_loader_env();
     tauri::Builder::default()
         // opp:// 深链的待确认赛事链接队列，需在深链插件初始化之前完成托管。
         .manage(features::tournament_pools::uri::TournamentLinks::default())

@@ -60,6 +60,8 @@ pnpm tauri:build -- --bundles appimage,deb
 
 AppImage 补丁还会移除包内的 `usr/bin/xdg-open`。Tauri opener 通过 PATH 查找系统打开器，而 AppImage 会把自身的 `usr/bin` 放在 PATH 前面；保留这个副本会遮蔽桌面环境提供的打开器，导致 OAuth 授权链接在部分桌面环境中无法打开浏览器（见 issue #47）。
 
+除 PATH 遮蔽外，AppImage 运行时注入的 `LD_LIBRARY_PATH` 等动态链接器变量也会随子进程继承：`xdg-open` → `kde-open` 等系统程序因此混载 AppImage 内置库与系统库，符号不匹配时崩溃（SteamOS 上 OAuth 打不开浏览器，见 issue #51）。OPP 在启动早期检测 `APPDIR` 环境变量，把其中指向 APPDIR 的加载器注入从自身环境中剥离；OPP 自身的内置库之间由 linuxdeploy 写入的 `$ORIGIN` RUNPATH 兜底，子进程则回到纯净的系统库解析环境。非 AppImage 运行（dev、deb）不受影响，用户自行设置的同名变量条目会原样保留。
+
 打包后仍须在目标发行版验证运行依赖和桌面集成。图池 URI 注册依赖 `xdg-mime` 与 `update-desktop-database`；便携程序移动后需从新位置启动一次。
 
 ## tosu 与 OBS
