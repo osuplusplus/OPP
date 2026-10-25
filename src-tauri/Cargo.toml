@@ -54,6 +54,9 @@ rosu-map = "0.2.1"
 rosu-pp = { git = "https://github.com/Apeuriox/rosu-pp.git", branch = "pp-rework-202607" }
 rosu-pp-official = { package = "rosu-pp", version = "4.0.1" }
 sha2 = "0.10"
+# 腾讯云 TC3-HMAC-SHA256 签名（翻译 API）与系统剪贴板写入。
+hmac = "0.12"
+arboard = "3"
 walkdir = "2"
 notify = "8"
 zip = "4"

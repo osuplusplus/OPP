@@ -259,7 +259,8 @@ pub struct AppSettings {
     /// 游戏内覆盖层（透明置顶小窗：HUD 状态 + Direct 面板 + MP 补缺）。
     #[serde(default)]
     pub overlay_enabled: bool,
-    #[serde(default = "default_true")]
+    /// 游戏运行时是否常驻 HUD 状态卡；默认关闭（Steam 式：平时隐藏，热键唤出）。
+    #[serde(default)]
     pub overlay_show_with_game: bool,
     #[serde(default = "default_true")]
     pub overlay_auto_hide_on_game_exit: bool,
@@ -282,6 +283,25 @@ pub struct AppSettings {
     /// osu! IRC 昵称（多人补缺监听；令牌存系统密钥环不落盘）。
     #[serde(default)]
     pub overlay_irc_username: Option<String>,
+    /// 聊天翻译服务提供方：google_free | tencent | baidu | openai | off
+    /// （凭据存系统密钥环，不落盘）。
+    #[serde(default = "default_translation_provider")]
+    pub translation_provider: String,
+    /// 是否自动翻译收到的 MP 聊天消息。
+    #[serde(default = "default_true")]
+    pub translation_enabled: bool,
+    /// 入站翻译目标语言（内部语言码，如 zh）。
+    #[serde(default = "default_translation_target_lang")]
+    pub translation_target_lang: String,
+    /// 出站翻译目标语言（自己要发的消息翻译成什么语言）。
+    #[serde(default = "default_translation_outgoing_target_lang")]
+    pub translation_outgoing_target_lang: String,
+    /// OpenAI 兼容服务的 API 地址（可带或不带 `/v1` 版本段）。
+    #[serde(default)]
+    pub translation_api_base_url: Option<String>,
+    /// OpenAI 兼容服务的模型名（如 glm-4-flash / deepseek-chat）。
+    #[serde(default)]
+    pub translation_api_model: Option<String>,
 }
 
 fn default_collection_backup_retention() -> usize {
@@ -294,6 +314,18 @@ fn default_overlay_corner() -> String {
 
 fn default_overlay_hotkey_toggle() -> String {
     "Control+Shift+O".into()
+}
+
+fn default_translation_provider() -> String {
+    "google_free".into()
+}
+
+fn default_translation_target_lang() -> String {
+    "zh".into()
+}
+
+fn default_translation_outgoing_target_lang() -> String {
+    "en".into()
 }
 
 /// danser 渲染参数，字段逐项映射到 danser CLI 选项。
@@ -525,7 +557,7 @@ impl Default for AppSettings {
             cache_limit_mb: default_cache_limit_mb(),
             key_bindings: AppKeyBindings::default(),
             overlay_enabled: false,
-            overlay_show_with_game: true,
+            overlay_show_with_game: false,
             overlay_auto_hide_on_game_exit: true,
             overlay_corner: default_overlay_corner(),
             overlay_hotkey_toggle: default_overlay_hotkey_toggle(),
@@ -534,6 +566,12 @@ impl Default for AppSettings {
             overlay_start_tosu_with_game: true,
             overlay_ingame_enabled: false,
             overlay_irc_username: None,
+            translation_provider: default_translation_provider(),
+            translation_enabled: true,
+            translation_target_lang: default_translation_target_lang(),
+            translation_outgoing_target_lang: default_translation_outgoing_target_lang(),
+            translation_api_base_url: None,
+            translation_api_model: None,
         }
     }
 }

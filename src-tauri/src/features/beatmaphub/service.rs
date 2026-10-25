@@ -4,10 +4,8 @@ use std::{
     collections::BTreeSet,
     error::Error as _,
     fs,
-    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
     path::{Path, PathBuf},
     sync::Mutex,
-    time::Duration as StdDuration,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -83,7 +81,7 @@ impl BeatmapHubService {
             // Hub payloads are small, so HTTP/1.1 is the more compatible transport here.
             .http1_only()
             .user_agent(concat!("OPP/", env!("CARGO_PKG_VERSION")));
-        if let Some(proxy_url) = discover_proxy_url() {
+        if let Some(proxy_url) = crate::infrastructure::proxy::discover_proxy_url() {
             let proxy = reqwest::Proxy::all(&proxy_url).map_err(|error| {
                 CommandError::new(
                     "HUB_PROXY_ERROR",
@@ -1010,67 +1008,6 @@ fn reqwest_error_details(error: &reqwest::Error) -> String {
     messages.join("：")
 }
 
-/// 代理发现顺序：环境变量 → Windows 系统代理设置 → 本机 7890 端口探测。
-fn discover_proxy_url() -> Option<String> {
-    ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]
-        .into_iter()
-        .find_map(|name| {
-            std::env::var(name)
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-        })
-        .or_else(windows_internet_proxy)
-        .or_else(loopback_proxy)
-}
-
-/// 读取 Windows 注册表中的系统代理，优先 `https=`/`http=` 前缀条目。
-#[cfg(windows)]
-fn windows_internet_proxy() -> Option<String> {
-    use winreg::{RegKey, enums::HKEY_CURRENT_USER};
-
-    let settings = RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
-        .ok()?;
-    let enabled = settings.get_value::<u32, _>("ProxyEnable").ok()? != 0;
-    if !enabled {
-        return None;
-    }
-    let value = settings.get_value::<String, _>("ProxyServer").ok()?;
-    let candidate = value
-        .split(';')
-        .find_map(|entry| {
-            entry
-                .strip_prefix("https=")
-                .or_else(|| entry.strip_prefix("http="))
-        })
-        .unwrap_or(value.as_str())
-        .trim();
-    (!candidate.is_empty()).then(|| normalize_http_proxy(candidate))
-}
-
-#[cfg(not(windows))]
-fn windows_internet_proxy() -> Option<String> {
-    None
-}
-
-fn loopback_proxy() -> Option<String> {
-    // 7890 is the standard local mixed-proxy port used by the current desktop setup.
-    // Only select it when a listener is actually present, so direct-network users are unaffected.
-    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7890);
-    TcpStream::connect_timeout(&address, StdDuration::from_millis(100))
-        .ok()
-        .map(|_| "http://127.0.0.1:7890".to_string())
-}
-
-/// 为缺少协议前缀的代理地址补上 `http://`。
-fn normalize_http_proxy(value: &str) -> String {
-    if value.contains("://") {
-        value.to_string()
-    } else {
-        format!("http://{value}")
-    }
-}
-
 /// 构造与服务端约定的规范签名消息；字段顺序与换行不可改动。
 fn canonical_auth_message(
     challenge_id: &str,
@@ -1261,7 +1198,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "live production transport check"]
     async fn staging_packhub_is_reachable_with_hub_transport() {
-        let proxy_url = super::loopback_proxy().expect("local proxy on port 7890 is required");
+        let proxy_url = crate::infrastructure::proxy::discover_proxy_url()
+            .expect("local proxy on port 7890 is required");
         let client = reqwest::Client::builder()
             .no_proxy()
             .proxy(reqwest::Proxy::all(proxy_url).unwrap())

@@ -23,6 +23,7 @@ use crate::{
         skin_workshop::SkinWorkshopService,
         tablet_driver::OtdRuntime,
         tosu::TosuRuntime,
+        translation::TranslationService,
     },
     infrastructure::{osu_api::OsuApi, storage::StateStore},
 };
@@ -64,6 +65,7 @@ pub struct AppState {
     pub danser: Arc<DanserRuntime>,
     pub tosu: Arc<TosuRuntime>,
     pub overlay: Arc<OverlayRuntime>,
+    pub translation: Arc<TranslationService>,
     pub otd: Arc<OtdRuntime>,
     pub obs: Arc<ObsRuntime>,
     pub music: crate::features::music_player::MusicRuntime,
@@ -120,6 +122,7 @@ impl AppState {
                 danser: Arc::new(DanserRuntime::default()),
                 tosu: Arc::new(TosuRuntime::default()),
                 overlay: Arc::new(OverlayRuntime::default()),
+                translation: Arc::new(TranslationService::new()),
                 otd: Arc::new(OtdRuntime::default()),
                 obs: Arc::new(ObsRuntime::default()),
                 music: crate::features::music_player::MusicRuntime::new(app_data_dir)?,

@@ -7,7 +7,9 @@ pub(crate) mod local_database;
 pub(crate) mod logging;
 pub(crate) mod osu_api;
 pub(crate) mod platform;
+// 出站 HTTP 代理自动发现（环境变量 / 系统代理 / 本机 7890）。
 pub(crate) mod portable_update;
+pub(crate) mod proxy;
 pub(crate) mod storage;
 // 有限的重任务线程预算：异步运行时只负责等待，计算在独立线程池执行。
 pub(crate) mod tasks;

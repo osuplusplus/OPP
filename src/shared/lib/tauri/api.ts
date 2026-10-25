@@ -21,6 +21,7 @@ import { skinWorkshopApi } from "./skinWorkshop";
 import { shellApi } from "./shell";
 import { liveRenderApi } from "./liveRender";
 import { overlayApi } from "./overlay";
+import { translationApi } from "./translation";
 
 // desktopApi 组合入口：各域适配器聚合，消费方仍从 "shared/lib/tauri" 导入。
 export const desktopApi = {
@@ -46,6 +47,7 @@ export const desktopApi = {
   ...shellApi,
   ...liveRenderApi,
   ...overlayApi,
+  ...translationApi,
 };
 
 
@@ -64,3 +66,4 @@ export function useCapabilities() {
 }
 
 export type { LiveExportParams, LiveRenderOptions, LiveSkinEntry } from "./liveRender";
+export type { TranslationOutcome, TranslationTestResult } from "./translation";

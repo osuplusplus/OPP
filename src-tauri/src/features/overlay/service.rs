@@ -15,19 +15,21 @@ use crate::{
 
 /// 覆盖层窗口标签；同一时刻至多存在一个覆盖层窗口。
 pub const OVERLAY_WINDOW_LABEL: &str = "overlay";
-/// 模式切换后广播给前端的事件名（载荷为 `"hud"` / `"panel"`）。
+/// 模式切换后广播给前端的事件名（载荷为 `"hidden"` / `"hud"` / `"panel"`）。
 const OVERLAY_MODE_EVENT: &str = "overlay-mode-changed";
 
 /// HUD 卡片与面板侧栏的逻辑尺寸（CSS px），实际渲染随系统 DPI 缩放。
-const HUD_SIZE: (f64, f64) = (340.0, 190.0);
+const HUD_SIZE: (f64, f64) = (340.0, 204.0);
 /// Direct 面板侧栏的逻辑尺寸（会按显示器工作区收缩）。
-const PANEL_SIZE: (f64, f64) = (460.0, 800.0);
+const PANEL_SIZE: (f64, f64) = (540.0, 820.0);
 /// 窗口与屏幕边缘的逻辑间距。
 const CORNER_MARGIN: f64 = 16.0;
 
-/// 覆盖层形态：HUD 为点击穿透的状态卡片，Panel 为可交互的 Direct 侧栏。
+/// 覆盖层形态：Hidden 为完全隐藏（默认，Steam 式平时不可见），HUD 为点击
+/// 穿透的状态卡片（可选常驻），Panel 为可交互的 Direct 侧栏。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayMode {
+    Hidden,
     Hud,
     Panel,
 }
@@ -35,6 +37,7 @@ pub enum OverlayMode {
 impl OverlayMode {
     pub fn as_str(self) -> &'static str {
         match self {
+            OverlayMode::Hidden => "hidden",
             OverlayMode::Hud => "hud",
             OverlayMode::Panel => "panel",
         }
@@ -42,6 +45,7 @@ impl OverlayMode {
 
     pub fn parse(value: &str) -> CommandResult<Self> {
         match value {
+            "hidden" => Ok(OverlayMode::Hidden),
             "hud" => Ok(OverlayMode::Hud),
             "panel" => Ok(OverlayMode::Panel),
             other => Err(CommandError::new(
@@ -53,13 +57,23 @@ impl OverlayMode {
 }
 
 // 进程内只有一个覆盖层窗口，用静态量记录当前模式即可。
-static CURRENT_MODE: Mutex<OverlayMode> = Mutex::new(OverlayMode::Hud);
+static CURRENT_MODE: Mutex<OverlayMode> = Mutex::new(OverlayMode::Hidden);
 
 fn current_mode() -> OverlayMode {
     CURRENT_MODE
         .lock()
         .map(|mode| *mode)
-        .unwrap_or(OverlayMode::Hud)
+        .unwrap_or(OverlayMode::Hidden)
+}
+
+/// 进入 Panel 前的模式（Hud 或 Hidden）：面板收起时回到哪里。
+static PRE_PANEL_MODE: Mutex<OverlayMode> = Mutex::new(OverlayMode::Hidden);
+
+fn pre_panel_mode() -> OverlayMode {
+    PRE_PANEL_MODE
+        .lock()
+        .map(|mode| *mode)
+        .unwrap_or(OverlayMode::Hidden)
 }
 
 /// 当前模式的字符串表示（命令层序列化用）。
@@ -184,21 +198,19 @@ fn create_overlay_window(app: &AppHandle) -> CommandResult<WebviewWindow> {
         // 关闭请求一律转为隐藏：WebView 保活才能维持 MP 自动补缺监听。
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
-            if let Some(window) = handle.get_webview_window(OVERLAY_WINDOW_LABEL) {
-                let _ = window.hide();
-            }
+            let _ = hide_overlay(&handle);
         }
     });
     Ok(window)
 }
 
-/// 确保覆盖层窗口存在（不改变可见性）。
+/// 确保覆盖层窗口存在（不可见，保持隐藏态）。
 pub fn ensure_overlay_window(app: &AppHandle) -> CommandResult<WebviewWindow> {
     if let Some(existing) = app.get_webview_window(OVERLAY_WINDOW_LABEL) {
         return Ok(existing);
     }
     let window = create_overlay_window(app)?;
-    apply_mode(app, OverlayMode::Hud)?;
+    apply_mode(app, OverlayMode::Hidden)?;
     Ok(window)
 }
 
@@ -212,9 +224,15 @@ fn apply_mode(app: &AppHandle, mode: OverlayMode) -> CommandResult<()> {
     if let Ok(mut current) = CURRENT_MODE.lock() {
         *current = mode;
     }
+    if mode == OverlayMode::Panel && previous != OverlayMode::Panel {
+        // 记住面板唤出来源，收起时回到 HUD 或完全隐藏。
+        if let Ok(mut saved) = PRE_PANEL_MODE.lock() {
+            *saved = previous;
+        }
+    }
     if let Some(monitor) = overlay_monitor(&window) {
         let size = match mode {
-            OverlayMode::Hud => HUD_SIZE,
+            OverlayMode::Hud | OverlayMode::Hidden => HUD_SIZE,
             OverlayMode::Panel => panel_size_on(&monitor),
         };
         window.set_size(LogicalSize::new(size.0, size.1))?;
@@ -224,15 +242,27 @@ fn apply_mode(app: &AppHandle, mode: OverlayMode) -> CommandResult<()> {
             size,
         ))?;
     }
-    // HUD 默认点击穿透，让输入直达游戏；面板恢复交互。
+    // HUD 默认点击穿透，让输入直达游戏；隐藏与面板恢复交互（隐藏态不可见无妨）。
     window.set_ignore_cursor_events(mode == OverlayMode::Hud && settings.overlay_click_through)?;
-    if mode == OverlayMode::Panel {
-        // 打开面板前记录前台窗口（通常是游戏），收起时归还键盘焦点。
-        remember_foreground(&window);
-        window.show()?;
-        window.set_focus()?;
-    } else if previous == OverlayMode::Panel {
-        restore_foreground();
+    match mode {
+        OverlayMode::Panel => {
+            // 打开面板前记录前台窗口（通常是游戏），收起时归还键盘焦点。
+            remember_foreground(&window);
+            window.show()?;
+            window.set_focus()?;
+        }
+        OverlayMode::Hud => {
+            // HUD 可见性由调用方（show_overlay / 游戏事件）决定，这里只重排。
+            if previous == OverlayMode::Panel {
+                restore_foreground();
+            }
+        }
+        OverlayMode::Hidden => {
+            if previous == OverlayMode::Panel {
+                restore_foreground();
+            }
+            window.hide()?;
+        }
     }
     let _ = app.emit(OVERLAY_MODE_EVENT, mode.as_str());
     Ok(())
@@ -271,13 +301,28 @@ fn remember_foreground(_window: &WebviewWindow) {}
 #[cfg(not(windows))]
 fn restore_foreground() {}
 
-/// 热键/命令入口：HUD ↔ 面板切换；窗口不存在时先创建并进入面板。
+/// 热键/命令入口（Steam 式）：可见（面板/HUD）→ 收回到进入面板前的状态；
+/// 隐藏 → 唤出 Direct 面板。窗口不存在时先创建。
 pub fn toggle_panel(app: &AppHandle) -> CommandResult<()> {
     ensure_overlay_window(app)?;
     let next = if current_mode() == OverlayMode::Panel {
-        OverlayMode::Hud
+        pre_panel_mode()
     } else {
         OverlayMode::Panel
+    };
+    apply_mode(app, next)
+}
+
+/// 收起面板（面板内的 Esc/关闭按钮）：回到唤出前的状态（HUD 或隐藏）。
+/// 面板未打开时等价于隐藏。
+pub fn close_panel(app: &AppHandle) -> CommandResult<()> {
+    if app.get_webview_window(OVERLAY_WINDOW_LABEL).is_none() {
+        return Ok(());
+    }
+    let next = if current_mode() == OverlayMode::Panel {
+        pre_panel_mode()
+    } else {
+        OverlayMode::Hidden
     };
     apply_mode(app, next)
 }
@@ -288,18 +333,34 @@ pub fn set_mode(app: &AppHandle, mode: OverlayMode) -> CommandResult<()> {
     apply_mode(app, mode)
 }
 
-/// 命令入口：显示覆盖层（保持当前模式，默认 HUD）。
+/// 命令入口：显示覆盖层。隐藏态显示为 HUD 卡片，其余保持当前模式。
 pub fn show_overlay(app: &AppHandle) -> CommandResult<()> {
     let window = ensure_overlay_window(app)?;
-    apply_mode(app, current_mode())?;
+    let mode = current_mode();
+    apply_mode(
+        app,
+        if mode == OverlayMode::Hidden {
+            OverlayMode::Hud
+        } else {
+            mode
+        },
+    )?;
     window.show()?;
     Ok(())
 }
 
-/// 隐藏覆盖层（保留 WebView）。
+/// 隐藏覆盖层（保留 WebView）；面板态先归还焦点再隐藏。
 pub fn hide_overlay(app: &AppHandle) -> CommandResult<()> {
     if let Some(window) = app.get_webview_window(OVERLAY_WINDOW_LABEL) {
+        if current_mode() == OverlayMode::Panel {
+            apply_mode(app, OverlayMode::Hidden)?;
+            return Ok(());
+        }
+        if let Ok(mut mode) = CURRENT_MODE.lock() {
+            *mode = OverlayMode::Hidden;
+        }
         window.hide()?;
+        let _ = app.emit(OVERLAY_MODE_EVENT, "hidden");
     }
     Ok(())
 }
@@ -310,7 +371,7 @@ fn destroy_overlay_window(app: &AppHandle) {
         let _ = window.destroy();
     }
     if let Ok(mut mode) = CURRENT_MODE.lock() {
-        *mode = OverlayMode::Hud;
+        *mode = OverlayMode::Hidden;
     }
 }
 
@@ -324,8 +385,9 @@ fn game_running(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// game_session 监控钩子：游戏启动 → 显示 HUD、拉起 tosu 与 IRC 监听；
-/// 游戏退出 → 隐藏窗口（不销毁）、断开 IRC。
+/// game_session 监控钩子：游戏启动 → 拉起 tosu 与 IRC 监听，开启 HUD 常驻的
+/// 用户额外显示 HUD 卡片（默认保持隐藏，热键唤出）；游戏退出 → 隐藏窗口
+/// （不销毁）、断开 IRC。
 pub fn on_game_status(app: &AppHandle, running: bool) {
     let settings = settings_snapshot(app);
     if !settings.overlay_enabled {
@@ -476,6 +538,7 @@ mod tests {
 
     #[test]
     fn parses_overlay_modes() {
+        assert_eq!(OverlayMode::parse("hidden").unwrap(), OverlayMode::Hidden);
         assert_eq!(OverlayMode::parse("hud").unwrap(), OverlayMode::Hud);
         assert_eq!(OverlayMode::parse("panel").unwrap(), OverlayMode::Panel);
         assert!(OverlayMode::parse("other").is_err());

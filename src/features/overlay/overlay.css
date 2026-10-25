@@ -176,6 +176,25 @@ button, input, select { font: inherit; }
 
 .hud-open:hover { background: rgba(255, 255, 255, 0.12); }
 
+.hud-open + .hud-open { margin-left: 0; }
+
+.hud-chat-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ov-accent) 18%, transparent);
+  color: var(--ov-accent);
+  white-space: nowrap;
+}
+
+.hud-irc {
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------- Direct 面板 ---------- */
 
 .panel {
@@ -206,6 +225,16 @@ button, input, select { font: inherit; }
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--ov-accent);
+}
+
+/* osu!direct 风格品牌字标（小写斜体感近似官网 direct 标题）。 */
+.panel-brand {
+  font-size: 15px;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: var(--ov-accent);
+  user-select: none;
 }
 
 .panel-hotkey {
@@ -286,56 +315,174 @@ button, input, select { font: inherit; }
   line-height: 1.5;
 }
 
-.panel-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+/* ---------- 谱面卡片（osu!web beatmap card 布局） ---------- */
+
+.bm-card {
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.045);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
+  flex-shrink: 0;
 }
 
-.panel-item:hover { border-color: var(--ov-line); background: rgba(255, 255, 255, 0.075); }
+.bm-card:hover {
+  border-color: var(--ov-line);
+  background: rgba(255, 255, 255, 0.075);
+}
 
-.panel-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.bm-cover {
+  position: relative;
+  height: 118px;
+  background:
+    linear-gradient(135deg, rgba(255, 102, 170, 0.18), rgba(102, 187, 255, 0.14)),
+    #1a1d26;
+}
 
-.panel-item-title {
-  font-size: 12px;
-  font-weight: 600;
+.bm-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 底部渐变保证标题可读（官网卡片同款）。 */
+.bm-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(10, 12, 18, 0.86) 0%,
+    rgba(10, 12, 18, 0.35) 46%,
+    rgba(10, 12, 18, 0.05) 72%,
+    rgba(10, 12, 18, 0.28) 100%
+  );
+}
+
+.bm-status {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #10121a;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.bm-download {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: none;
+  background: var(--ov-accent);
+  color: #10121a;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.bm-download:hover:not(:disabled) { transform: scale(1.08); filter: brightness(1.12); }
+.bm-download:disabled { opacity: 0.55; cursor: default; }
+
+.bm-title-wrap {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.bm-title {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.bm-artist {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.bm-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--ov-text-muted);
+}
+
+.bm-mapper {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.panel-item-meta {
-  display: flex;
-  gap: 10px;
+.bm-stat { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bm-fav { color: #ff66ab; }
+
+.bm-presence {
   font-size: 10px;
-  color: var(--ov-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.bm-presence.presence-present { background: rgba(74, 222, 128, 0.16); color: var(--ov-ok); }
+.bm-presence.presence-partial { background: rgba(251, 191, 36, 0.16); color: var(--ov-warn); }
+.bm-presence.presence-missing { background: rgba(255, 255, 255, 0.1); color: var(--ov-text-muted); }
+
+/* 彩色难度条：左端色块 + 星数（颜色按星数渐变，近似官网难度配色）。 */
+.bm-diffs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 10px 8px;
 }
 
-.presence { border-radius: 999px; padding: 1px 7px; font-size: 10px; }
-.presence-present { background: rgba(74, 222, 128, 0.16); color: var(--ov-ok); }
-.presence-partial { background: rgba(251, 191, 36, 0.16); color: var(--ov-warn); }
-.presence-missing { background: rgba(255, 255, 255, 0.1); color: var(--ov-text-muted); }
-.presence-unknown { background: rgba(255, 255, 255, 0.06); color: var(--ov-text-muted); }
-
-.panel-download {
-  flex-shrink: 0;
-  padding: 5px 12px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--ov-accent) 45%, transparent);
-  background: color-mix(in srgb, var(--ov-accent) 16%, transparent);
-  color: var(--ov-accent);
-  font-size: 11px;
-  cursor: pointer;
+.bm-diff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ov-text);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 2px 6px 2px 4px;
 }
 
-.panel-download:hover:not(:disabled) { background: color-mix(in srgb, var(--ov-accent) 26%, transparent); }
-.panel-download:disabled { opacity: 0.55; cursor: default; }
+.bm-diff i {
+  width: 4px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.bm-diff-more { background: transparent; color: var(--ov-text-muted); }
 
 .panel-more {
   margin: 4px 0 8px;
@@ -367,3 +514,207 @@ button, input, select { font: inherit; }
 }
 
 .panel-download-line { color: var(--ov-accent); }
+
+/* ---------- 面板标签页与聊天 ---------- */
+
+/* IRC 连接状态横幅：警示（未配置/失败）与说明（连接中/未连接）。 */
+.chat-irc {
+  margin: 8px 12px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.chat-irc-warn {
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: var(--ov-warn);
+}
+
+.chat-irc-info {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--ov-line);
+  color: var(--ov-text-muted);
+}
+
+.panel-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.panel-tab {
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ov-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.panel-tab:hover { color: var(--ov-text); }
+
+.panel-tab.active {
+  border-color: var(--ov-line);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ov-accent);
+  font-weight: 600;
+}
+
+.chat-channels {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.chat-channel {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ov-line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ov-text-muted);
+  cursor: pointer;
+}
+
+button.chat-channel:hover { color: var(--ov-text); }
+
+.chat-channel.active {
+  border-color: color-mix(in srgb, var(--ov-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ov-accent) 14%, transparent);
+  color: var(--ov-accent);
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-list::-webkit-scrollbar { width: 6px; }
+.chat-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 999px; }
+
+.chat-entry {
+  display: flex;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.chat-nick {
+  flex-shrink: 0;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.chat-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--ov-text);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-translation {
+  color: var(--ov-text-muted);
+  font-size: 11px;
+}
+
+.chat-translation::before { content: "↳ "; }
+
+.chat-system .chat-text { color: var(--ov-text-muted); font-size: 11px; }
+
+.chat-compose {
+  border-top: 1px solid var(--ov-line);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ov-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--ov-accent) 10%, transparent);
+}
+
+.chat-result-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ov-text);
+  word-break: break-word;
+}
+
+.chat-copy {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ov-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ov-accent) 16%, transparent);
+  color: var(--ov-accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chat-copy:hover { background: color-mix(in srgb, var(--ov-accent) 26%, transparent); }
+
+.chat-copy-plain {
+  border-color: var(--ov-line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ov-text-muted);
+}
+
+.chat-copy-plain:hover { color: var(--ov-text); background: rgba(255, 255, 255, 0.1); }
+
+.chat-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--ov-line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ov-text);
+  outline: none;
+}
+
+.chat-input:focus { border-color: var(--ov-accent); }
+
+.chat-input::placeholder { color: var(--ov-text-muted); }
+
+.chat-translate {
+  flex-shrink: 0;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ov-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ov-accent) 16%, transparent);
+  color: var(--ov-accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chat-translate:hover:not(:disabled) { background: color-mix(in srgb, var(--ov-accent) 26%, transparent); }
+.chat-translate:disabled { opacity: 0.55; cursor: default; }
+
+.chat-hint {
+  font-size: 10px;
+  color: var(--ov-text-muted);
+}

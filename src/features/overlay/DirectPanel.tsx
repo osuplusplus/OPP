@@ -5,16 +5,19 @@ import type {
   AppSettings,
   BeatmapDownloadProgress,
   LocalBeatmapPresence,
+  OnlineBeatmap,
   OnlineBeatmapset,
   OverlayMpActivity,
   Ruleset,
   TosuLiveSnapshot,
 } from "../../shared/types/osu";
-import { createDefaultSearchQuery, starRange } from "../online-beatmaps/filters";
-import { displayTitle, isMultiplayerState, resolveDownloadProvider } from "./model";
+import { createDefaultSearchQuery } from "../online-beatmaps/filters";
+import { compactCount, isMultiplayerState, resolveDownloadProvider, starColor, statusMeta } from "./model";
 
 const SEARCH_DEBOUNCE_MS = 400;
 const PRESENCE_CHUNK = 1000;
+/** 难度条最多展示的数量，超出折叠为 "+N"。 */
+const MAX_DIFF_CHIPS = 6;
 
 type SetPresence = "present" | "partial" | "missing" | "unknown";
 
@@ -54,18 +57,122 @@ function mpSummary(activity: OverlayMpActivity): string | null {
   }
 }
 
+/** 封面地址优先级：card 规格最接近卡片宽度，缺省回退 cover/list。 */
+function coverUrl(set: OnlineBeatmapset): string | null {
+  return (
+    set.covers?.["card@2x"] ??
+    set.covers?.card ??
+    set.covers?.["cover@2x"] ??
+    set.covers?.cover ??
+    set.covers?.["list@2x"] ??
+    set.covers?.list ??
+    null
+  );
+}
+
+/** 按星数升序的难度列表（官网卡片底部的彩色难度条）。 */
+function difficultyChips(maps: OnlineBeatmap[] | undefined): OnlineBeatmap[] {
+  if (!maps?.length) return [];
+  return [...maps].sort((a, b) => a.difficulty_rating - b.difficulty_rating);
+}
+
+/** 单张谱面卡片：封面 + 状态徽标 + 标题 + 元信息 + 彩色难度条（官网同款布局）。 */
+function BeatmapCard({
+  set,
+  presence,
+  busy,
+  onDownload,
+}: {
+  set: OnlineBeatmapset;
+  presence: SetPresence;
+  busy: boolean;
+  onDownload: () => void;
+}) {
+  const cover = coverUrl(set);
+  const status = statusMeta(set.status);
+  const diffs = difficultyChips(set.beatmaps);
+  const hiddenDiffs = Math.max(0, diffs.length - MAX_DIFF_CHIPS);
+  const title = set.title_unicode || set.title;
+  const artist = set.artist_unicode || set.artist;
+
+  return (
+    <div className="bm-card">
+      <div className="bm-cover">
+        {cover ? (
+          <img
+            alt=""
+            src={cover}
+            draggable={false}
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
+          />
+        ) : null}
+        <div className="bm-shade" />
+        <span className="bm-status" style={{ background: status.color }}>
+          {status.label}
+        </span>
+        <button
+          type="button"
+          className="bm-download"
+          disabled={busy || set.availability?.download_disabled}
+          title={set.availability?.download_disabled ? "该谱面禁止下载" : "下载并导入"}
+          onClick={onDownload}
+        >
+          {busy ? "…" : "↓"}
+        </button>
+        <div className="bm-title-wrap">
+          <div className="bm-title" title={title}>
+            {title}
+          </div>
+          <div className="bm-artist" title={artist}>
+            {artist}
+          </div>
+        </div>
+      </div>
+      <div className="bm-info">
+        <span className="bm-mapper" title={`mapped by ${set.creator}`}>
+          by {set.creator}
+        </span>
+        <span className="bm-stat" title="播放次数">
+          ▶ {compactCount(set.play_count)}
+        </span>
+        <span className="bm-stat bm-fav" title="收藏数">
+          ♥ {compactCount(set.favourite_count)}
+        </span>
+        {presence !== "unknown" ? (
+          <span className={`bm-presence presence-${presence}`}>
+            {presence === "present" ? "已有" : presence === "partial" ? "部分" : "缺失"}
+          </span>
+        ) : null}
+      </div>
+      <div className="bm-diffs">
+        {diffs.slice(0, MAX_DIFF_CHIPS).map((map) => (
+          <span
+            key={map.id}
+            className="bm-diff"
+            title={`${map.version} · ${map.difficulty_rating.toFixed(2)}★`}
+          >
+            <i style={{ background: starColor(map.difficulty_rating) }} />
+            {map.difficulty_rating.toFixed(2)}
+          </span>
+        ))}
+        {hiddenDiffs > 0 ? <span className="bm-diff bm-diff-more">+{hiddenDiffs}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 export function DirectPanel({
   settings,
   snapshot,
   mpActivity,
   download,
-  onClose,
 }: {
   settings: AppSettings | null;
   snapshot: TosuLiveSnapshot | null;
   mpActivity: OverlayMpActivity;
   download: BeatmapDownloadProgress | null;
-  onClose: () => void;
 }) {
   const [text, setText] = useState("");
   const [ruleset, setRuleset] = useState<Ruleset>("osu");
@@ -150,17 +257,10 @@ export function DirectPanel({
 
   const downloadingId = download?.current_beatmapset_id ?? null;
   const mpLine = mpSummary(mpActivity);
-  const hotkey = settings?.overlay_hotkey_toggle ?? "Control+Shift+O";
 
+  // 面板外壳（标题栏/标签页）由 OverlayWindow 提供，此处是"谱面搜索"标签页主体。
   return (
-    <div className="panel">
-      <header className="panel-head" data-tauri-drag-region>
-        <span className="panel-title">OPP Direct</span>
-        <span className="panel-hotkey">{hotkey} 收起</span>
-        <button type="button" className="panel-close" onClick={onClose} aria-label="收起面板">
-          —
-        </button>
-      </header>
+    <>
       <div className="panel-controls">
         <input
           className="panel-search"
@@ -191,34 +291,15 @@ export function DirectPanel({
           <div className="panel-hint">输入关键词搜索，或浏览最新上架谱面。</div>
         ) : null}
         {error ? <div className="panel-error">{error}</div> : null}
-        {items.map((set) => {
-          const presenceStatus = summarizeSetPresence(set, presence);
-          const busy = downloadingId === set.id;
-          return (
-            <div key={set.id} className="panel-item">
-              <div className="panel-item-main">
-                <div className="panel-item-title" title={displayTitle(set.artist_unicode ?? set.artist, set.title_unicode ?? set.title)}>
-                  {displayTitle(set.artist_unicode ?? set.artist, set.title_unicode ?? set.title)}
-                </div>
-                <div className="panel-item-meta">
-                  <span>{set.creator}</span>
-                  <span>{starRange(set.beatmaps)}</span>
-                  <span className={`presence presence-${presenceStatus}`}>
-                    {presenceStatus === "present" ? "已有" : presenceStatus === "partial" ? "部分" : presenceStatus === "missing" ? "缺失" : "未知"}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="panel-download"
-                disabled={busy || set.availability?.download_disabled}
-                onClick={() => void downloadSet(set)}
-              >
-                {busy ? "下载中" : "下载"}
-              </button>
-            </div>
-          );
-        })}
+        {items.map((set) => (
+          <BeatmapCard
+            key={set.id}
+            set={set}
+            presence={summarizeSetPresence(set, presence)}
+            busy={downloadingId === set.id}
+            onDownload={() => void downloadSet(set)}
+          />
+        ))}
         {cursor ? (
           <button type="button" className="panel-more" disabled={loading} onClick={() => void searchPage(cursor, false)}>
             {loading ? "加载中…" : "加载更多"}
@@ -236,6 +317,6 @@ export function DirectPanel({
           <div className="panel-mp-line">{mpLine ?? `多人状态：${snapshot?.state}`}</div>
         ) : null}
       </footer>
-    </div>
+    </>
   );
 }

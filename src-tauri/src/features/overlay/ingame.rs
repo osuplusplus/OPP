@@ -275,7 +275,7 @@ async fn hud_page() -> impl axum::response::IntoResponse {
     (CORS, axum::response::Html(include_str!("ingame_hud.html")))
 }
 
-/// 聚合 OPP 侧运行时状态：MP 补缺、IRC、下载进度与 tosu 实时快照。
+/// 聚合 OPP 侧运行时状态：MP 补缺、IRC、下载进度、最近聊天与 tosu 实时快照。
 async fn status(
     axum::extract::State((overlay, tosu)): axum::extract::State<(
         Arc<OverlayRuntime>,
@@ -293,6 +293,12 @@ async fn status(
         .map(|value| value.clone())
         .unwrap_or_default();
     let download = overlay.download.lock().ok().and_then(|value| value.clone());
+    // 最近聊天（含译文）供 tosu 游戏内渲染页的聊天条展示。
+    let chat = overlay
+        .chat
+        .lock()
+        .map(|log| log.recent(15))
+        .unwrap_or_default();
     let tosu_live = crate::features::tosu::live_snapshot(&tosu);
     (
         CORS,
@@ -300,6 +306,7 @@ async fn status(
             "mp": mp,
             "irc": irc,
             "download": download,
+            "chat": chat,
             "tosu": tosu_live,
         })),
     )

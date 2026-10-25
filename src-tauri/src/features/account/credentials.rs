@@ -17,9 +17,12 @@ const LEGACY_TOKENS_ENTRY: &str = "osu-oauth-tokens";
 const ACCESS_TOKEN_ENTRY: &str = "osu-oauth-access-token";
 const REFRESH_TOKEN_ENTRY: &str = "osu-oauth-refresh-token";
 const TOKEN_EXPIRY_ENTRY: &str = "osu-oauth-token-expiry";
-// 第三方集成口令条目：OBS WebSocket 与 osu! IRC。
+// 第三方集成口令条目：OBS WebSocket、osu! IRC 与聊天翻译。
 const OBS_WEBSOCKET_PASSWORD_ENTRY: &str = "obs-websocket-password";
 const OSU_IRC_TOKEN_ENTRY: &str = "osu-irc-token";
+// 翻译凭据按提供方解释内容：baidu="appid|密钥"、tencent="SecretId|SecretKey"、
+// openai=API key；google_free 无需凭据。
+const TRANSLATION_CREDENTIAL_ENTRY: &str = "translation-credential";
 
 /// 账号域统一的密钥环访问层；自身无状态，每次读写都按服务名加条目名即时定位。
 #[derive(Default)]
@@ -114,6 +117,19 @@ impl CredentialStore {
 
     pub fn get_osu_irc_token(&self) -> CommandResult<Option<String>> {
         Self::read_password(OSU_IRC_TOKEN_ENTRY)
+    }
+
+    /// 聊天翻译服务凭据（内容格式由所选提供方决定）；传空字符串表示删除。
+    pub fn set_translation_credential(&self, credential: &str) -> CommandResult<()> {
+        if credential.is_empty() {
+            Self::delete(TRANSLATION_CREDENTIAL_ENTRY)
+        } else {
+            Self::write_password(TRANSLATION_CREDENTIAL_ENTRY, credential)
+        }
+    }
+
+    pub fn get_translation_credential(&self) -> CommandResult<Option<String>> {
+        Self::read_password(TRANSLATION_CREDENTIAL_ENTRY)
     }
 
     // 口令类条目（Client Secret、OBS、IRC）的读取路径。

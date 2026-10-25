@@ -4,7 +4,8 @@ import type {
   OverlayMpActivity,
   TosuLiveSnapshot,
 } from "../../shared/types/osu";
-import { displayTitle } from "./model";
+import type { OverlayIrcState } from "./mpWatcher";
+import { displayTitle, ircNotice } from "./model";
 
 const stateLabels: Record<string, string> = {
   Menu: "主菜单",
@@ -57,15 +58,25 @@ export function HudCard({
   snapshot,
   mpActivity,
   download,
+  chatUnread,
+  irc,
   onOpen,
+  onOpenChat,
 }: {
   settings: AppSettings | null;
   snapshot: TosuLiveSnapshot | null;
   mpActivity: OverlayMpActivity;
   download: BeatmapDownloadProgress | null;
+  /** 聊天页不可见期间的新消息数（徽标提示）。 */
+  chatUnread: number;
+  /** IRC 连接状态（凭据缺失/认证失败等问题的可见化）。 */
+  irc: OverlayIrcState | null;
   onOpen: () => void;
+  onOpenChat: () => void;
 }) {
   const mp = describeMpActivity(mpActivity);
+  const notice = ircNotice(irc);
+  const ircWarn = notice?.tone === "warn" ? notice.text : null;
   const percent = download ? downloadPercent(download) : null;
   const hotkey = settings?.overlay_hotkey_toggle ?? "Control+Shift+O";
   const clickThrough = settings?.overlay_click_through !== false;
@@ -101,12 +112,27 @@ export function HudCard({
       ) : (
         <div className="hud-mp hud-mp-idle">tosu 待机 · 等待游戏数据</div>
       )}
+      {ircWarn ? (
+        <div className="hud-irc hud-mp-warn" title={ircWarn}>
+          {ircWarn}
+        </div>
+      ) : null}
       <div className="hud-foot">
         <span className="hud-hotkey">{hotkey} 打开面板</span>
+        {chatUnread > 0 ? (
+          <span className="hud-chat-badge" title="有新的 MP 聊天消息">
+            💬 {chatUnread > 99 ? "99+" : chatUnread}
+          </span>
+        ) : null}
         {clickThrough ? null : (
-          <button type="button" className="hud-open" onClick={onOpen}>
-            面板
-          </button>
+          <>
+            <button type="button" className="hud-open" onClick={onOpenChat}>
+              聊天
+            </button>
+            <button type="button" className="hud-open" onClick={onOpen}>
+              面板
+            </button>
+          </>
         )}
       </div>
     </div>

@@ -52,5 +52,7 @@ pub(crate) mod tournament_pools;
 pub(crate) mod trainer;
 // 便携版更新检查、下载与安装。
 pub(crate) mod update;
+// 聊天翻译：多提供方文本翻译（Google 免费端点/腾讯云/百度/OpenAI 兼容 LLM）。
+pub(crate) mod translation;
 // 视觉训练（生成与时间轴）。
 pub(crate) mod view_trainer;

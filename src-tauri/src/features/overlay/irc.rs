@@ -58,12 +58,102 @@ pub struct MpActivityInfo {
     pub message: String,
 }
 
+/// 聊天缓冲容量：保留最近 300 条，覆盖整场对局的消息回顾。
+const CHAT_CAPACITY: usize = 300;
+/// 单次读取聊天历史的条数上限（命令层参数钳制）。
+pub(crate) const CHAT_HISTORY_LIMIT: usize = 300;
+
+/// 单条 MP 聊天消息；`translation` 由自动翻译任务异步回填。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ChatEntry {
+    pub id: u64,
+    pub channel: String,
+    pub nick: String,
+    pub text: String,
+    /// 自动翻译译文；无需翻译或翻译失败时不出现该字段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation: Option<String>,
+    /// chat | system（BanchoBot 播报类消息）
+    pub kind: String,
+    /// 消息时间（Unix 毫秒）。
+    pub ts_ms: i64,
+}
+
+/// 环形聊天缓冲：id 单调递增，前端凭 id 定位译文回填。
+pub struct ChatLog {
+    entries: std::collections::VecDeque<ChatEntry>,
+    next_id: u64,
+}
+
+impl Default for ChatLog {
+    fn default() -> Self {
+        Self {
+            entries: std::collections::VecDeque::with_capacity(CHAT_CAPACITY),
+            next_id: 1,
+        }
+    }
+}
+
+impl ChatLog {
+    /// 追加消息并返回带 id 的条目；超容量淘汰最旧条目。
+    pub fn push(
+        &mut self,
+        channel: &str,
+        nick: String,
+        text: String,
+        system: bool,
+        ts_ms: i64,
+    ) -> ChatEntry {
+        let entry = ChatEntry {
+            id: self.next_id,
+            channel: channel.to_owned(),
+            nick,
+            text,
+            translation: None,
+            kind: if system {
+                "system".into()
+            } else {
+                "chat".into()
+            },
+            ts_ms,
+        };
+        self.next_id += 1;
+        self.entries.push_back(entry.clone());
+        while self.entries.len() > CHAT_CAPACITY {
+            self.entries.pop_front();
+        }
+        entry
+    }
+
+    /// 最近 `limit` 条（时间正序返回，供列表直接渲染）。
+    pub fn recent(&self, limit: usize) -> Vec<ChatEntry> {
+        self.entries
+            .iter()
+            .rev()
+            .take(limit)
+            .rev()
+            .cloned()
+            .collect()
+    }
+
+    /// 回填译文；条目可能已被容量淘汰，找不到时返回 false。
+    pub fn set_translation(&mut self, id: u64, translation: String) -> bool {
+        self.entries
+            .iter_mut()
+            .find(|entry| entry.id == id)
+            .map(|entry| entry.translation = Some(translation))
+            .is_some()
+    }
+}
+
 /// 覆盖层共享运行时：IRC 连接状态、MP 补缺活动与最新下载进度。
 /// HTTP 状态服务与 Tauri 事件都从这里读取。
 pub struct OverlayRuntime {
     pub irc: Mutex<IrcStatusInfo>,
     pub mp: Mutex<MpActivityInfo>,
     pub download: Mutex<Option<crate::features::online_beatmaps::BeatmapDownloadProgress>>,
+    /// MP 频道聊天缓冲（后端常驻，与窗口生命周期无关）。
+    pub chat: Mutex<ChatLog>,
     /// 递增以中断进行中的 IRC 会话（停用/游戏退出时）。
     pub irc_generation: AtomicU64,
     /// 连接任务运行标志；以 `swap` 原子抢占防止重复启动。
@@ -84,6 +174,7 @@ impl Default for OverlayRuntime {
                 ..MpActivityInfo::default()
             }),
             download: Mutex::new(None),
+            chat: Mutex::new(ChatLog::default()),
             irc_generation: AtomicU64::new(0),
             irc_running: AtomicBool::new(false),
             recent_beatmaps: Mutex::new(Vec::new()),
@@ -95,7 +186,7 @@ impl Default for OverlayRuntime {
 // IRC 协议解析（纯函数，便于单测）
 // ---------------------------------------------------------------------------
 
-/// 从 IRC 消息流解析出的事件，仅保留补缺流程关心的种类。
+/// 从 IRC 消息流解析出的事件，仅保留补缺与聊天关心的种类。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IrcEvent {
     Welcome,
@@ -106,6 +197,21 @@ pub enum IrcEvent {
     JoinedChannel(String),
     /// BanchoBot 播报的换图事件，携带 beatmap id。
     BeatmapChanged(u64),
+    /// #mp_ 频道聊天消息；BanchoBot 的非换图播报标记为系统消息。
+    ChatMessage {
+        channel: String,
+        nick: String,
+        text: String,
+        system: bool,
+    },
+    /// 服务器主动断开（`ERROR` 行 / 464 密码错误）：认证失败等不可重试错误。
+    Fatal(String),
+}
+
+/// 判定服务器错误文本是否为认证类（这类错误重连也不会成功）。
+fn is_auth_error(message: &str) -> bool {
+    let lowered = message.to_ascii_lowercase();
+    lowered.contains("auth") || lowered.contains("password") || lowered.contains("ident")
 }
 
 /// 提取文本中的 osu! 谱面链接 ID（兼容 /b/ 与 /beatmaps/ 两种路径）。
@@ -148,6 +254,40 @@ fn lobby_channel_name(token: &str) -> Option<String> {
     }
 }
 
+/// 剥离 IRC 控制字符：CTCP 包裹符与 ACTION 关键字（保留动作描述）、
+/// mIRC 颜色码（`\x03` 后跟至多两位前景色与可选 `,背景色`）及粗体/下划线等修饰符。
+pub(crate) fn sanitize_chat_text(text: &str) -> String {
+    // CTCP 包裹符整体丢弃；ACTION 消息保留动作描述本身（"waves"）。
+    let without_ctcp: String = text.chars().filter(|ch| *ch != '\u{01}').collect();
+    let trimmed = without_ctcp.trim();
+    let body = trimmed.strip_prefix("ACTION ").unwrap_or(trimmed);
+
+    let mut cleaned = String::with_capacity(body.len());
+    let mut chars = body.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\u{02}' | '\u{16}' | '\u{1f}' | '\u{0f}' => {}
+            '\u{03}' => {
+                let mut digits = 0;
+                while digits < 2 && chars.peek().is_some_and(|next| next.is_ascii_digit()) {
+                    chars.next();
+                    digits += 1;
+                }
+                if chars.peek() == Some(&',') {
+                    chars.next();
+                    let mut digits = 0;
+                    while digits < 2 && chars.peek().is_some_and(|next| next.is_ascii_digit()) {
+                        chars.next();
+                        digits += 1;
+                    }
+                }
+            }
+            other => cleaned.push(other),
+        }
+    }
+    cleaned.trim().to_owned()
+}
+
 /// 解析单条 IRC 服务器消息。own_nick 用于识别"自己加入频道"的镜像事件。
 pub fn parse_irc_line(line: &str, own_nick: &str) -> Option<IrcEvent> {
     let line = line.trim_end_matches(['\r', '\n']);
@@ -159,6 +299,12 @@ pub fn parse_irc_line(line: &str, own_nick: &str) -> Option<IrcEvent> {
             token.trim().trim_start_matches(':').to_owned(),
         ));
     }
+    // 服务器主动断开：ERROR :Authentication failed. 等，多为令牌/用户名错误。
+    if let Some(message) = line.strip_prefix("ERROR ") {
+        return Some(IrcEvent::Fatal(
+            message.trim().trim_start_matches(':').to_owned(),
+        ));
+    }
     let rest = line.strip_prefix(':')?;
     let (prefix, tail) = rest.split_once(' ')?;
     let sender_nick = prefix.split('!').next().unwrap_or(prefix);
@@ -167,12 +313,15 @@ pub fn parse_irc_line(line: &str, own_nick: &str) -> Option<IrcEvent> {
     // 数字回复：:server 001 <nick> :Welcome / :server 319 <nick> :#mp_1 #mp_2
     if parts
         .first()
-        .is_some_and(|first| first.chars().all(|ch| ch.is_ascii_digit()))
+        .is_some_and(|first| !first.is_empty() && first.chars().all(|ch| ch.is_ascii_digit()))
     {
         return match parts[0] {
             "001" => Some(IrcEvent::Welcome),
             "319" => {
-                let trailing = tail.split(" :").nth(1).unwrap_or_default();
+                let trailing = tail
+                    .split_once(" :")
+                    .map(|(_, rest)| rest)
+                    .unwrap_or_default();
                 let channels = trailing
                     .split(' ')
                     .filter_map(lobby_channel_name)
@@ -181,6 +330,8 @@ pub fn parse_irc_line(line: &str, own_nick: &str) -> Option<IrcEvent> {
                     .collect();
                 Some(IrcEvent::LobbyChannels(channels))
             }
+            // 密码/令牌错误。
+            "464" => Some(IrcEvent::Fatal("Password incorrect (IRC 令牌错误)".into())),
             _ => None,
         };
     }
@@ -199,11 +350,26 @@ pub fn parse_irc_line(line: &str, own_nick: &str) -> Option<IrcEvent> {
             if !channel.starts_with("#mp_") {
                 return None;
             }
-            let trailing = tail.split(" :").nth(1)?;
+            // 第一个 " :" 之后全部是正文（正文本身可能再含 " :"，不能截断）。
+            let trailing = tail.split_once(" :").map(|(_, rest)| rest)?;
             if sender_nick.eq_ignore_ascii_case("BanchoBot") {
-                parse_beatmap_broadcast(trailing).map(IrcEvent::BeatmapChanged)
+                // 换图播报走补缺事件；其余 BanchoBot 消息作为系统聊天展示。
+                match parse_beatmap_broadcast(trailing) {
+                    Some(beatmap_id) => Some(IrcEvent::BeatmapChanged(beatmap_id)),
+                    None => Some(IrcEvent::ChatMessage {
+                        channel: (*channel).to_owned(),
+                        nick: sender_nick.to_owned(),
+                        text: sanitize_chat_text(trailing),
+                        system: true,
+                    }),
+                }
             } else {
-                None
+                Some(IrcEvent::ChatMessage {
+                    channel: (*channel).to_owned(),
+                    nick: sender_nick.to_owned(),
+                    text: sanitize_chat_text(trailing),
+                    system: false,
+                })
             }
         }
         _ => None,
@@ -247,6 +413,50 @@ pub fn set_mp(app: &AppHandle, phase: &str, title: &str, message: &str) {
     let _ = app.emit("overlay-mp-activity", info);
 }
 
+/// 记录聊天消息：写入运行时缓冲、广播 `overlay-chat-message` 事件，并按需
+/// 派发自动翻译任务（译文回填后广播 `overlay-chat-updated`）。翻译失败静默，
+/// 聊天流本身不受影响。
+fn record_chat_message(app: &AppHandle, channel: &str, nick: String, text: String, system: bool) {
+    let state = app.state::<AppState>();
+    let runtime = state.overlay.clone();
+    let ts_ms = chrono::Utc::now().timestamp_millis();
+    let Ok(mut log) = runtime.chat.lock() else {
+        return;
+    };
+    let entry = log.push(channel, nick, text.clone(), system, ts_ms);
+    drop(log);
+    let _ = app.emit("overlay-chat-message", &entry);
+
+    // 自动翻译是慢路径（外部 HTTP/LLM），独立任务执行，译文稍后回填。
+    let entry_id = entry.id;
+    let channel = channel.to_owned();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let Some(translation) =
+            crate::features::translation::service::translate_incoming(&state, &text).await
+        else {
+            return;
+        };
+        let runtime = state.overlay.clone();
+        let updated = runtime
+            .chat
+            .lock()
+            .map(|mut log| log.set_translation(entry_id, translation.clone()))
+            .unwrap_or(false);
+        if updated {
+            let _ = app.emit(
+                "overlay-chat-updated",
+                serde_json::json!({
+                    "id": entry_id,
+                    "channel": channel,
+                    "translation": translation,
+                }),
+            );
+        }
+    });
+}
+
 /// 按需启动 IRC 连接任务（凭据缺失时静默跳过，由设置页引导补全）。
 pub fn ensure_irc_connection(app: &AppHandle) {
     let state = app.state::<AppState>();
@@ -280,6 +490,11 @@ pub fn ensure_irc_connection(app: &AppHandle) {
                         status.state = "error".into();
                         status.message = format!("{error}");
                     });
+                    // 认证失败重连无意义：保持错误状态结束任务（改凭据后会重启）。
+                    if error.code == "IRC_AUTH_FAILED" {
+                        runtime.irc_running.store(false, Ordering::SeqCst);
+                        return;
+                    }
                 }
             }
             // 可中断的退避等待。
@@ -384,6 +599,21 @@ async fn run_irc_session(
                     Some(IrcEvent::Ping(token)) => {
                         send(&mut writer, &format!("PONG :{token}")).await?;
                     }
+                    Some(IrcEvent::Fatal(message)) => {
+                        // 服务器主动断开：认证类错误重连也不会成功，由外层
+                        // 决定是否终止；其余按普通错误退避重试。
+                        return Err(if is_auth_error(&message) {
+                            CommandError::new(
+                                "IRC_AUTH_FAILED",
+                                format!("osu! IRC 认证失败（{message}），请检查用户名与令牌"),
+                            )
+                        } else {
+                            CommandError::new(
+                                "IRC_SERVER_ERROR",
+                                format!("osu! IRC 服务器断开：{message}"),
+                            )
+                        });
+                    }
                     Some(IrcEvent::Welcome) => {
                         set_irc(runtime, |status| {
                             status.state = "connected".into();
@@ -412,6 +642,14 @@ async fn run_irc_session(
                         tauri::async_runtime::spawn(async move {
                             handle_beatmap(app, beatmap_id).await;
                         });
+                    }
+                    Some(IrcEvent::ChatMessage {
+                        channel,
+                        nick,
+                        text,
+                        system,
+                    }) => {
+                        record_chat_message(app, &channel, nick, text, system);
                     }
                     None => {}
                 }
@@ -675,9 +913,78 @@ mod tests {
             parse_irc_line(line, "shimi"),
             Some(IrcEvent::BeatmapChanged(321))
         );
-        // 普通玩家消息即使含链接也不触发。
+        // BanchoBot 的非换图播报作为系统聊天消息展示。
+        let system = ":BanchoBot!BanchoBot@cho.ppy.sh PRIVMSG #mp_1 :All players are ready";
+        assert_eq!(
+            parse_irc_line(system, "shimi"),
+            Some(IrcEvent::ChatMessage {
+                channel: "#mp_1".into(),
+                nick: "BanchoBot".into(),
+                text: "All players are ready".into(),
+                system: true,
+            })
+        );
+        // 普通玩家消息即使含换图文本也不构成补缺事件，保留为聊天消息。
         let chat = ":player!u@h PRIVMSG #mp_1 :Beatmap changed to: X (https://osu.ppy.sh/b/1)";
-        assert_eq!(parse_irc_line(chat, "shimi"), None);
+        assert_eq!(
+            parse_irc_line(chat, "shimi"),
+            Some(IrcEvent::ChatMessage {
+                channel: "#mp_1".into(),
+                nick: "player".into(),
+                text: "Beatmap changed to: X (https://osu.ppy.sh/b/1)".into(),
+                system: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_player_chat_and_ignores_other_channels() {
+        let line = ":Player_Name!user@ppy.sh PRIVMSG #mp_88 :gg wp everyone 你好";
+        assert_eq!(
+            parse_irc_line(line, "shimi"),
+            Some(IrcEvent::ChatMessage {
+                channel: "#mp_88".into(),
+                nick: "Player_Name".into(),
+                text: "gg wp everyone 你好".into(),
+                system: false,
+            })
+        );
+        // 非 #mp_ 频道与私聊消息不进入聊天缓冲。
+        assert_eq!(parse_irc_line(":a!u@h PRIVMSG #osu :hello", "shimi"), None);
+        assert_eq!(parse_irc_line(":a!u@h PRIVMSG shimi :hello", "shimi"), None);
+    }
+
+    #[test]
+    fn strips_irc_control_codes_from_chat_text() {
+        // CTCP ACTION 包裹与颜色码/粗体修饰符剥离，正文保留。
+        assert_eq!(sanitize_chat_text("\u{01}ACTION waves\u{01}"), "waves");
+        assert_eq!(
+            sanitize_chat_text("\u{03}4,2red text\u{03} rest"),
+            "red text rest"
+        );
+        assert_eq!(sanitize_chat_text("\u{02}bold\u{02} normal"), "bold normal");
+        assert_eq!(sanitize_chat_text("plain 中文 ✅"), "plain 中文 ✅");
+    }
+
+    #[test]
+    fn chat_log_caps_capacity_and_fills_translations() {
+        let mut log = ChatLog::default();
+        let first = log.push("#mp_1", "a".into(), "one".into(), false, 1);
+        for index in 0..CHAT_CAPACITY {
+            log.push("#mp_1", "a".into(), format!("m{index}"), false, 2);
+        }
+        // 超容量后最旧的条目被淘汰，最早的 one 已不在缓冲中。
+        assert!(!log.recent(CHAT_CAPACITY).iter().any(|e| e.id == first.id));
+        assert_eq!(log.recent(CHAT_CAPACITY).len(), CHAT_CAPACITY);
+        // recent 保持时间正序且限制条数。
+        let recent = log.recent(3);
+        assert_eq!(recent.len(), 3);
+        assert!(recent[0].ts_ms <= recent[2].ts_ms);
+        // 译文回填按 id 定位；已淘汰的 id 回填失败。
+        let latest = log.recent(1)[0].clone();
+        assert!(log.set_translation(latest.id, "译文".into()));
+        assert_eq!(log.recent(1)[0].translation.as_deref(), Some("译文"));
+        assert!(!log.set_translation(first.id, "gone".into()));
     }
 
     #[test]
@@ -689,6 +996,39 @@ mod tests {
         assert_eq!(
             parse_irc_line(":irc.ppy.sh 001 shimi :Welcome", "shimi"),
             Some(IrcEvent::Welcome)
+        );
+    }
+
+    #[test]
+    fn parses_server_error_lines_as_fatal() {
+        // ERROR 行（认证失败等服务器主动断开）解析为致命事件。
+        assert_eq!(
+            parse_irc_line("ERROR :Authentication failed.", "shimi"),
+            Some(IrcEvent::Fatal("Authentication failed.".into()))
+        );
+        // 464 密码错误同样致命。
+        assert_eq!(
+            parse_irc_line(":cho.ppy.sh 464 shimi :Password incorrect", "shimi"),
+            Some(IrcEvent::Fatal("Password incorrect (IRC 令牌错误)".into()))
+        );
+        // 认证类文本判定（决定是否重连）。
+        assert!(is_auth_error("Bad authentication token"));
+        assert!(is_auth_error("Password incorrect (IRC 令牌错误)"));
+        assert!(!is_auth_error("Server is closing"));
+    }
+
+    #[test]
+    fn keeps_colon_sequences_in_chat_body() {
+        // 正文自身包含 " :" 时不能在第二个 " :" 处截断。
+        let line = ":p!u@h PRIVMSG #mp_1 :时间 12:30 : 继续";
+        assert_eq!(
+            parse_irc_line(line, "shimi"),
+            Some(IrcEvent::ChatMessage {
+                channel: "#mp_1".into(),
+                nick: "p".into(),
+                text: "时间 12:30 : 继续".into(),
+                system: false,
+            })
         );
     }
 }

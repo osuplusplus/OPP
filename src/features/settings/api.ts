@@ -59,6 +59,12 @@ export function useSettings() {
       overlay_start_tosu_with_game: true,
       overlay_ingame_enabled: false,
       overlay_irc_username: null,
+      translation_provider: "google_free",
+      translation_enabled: true,
+      translation_target_lang: "zh",
+      translation_outgoing_target_lang: "en",
+      translation_api_base_url: null,
+      translation_api_model: null,
     }),
     staleTime: Infinity,
   });

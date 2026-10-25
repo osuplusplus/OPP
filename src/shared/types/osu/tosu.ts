@@ -26,7 +26,7 @@ export interface LogFileInfo { name: string; size_bytes: number; created_at: str
 export interface OverlayState {
   enabled: boolean;
   visible: boolean;
-  mode: "hud" | "panel";
+  mode: "hidden" | "hud" | "panel";
 }
 
 export interface OverlayIrcStatus {
@@ -63,6 +63,25 @@ export interface OverlayIngameInstallInfo {
   installed: boolean;
   tosu_dir: string;
   message: string;
+}
+
+/** MP 频道单条聊天消息；translation 由后端自动翻译任务异步回填。 */
+export interface OverlayChatEntry {
+  id: number;
+  channel: string;
+  nick: string;
+  text: string;
+  translation?: string;
+  /** chat | system */
+  kind: string;
+  ts_ms: number;
+}
+
+/** overlay-chat-updated 事件载荷：按 id 定位回填译文。 */
+export interface OverlayChatUpdate {
+  id: number;
+  channel: string;
+  translation: string;
 }
 
 export interface TosuLiveSnapshot {

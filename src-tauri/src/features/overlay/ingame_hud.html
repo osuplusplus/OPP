@@ -44,6 +44,14 @@
   .map { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .diff { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .chat .line {
+    font-size: 11px; line-height: 1.35;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chat .line b { font-weight: 600; }
+  .chat .line .tr { color: var(--muted); font-size: 10px; }
+  .chat .line.sys { color: var(--muted); font-size: 10px; }
   .activity { font-size: 11px; line-height: 1.5; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .activity.ok { color: var(--ok); }
   .activity.warn { color: var(--warn); }
@@ -62,6 +70,7 @@
       <span class="title" id="title">—</span>
       <span class="diff" id="diff"></span>
     </div>
+    <div class="chat" id="chat" style="display:none"></div>
     <div class="activity" id="activity">等待 OPP…</div>
     <div class="bar" id="bar" style="display:none"><div id="bar-fill" style="width:0%"></div></div>
     <div class="foot" id="foot">tosu 游戏内渲染 · Ctrl+Shift+Space 显隐</div>
@@ -84,6 +93,37 @@
   };
   function el(id) { return document.getElementById(id); }
   function setText(id, value) { el(id).textContent = value; }
+  var nickPalette = ["#67e8f9", "#fbbf24", "#4ade80", "#c084fc", "#f472b6", "#facc15", "#2dd4bf", "#818cf8"];
+  function nickColor(nick) {
+    var hash = 0;
+    for (var i = 0; i < nick.length; i++) hash = (hash * 31 + nick.charCodeAt(i)) >>> 0;
+    return nickPalette[hash % nickPalette.length];
+  }
+  // 最近几条聊天（含译文）；全部用 textContent 组装，聊天内容不进 innerHTML。
+  function renderChat(data) {
+    var chatBox = el("chat");
+    var entries = (data.chat || []).filter(function (entry) { return entry.text; }).slice(-3);
+    chatBox.style.display = entries.length ? "" : "none";
+    chatBox.textContent = "";
+    entries.forEach(function (entry) {
+      var line = document.createElement("div");
+      line.className = "line" + (entry.kind === "system" ? " sys" : "");
+      var nick = document.createElement("b");
+      nick.textContent = entry.nick;
+      nick.style.color = entry.kind === "system" ? "" : nickColor(entry.nick);
+      line.appendChild(nick);
+      line.appendChild(document.createTextNode(" " + entry.text));
+      if (entry.translation) {
+        var tr = document.createElement("span");
+        tr.className = "tr";
+        tr.textContent = "  ↳ " + entry.translation;
+        line.appendChild(tr);
+      }
+      chatBox.appendChild(line);
+    });
+    // 聊天可见时压缩活动行，避免卡片溢出。
+    el("activity").style.webkitLineClamp = entries.length ? "1" : "";
+  }
   function displayTitle(artist, title) {
     if (!title) return "—";
     return artist ? artist + " - " + title : title;
@@ -97,6 +137,7 @@
     stateEl.className = "state" + (isMp ? " mp" : "");
     setText("title", displayTitle(tosu.artist, tosu.title));
     setText("diff", tosu.difficulty || "");
+    renderChat(data);
 
     var activity = el("activity");
     var download = data.download;

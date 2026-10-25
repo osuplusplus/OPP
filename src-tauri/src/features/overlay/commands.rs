@@ -37,16 +37,22 @@ pub fn overlay_get_state(
         None => Ok(OverlayStateInfo {
             enabled,
             visible: false,
-            mode: "hud".into(),
+            mode: "hidden".into(),
         }),
     }
 }
 
 #[tauri::command]
-/// 供前端调用的 Tauri 命令：切换 HUD/面板模式。
+/// 供前端调用的 Tauri 命令：切换 隐藏/HUD/面板 模式。
 pub fn overlay_set_mode(mode: String, app: AppHandle) -> CommandResult<()> {
     let mode = service::OverlayMode::parse(&mode)?;
     service::set_mode(&app, mode)
+}
+
+#[tauri::command]
+/// 供前端调用的 Tauri 命令：收起面板（Esc/关闭按钮），回到唤出前的状态。
+pub fn overlay_close_panel(app: AppHandle) -> CommandResult<()> {
+    service::close_panel(&app)
 }
 
 #[tauri::command]
@@ -169,4 +175,33 @@ pub fn overlay_install_ingame(app: AppHandle) -> CommandResult<super::ingame::In
 pub fn overlay_uninstall_ingame(app: AppHandle) -> CommandResult<()> {
     let state = app.state::<AppState>();
     super::ingame::uninstall_ingame_overlay(&state)
+}
+
+#[tauri::command]
+/// 供前端调用的 Tauri 命令：读取 MP 频道聊天缓冲（时间正序）。
+pub fn overlay_get_chat(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<super::irc::ChatEntry>> {
+    let runtime = &state.overlay;
+    let log = runtime
+        .chat
+        .lock()
+        .map_err(|_| CommandError::new("CHAT_BUFFER_LOCKED", "聊天缓冲区暂不可用"))?;
+    Ok(log.recent(limit.unwrap_or(100).min(super::irc::CHAT_HISTORY_LIMIT)))
+}
+
+#[tauri::command]
+/// 供前端调用的 Tauri 命令：把文本写入系统剪贴板（聊天译文复制粘贴用）。
+pub fn overlay_copy_text(text: String) -> CommandResult<()> {
+    // 打开剪贴板是快操作，直接在命令线程完成。
+    let mut clipboard = arboard::Clipboard::new().map_err(|error| {
+        CommandError::new(
+            "CLIPBOARD_UNAVAILABLE",
+            format!("系统剪贴板不可用：{error}"),
+        )
+    })?;
+    clipboard.set_text(text).map_err(|error| {
+        CommandError::new("CLIPBOARD_WRITE_FAILED", format!("写入剪贴板失败：{error}"))
+    })
 }

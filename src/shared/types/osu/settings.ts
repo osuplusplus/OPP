@@ -81,6 +81,18 @@ export interface AppSettings {
   overlay_start_tosu_with_game?: boolean;
   overlay_ingame_enabled?: boolean;
   overlay_irc_username?: string | null;
+  /** 聊天翻译服务：google_free | tencent | baidu | openai | off */
+  translation_provider?: string;
+  /** 是否自动翻译收到的 MP 聊天消息。 */
+  translation_enabled?: boolean;
+  /** 入站翻译目标语言（内部语言码，如 zh）。 */
+  translation_target_lang?: string;
+  /** 出站翻译目标语言（自己要发的消息翻译成什么语言）。 */
+  translation_outgoing_target_lang?: string;
+  /** OpenAI 兼容服务地址（可带或不带 /v1；凭据不入设置）。 */
+  translation_api_base_url?: string | null;
+  /** OpenAI 兼容服务模型名（如 glm-4-flash）。 */
+  translation_api_model?: string | null;
 }
 
 export interface SimilarityManualWeights extends DifficultyFeatureVector {
