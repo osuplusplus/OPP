@@ -2,6 +2,16 @@
 
 OPP 支持 Linux 桌面环境。在线功能、本地资源、Stable/lazer 游戏会话、收藏夹、o!rdr、Danser 本地渲染、tosu/OBS 和常用工具均可直接使用；默认打开端设置和显示器伽马当前仅支持 Windows。
 
+## 安装
+
+Arch Linux 及衍生版可通过 AUR 安装 `opp-bin`（官方 Release deb 的重打包，运行库依赖随包解析）：
+
+```bash
+yay -S opp-bin    # 或 paru -S opp-bin
+```
+
+ffmpeg、danser、tosu、osu! 客户端等外部程序为可选依赖，按需另行安装。其他发行版从 [Releases](https://github.com/osuplusplus/OPP/releases/latest) 获取 AppImage 或 deb，运行依赖见下节。
+
 ## 运行前准备
 
 Linux 桌面需要：

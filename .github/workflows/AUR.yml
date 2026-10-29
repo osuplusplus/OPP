@@ -1,0 +1,189 @@
+name: AUR
+
+# 手动触发的 opp-bin 发布通道：渲染 PKGBUILD -> 试打包 -> 推送 AUR。
+# 推送身份由 secret AUR_SSH_PRIVATE_KEY 决定（代发账号的专用推送密钥，见 packaging/aur/README.md）。
+# dry_run=true 可在未配置密钥时验证渲染与打包（archlinux 容器内 makepkg + ldd 依赖审计）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要推送的 Release tag（例如 v0.6.1）"
+        required: true
+        type: string
+      allow_draft:
+        description: "Release 仍为草稿时也允许推送（资产须已齐，用户在正式发布前才能下载到）"
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: "只渲染并试打包，不推送 AUR"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  AUR_PACKAGE: opp-bin
+  # AUR git 提交显示的作者；如需以代发账号名义提交可改成其用户名/邮箱。
+  AUR_COMMIT_NAME: OPP CI
+  AUR_COMMIT_EMAIL: noreply@github.com
+
+jobs:
+  publish-aur:
+    name: Publish opp-bin to AUR
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install tooling and runtime dependencies
+        # 预装 PKGBUILD 的 depends：makepkg 的依赖校验与 ldd 审计都依赖它们真实存在。
+        run: |
+          pacman -Syu --noconfirm \
+            base-devel git openssh nodejs github-cli curl \
+            alsa-lib dbus desktop-file-utils gtk3 hicolor-icon-theme \
+            libayatana-appindicator libx11 webkit2gtk-4.1 xdg-utils
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Resolve release asset
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          ALLOW_DRAFT: ${{ inputs.allow_draft }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error::tag 需要形如 v0.6.1，实际收到：$TAG" >&2
+            exit 1
+          fi
+          version="${TAG#v}"
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+          if [[ "$draft" == "true" && "$ALLOW_DRAFT" != "true" ]]; then
+            echo "::error::$TAG 仍是草稿；确认资产已齐后可勾选 allow_draft 重新运行。" >&2
+            exit 1
+          fi
+          asset="OPP_${version}_linux_amd64.deb"
+          gh release download "$TAG" --pattern "$asset" --dir "$RUNNER_TEMP/asset"
+          sha=$(sha256sum "$RUNNER_TEMP/asset/$asset" | cut -d' ' -f1)
+          {
+            echo "version=$version"
+            echo "asset=$asset"
+            echo "sha256=$sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Read current AUR package state
+        id: aur-state
+        # 匿名 https 只读克隆：包不存在时视为全新发布。
+        run: |
+          if git clone --depth 1 "https://aur.archlinux.org/${AUR_PACKAGE}.git" /tmp/aur; then
+            old_pkgver=$(sed -n 's/^pkgver=//p' /tmp/aur/PKGBUILD | head -1)
+            old_pkgrel=$(sed -n 's/^pkgrel=//p' /tmp/aur/PKGBUILD | head -1)
+          else
+            old_pkgver=""
+            old_pkgrel=""
+          fi
+          {
+            echo "old_pkgver=$old_pkgver"
+            echo "old_pkgrel=$old_pkgrel"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Render PKGBUILD
+        id: render
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SHA256: ${{ steps.release.outputs.sha256 }}
+          OLD_PKGVER: ${{ steps.aur-state.outputs.old_pkgver }}
+          OLD_PKGREL: ${{ steps.aur-state.outputs.old_pkgrel }}
+        run: |
+          if [[ -n "$OLD_PKGVER" && "$OLD_PKGVER" == "$VERSION" ]]; then
+            pkgrel=$((OLD_PKGREL + 1))
+          else
+            pkgrel=1
+          fi
+          license_sha=$(sha256sum packaging/aur/LICENSE | cut -d' ' -f1)
+          sed -i \
+            -e "s/^pkgver=.*/pkgver=${VERSION}/" \
+            -e "s/^pkgrel=.*/pkgrel=${pkgrel}/" \
+            -e "s#^sha256sums=.*#sha256sums=('${SHA256}' '${license_sha}')#" \
+            packaging/aur/PKGBUILD
+          echo "pkgrel=$pkgrel" >> "$GITHUB_OUTPUT"
+          echo "渲染结果：opp-bin ${VERSION}-${pkgrel}（deb sha256 ${SHA256}）"
+
+      - name: Build package and regenerate .SRCINFO
+        run: |
+          rm -rf /tmp/build
+          cp -r packaging/aur /tmp/build
+          useradd -m builder
+          chown -R builder:builder /tmp/build
+          # makepkg 拒绝以 root 运行；以 builder 用户完整走一遍下载/校验/打包。
+          su builder -s /bin/bash -c \
+            'cd /tmp/build && makepkg --printsrcinfo > .SRCINFO && makepkg -f --noconfirm --noprogressbar'
+          echo '=== 生成的包 ==='
+          ls -la /tmp/build/*.pkg.tar.*
+
+      - name: Audit runtime library usage
+        # 对照 ldd 实际解析结果与 depends 列表，供维护者增删依赖时参考。
+        run: |
+          bin=$(find /tmp/build/pkg/usr/bin -type f -perm -u+x | head -1)
+          echo "=== ldd $bin ==="
+          ldd "$bin"
+          echo
+          echo '=== 依赖库 -> 所属 pacman 包 ==='
+          ldd "$bin" | awk '/=> \//{print $3}' | sort -u | while read -r so; do
+            owner=$(pacman -Qoq "$so" 2>/dev/null || echo '(未归属，可能为 dlopen 或显卡驱动)')
+            printf '%-42s %s\n' "${so##*/}" "$owner"
+          done
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo 'dry_run=true：已渲染并完成试打包，未推送。PKGBUILD 变更：'
+          git --no-pager diff -- packaging/aur/PKGBUILD || true
+          echo
+          echo '渲染后的 .SRCINFO：'
+          cat /tmp/build/.SRCINFO
+
+      - name: Push to AUR
+        if: ${{ !inputs.dry_run }}
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          VERSION: ${{ steps.release.outputs.version }}
+          PKGREL: ${{ steps.render.outputs.pkgrel }}
+          OLD_PKGVER: ${{ steps.aur-state.outputs.old_pkgver }}
+          OLD_PKGREL: ${{ steps.aur-state.outputs.old_pkgrel }}
+        run: |
+          if [[ -z "$AUR_SSH_PRIVATE_KEY" ]]; then
+            echo "::error::缺少仓库 secret AUR_SSH_PRIVATE_KEY（代发账号的专用推送密钥）。验证阶段请用 dry_run。" >&2
+            exit 1
+          fi
+          if [[ "$OLD_PKGVER" == "$VERSION" && "$OLD_PKGREL" == "$PKGREL" ]] \
+             && diff -q /tmp/aur/PKGBUILD /tmp/build/PKGBUILD >/dev/null 2>&1; then
+            echo "AUR 已是 ${VERSION}-${PKGREL} 且文件无变化，跳过推送。"
+            exit 0
+          fi
+          install -dm700 /tmp/ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /tmp/ssh/key
+          chmod 600 /tmp/ssh/key
+          ssh-keyscan -t ed25519 aur.archlinux.org >> /etc/ssh/ssh_known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND='ssh -i /tmp/ssh/key -o IdentitiesOnly=yes'
+          if [[ -d /tmp/aur/.git ]]; then
+            cd /tmp/aur
+          else
+            # 包尚不存在：初始化本地仓库，首次 push 即在 AUR 创建 opp-bin。
+            rm -rf /tmp/aur
+            mkdir -p /tmp/aur
+            cd /tmp/aur
+            git init -b master
+            git remote add origin "ssh://aur@aur.archlinux.org/${AUR_PACKAGE}.git"
+          fi
+          cp /tmp/build/PKGBUILD /tmp/build/.SRCINFO "$GITHUB_WORKSPACE/packaging/aur/LICENSE" .
+          git config user.name "$AUR_COMMIT_NAME"
+          git config user.email "$AUR_COMMIT_EMAIL"
+          git add PKGBUILD .SRCINFO LICENSE
+          git commit -m "opp-bin ${VERSION}-${PKGREL}"
+          git push origin master
+          echo "已推送：https://aur.archlinux.org/packages/${AUR_PACKAGE}/"

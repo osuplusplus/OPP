@@ -40,7 +40,7 @@ v0.6.0 的完整变化见[版本记录](./docs/版本变更记录.md#v060)。
 从 [Releases](https://github.com/osuplusplus/OPP/releases/latest) 选择对应平台的资源：
 
 - **Windows x64**：`OPP_<版本>_windows_x64_portable.exe` 为免安装便携版，`*_setup.exe` 为安装包。运行需要 WebView2 Runtime；便携版支持应用内下载更新、原路径替换和自动重启。
-- **Linux**：提供 AppImage 与 deb。运行依赖、客户端启动命令和 Wayland 排错见 [Linux 使用与构建](./docs/Linux.md)。
+- **Linux**：提供 AppImage 与 deb，Arch 系可经 AUR 安装 `opp-bin`。运行依赖、客户端启动命令和 Wayland 排错见 [Linux 使用与构建](./docs/Linux.md)。
 
 ### 首次配置
 
