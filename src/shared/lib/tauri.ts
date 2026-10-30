@@ -896,6 +896,8 @@ export const desktopApi = {
   liveRenderCheckFfmpeg: () => call<string | null>("live_render_check_ffmpeg"),
   liveRenderListSkins: (client: OsuClient) => call<LiveSkinEntry[]>("live_render_list_skins", { client }),
   liveRenderCheckNvenc: () => call<[boolean, boolean]>("live_render_check_nvenc"),
+  /** ffmpeg 编码器能力探测(含 HEVC 软/硬编可用性;结果后端缓存)。 */
+  liveRenderProbeEncoders: () => call<LiveEncoderProbe>("live_render_probe_encoders"),
   liveRenderGetFfmpegStatus: () => call<FfmpegStatusInfo>("live_render_get_ffmpeg_status"),
   chooseFfmpegExecutable: async (defaultPath?: string | null) => {
     if (!isTauri()) return null;
@@ -925,7 +927,15 @@ export const desktopApi = {
   liveRenderOpenExportOutput: (path: string) =>
     call<void>("live_render_open_export_output", { path }),
   onLiveRenderExport: async (
-    handler: (progress: { phase: string; frame: number; total: number; message: string }) => void,
+    handler: (progress: {
+      phase: string;
+      frame: number;
+      total: number;
+      message: string;
+      fps?: number;
+      etaMs?: number;
+      elapsedMs?: number;
+    }) => void,
   ): Promise<UnlistenFn> => {
     if (!isTauri()) return () => undefined;
     return listen<{
@@ -933,6 +943,9 @@ export const desktopApi = {
       frame: number;
       total: number;
       message: string;
+      fps?: number;
+      etaMs?: number;
+      elapsedMs?: number;
     }>("live-render-export", (event) => handler(event.payload));
   },
   liveRenderPlay: () => call<void>("live_render_play"),
@@ -1013,17 +1026,55 @@ export function useCapabilities() {
   });
 }
 
+export type LiveEncoderId = "x264" | "x265" | "nvenc" | "hevc_nvenc";
+/** 导出弹窗的编码器选择:auto = 固定 H.264(NVENC 优先,回退 x264)。 */
+export type LiveEncoderChoice = LiveEncoderId | "auto";
+
+export interface LiveEncoderCapability {
+  id: LiveEncoderId;
+  codec: string;
+  media: "h264" | "hevc";
+  hardware: boolean;
+  available: boolean;
+}
+
+export interface LiveEncoderProbe {
+  ffmpegAvailable: boolean;
+  /** libx265 或 hevc_nvenc 任一可用。 */
+  hevcAvailable: boolean;
+  /** h264_nvenc 或 hevc_nvenc 任一可用。 */
+  nvencAvailable: boolean;
+  encoders: LiveEncoderCapability[];
+}
+
 export interface LiveExportParams {
   outPath: string;
   width: number;
   height: number;
   fps: number;
-  encoder: "x264" | "x265" | "nvenc" | "hevc_nvenc";
+  encoder: LiveEncoderId;
   quality: number;
+  /** 软件 veryfast..slower;NVENC p1..p7;空 = 编码器默认。 */
+  preset: string;
+  /** 软件 animation/film/grain/stillimage;NVENC hq/ll/ull。 */
+  tune: string;
+  /** NVENC 码率控制。 */
+  rc: "vbr" | "constqp" | "cbr";
+  /** NVENC constqp 固定 QP;null = 用 quality。 */
+  qp: number | null;
+  /** 关键帧间隔;null = 编码器默认。 */
+  gop: number | null;
+  /** 追加到 ffmpeg 命令末尾的额外参数。 */
+  extraArgs: string[];
   audio: boolean;
   hitsounds: boolean;
-  /** 结算屏（lazer ResultsScreen,玩法结束后追加 4 秒）,默认开。 */
+  /** 结算屏（玩法结束后追加）,默认开。 */
   results: boolean;
+  /** GPU NV12 直读;奇数尺寸自动回退 BGRA。 */
+  gpuYuv: boolean;
+  /** 导出区间 ms;null = 回放开头/结尾。 */
+  start: number | null;
+  end: number | null;
   /** 导出专用 BGM 偏移 ms(与预览偏移独立,默认 0)。 */
   audioOffset: number;
 }
@@ -1055,6 +1106,32 @@ export interface LiveRenderOptions {
   skinColours: boolean;
   /** 结算屏头像落盘路径(resolveAvatarFile 产物);null = 首字母占位。 */
   avatarPath: string | null;
+  /** 打击误差热图(默认关)。 */
+  offsetHeatmap: boolean;
+  /** UR 条判定色轴(默认开)。 */
+  urGuides: boolean;
+  /** 光标本体(默认开;关闭时拖尾/涟漪一起隐藏)。 */
+  showCursor: boolean;
+  /** 光标拖尾(默认开)。 */
+  showCursorTrail: boolean;
+  /** 光标点击涟漪(默认关)。 */
+  showCursorRipples: boolean;
+  /** 滑条渐入(默认开)。 */
+  snakingIn: boolean;
+  /** 滑条渐出(默认开)。 */
+  snakingOut: boolean;
+  /** 打击动画(默认开;关闭 = 减少动画模式)。 */
+  hitAnimations: boolean;
+  /** 休息段背景变亮(默认开)。 */
+  breakLighten: boolean;
+  /** 有皮肤时仍强制 Argon HUD(默认关)。 */
+  argonHud: boolean;
+  /** HUD 显示经典分数(默认关)。 */
+  classicScore: boolean;
+  /** HD 视觉覆盖:"auto" | "on" | "off"。 */
+  hd: "auto" | "on" | "off";
+  /** 结算屏样式(导出时由导出配置覆盖,预览本身不画结算屏)。 */
+  resultsStyle: "lazer" | "stable";
 }
 
 export interface LiveSkinEntry {

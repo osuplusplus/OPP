@@ -1,8 +1,5 @@
-use std::ffi::c_void;
-
 use crate::error::{CommandError, CommandResult};
 
-const RAMP_ENTRIES: usize = 256;
 const MIN_GAMMA: f64 = 0.5;
 const MAX_GAMMA: f64 = 2.5;
 
@@ -22,6 +19,8 @@ pub fn set_display_gamma(gamma: f64) -> CommandResult<()> {
 
     #[cfg(windows)]
     {
+        use std::ffi::c_void;
+        const RAMP_ENTRIES: usize = 256;
         use windows_sys::Win32::{
             Graphics::Gdi::{GetDC, ReleaseDC},
             UI::ColorSystem::SetDeviceGammaRamp,

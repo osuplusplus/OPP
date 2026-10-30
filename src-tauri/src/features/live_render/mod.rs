@@ -40,7 +40,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 /// 内部渲染分辨率(16:9;原生窗口上 letterbox 等比缩放)。
 const RENDER_W: u32 = 1280;
 const RENDER_H: u32 = 720;
-const CLEAR: [f64; 4] = [0.055, 0.055, 0.075, 1.0];
+/// 与渲染库统一的纯黑清屏色(上游 0.15 起不再让宿主各写偏灰值)。
+const CLEAR: [f64; 4] = osu_replay_render::CLEAR;
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PreviewRect {
@@ -116,6 +117,33 @@ pub struct LiveOptions {
     /// 默认关:谱面自带色优先,皮肤色仅在谱面未配色时生效。变更时
     /// 原地重映射物件颜色,换肤后也会按当前值重映射。
     pub skin_colours: bool,
+    /// 打击误差热图(屏幕右上 PP 计数器下方;默认关)。
+    pub offset_heatmap: bool,
+    /// UR 条的判定色轴/窗线(仅在 ur_bar 开启时可见,默认开)。
+    pub ur_guides: bool,
+    /// 光标本体(默认开;关闭时光标拖尾/涟漪一起隐藏)。
+    pub show_cursor: bool,
+    /// 光标拖尾(默认开,可独立于光标本体)。
+    pub show_cursor_trail: bool,
+    /// 光标点击涟漪(默认关)。
+    pub show_cursor_ripples: bool,
+    /// 滑条渐入(lazer SnakingInSliders,默认开)。
+    pub snaking_in: bool,
+    /// 滑条渐出(lazer SnakingOutSliders,默认开)。
+    pub snaking_out: bool,
+    /// 打击动画(lazer HitAnimations;关闭为减少动画模式,默认开)。
+    pub hit_animations: bool,
+    /// 休息段背景变亮(lazer LightenDuringBreaks,默认开)。
+    pub break_lighten: bool,
+    /// 有皮肤时仍强制 Argon HUD(默认关:legacy 皮肤用自带 HUD)。
+    pub argon_hud: bool,
+    /// HUD 显示经典分数(stable 计分)而非 lazer standardised 分。
+    pub classic_score: bool,
+    /// HD 视觉覆盖:"auto"(跟随回放)/"on"/"off"。判定与 PP 仍按回放
+    /// 真实 mods 计算,只改画面。
+    pub hd: String,
+    /// 结算屏样式:"lazer"(默认)或 "stable"。
+    pub results_style: String,
 }
 
 impl Default for LiveOptions {
@@ -137,8 +165,63 @@ impl Default for LiveOptions {
             skin_path: None,
             avatar_path: None,
             skin_colours: false,
+            offset_heatmap: false,
+            ur_guides: true,
+            show_cursor: true,
+            show_cursor_trail: true,
+            show_cursor_ripples: false,
+            snaking_in: true,
+            snaking_out: true,
+            hit_animations: true,
+            break_lighten: true,
+            argon_hud: false,
+            classic_score: false,
+            hd: "auto".into(),
+            results_style: "lazer".into(),
         }
     }
+}
+
+impl LiveOptions {
+    /// HD 视觉是否开启(覆盖回放自身 mods;判定/PP 不受影响)。
+    fn hd_visual(&self, replay_hidden: bool) -> bool {
+        match self.hd.as_str() {
+            "on" => true,
+            "off" => false,
+            _ => replay_hidden,
+        }
+    }
+
+    fn results_style(&self) -> osu_replay_render::results::ResultsStyle {
+        match self.results_style.as_str() {
+            "stable" => osu_replay_render::results::ResultsStyle::Stable,
+            _ => osu_replay_render::results::ResultsStyle::Lazer,
+        }
+    }
+}
+
+/// 把 LiveOptions 的画面开关同步到场景状态(open/热切换/换肤后的
+/// 场景重建都走这里,避免多处漏字段)。
+fn apply_scene_options(state: &mut scene::SceneState, options: &LiveOptions, replay_hidden: bool) {
+    state.hud.visible = options.hud;
+    state.hud.ur_bar = options.ur_bar;
+    state.hud.ur_guides = options.ur_guides;
+    state.hud.key_overlay = options.key_overlay;
+    state.hud.pp_display = options.pp_display;
+    state.hud.offset_heatmap = options.offset_heatmap;
+    state.hud.argon_hud = options.argon_hud;
+    state.hud.set_classic_score(options.classic_score);
+    state.follow_points = options.follow_points;
+    state.cursor_size = options.cursor_size;
+    state.show_cursor = options.show_cursor;
+    state.show_cursor_trail = options.show_cursor_trail;
+    state.show_cursor_ripples = options.show_cursor_ripples;
+    state.snaking_in = options.snaking_in;
+    state.snaking_out = options.snaking_out;
+    state.hit_animations = options.hit_animations;
+    state.break_lighten = options.break_lighten;
+    state.results_style = options.results_style();
+    state.hidden = options.hd_visual(replay_hidden);
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -520,11 +603,17 @@ fn ensure_kira_manager() {
 /// 预加载一个采样(用户皮肤样本优先 mix、内嵌 ArgonPro 兜底 → Kira
 /// StaticSoundData;播放时 Clone 并覆写 settings)。
 fn load_kira_sound(
-    bank: &str,
-    name: &str,
+    slot: &hitsound::SampleSlot,
+    layered: bool,
     skin: &skin::ResolvedSkin,
+    beatmap: Option<&hitsound::DirectorySampleStore>,
 ) -> Option<kira::sound::static_sound::StaticSoundData> {
-    let bytes = hitsound::resolve_sample_wav(bank, name, skin)?;
+    let bytes = hitsound::resolve_sample_bytes(
+        slot,
+        layered,
+        beatmap.map(|store| store as &dyn hitsound::BeatmapSampleStore),
+        skin,
+    )?;
     let data = kira::sound::static_sound::StaticSoundData::from_cursor(std::io::Cursor::new(bytes))
         .ok()?;
     ensure_kira_manager();
@@ -636,6 +725,9 @@ struct Session {
     /// 开关开着但图集里没有背景纹理,不能拿 has_bg 比较开关,否则无
     /// 背景图的谱面每次改参数都会触发一次无意义的图集重建。
     bg: bool,
+    /// 当前背景亮度 0..1(故事板层逐帧同步,和背景图/视频一起按同一
+    /// DimLevel 变暗;与是否有背景图无关)。
+    bg_opacity: f32,
     /// 当前图集是否带背景纹理(背景实际画出的依据;由解码结果决定)。
     has_bg: bool,
     /// 当前头像路径(与 SetOptions 的 avatar_path 比较决定是否重建图集)。
@@ -679,8 +771,13 @@ struct Session {
     hs_events: Vec<hitsound::HitsoundEvent>,
     /// 下一个待触发事件的下标(播放推进/seek 时移动)。
     hs_cursor: usize,
-    /// (bank, name) → Kira 采样数据(播放时 Clone),开启音效时懒加载。
-    hs_sounds: HashMap<(&'static str, &'static str), kira::sound::static_sound::StaticSoundData>,
+    /// (采样槽位, layered) → Kira 采样数据(播放时 Clone),开启音效时
+    /// 懒加载。槽位含 custom/filename:谱面自带采样层按 osu-parse 的
+    /// custom index / 显式文件名参与,与导出同一套 lazer 解析链。
+    hs_sounds: HashMap<(hitsound::SampleSlot, bool), kira::sound::static_sound::StaticSoundData>,
+    /// 谱面集目录的采样层(局部文件名 → 路径,一次扫描,大小写不敏感);
+    /// 谱面自带 hitnormal/滑条音优先于用户皮肤。
+    beatmap_samples: Option<hitsound::DirectorySampleStore>,
     /// 音效开关(LiveOptions.hitsounds 的当前值)。
     hitsounds: bool,
     /// 循环音事件(open 时构建,库侧 collect_loop_events)。
@@ -701,7 +798,8 @@ impl Session {
     /// 触发一个音效事件(音量 = 谱面音量(下限 5%)× Effect 0.6,
     /// 声像按物件 X;与离线导出的音效总线同语义)。
     fn fire_hitsound(&self, event: &hitsound::HitsoundEvent) {
-        let Some(data) = self.hs_sounds.get(&(event.bank, event.name)) else {
+        let key = (event.slot(), event.layered);
+        let Some(data) = self.hs_sounds.get(&key) else {
             return;
         };
         let volume = event.volume.max(5) as f64 / 100.0 * EFFECT_VOLUME;
@@ -721,17 +819,19 @@ impl Session {
             return;
         }
         let mut sounds = HashMap::new();
-        for (bank, name) in self
+        for (slot, layered) in self
             .hs_events
             .iter()
-            .map(|e| (e.bank, e.name))
-            .chain(self.loop_events.iter().map(|e| (e.bank, e.name)))
+            .map(|e| (e.slot(), e.layered))
+            .chain(self.loop_events.iter().map(|e| (e.slot(), e.layered)))
         {
-            if sounds.contains_key(&(bank, name)) {
+            if sounds.contains_key(&(slot.clone(), layered)) {
                 continue;
             }
-            if let Some(handle) = load_kira_sound(bank, name, &self.skin) {
-                sounds.insert((bank, name), handle);
+            if let Some(handle) =
+                load_kira_sound(&slot, layered, &self.skin, self.beatmap_samples.as_ref())
+            {
+                sounds.insert((slot, layered), handle);
             }
         }
         self.hs_sounds = sounds;
@@ -767,7 +867,7 @@ impl Session {
                 playback.apply(rate, amp, pan_x);
                 continue;
             }
-            let Some(data) = self.hs_sounds.get(&(event.bank, event.name)) else {
+            let Some(data) = self.hs_sounds.get(&(event.slot(), event.layered)) else {
                 continue;
             };
             let mut data = data.clone();
@@ -989,7 +1089,14 @@ impl Session {
         let Backend::Native {
             renderer, visible, ..
         } = &mut self.backend;
+        let sb_brightness = scene::effective_brightness(
+            self.bg_opacity.clamp(0.0, 1.0),
+            self.state.break_lighten,
+            &self.game,
+            t,
+        );
         if let Some(sb) = &mut self.sb_layer {
+            sb.set_dim(sb_brightness);
             sb.render_ext(t as f32, renderer.renderer_mut(), &self.atlas, None);
         }
         self.state
@@ -1123,10 +1230,7 @@ fn worker(rx: std::sync::mpsc::Receiver<Cmd>) {
                 s.dirty = true;
                 // 音效:播放头跨过的事件即触发(事件表按时间排序)。
                 if s.hitsounds && !s.hs_sounds.is_empty() {
-                    loop {
-                        let Some(event) = s.hs_events.get(s.hs_cursor).copied() else {
-                            break;
-                        };
+                    while let Some(event) = s.hs_events.get(s.hs_cursor).cloned() {
                         if event.time > s.t {
                             break;
                         }
@@ -1275,8 +1379,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                 let show = rect.width > 0.0 && rect.height > 0.0 && !rect.suppressed;
                 let (x, y) = (rect.x.round() as i32, rect.y.round() as i32);
                 let (w, h) = (rect.width.round() as i32, rect.height.round() as i32);
-                #[cfg_attr(windows, allow(unused_mut))]
-                let mut render_size = (w, h);
+                #[cfg(target_os = "linux")]
+                let render_size: (i32, i32);
+                #[cfg(not(target_os = "linux"))]
+                let render_size = (w, h);
                 #[cfg(windows)]
                 {
                     let Backend::Native {
@@ -1398,14 +1504,10 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
         Cmd::SetOptions(options) => {
             let Some(s) = session.as_mut() else { return };
             // ---- 即时字段:下一帧生效 ----
-            s.state.hud.visible = options.hud;
-            s.state.hud.ur_bar = options.ur_bar;
-            s.state.hud.key_overlay = options.key_overlay;
-            s.state.hud.pp_display = options.pp_display;
-            s.state.follow_points = options.follow_points;
-            s.state.cursor_size = options.cursor_size;
+            apply_scene_options(&mut s.state, &options, s.game.hidden);
             let offset_changed = s.audio_offset != options.audio_offset;
             s.audio_offset = options.audio_offset;
+            s.bg_opacity = options.bg_opacity;
 
             // ---- 故事板/背景视频开关:图集合成槽位是构建期预留的,
             // 切换需重建图集 + 场景 + 层(与皮肤热切换同模式:原地
@@ -1483,12 +1585,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                     .is_some_and(|l| l.elements_enabled() || l.video_enabled());
                 let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
                 state.pro_skin = s.skin_path.is_none();
-                state.hud.visible = options.hud;
-                state.hud.ur_bar = options.ur_bar;
-                state.hud.key_overlay = options.key_overlay;
-                state.hud.pp_display = options.pp_display;
-                state.follow_points = options.follow_points;
-                state.cursor_size = options.cursor_size;
+                state.has_bg = with_bg;
+                state.has_avatar = s.has_avatar;
+                apply_scene_options(&mut state, &options, s.game.hidden);
                 // 新建 state 的背景图亮度也要带上(漏掉会让背景图在
                 // 切换故事板开关后消失)。
                 state.bg_opacity = if with_bg {
@@ -1574,12 +1673,9 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             game::apply_skin_combo_colours(&mut s.game, &s.skin, s.skin_colours);
                             let mut state = scene::SceneState::new(&s.game, RENDER_W, RENDER_H);
                             state.pro_skin = s.skin_path.is_none();
-                            state.hud.visible = options.hud;
-                            state.hud.ur_bar = options.ur_bar;
-                            state.hud.key_overlay = options.key_overlay;
-                            state.hud.pp_display = options.pp_display;
-                            state.follow_points = options.follow_points;
-                            state.cursor_size = options.cursor_size;
+                            state.has_bg = s.has_bg;
+                            state.has_avatar = s.has_avatar;
+                            apply_scene_options(&mut state, &options, s.game.hidden);
                             // 新建 state 的背景字段默认全空:按新图集与
                             // 当前故事板层恢复,否则换肤后背景图/故事板/
                             // 背景视频从画面上消失。
@@ -1679,6 +1775,8 @@ fn handle_cmd(cmd: Cmd, session: &mut Option<Session>) {
                             s.has_bg = with_bg;
                             s.avatar_path = options.avatar_path.clone();
                             s.has_avatar = options.avatar_path.is_some();
+                            s.state.has_bg = s.has_bg;
+                            s.state.has_avatar = s.has_avatar;
                             // 预加载的采样还挂着旧皮肤的字节,作废待重建。
                             s.hs_sounds.clear();
                         }));
@@ -1796,8 +1894,13 @@ fn open_session(
     // with_pp 跟随 pp_display(HUD 总开关关闭时 PP 计数器同样不画,
     // 顺带跳过整个 rosu-pp 逐物件 pass,加载更快)。
     let mut game = if replay_path.trim().is_empty() {
-        game::load_autoplay(beatmap_path, false, options.hud && options.pp_display)
-            .map_err(|e| format!("加载谱面预览失败: {e}"))?
+        game::load_autoplay(
+            beatmap_path,
+            0,
+            options.hd_visual(false),
+            options.hud && options.pp_display,
+        )
+        .map_err(|e| format!("加载谱面预览失败: {e}"))?
     } else {
         game::load(beatmap_path, replay_path).map_err(|e| format!("加载回放失败: {e}"))?
     };
@@ -1807,6 +1910,9 @@ fn open_session(
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_default();
+    let beatmap_samples = map_dir
+        .is_dir()
+        .then(|| hitsound::DirectorySampleStore::new(&map_dir));
     let bg_image = if options.bg {
         game.map_background
             .clone()
@@ -1860,12 +1966,9 @@ fn open_session(
     let duration = game.snapshots.last().map(|s| s.time).unwrap_or(0.0);
     let mut state = scene::SceneState::new(&game, RENDER_W, RENDER_H);
     state.pro_skin = options.skin_path.is_none();
-    state.cursor_size = options.cursor_size;
-    state.hud.visible = options.hud;
-    state.hud.ur_bar = options.ur_bar;
-    state.hud.key_overlay = options.key_overlay;
-    state.hud.pp_display = options.pp_display;
-    state.follow_points = options.follow_points;
+    state.has_bg = has_bg;
+    state.has_avatar = has_avatar;
+    apply_scene_options(&mut state, options, game.hidden);
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))
     } else {
@@ -2048,12 +2151,14 @@ fn open_session(
         hs_events,
         hs_cursor: 0,
         hs_sounds: HashMap::new(),
+        beatmap_samples,
         hitsounds: options.hitsounds,
         loop_events,
         loop_playbacks: Vec::new(),
         spin_freq_modulate,
         sb_layer: None,
         bg: options.bg,
+        bg_opacity: options.bg_opacity,
         has_bg,
         storyboard: options.storyboard,
         video: options.video,
@@ -2234,7 +2339,7 @@ fn live_render_list_skins_blocking(
             });
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|entry| entry.name.to_lowercase());
     Ok(out)
 }
 
@@ -2422,14 +2527,44 @@ pub struct ExportParams {
     pub encoder: String,
     /// crf(软件)/ cq(nvenc),默认 18。
     pub quality: u32,
+    /// 编码 preset(软件 veryfast..slower;NVENC p1..p7)。空 = 各编码器默认。
+    #[serde(default)]
+    pub preset: String,
+    /// 编码 tune(软件 animation/film/grain/stillimage;NVENC hq/ll/ull)。
+    #[serde(default)]
+    pub tune: String,
+    /// NVENC 码率控制:"vbr" | "constqp" | "cbr"。
+    #[serde(default = "default_rc")]
+    pub rc: String,
+    /// NVENC constqp 的固定 QP(留空用 quality)。
+    #[serde(default)]
+    pub qp: Option<u32>,
+    /// 关键帧间隔(留空交给编码器)。
+    #[serde(default)]
+    pub gop: Option<u32>,
+    /// 追加到 ffmpeg 命令末尾的额外参数(可覆盖默认值)。
+    #[serde(default)]
+    pub extra_args: Vec<String>,
     /// 混入 BGM(第二遍 ffmpeg:视频流拷贝 + AAC)。
     pub audio: bool,
     /// 混入音效轨(离线合成 ArgonPro 音效,与 BGM amix 求和)。
     #[serde(default = "default_true")]
     pub hitsounds: bool,
-    /// 结算屏(lazer ResultsScreen,玩法结束后追加 4 秒静态展开终态)。
+    /// 结算屏(玩法结束后追加 4 秒静态展开终态)。
     #[serde(default = "default_true")]
     pub results: bool,
+    /// 只渲染结算屏(海报/封面模式;忽略 start/end)。
+    #[serde(default)]
+    pub results_only: bool,
+    /// GPU NV12 直读:场景在 GPU 上转 YUV420 后直接喂 ffmpeg,省掉
+    /// CPU 的 BGRA 读回与颜色转换。奇数尺寸自动回退 BGRA。
+    #[serde(default = "default_true")]
+    pub gpu_yuv: bool,
+    /// 导出区间(ms);留空 = 回放开头/结尾。
+    #[serde(default)]
+    pub start: Option<f64>,
+    #[serde(default)]
+    pub end: Option<f64>,
     /// 导出专用 BGM 偏移 ms(与实时预览的偏移互相独立:预览偏移含
     /// 输出设备延迟补偿,导出走文件混流不需要;默认 0)。
     #[serde(default)]
@@ -2440,13 +2575,24 @@ fn default_true() -> bool {
     true
 }
 
+fn default_rc() -> String {
+    "vbr".into()
+}
+
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportProgress {
     /// "render" | "mux" | "done"。
     pub phase: &'static str,
     pub frame: u32,
     pub total: u32,
     pub message: String,
+    /// 当前渲染速度(帧/秒);渲染前/混流阶段为 0。
+    pub fps: f64,
+    /// 预计剩余时间(ms);总帧数或速度未知时为 0。
+    pub eta_ms: u64,
+    /// 自开始渲染以来的耗时(ms),用于前端显示已用时间。
+    pub elapsed_ms: u64,
 }
 
 static EXPORT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -2568,8 +2714,154 @@ fn live_render_get_ffmpeg_status_blocking(
     }
 }
 
-/// 检测 NVENC 硬件编码可用性(h264_nvenc / hevc_nvenc 各一次微型
-/// 测试编码);返回 [h264 可用, hevc 可用]。无 FFmpeg = 均不可用。
+/// 单个编码器的探测结果。`id` 是前端提交的 encoder 名,`codec` 是
+/// ffmpeg 的 codec 名,`hardware` 标记是否需要对应显卡/驱动。
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncoderCapability {
+    pub id: &'static str,
+    pub codec: &'static str,
+    pub media: &'static str,
+    pub hardware: bool,
+    pub available: bool,
+}
+
+/// 导出编码能力集合:前端据此禁用不可用项,并自动识别 HEVC 是否
+/// 可用(libx265 软件编码或 hevc_nvenc 硬件编码任一即可)。
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncoderProbe {
+    pub ffmpeg_available: bool,
+    pub hevc_available: bool,
+    /// 任一 NVENC 编码器可用(h264_nvenc 或 hevc_nvenc)。
+    pub nvenc_available: bool,
+    pub encoders: Vec<EncoderCapability>,
+}
+
+/// 编码器探测缓存(FFmpeg 路径变化时失效;微型编码测试有 GPU 初始化
+/// 开销,不值得每次打开导出弹窗都重跑)。
+static ENCODER_PROBE_CACHE: LazyLock<Mutex<Option<(String, EncoderProbe)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+#[tauri::command]
+pub async fn live_render_probe_encoders(app: AppHandle) -> CommandResult<EncoderProbe> {
+    crate::infrastructure::tasks::blocking_io("live_render_probe_encoders", move || {
+        live_render_probe_encoders_blocking(app.state())
+    })
+    .await?
+}
+
+fn live_render_probe_encoders_blocking(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> CommandResult<EncoderProbe> {
+    let Some(path) = ffmpeg_path(&state) else {
+        return Ok(empty_encoder_probe());
+    };
+    let key = path.display().to_string();
+    if let Some((cached, probe)) = ENCODER_PROBE_CACHE.lock().unwrap().as_ref()
+        && *cached == key
+    {
+        return Ok(probe.clone());
+    }
+    let probe = probe_encoders(&path);
+    *ENCODER_PROBE_CACHE.lock().unwrap() = Some((key, probe.clone()));
+    Ok(probe)
+}
+
+fn empty_encoder_probe() -> EncoderProbe {
+    EncoderProbe {
+        ffmpeg_available: false,
+        hevc_available: false,
+        nvenc_available: false,
+        encoders: encoder_candidates()
+            .into_iter()
+            .map(|(id, codec, media, hardware)| EncoderCapability {
+                id,
+                codec,
+                media,
+                hardware,
+                available: false,
+            })
+            .collect(),
+    }
+}
+
+fn encoder_candidates() -> [(&'static str, &'static str, &'static str, bool); 4] {
+    [
+        ("x264", "libx264", "h264", false),
+        ("x265", "libx265", "hevc", false),
+        ("nvenc", "h264_nvenc", "h264", true),
+        ("hevc_nvenc", "hevc_nvenc", "hevc", true),
+    ]
+}
+
+/// 对每个候选编码器做一次 1 帧 256×256 的微型编码;编码器不存在或
+/// 硬件/驱动不可用时 ffmpeg 非零退出。libx265 的版权提示走 stderr,
+/// 不影响成功判定。四个探测并发执行(尤其 HEVC 与 NVENC 同时测),
+/// 避免打开导出弹窗时串行等待 4 次 ffmpeg 启动。
+fn probe_encoders(ffmpeg: &std::path::Path) -> EncoderProbe {
+    let candidates = encoder_candidates();
+    let availability: Vec<bool> = std::thread::scope(|scope| {
+        let handles: Vec<_> = candidates
+            .iter()
+            .map(|(_, codec, _, _)| {
+                let codec = *codec;
+                scope.spawn(move || encoder_works(ffmpeg, codec))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap_or(false))
+            .collect()
+    });
+    let encoders: Vec<EncoderCapability> = candidates
+        .into_iter()
+        .zip(availability)
+        .map(
+            |((id, codec, media, hardware), available)| EncoderCapability {
+                id,
+                codec,
+                media,
+                hardware,
+                available,
+            },
+        )
+        .collect();
+    EncoderProbe {
+        ffmpeg_available: true,
+        hevc_available: encoders.iter().any(|e| e.media == "hevc" && e.available),
+        nvenc_available: encoders.iter().any(|e| e.hardware && e.available),
+        encoders,
+    }
+}
+
+fn encoder_works(ffmpeg: &std::path::Path, codec: &str) -> bool {
+    std::process::Command::new(ffmpeg)
+        .args([
+            "-hide_banner",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "nullsrc=s=256x256:d=0.04",
+            "-frames:v",
+            "1",
+            "-c:v",
+            codec,
+            "-f",
+            "null",
+            "-",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|st| st.success())
+        .unwrap_or(false)
+}
+
+/// 兼容旧前端:检测 NVENC 硬件编码可用性(h264_nvenc / hevc_nvenc);
+/// 返回 [h264 可用, hevc 可用]。新代码请用 live_render_probe_encoders。
 #[tauri::command]
 pub async fn live_render_check_nvenc(app: AppHandle) -> CommandResult<[bool; 2]> {
     crate::infrastructure::tasks::blocking_io("live_render_check_nvenc", move || {
@@ -2581,32 +2873,9 @@ pub async fn live_render_check_nvenc(app: AppHandle) -> CommandResult<[bool; 2]>
 fn live_render_check_nvenc_blocking(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> CommandResult<[bool; 2]> {
-    let Some(path) = ffmpeg_path(&state) else {
-        return Ok([false, false]);
-    };
-    let probe = |codec: &str| {
-        std::process::Command::new(&path)
-            .args([
-                "-hide_banner",
-                "-v",
-                "error",
-                "-f",
-                "lavfi",
-                "-i",
-                "nullsrc=s=256x256:d=0.04",
-                "-c:v",
-                codec,
-                "-f",
-                "null",
-                "-",
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|st| st.success())
-            .unwrap_or(false)
-    };
-    Ok([probe("h264_nvenc"), probe("hevc_nvenc")])
+    let probe = live_render_probe_encoders_blocking(state)?;
+    let available = |id: &str| probe.encoders.iter().any(|e| e.id == id && e.available);
+    Ok([available("nvenc"), available("hevc_nvenc")])
 }
 
 /// 检测用户 FFmpeg(PATH 自动检测优先,danser 发行包兜底);
@@ -2715,72 +2984,146 @@ fn repack_tight(bgra: &[u8], width: u32, height: u32, padded_row: u32, tight: &m
     }
 }
 
-/// 编码器选择 → (rawvideo 输入像素格式, ffmpeg 参数)。
-/// NVENC 系列不接受带 alpha 的输入,统一喂 bgr0;x264/x265 走 bgra。
-/// 未知编码器名回退 libx264(与旧版行为一致)。
-fn ffmpeg_encoder_args(encoder: &str, quality: u32) -> (&'static str, Vec<String>) {
-    let quality = quality.to_string();
-    let mut args = match encoder {
+/// GPU NV12 直读是否生效:尺寸必须偶数(库内计算 pass 要求);奇数
+/// 尺寸或用户关闭时回退 BGRA/bgr0。
+fn gpu_yuv_active(params: &ExportParams) -> bool {
+    params.gpu_yuv
+        && params.width >= 2
+        && params.height >= 2
+        && params.width.is_multiple_of(2)
+        && params.height.is_multiple_of(2)
+}
+
+/// ffmpeg 的 rawvideo 输入像素格式。NVENC 不接受带 alpha 的输入,回退
+/// 路径统一喂 bgr0;软件编码走 bgra。
+fn export_input_pix_fmt(params: &ExportParams) -> &'static str {
+    if gpu_yuv_active(params) {
+        "nv12"
+    } else if matches!(params.encoder.as_str(), "nvenc" | "hevc_nvenc") {
+        "bgr0"
+    } else {
+        "bgra"
+    }
+}
+
+fn push_args(args: &mut Vec<String>, items: &[&str]) {
+    args.extend(items.iter().map(|s| s.to_string()));
+}
+
+/// 编码器 + 画质参数 → ffmpeg 参数。未知编码器名回退 libx264(与旧版
+/// 行为一致);额外参数追加在默认值之后,可覆盖任意默认开关。
+fn ffmpeg_encoder_args(params: &ExportParams) -> Vec<String> {
+    let quality = params.quality.clamp(0, 51).to_string();
+    let nvenc = matches!(params.encoder.as_str(), "nvenc" | "hevc_nvenc");
+    let mut args: Vec<String> = Vec::new();
+    match params.encoder.as_str() {
         "nvenc" | "hevc_nvenc" => {
-            let codec = if encoder == "hevc_nvenc" {
+            let codec = if params.encoder == "hevc_nvenc" {
                 "hevc_nvenc"
             } else {
                 "h264_nvenc"
             };
-            vec![
-                "-c:v",
-                codec,
-                "-preset",
-                "p5",
-                "-tune",
-                "hq",
-                "-rc",
-                "vbr",
-                "-cq",
-                quality.as_str(),
-                "-b:v",
-                "0",
-            ]
+            let preset = if params.preset.is_empty() {
+                "p4"
+            } else {
+                params.preset.as_str()
+            };
+            let tune = if params.tune.is_empty() {
+                "hq"
+            } else {
+                params.tune.as_str()
+            };
+            let rc = match params.rc.as_str() {
+                "constqp" | "cbr" => params.rc.as_str(),
+                _ => "vbr",
+            };
+            push_args(
+                &mut args,
+                &["-c:v", codec, "-preset", preset, "-tune", tune, "-rc", rc],
+            );
+            match rc {
+                "constqp" => {
+                    let qp = params.qp.unwrap_or(params.quality).clamp(1, 51).to_string();
+                    push_args(&mut args, &["-qp", &qp]);
+                }
+                "cbr" => {
+                    // cbr 必须有目标码率;额外参数里的 -b:v 会覆盖这里。
+                    push_args(&mut args, &["-b:v", "12M"]);
+                }
+                _ => {
+                    push_args(&mut args, &["-cq", &quality, "-b:v", "0"]);
+                }
+            }
+            if params.encoder == "hevc_nvenc" {
+                push_args(&mut args, &["-tag:v", "hvc1"]);
+            }
         }
         "x265" => {
-            vec![
-                "-c:v",
-                "libx265",
-                "-preset",
-                "medium",
-                "-crf",
-                quality.as_str(),
-                "-pix_fmt",
-                "yuv420p",
-            ]
+            let preset = if params.preset.is_empty() {
+                "medium"
+            } else {
+                params.preset.as_str()
+            };
+            push_args(&mut args, &["-c:v", "libx265", "-preset", preset]);
+            if !params.tune.is_empty() {
+                push_args(&mut args, &["-tune", params.tune.as_str()]);
+            }
+            push_args(&mut args, &["-crf", &quality]);
+            // mp4 里 HEVC 默认 hev1 tag 在 QuickTime/部分系统播放器解不出。
+            push_args(&mut args, &["-tag:v", "hvc1"]);
         }
         _ => {
-            vec![
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                quality.as_str(),
-                "-pix_fmt",
-                "yuv420p",
-            ]
+            let preset = if params.preset.is_empty() {
+                "veryfast"
+            } else {
+                params.preset.as_str()
+            };
+            push_args(&mut args, &["-c:v", "libx264", "-preset", preset]);
+            if !params.tune.is_empty() {
+                push_args(&mut args, &["-tune", params.tune.as_str()]);
+            }
+            push_args(&mut args, &["-crf", &quality]);
         }
-    };
-    if encoder == "hevc_nvenc" {
-        // mp4 里 HEVC 默认 hev1 tag 在 QuickTime/部分系统播放器解不出,写 hvc1。
-        args.push("-tag:v");
-        args.push("hvc1");
     }
-    args.push("-movflags");
-    args.push("+faststart");
-    let pix_fmt = if encoder == "nvenc" || encoder == "hevc_nvenc" {
-        "bgr0"
-    } else {
-        "bgra"
-    };
-    let args = args.into_iter().map(|s| s.to_string()).collect();
-    (pix_fmt, args)
+    // NV12 输入已经是 yuv420p;BGRA/bgr0 回退路径让软件编码器自己转。
+    if !gpu_yuv_active(params) && !nvenc {
+        push_args(&mut args, &["-pix_fmt", "yuv420p"]);
+    }
+    if let Some(gop) = params.gop.filter(|g| *g > 0) {
+        push_args(&mut args, &["-g", &gop.to_string()]);
+    }
+    args.extend(params.extra_args.iter().cloned());
+    push_args(&mut args, &["-movflags", "+faststart"]);
+    args
+}
+
+/// 导出参数校验:前端已经钳制过一遍,这里兜住手改/旧配置的脏值,
+/// 避免把明显无效的分辨率/编码器交给 ffmpeg 后只看到一行日志。
+fn validate_export_params(params: &ExportParams) -> Result<(), String> {
+    if !(16..=7680).contains(&params.width) || !(16..=4320).contains(&params.height) {
+        return Err("导出分辨率超出支持范围(16..7680 × 16..4320)".into());
+    }
+    if !(1..=240).contains(&params.fps) {
+        return Err("导出帧率必须在 1 到 240 之间".into());
+    }
+    if !matches!(
+        params.encoder.as_str(),
+        "x264" | "x265" | "nvenc" | "hevc_nvenc"
+    ) {
+        return Err(format!("不支持的编码器: {}", params.encoder));
+    }
+    if params.quality > 51 {
+        return Err("画质参数必须在 0 到 51 之间".into());
+    }
+    if params.extra_args.len() > 64 {
+        return Err("额外 ffmpeg 参数过多".into());
+    }
+    if let (Some(start), Some(end)) = (params.start, params.end)
+        && end <= start
+    {
+        return Err("结束时间必须大于开始时间".into());
+    }
+    Ok(())
 }
 
 fn run_export(
@@ -2793,7 +3136,13 @@ fn run_export(
 ) -> Result<String, String> {
     use std::io::Write;
     use std::sync::atomic::Ordering;
-    let emit = |phase: &'static str, frame: u32, total: u32, message: String| {
+    let emit = |phase: &'static str,
+                frame: u32,
+                total: u32,
+                message: String,
+                fps: f64,
+                eta_ms: u64,
+                elapsed_ms: u64| {
         let _ = app.emit(
             "live-render-export",
             ExportProgress {
@@ -2801,10 +3150,14 @@ fn run_export(
                 frame,
                 total,
                 message,
+                fps,
+                eta_ms,
+                elapsed_ms,
             },
         );
     };
     let cancelled = || EXPORT_CANCEL.load(Ordering::SeqCst);
+    validate_export_params(params)?;
 
     // ---- 加载(与预览会话独立,不共享 GPU 设备) ----
     let mut game =
@@ -2813,6 +3166,9 @@ fn run_export(
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_default();
+    let beatmap_samples = map_dir
+        .is_dir()
+        .then(|| hitsound::DirectorySampleStore::new(&map_dir));
     let bg_image = if options.bg {
         game.map_background
             .clone()
@@ -2826,6 +3182,7 @@ fn run_export(
         .avatar_path
         .as_deref()
         .and_then(|p| osu_replay_render::decode_image_file(std::path::Path::new(p)).ok());
+    let has_avatar = avatar_image.is_some();
     let mut skin = skin::load_skin(options.skin_path.as_deref().map(std::path::Path::new))
         .map_err(|e| format!("皮肤加载失败: {e}"))?;
     // 故事板/背景视频(与预览同开关;视频经库内 ffmpeg 管道逐帧解码,
@@ -2873,12 +3230,9 @@ fn run_export(
     });
     let mut state = scene::SceneState::new(&game, params.width, params.height);
     state.pro_skin = options.skin_path.is_none();
-    state.cursor_size = options.cursor_size;
-    state.hud.visible = options.hud;
-    state.hud.ur_bar = options.ur_bar;
-    state.hud.key_overlay = options.key_overlay;
-    state.hud.pp_display = options.pp_display;
-    state.follow_points = options.follow_points;
+    state.has_bg = has_bg;
+    state.has_avatar = has_avatar;
+    apply_scene_options(&mut state, options, game.hidden);
     state.bg_opacity = if has_bg {
         Some(options.bg_opacity.clamp(0.0, 1.0))
     } else {
@@ -2893,26 +3247,42 @@ fn run_export(
         .is_some_and(|l| l.elements_enabled() && l.has_foreground());
     state.sb_replaces_bg = sb_active;
 
-    // ---- 帧时间轴(与 CLI 语义一致) ----
+    // ---- 帧时间轴(与 CLI 语义一致;支持 start/end 裁剪与只导出结算屏) ----
     let t0 = game.snapshots.first().map(|s| s.time).unwrap_or(0.0);
     let duration = game.snapshots.last().map(|s| s.time).unwrap_or(0.0);
-    let mut frame_times: Vec<f64> = if params.fps == 60 {
-        game.snapshots.iter().map(|s| s.time).collect()
+    let start = params.start.unwrap_or(t0).clamp(t0, duration);
+    let end = params.end.unwrap_or(duration).clamp(start, duration);
+    let results_frames = (4.0 * params.fps as f64).round() as u32;
+    let mut frame_times: Vec<f64> = if params.results_only {
+        Vec::new()
+    } else if params.fps == 60 {
+        game.snapshots
+            .iter()
+            .map(|s| s.time)
+            .filter(|t| *t >= start && *t <= end)
+            .collect()
     } else {
         let step = 1000.0 / params.fps as f64;
-        let mut t = t0;
+        let mut t = start;
         let mut v = Vec::new();
-        while t <= duration {
+        while t <= end {
             v.push(t);
             t += step;
         }
         v
     };
-    // 结算屏(lazer ResultsScreen 静态展开终态):玩法结束后追加
-    // results × fps 的重复帧 —— state.results_at 切换场景;淡出/淡入
-    // 与桌面 CLI 同语义(玩法淡出 0.35s,结算界面立即显示)。
-    let results_frames = (params.results as i32 as f64 * 4.0 * params.fps as f64).round() as u32;
-    if results_frames > 0 {
+    if frame_times.is_empty() && !params.results_only {
+        frame_times.push(start);
+    }
+    // 结算屏(静态展开终态):玩法结束后追加 4 秒重复帧 ——
+    // state.results_at 切换场景;淡出/淡入与桌面 CLI 同语义。只渲染
+    // 结算屏时不带玩法淡出,直接整段展示。
+    if params.results_only {
+        frame_times = vec![end; results_frames.max(1) as usize];
+        state.results_at = Some(end);
+        state.results_fade_frames = 0;
+        state.results_fadein_frames = 0;
+    } else if params.results {
         let last = *frame_times.last().unwrap();
         for _ in 0..results_frames {
             frame_times.push(last);
@@ -2929,7 +3299,9 @@ fn run_export(
     // ---- ffmpeg 视频轨 ----
     let tmp = format!("{}.video.tmp.mp4", params.out_path);
     let log_path = format!("{}.ffmpeg.log", params.out_path);
-    let (in_pix_fmt, encode_args) = ffmpeg_encoder_args(&params.encoder, params.quality);
+    let in_pix_fmt = export_input_pix_fmt(params);
+    let encode_args = ffmpeg_encoder_args(params);
+    let yuv = gpu_yuv_active(params);
     let log_file = std::fs::File::create(&log_path).map_err(|e| format!("无法写编码日志: {e}"))?;
     let mut command = std::process::Command::new(ffmpeg);
     command
@@ -2963,6 +3335,7 @@ fn run_export(
     // ---- 渲染循环 ----
     let mut bgra = Vec::new();
     let mut tight = Vec::new();
+    let mut yuv_frame = Vec::new();
     let assets = scene::Assets {
         atlas: &atlas,
         bold: &fonts.bold,
@@ -2975,6 +3348,8 @@ fn run_export(
     let mut list = draw::DrawList::new();
     let mut exported = 0u32;
     let mut fail: Option<String> = None;
+    let render_started = Instant::now();
+    let mut last_progress = render_started;
     for (n, &ft) in frame_times.iter().enumerate() {
         if cancelled() {
             fail = Some("已取消".into());
@@ -2982,49 +3357,98 @@ fn run_export(
         }
         let snap = game::snapshot_at(&game, ft);
         // 故事板合成先行(图集槽位拷贝排在场景提交之前;视频由库内
-        // ffmpeg 管道按 ft 帧对齐驱动)。
+        // ffmpeg 管道按 ft 帧对齐驱动)。暗度逐帧同步(休息段变亮也
+        // 作用在故事板上)。
         if let Some(sb) = &mut sb_layer {
+            sb.set_dim(scene::effective_brightness(
+                options.bg_opacity.clamp(0.0, 1.0),
+                options.break_lighten,
+                &game,
+                ft,
+            ));
             sb.render(ft as f32, &mut renderer, &atlas);
         }
         list.clear();
         state.build_frame(&game, &assets, &snap, &mut list);
         list.finish();
-        renderer.render_deferred(&list, CLEAR);
-        if renderer.pending_len() > 0 {
-            renderer.read_oldest_into(&mut bgra);
-            repack_tight(
-                &bgra,
-                params.width,
-                params.height,
-                renderer.padded_row,
-                &mut tight,
-            );
-            if wtx.send(std::mem::take(&mut tight)).is_err() {
-                fail = Some("ffmpeg 写入中断(编码器提前退出,详见 .ffmpeg.log)".into());
-                break;
+        if yuv {
+            // GPU 场景 → NV12(库内 compute pass),整帧直接喂 ffmpeg。
+            renderer.render_deferred_yuv(&list, CLEAR, true);
+            if renderer.yuv_pending_len() > 0 {
+                renderer.read_oldest_yuv_into(&mut yuv_frame);
+                if wtx.send(std::mem::take(&mut yuv_frame)).is_err() {
+                    fail = Some("ffmpeg 写入中断(编码器提前退出,详见 .ffmpeg.log)".into());
+                    break;
+                }
+                exported += 1;
             }
-            exported += 1;
+        } else {
+            renderer.render_deferred(&list, CLEAR);
+            if renderer.pending_len() > 0 {
+                renderer.read_oldest_into(&mut bgra);
+                repack_tight(
+                    &bgra,
+                    params.width,
+                    params.height,
+                    renderer.padded_row,
+                    &mut tight,
+                );
+                if wtx.send(std::mem::take(&mut tight)).is_err() {
+                    fail = Some("ffmpeg 写入中断(编码器提前退出,详见 .ffmpeg.log)".into());
+                    break;
+                }
+                exported += 1;
+            }
         }
-        if n % 60 == 0 {
-            emit("render", exported, total, format!("{}/{}", exported, total));
+        // 每 250ms 推一次进度:既有处理速度,也能算稳定的剩余时间
+        // (60 帧一次在 30fps 下要 2 秒才更新,ETA 会跳)。
+        if n == 0 || last_progress.elapsed() >= Duration::from_millis(250) {
+            let elapsed = render_started.elapsed().as_secs_f64().max(0.001);
+            let fps = exported as f64 / elapsed;
+            let eta_ms = if fps > 0.0 && total > exported {
+                ((total - exported) as f64 / fps * 1000.0).round() as u64
+            } else {
+                0
+            };
+            emit(
+                "render",
+                exported,
+                total,
+                format!("{}/{}", exported, total),
+                fps,
+                eta_ms,
+                (elapsed * 1000.0) as u64,
+            );
+            last_progress = Instant::now();
         }
     }
     // 排空流水线尾部帧。
     if fail.is_none() {
-        while renderer.pending_len() > 0 {
-            renderer.read_oldest_into(&mut bgra);
-            repack_tight(
-                &bgra,
-                params.width,
-                params.height,
-                renderer.padded_row,
-                &mut tight,
-            );
-            if wtx.send(std::mem::take(&mut tight)).is_err() {
-                fail = Some("ffmpeg 写入中断".into());
-                break;
+        if yuv {
+            while renderer.yuv_pending_len() > 0 {
+                renderer.read_oldest_yuv_into(&mut yuv_frame);
+                if wtx.send(std::mem::take(&mut yuv_frame)).is_err() {
+                    fail = Some("ffmpeg 写入中断".into());
+                    break;
+                }
+                exported += 1;
             }
-            exported += 1;
+        } else {
+            while renderer.pending_len() > 0 {
+                renderer.read_oldest_into(&mut bgra);
+                repack_tight(
+                    &bgra,
+                    params.width,
+                    params.height,
+                    renderer.padded_row,
+                    &mut tight,
+                );
+                if wtx.send(std::mem::take(&mut tight)).is_err() {
+                    fail = Some("ffmpeg 写入中断".into());
+                    break;
+                }
+                exported += 1;
+            }
         }
     }
     drop(wtx);
@@ -3053,13 +3477,15 @@ fn run_export(
         ));
     }
 
+    let export_t0 = frame_times.first().copied().unwrap_or(t0);
     // ---- 音频混流(可选,第二遍:视频流拷贝) ----
     // 音量按 osu! 默认值(Music/Effect/Master 各 0.6,
     // `OsuGame.GetFrameworkConfigDefaults`),与 CLI 导出语义一致:
     // 通道 0.6 × 主音量 0.6。BGM 链处理 rate mod(DT/HT atempo 变速
     // 不变调、NC 保留 asetrate 变调)与负偏移静音,音效轨由
     // render_track_wav 在墙钟时间轴上离线合成(采样恒原速),直接 amix。
-    let bgm_path = if params.audio {
+    // 只渲染结算屏时没有玩法音频,直接输出静音短视频。
+    let bgm_path = if params.audio && !params.results_only {
         game.map_audio
             .clone()
             .map(|name| map_dir.join(name))
@@ -3067,16 +3493,22 @@ fn run_export(
     } else {
         None
     };
-    let hits_path = if params.hitsounds {
+    let hits_path = if params.hitsounds && !params.results_only {
         let wall_secs = frame_times.len() as f64 / params.fps as f64;
-        let wav = hitsound::render_track_wav(
+        // 谱面自带采样层(beatmap set 目录内文件)优先于用户皮肤,
+        // 与预览/CLI 同一套 lazer 解析链。
+        let wav = hitsound::render_track_wav_with_beatmap(
             &game,
             &game.sample_data,
-            t0,
+            export_t0,
             wall_secs,
             game.rate,
             0.6,
+            0.6,
             &skin,
+            beatmap_samples
+                .as_ref()
+                .map(|store| store as &dyn hitsound::BeatmapSampleStore),
         );
         let p = format!("{}.hits.wav", params.out_path);
         std::fs::write(&p, wav).ok().map(|_| p)
@@ -3085,9 +3517,17 @@ fn run_export(
     };
 
     if bgm_path.is_some() || hits_path.is_some() {
-        emit("mux", exported, total, "混入音频…".into());
+        emit(
+            "mux",
+            exported,
+            total,
+            "混入音频…".into(),
+            0.0,
+            0,
+            (render_started.elapsed().as_secs_f64() * 1000.0) as u64,
+        );
         let rate = game.rate;
-        let seek_ms = t0 - params.audio_offset * rate;
+        let seek_ms = export_t0 - params.audio_offset * rate;
         let mut cmd = std::process::Command::new(ffmpeg);
         cmd.args(["-y", "-v", "error"]).arg("-i").arg(&tmp);
         let mut bgm_filters: Vec<String> = vec!["volume=0.6000".into()];
@@ -3138,6 +3578,9 @@ fn run_export(
             }
             (None, None) => unreachable!(),
         }
+        // 用 -t 掐到视频时长而不是 -shortest:结算屏追加在玩法之后,
+        // BGM 往往先结束,-shortest 会把结算屏整段剪掉。
+        let duration_secs = frame_times.len() as f64 / params.fps as f64;
         let status = cmd
             .args([
                 "-c:v",
@@ -3146,7 +3589,8 @@ fn run_export(
                 "aac",
                 "-b:a",
                 "192k",
-                "-shortest",
+                "-t",
+                &format!("{duration_secs:.3}"),
                 "-movflags",
                 "+faststart",
             ])
@@ -3166,7 +3610,15 @@ fn run_export(
         std::fs::rename(&tmp, &params.out_path).map_err(|e| format!("无法写出文件: {e}"))?;
     }
 
-    emit("done", exported, total, params.out_path.clone());
+    emit(
+        "done",
+        exported,
+        total,
+        params.out_path.clone(),
+        0.0,
+        0,
+        (render_started.elapsed().as_secs_f64() * 1000.0) as u64,
+    );
     Ok(params.out_path.clone())
 }
 
@@ -3218,49 +3670,115 @@ mod tests {
         assert!(super::ExportPermit::acquire(&running).is_ok());
         assert!(!running.load(std::sync::atomic::Ordering::SeqCst));
     }
-    use super::ffmpeg_encoder_args;
+    use super::{ExportParams, export_input_pix_fmt, ffmpeg_encoder_args, gpu_yuv_active};
+
+    fn params(encoder: &str, quality: u32, gpu_yuv: bool) -> ExportParams {
+        ExportParams {
+            out_path: "out.mp4".into(),
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            encoder: encoder.into(),
+            quality,
+            preset: String::new(),
+            tune: String::new(),
+            rc: "vbr".into(),
+            qp: None,
+            gop: None,
+            extra_args: Vec::new(),
+            audio: true,
+            hitsounds: true,
+            results: true,
+            results_only: false,
+            gpu_yuv,
+            start: None,
+            end: None,
+            audio_offset: 0.0,
+        }
+    }
 
     fn joined(args: &[String]) -> String {
         args.join(" ")
     }
 
     #[test]
-    fn software_encoders_use_crf_and_bgra() {
-        let (pix_fmt, args) = ffmpeg_encoder_args("x264", 18);
-        assert_eq!(pix_fmt, "bgra");
+    fn software_encoders_use_crf_and_bgra_without_gpu_yuv() {
+        let p = params("x264", 18, false);
+        assert_eq!(export_input_pix_fmt(&p), "bgra");
+        assert!(!gpu_yuv_active(&p));
         assert_eq!(
-            joined(&args),
-            "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -movflags +faststart"
+            joined(&ffmpeg_encoder_args(&p)),
+            "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -movflags +faststart"
         );
-        let (pix_fmt, args) = ffmpeg_encoder_args("x265", 22);
-        assert_eq!(pix_fmt, "bgra");
-        assert!(joined(&args).starts_with("-c:v libx265 -preset medium -crf 22"));
-    }
-
-    #[test]
-    fn nvenc_h264_uses_cq_and_bgr0() {
-        let (pix_fmt, args) = ffmpeg_encoder_args("nvenc", 19);
-        assert_eq!(pix_fmt, "bgr0");
-        assert_eq!(
-            joined(&args),
-            "-c:v h264_nvenc -preset p5 -tune hq -rc vbr -cq 19 -b:v 0 -movflags +faststart"
+        let p = params("x265", 22, false);
+        assert_eq!(export_input_pix_fmt(&p), "bgra");
+        assert!(
+            joined(&ffmpeg_encoder_args(&p))
+                .starts_with("-c:v libx265 -preset medium -crf 22 -tag:v hvc1")
         );
     }
 
     #[test]
-    fn nvenc_he264_hardware_maps_to_hevc_nvenc_with_hvc1_tag() {
-        let (pix_fmt, args) = ffmpeg_encoder_args("hevc_nvenc", 20);
-        assert_eq!(pix_fmt, "bgr0");
+    fn gpu_yuv_feeds_nv12_and_skips_software_pix_fmt_conversion() {
+        let p = params("x264", 20, true);
+        assert_eq!(export_input_pix_fmt(&p), "nv12");
+        assert!(!joined(&ffmpeg_encoder_args(&p)).contains("-pix_fmt"));
+    }
+
+    #[test]
+    fn odd_dimensions_fall_back_to_bgra() {
+        let mut p = params("x264", 20, true);
+        p.width = 1921;
+        assert!(!gpu_yuv_active(&p));
+        assert_eq!(export_input_pix_fmt(&p), "bgra");
+    }
+
+    #[test]
+    fn custom_preset_tune_gop_and_extra_args_are_appended() {
+        let mut p = params("x264", 20, true);
+        p.preset = "slow".into();
+        p.tune = "animation".into();
+        p.gop = Some(120);
+        p.extra_args = vec!["-b:v".into(), "8M".into()];
         assert_eq!(
-            joined(&args),
-            "-c:v hevc_nvenc -preset p5 -tune hq -rc vbr -cq 20 -b:v 0 -tag:v hvc1 -movflags +faststart"
+            joined(&ffmpeg_encoder_args(&p)),
+            "-c:v libx264 -preset slow -tune animation -crf 20 -g 120 -b:v 8M -movflags +faststart"
+        );
+    }
+
+    #[test]
+    fn nvenc_h264_uses_cq_and_bgr0_without_gpu_yuv() {
+        let p = params("nvenc", 19, false);
+        assert_eq!(export_input_pix_fmt(&p), "bgr0");
+        assert_eq!(
+            joined(&ffmpeg_encoder_args(&p)),
+            "-c:v h264_nvenc -preset p4 -tune hq -rc vbr -cq 19 -b:v 0 -movflags +faststart"
+        );
+    }
+
+    #[test]
+    fn nvenc_constqp_uses_fixed_qp() {
+        let mut p = params("hevc_nvenc", 20, true);
+        p.rc = "constqp".into();
+        p.qp = Some(23);
+        let args = joined(&ffmpeg_encoder_args(&p));
+        assert!(args.contains("-rc constqp -qp 23"));
+        assert!(!args.contains("-cq"));
+        assert!(args.contains("-tag:v hvc1"));
+    }
+
+    #[test]
+    fn nvenc_hevc_maps_to_hevc_nvenc_with_hvc1_tag() {
+        let p = params("hevc_nvenc", 20, true);
+        assert_eq!(
+            joined(&ffmpeg_encoder_args(&p)),
+            "-c:v hevc_nvenc -preset p4 -tune hq -rc vbr -cq 20 -b:v 0 -tag:v hvc1 -movflags +faststart"
         );
     }
 
     #[test]
     fn unknown_encoder_falls_back_to_libx264() {
-        let (pix_fmt, args) = ffmpeg_encoder_args("nope", 18);
-        assert_eq!(pix_fmt, "bgra");
-        assert!(joined(&args).contains("libx264"));
+        let p = params("nope", 18, false);
+        assert!(joined(&ffmpeg_encoder_args(&p)).contains("libx264"));
     }
 }

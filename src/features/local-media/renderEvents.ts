@@ -3,7 +3,18 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { ReplayRenderProgress } from "../../shared/types/osu";
 
-export interface LiveExportProgress { phase: string; frame: number; total: number; message: string }
+export interface LiveExportProgress {
+  phase: string;
+  frame: number;
+  total: number;
+  message: string;
+  /** 当前渲染速度(帧/秒);混流/完成阶段为 0。 */
+  fps?: number;
+  /** 预计剩余时间(ms)。 */
+  etaMs?: number;
+  /** 已用时间(ms)。 */
+  elapsedMs?: number;
+}
 const subscriptions = new WeakMap<QueryClient, { users: number; dispose: () => void }>();
 
 /** App shell owns these subscriptions so route changes cannot lose completion. */

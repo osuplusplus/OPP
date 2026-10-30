@@ -874,6 +874,7 @@ fn loopback_proxy() -> Option<String> {
         .map(|_| "http://127.0.0.1:7890".to_string())
 }
 
+#[cfg(windows)]
 fn normalize_http_proxy(value: &str) -> String {
     if value.contains("://") {
         value.to_string()

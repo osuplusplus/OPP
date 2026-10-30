@@ -19,6 +19,7 @@ use crate::{
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

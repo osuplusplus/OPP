@@ -19,6 +19,7 @@ import {
   SectionTitle,
 } from "../../shared/components/ui";
 import { desktopApi } from "../../shared/lib/tauri";
+import { defaultLiveRenderOptions } from "../local-media/model";
 import type {
   OsuClient,
   ViewTrainerRequest,
@@ -433,22 +434,15 @@ export function ViewTrainerPage() {
           path,
           "",
           {
+            ...defaultLiveRenderOptions,
             hud: false,
             storyboard: false,
             video: false,
             urBar: false,
-            followPoints: true,
             keyOverlay: false,
             ppDisplay: false,
             bg: false,
             bgOpacity: 0,
-            audio: true,
-            audioOffset: 0,
-            hitsounds: true,
-            cursorSize: 1,
-            skinPath: null,
-            skinColours: false,
-            avatarPath: null,
           },
           rect(),
         );

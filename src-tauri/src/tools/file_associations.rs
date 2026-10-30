@@ -3,9 +3,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+#[cfg(windows)]
+use crate::features::game_session::executable;
+
 use crate::{
     error::{CommandError, CommandResult},
-    features::{game_session::executable, local_analysis::LocalClient},
+    features::local_analysis::LocalClient,
     state::AppState,
 };
 
@@ -44,11 +47,7 @@ pub fn open_local_resource_in_explorer(
 ) -> CommandResult<()> {
     let source = state.local_analysis.source_status(client)?;
     let mut candidates = Vec::new();
-    for root in source
-        .install_root
-        .into_iter()
-        .chain(source.data_root.into_iter())
-    {
+    for root in source.install_root.into_iter().chain(source.data_root) {
         let base = PathBuf::from(root);
         candidates.push((base.clone(), logical_path.clone()));
         candidates.push((base.clone(), format!("Songs/{logical_path}")));

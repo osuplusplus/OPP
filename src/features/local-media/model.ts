@@ -1,4 +1,38 @@
+import type { LiveRenderOptions } from "../../shared/lib/tauri";
 import type { GameMediaItem, ReplayMapInfo } from "../../shared/types/osu";
+
+/** 实时预览/导出共用的默认画面参数(新字段只在这里加一次)。 */
+export const defaultLiveRenderOptions: LiveRenderOptions = {
+  hud: true,
+  storyboard: false,
+  video: false,
+  urBar: true,
+  followPoints: true,
+  keyOverlay: true,
+  ppDisplay: true,
+  bg: true,
+  bgOpacity: 0.3,
+  audio: true,
+  audioOffset: 0,
+  hitsounds: true,
+  cursorSize: 1,
+  skinPath: null,
+  skinColours: false,
+  avatarPath: null,
+  offsetHeatmap: false,
+  urGuides: true,
+  showCursor: true,
+  showCursorTrail: true,
+  showCursorRipples: false,
+  snakingIn: true,
+  snakingOut: true,
+  hitAnimations: true,
+  breakLighten: true,
+  argonHud: false,
+  classicScore: false,
+  hd: "auto",
+  resultsStyle: "lazer",
+};
 
 export type RenderProvider = "live" | "danser" | "ordr";
 export function replayName(path: string) { return path.split(/[\\/]/).pop() || path; }

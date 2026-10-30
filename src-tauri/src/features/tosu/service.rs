@@ -269,18 +269,18 @@ pub fn lyrics_process_running() -> bool {
     named_process_running("tosu-proxy.exe", "tosu-proxy")
 }
 
-fn named_process_running(windows_name: &str, unix_name: &str) -> bool {
+fn named_process_running(_windows_name: &str, unix_name: &str) -> bool {
     #[cfg(windows)]
     {
         let _ = unix_name;
         Command::new("tasklist")
             .creation_flags(CREATE_NO_WINDOW)
-            .args(["/FI", &format!("IMAGENAME eq {windows_name}"), "/NH"])
+            .args(["/FI", &format!("IMAGENAME eq {_windows_name}"), "/NH"])
             .output()
             .map(|output| {
                 String::from_utf8_lossy(&output.stdout)
                     .to_ascii_lowercase()
-                    .contains(&windows_name.to_ascii_lowercase())
+                    .contains(&_windows_name.to_ascii_lowercase())
             })
             .unwrap_or(false)
     }
@@ -323,7 +323,7 @@ fn spawn_elevated_tosu(
          kill \"$P\" 2>/dev/null; sleep 1; kill -9 \"$P\" 2>/dev/null; break; fi; sleep 1; done; \
          rm -f \"$F\"; wait \"$P\" 2>/dev/null",
         flag = shell_word(&flag),
-        exe = executable.display().to_string(),
+        exe = executable.display(),
         opp = std::process::id(),
     );
     let mut child = Command::new("pkexec")
@@ -441,7 +441,7 @@ pub fn start(
         spawn_elevated_tosu(&runtime, &app, &executable)?;
         start_lyrics_if_configured(runtime.clone(), settings, app.clone());
         ensure_live_connection(runtime, settings.tosu_api_base_url.clone(), app);
-        return Ok(());
+        Ok(())
     }
     #[cfg(windows)]
     {

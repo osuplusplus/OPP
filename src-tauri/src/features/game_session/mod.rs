@@ -736,11 +736,7 @@ pub(crate) fn media_roots(state: &AppState, client: LocalClient) -> CommandResul
             add(files.join(name));
         }
     };
-    for root in source
-        .install_root
-        .into_iter()
-        .chain(source.data_root.into_iter())
-    {
+    for root in source.install_root.into_iter().chain(source.data_root) {
         add_base(PathBuf::from(root), &mut add);
     }
     let app_names = if client == LocalClient::Stable {

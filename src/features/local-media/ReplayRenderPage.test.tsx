@@ -219,6 +219,17 @@ describe("ReplayRenderPage", () => {
     });
     vi.spyOn(desktopApi, "liveRenderCheckFfmpeg").mockResolvedValue("ffmpeg version 7");
     vi.spyOn(desktopApi, "liveRenderCheckNvenc").mockResolvedValue([true, true]);
+    vi.spyOn(desktopApi, "liveRenderProbeEncoders").mockResolvedValue({
+      ffmpegAvailable: true,
+      hevcAvailable: true,
+      nvencAvailable: true,
+      encoders: [
+        { id: "x264", codec: "libx264", media: "h264", hardware: false, available: true },
+        { id: "x265", codec: "libx265", media: "hevc", hardware: false, available: true },
+        { id: "nvenc", codec: "h264_nvenc", media: "h264", hardware: true, available: true },
+        { id: "hevc_nvenc", codec: "hevc_nvenc", media: "hevc", hardware: true, available: true },
+      ],
+    });
     renderPage();
 
     const exportButton = await screen.findByRole("button", { name: "导出视频" });

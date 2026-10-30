@@ -110,6 +110,7 @@ impl Window {
 
     /// 定位/显隐。父窗口局部坐标。XSync:确保服务器已应用新几何,
     /// 渲染线程随后重配置 EGL surface(另一条连接)才不会拿到旧尺寸。
+    #[allow(clippy::too_many_arguments)]
     pub fn place(
         &mut self,
         x: i32,

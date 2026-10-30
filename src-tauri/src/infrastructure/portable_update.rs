@@ -9,6 +9,7 @@ use std::{
 const APPLY_UPDATE_FLAG: &str = "--opp-apply-portable-update";
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PortableUpdatePaths {
     pub current: PathBuf,
     pub staged: PathBuf,
