@@ -16,12 +16,12 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
-use super::adapter;
-use super::{CollectionBackupStatus, CollectionManagerStatus};
+use super::lazer;
+use super::{CollectionBackupStatus, CollectionWriteResult};
 use super::{
     CollectionCandidate, CollectionEntry, CollectionFolder, CollectionSnapshot, CollectionSource,
-    CollectionSourceStatus, CollectionSyncStatus, CollectionWriteResult,
-    service::CollectionService, task::ensure_collection_task_active,
+    CollectionSourceStatus, CollectionSyncStatus, service::CollectionService,
+    task::ensure_collection_task_active,
 };
 use crate::{
     error::{CommandError, CommandResult},
@@ -204,21 +204,14 @@ fn file_fingerprint(path: &Path) -> CommandResult<String> {
 }
 
 /// 汇总 stable 与 lazer 两个来源的可用性：
-/// stable 目录有效即可读写；lazer 还必须配置外部 CollectionManager，否则不可用。
+/// stable 目录有效即可读写 collection.db；lazer 目录有效即可本地读取
+/// client.realm，但 Realm 只读、仅提供只读镜像。
 pub(super) fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
-    let manager_configured = state
-        .store
-        .settings_snapshot()
-        .ok()
-        .and_then(|settings| settings.collection_manager_path)
-        .is_some_and(|path| Path::new(&path).is_file());
     [LocalClient::Stable, LocalClient::Lazer]
         .into_iter()
         .map(|client| {
             let source = state.local_analysis.source_status(client).ok();
-            let source_available = source.as_ref().is_some_and(|value| value.valid);
-            let available =
-                source_available && (client == LocalClient::Stable || manager_configured);
+            let available = source.as_ref().is_some_and(|value| value.valid);
             let (read_only, message) = match client {
                 LocalClient::Stable => (
                     false,
@@ -229,13 +222,11 @@ pub(super) fn source_statuses(state: &AppState) -> Vec<CollectionSourceStatus> {
                     },
                 ),
                 LocalClient::Lazer => (
-                    !manager_configured,
-                    if !source_available {
-                        "请先在设置中配置 osu!lazer 数据目录"
-                    } else if !manager_configured {
-                        "未配置有效的 CollectionManager，无法读取或写回 lazer 收藏夹"
+                    true,
+                    if available {
+                        "可本地读取 lazer 收藏夹（只读）"
                     } else {
-                        "已配置 CollectionManager；读取与写回能力需通过其协议验证"
+                        "请先在设置中配置 osu!lazer 数据目录"
                     },
                 ),
             };
@@ -491,22 +482,12 @@ pub async fn refresh_collections(
     list_collections(app).await
 }
 
-/// 刷新实现：lazer 通过外部 CollectionManager 协议读取并全量替换镜像；
-/// stable 交给后台线程做文件解析与合并，避免阻塞调用方。
+/// 刷新实现：lazer 在阻塞线程上本地解析 `client.realm` 并全量替换镜像；
+/// stable 交给后台线程做 collection.db 解析与合并，避免阻塞调用方。
 pub(super) async fn refresh_impl(client: LocalClient, state: &AppState) -> CommandResult<()> {
     // 刷新会将 stable 的外部变化合并进内部副本，而不是覆盖本地创建的收藏夹。
     if client == LocalClient::Lazer {
-        let folders = adapter::invoke::<Vec<CollectionFolder>, ()>(state, "read", None).await?;
-        let collections = state.collections.clone();
-        crate::infrastructure::tasks::blocking_io("refresh_lazer_collections", move || {
-            collections.update(|file| {
-                file.folders.retain(|f| f.source != CollectionSource::Lazer);
-                file.folders.extend(folders);
-                Ok(())
-            })
-        })
-        .await??;
-        return Ok(());
+        return lazer::refresh_lazer_collections(state).await;
     }
     let path = stable_path(state)?;
     let collections = std::sync::Arc::clone(&state.collections);
@@ -518,25 +499,6 @@ pub(super) async fn refresh_impl(client: LocalClient, state: &AppState) -> Comma
     Ok(())
 }
 
-/// Tauri 命令：查询外部 CollectionManager 的连接状态。
-#[tauri::command(async)]
-pub async fn get_collection_manager_status(
-    state: State<'_, AppState>,
-) -> CommandResult<CollectionManagerStatus> {
-    Ok(adapter::status(&state).await)
-}
-
-/// Tauri 命令：设置或清空 CollectionManager 路径；空白字符串按未配置处理。
-#[tauri::command(async)]
-pub fn set_collection_manager_path(
-    path: Option<String>,
-    state: State<'_, AppState>,
-) -> CommandResult<()> {
-    state
-        .store
-        .update(|s| s.settings.collection_manager_path = path.filter(|p| !p.trim().is_empty()))
-}
-
 /// Tauri 命令：查询备份状态，含目标文件指纹与备份目录（可在设置中指定）内的文件列表。
 #[tauri::command(async)]
 pub fn get_collection_backup_status(
@@ -545,11 +507,12 @@ pub fn get_collection_backup_status(
 ) -> CommandResult<CollectionBackupStatus> {
     let target = match client {
         LocalClient::Stable => stable_path(&state).ok(),
+        // lazer 收藏夹在数据目录的 client.realm（与安装目录不同）。
         LocalClient::Lazer => state
             .local_analysis
             .source_status(LocalClient::Lazer)
             .ok()
-            .and_then(|s| s.install_root)
+            .and_then(|s| s.data_root)
             .map(|r| PathBuf::from(r).join("client.realm")),
     };
     let dir = state
@@ -631,29 +594,6 @@ pub fn restore_collection_backup(
     }
     fs::copy(source, target)?;
     Ok(())
-}
-
-/// Tauri 命令：把 lazer 来源的收藏夹经 CollectionManager 协议写回。
-#[tauri::command(async)]
-pub async fn write_lazer_collections(
-    state: State<'_, AppState>,
-) -> CommandResult<CollectionWriteResult> {
-    let folders = state
-        .collections
-        .value
-        .lock()
-        .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?
-        .folders
-        .iter()
-        .filter(|f| f.source == CollectionSource::Lazer)
-        .cloned()
-        .collect::<Vec<_>>();
-    let _: serde_json::Value = adapter::invoke(&state, "write", Some(folders)).await?;
-    Ok(CollectionWriteResult {
-        written_folders: 1,
-        skipped_entries: 0,
-        backup_path: None,
-    })
 }
 
 /// Tauri 命令：新建 OPP 本地收藏夹，默认参与 stable 同步并立即进入待写回状态。

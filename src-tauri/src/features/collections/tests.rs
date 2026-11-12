@@ -1,6 +1,9 @@
 //! collections 功能的集成测试：Stable/Lazer 刷新前置条件、collection.db 编解码、
 //! 分享码往返、导入元数据解析、本地缓存失效与数据迁移行为。
-use std::{collections::HashMap, fs};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+};
 
 use md5::{Digest, Md5};
 
@@ -14,26 +17,37 @@ use super::{
     },
 };
 
-/// 未配置 shim 时 lazer 刷新应失败，且不改动已保存的收藏数据。
+/// lazer 数据目录损坏（client.realm 非法）时刷新应失败，且不改动已保存的
+/// 收藏数据。显式覆盖为合法形态目录，屏蔽开发机上的 lazer 自动探测。
 #[tokio::test]
-async fn lazer_refresh_reports_missing_manager_without_changing_collections() {
+async fn lazer_refresh_reports_invalid_realm_without_changing_collections() {
     let directory = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    fs::write(source.path().join("client.realm"), b"broken realm").unwrap();
+    fs::create_dir(source.path().join("files")).unwrap();
     let state = crate::state::AppState::new(directory.path()).unwrap();
+    state
+        .local_analysis
+        .set_source(
+            crate::features::local_analysis::LocalClient::Lazer,
+            source.path(),
+        )
+        .unwrap();
     state.collections.create("keep", "test").unwrap();
     let before = fs::read(directory.path().join("collections.json")).unwrap();
     let error = stable::refresh_impl(crate::features::local_analysis::LocalClient::Lazer, &state)
         .await
-        .expect_err("missing shim must not appear to be a successful refresh");
-    assert_eq!(error.code, "COLLECTION_MANAGER_NOT_CONFIGURED");
+        .expect_err("broken realm must not appear to be a successful refresh");
+    assert_eq!(error.code, "COLLECTION_PARSE_FAILED");
     assert_eq!(
         fs::read(directory.path().join("collections.json")).unwrap(),
         before
     );
 }
 
-/// lazer 来源在缺少 CollectionManager 时应报告为不可用且只读。
+/// lazer 来源在数据目录有效时可本地读取且只读。
 #[test]
-fn lazer_collection_source_requires_collection_manager() {
+fn lazer_collection_source_is_available_and_read_only() {
     let directory = tempfile::tempdir().unwrap();
     let source = tempfile::tempdir().unwrap();
     fs::write(source.path().join("client.realm"), []).unwrap();
@@ -46,14 +60,116 @@ fn lazer_collection_source_requires_collection_manager() {
             source.path(),
         )
         .unwrap();
-    let statuses = stable::source_statuses(&state);
-    let lazer = statuses
-        .iter()
+    let lazer = stable::source_statuses(&state)
+        .into_iter()
         .find(|s| s.client == crate::features::local_analysis::LocalClient::Lazer)
         .unwrap();
-    assert!(!lazer.available);
+    assert!(lazer.available);
     assert!(lazer.read_only);
-    assert!(lazer.message.contains("CollectionManager"));
+    assert!(lazer.message.contains("只读"));
+}
+
+/// 构造最小可用的本地谱面摘要，供 lazer 收藏夹解析测试命中本地索引。
+fn lazer_local_summary() -> crate::features::local_analysis::LocalBeatmapSummary {
+    use crate::domain::Ruleset;
+    use crate::features::local_analysis::{LocalBeatmapSummary, LocalResourceRef};
+    LocalBeatmapSummary {
+        resource: LocalResourceRef {
+            resource_id: "lazer:fixture".into(),
+            client: crate::features::local_analysis::LocalClient::Lazer,
+            content_hash: "cafe".into(),
+            logical_path: Some("fixture.osu".into()),
+        },
+        set_key: "online:2588665".into(),
+        set_grouping_inferred: false,
+        beatmap_id: Some(5775199),
+        beatmap_set_id: Some(2588665),
+        title: "tree".into(),
+        title_unicode: "tree".into(),
+        artist: "artist".into(),
+        artist_unicode: "artist".into(),
+        creator: "mapper".into(),
+        difficulty_name: "Another".into(),
+        ruleset: Ruleset::Osu,
+        format_version: 14,
+        stars: Some(5.25),
+        max_pp: Some(300.0),
+        max_combo: Some(900),
+        bpm: 180.0,
+        length_ms: 120_000.0,
+        object_count: 800,
+        cs: 4.0,
+        ar: 9.2,
+        od: 8.0,
+        hp: 6.0,
+        average_nps: 4.0,
+        peak_nps: 6.0,
+        modified_at: None,
+        analysis_status: "ready".into(),
+    }
+}
+
+/// lazer 收藏镜像：命中本地索引的条目带全元数据，未命中的沿用旧条目或生成占位；
+/// 文件夹只读、不参与 stable 同步，ID 与条目跨刷新保持稳定。
+#[test]
+fn build_lazer_folders_resolves_entries_and_marks_read_only() {
+    let realm_collections = vec![
+        crate::features::local_analysis::lazer_realm::LazerRealmCollection {
+            id: "abc123".into(),
+            name: "favourites".into(),
+            md5_hashes: vec!["FEDCBA".into(), "012345".into(), "UNKNOWN".into()],
+            last_modified: Some("2026-01-02T03:04:05+00:00".into()),
+        },
+    ];
+    let mut resolved = BTreeMap::new();
+    resolved.insert("fedcba".into(), lazer_local_summary());
+    let mut previous_by_id = HashMap::new();
+    previous_by_id.insert(
+        "lazer:abc123".into(),
+        vec![CollectionEntry {
+            id: "keep".into(),
+            beatmap_id: Some(42),
+            beatmapset_id: Some(7),
+            checksum: Some("012345".into()),
+            ruleset: Some("osu".into()),
+            difficulty_name: "Old".into(),
+            title: "Known song".into(),
+            artist: "Known artist".into(),
+            creator: "Known mapper".into(),
+            resolved: true,
+        }],
+    );
+
+    let folders = lazer::build_lazer_folders(
+        &realm_collections,
+        &resolved,
+        &previous_by_id,
+        "2026-02-03T00:00:00+00:00",
+    );
+
+    assert_eq!(folders.len(), 1);
+    let folder = &folders[0];
+    assert_eq!(folder.id, "lazer:abc123");
+    assert_eq!(folder.name, "favourites");
+    assert_eq!(folder.source, CollectionSource::Lazer);
+    assert!(folder.read_only);
+    assert!(!folder.participates_in_stable());
+    assert_eq!(folder.updated_at, "2026-01-02T03:04:05+00:00");
+    assert_eq!(folder.entries.len(), 3);
+    // 本地命中：填全元数据并标记已解析。
+    let hit = &folder.entries[0];
+    assert_eq!(hit.beatmap_id, Some(5775199));
+    assert_eq!(hit.title, "tree");
+    assert!(hit.resolved);
+    // 未命中但旧条目存在：沿用旧条目并刷新校验和大小写。
+    let preserved = &folder.entries[1];
+    assert_eq!(preserved.id, "keep");
+    assert_eq!(preserved.title, "Known song");
+    assert_eq!(preserved.checksum.as_deref(), Some("012345"));
+    // 两者皆无：生成占位条目。
+    let placeholder = &folder.entries[2];
+    assert!(!placeholder.resolved);
+    assert_eq!(placeholder.checksum.as_deref(), Some("unknown"));
 }
 /// collection.db 二进制编解码需保留 Unicode 收藏名。
 #[test]

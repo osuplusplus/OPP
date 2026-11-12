@@ -172,8 +172,6 @@ pub struct AppSettings {
     pub show_local_beatmap_presence: bool,
     #[serde(default)]
     pub local_beatmap_presence_scope: LocalPresenceScope,
-    #[serde(default)]
-    pub collection_manager_path: Option<String>,
     /// 集合备份的保留份数。
     #[serde(default = "default_collection_backup_retention")]
     pub collection_backup_retention: usize,
@@ -518,7 +516,6 @@ impl Default for AppSettings {
         Self {
             show_local_beatmap_presence: true,
             local_beatmap_presence_scope: LocalPresenceScope::All,
-            collection_manager_path: None,
             collection_backup_retention: default_collection_backup_retention(),
             collection_backup_directory: None,
             onboarding_version: 0,

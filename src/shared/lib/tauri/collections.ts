@@ -1,4 +1,4 @@
-import type { CollectionArtwork, CollectionBackupStatus, CollectionBrowsePage, CollectionBrowseQuery, CollectionCandidate, CollectionDownloadItem, CollectionEntryPage, CollectionFolder, CollectionInstallResult, CollectionManagerStatus, CollectionOpenResult, CollectionPersonalRecord, CollectionSharePreview, CollectionSnapshot, CollectionSummaries, CollectionSyncStatus, CollectionTaskProgress, CollectionWriteResult, LocalScoreRecord, LocalScoreStatus, OsuClient } from "../../types/osu";
+import type { CollectionArtwork, CollectionBackupStatus, CollectionBrowsePage, CollectionBrowseQuery, CollectionCandidate, CollectionDownloadItem, CollectionEntryPage, CollectionFolder, CollectionInstallResult, CollectionOpenResult, CollectionPersonalRecord, CollectionSharePreview, CollectionSnapshot, CollectionSummaries, CollectionSyncStatus, CollectionTaskProgress, CollectionWriteResult, LocalScoreRecord, LocalScoreStatus, OsuClient } from "../../types/osu";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { call, isTauri } from "./invoke";
 
@@ -44,15 +44,9 @@ export const collectionsApi = {
 
   writeStableCollections: () => call<CollectionWriteResult>("write_stable_collections"),
 
-  getCollectionManagerStatus: () => call<CollectionManagerStatus>("get_collection_manager_status"),
-
-  setCollectionManagerPath: (path: string | null) => call<void>("set_collection_manager_path", { path }),
-
   getCollectionBackupStatus: (client: OsuClient) => call<CollectionBackupStatus>("get_collection_backup_status", { client }),
 
   createCollectionBackup: (client: OsuClient) => call<CollectionBackupStatus>("create_collection_backup", { client }),
-
-  writeLazerCollections: () => call<CollectionWriteResult>("write_lazer_collections"),
 
   restoreCollectionBackup: (client: OsuClient, backupPath: string) => call<void>("restore_collection_backup", { client, backupPath }),
 

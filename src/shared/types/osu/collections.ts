@@ -162,7 +162,6 @@ export interface CollectionSyncStatus {
   sources?: CollectionSourceSyncStatus[];
 }
 export interface CollectionSourceSyncStatus { client: OsuClient; available: boolean; external_changed: boolean; pending_write: boolean; backup_available: boolean; backup_confirmed: boolean; backup_count: number; latest_backup: string | null; }
-export interface CollectionManagerStatus { configured: boolean; available: boolean; protocol_version: string | null; version: string | null; operations: string[]; message: string; }
 export interface CollectionBackupStatus { client: OsuClient; target: string | null; fingerprint: string | null; backups: string[]; latest: string | null; }
 
 export interface CollectionSharePreview {

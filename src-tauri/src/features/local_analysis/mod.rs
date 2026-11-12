@@ -21,6 +21,9 @@ pub use models::{
     LocalBeatmapSummary, LocalClient, LocalPresenceState, LocalSkinSummary, SkinQuery, SkinSort,
     SortDirection, StrainAnalysis, StrainSeries,
 };
+// 测试构造谱面摘要时需要资源引用，仅测试构建可见。
+#[cfg(test)]
+pub(crate) use models::LocalResourceRef;
 pub(crate) use music::{MusicAsset, MusicCandidate};
 pub use service::LocalAnalysisService;
 /// 供收藏等功能做轻量联表的谱面资源元组：

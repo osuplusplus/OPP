@@ -42,7 +42,7 @@ pub struct CollectionFolder {
     pub created_at: String,
     pub updated_at: String,
     pub source: CollectionSource,
-    /// 只读来源（例如未配置 CollectionManager 时的 lazer collection.realm）。
+    /// 只读来源：lazer 收藏夹由 client.realm 本地读取生成，无法写回游戏。
     pub read_only: bool,
     /// 存在待写回 Stable collection.db 的本地变更。
     pub pending_write: bool,
@@ -197,19 +197,6 @@ pub struct CollectionWriteResult {
     /// 因缺少 `checksum` 无法写入 collection.db 的条目数（该文件只存 MD5 列表）。
     pub skipped_entries: usize,
     pub backup_path: Option<String>,
-}
-
-/// CollectionManager shim 的探测结果。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CollectionManagerStatus {
-    pub configured: bool,
-    pub available: bool,
-    /// 当前固定为 `"1"`，与 shim 握手时校验。
-    pub protocol_version: Option<String>,
-    pub version: Option<String>,
-    /// shim 自述支持的操作名列表。
-    pub operations: Vec<String>,
-    pub message: String,
 }
 
 /// 客户端收藏文件（如 collection.db）的备份状态。

@@ -65,6 +65,18 @@ pub struct LazerRealmSet {
     pub files: Vec<LazerRealmFile>,
 }
 
+/// lazer 收藏夹表（class_BeatmapCollection 行）的最小镜像。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LazerRealmCollection {
+    /// Realm 主键 UUID（小写十六进制，无连字符）。
+    pub id: String,
+    pub name: String,
+    /// 成员难度的 .osu 内容 MD5 列表（与 stable collection.db 同一标识体系）。
+    pub md5_hashes: Vec<String>,
+    /// 最近一次修改时间（RFC 3339）。
+    pub last_modified: Option<String>,
+}
+
 /// 一个用户皮肤（Skin 行）及其文件清单。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LazerRealmSkin {
@@ -222,6 +234,86 @@ fn score_table_name(names: &[String]) -> Option<&str> {
     ["class_Score", "class_ScoreInfo"]
         .into_iter()
         .find(|name| names.iter().any(|candidate| candidate == name))
+}
+
+/// 读取收藏夹表（`class_BeatmapCollection`，与谱面同在主库 client.realm）。
+/// 表不存在视为“无收藏”，返回空列表而不是错误。
+pub fn read_realm_collections(realm_path: &Path) -> Result<Vec<LazerRealmCollection>, String> {
+    let snapshot = snapshot_realm(realm_path)?;
+    // realm-db-reader 解析损坏文件可能 panic，捕获后转为可展示的错误。
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // 不足 24 字节连 Realm 文件头都不完整，直接报错。
+        if std::fs::metadata(&snapshot)
+            .map_err(|e| e.to_string())?
+            .len()
+            < 24
+        {
+            return Err("Realm 文件头不完整".into());
+        }
+        let group = Realm::open(&snapshot)
+            .map_err(|e| e.to_string())?
+            .into_group()
+            .map_err(|e| e.to_string())?;
+        if !group
+            .get_table_names()
+            .iter()
+            .any(|name| name == "class_BeatmapCollection")
+        {
+            return Ok(Vec::new());
+        }
+        let mut store = RowStore::new(&group);
+        let mut collections = Vec::new();
+        for row in store.bulk_rows("class_BeatmapCollection")? {
+            if matches!(row.get("DeletePending"), Some(Value::Bool(true))) {
+                continue;
+            }
+            let id = uuid_string(row.get("ID"));
+            let name = string_value(row.get("Name"));
+            if id.is_empty() || name.is_empty() {
+                continue;
+            }
+            collections.push(LazerRealmCollection {
+                id,
+                name,
+                md5_hashes: string_list_value(row.get("BeatmapMD5Hashes")),
+                last_modified: match row.get("LastModified") {
+                    Some(Value::Timestamp(date)) => Some(date.to_rfc3339()),
+                    _ => None,
+                },
+            });
+        }
+        Ok(collections)
+    }))
+    .unwrap_or_else(|_| Err("Realm 收藏夹数据库结构损坏或版本不受支持".into()));
+    let removed = std::fs::remove_file(&snapshot);
+    if let Some(log) = crate::infrastructure::logging::global() {
+        let span = log.operation("collections", "realm_collections_snapshot");
+        span.fs_op("read", realm_path, &result);
+        span.fs_op("remove_snapshot", &snapshot, &removed);
+    }
+    result
+}
+
+/// 解析字符串列表列：现代列表列为 `List`；旧 schema 以子表行存储，
+/// 每行的值挂在内部列名 `!ARRAY_VALUE` 下。空值与非字符串项跳过。
+fn string_list_value(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::List(items)) => items
+            .iter()
+            .filter_map(|item| match item {
+                Value::String(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect(),
+        Some(Value::Table(rows)) => rows
+            .iter()
+            .filter_map(|row| match row.get("!ARRAY_VALUE") {
+                Some(Value::String(text)) => Some(text.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// 将一行 Score 数据解码为本地成绩模型。
@@ -707,6 +799,22 @@ fn resolve_named_files(
 mod tests {
     use super::*;
 
+    /// 字符串列表列的现代 `List` 形态可解出 MD5 列表，非列表值返回空。
+    /// （旧式子表形态无法在外部构造 `Row`，由真实 realm 集成测试覆盖。）
+    #[test]
+    fn string_list_decodes_modern_list_column() {
+        assert_eq!(
+            string_list_value(Some(&Value::List(vec![
+                Value::String("abc".into()),
+                Value::Int(3),
+                Value::String("def".into()),
+            ]))),
+            vec!["abc".to_string(), "def".to_string()]
+        );
+        assert!(string_list_value(None).is_empty());
+        assert!(string_list_value(Some(&Value::String("x".into()))).is_empty());
+    }
+
     /// 两次快照互不干扰，且各自保留复制时刻的内容。
     #[test]
     fn snapshots_do_not_overwrite_another_reader() {
@@ -758,5 +866,30 @@ mod tests {
         let blob = blob_relative_path(&beatmap.sha256);
         let files_root = data_root.join("files");
         assert!(files_root.join(&blob).is_file(), "blob 不存在：{blob}");
+    }
+
+    /// 对真实 lazer 数据库的收藏夹读取测试：
+    /// `cargo test --lib lazer_realm -- --ignored`（需要本地存在 lazer）。
+    #[test]
+    #[ignore = "需要本机安装 osu!lazer 且存在 client.realm"]
+    fn reads_real_lazer_collections() {
+        let data_root = crate::infrastructure::platform::resolve_lazer_data_root()
+            .expect("未找到 lazer 数据目录");
+        let collections =
+            read_realm_collections(&data_root.join("client.realm")).expect("读取收藏夹失败");
+        eprintln!(
+            "realm collections: {} folders",
+            collections
+                .iter()
+                .map(|c| format!("{}({})", c.name, c.md5_hashes.len()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        // 无收藏的全新安装允许为空；有收藏时逐项校验结构。
+        for collection in &collections {
+            assert!(!collection.id.is_empty());
+            assert!(!collection.name.is_empty());
+            assert!(collection.md5_hashes.iter().all(|hash| hash.len() == 32));
+        }
     }
 }
