@@ -125,7 +125,3 @@ export interface BeatmapHubBackupRestoreResult {
   entries: number;
 }
 
-export interface BeatmapHubDeviceLink {
-  link_token: string;
-  expires_at: string;
-}

@@ -19,9 +19,9 @@ export function TournamentCard({ item, onOpen }: { item: CommunityTournament; on
     </div>
   </button>;
 }
-export function LobbyCard({ item, onOpen }: { item: CommunityLobby; onOpen: (id: string, button: HTMLButtonElement) => void }) {
+export function LobbyCard({ item, status = item.status, onOpen }: { item: CommunityLobby; /** 实时推算的状态(随服务器时钟每秒刷新);缺省回落到列表数据自带的值。 */ status?: CommunityLobby["status"]; onOpen: (id: string, button: HTMLButtonElement) => void }) {
   return <button type="button" className="community-card community-lobby-card" aria-label={`查看约玩 ${item.title}`} onClick={(event) => onOpen(item.id, event.currentTarget)}>
-    <div className="community-card-body"><div className="community-card-meta"><span className="community-activity">{activityLabels[item.activity_type]}</span><span className={`community-status status-${item.status}`}>{statusLabels[item.status]}</span></div>
+    <div className="community-card-body"><div className="community-card-meta"><span className="community-activity">{activityLabels[item.activity_type]}</span><span className={`community-status status-${status}`}>{statusLabels[status]}</span></div>
       <h3>{item.title}</h3><div className="community-tags"><span>{rulesetLabels[item.ruleset]}</span>{item.platform ? <span>{platformLabels[item.platform]}</span> : null}</div>
       <p className="community-card-description">{item.description}</p>
       <div className="community-time-range"><Clock3 size={15} /><div><span>{activityTime(item.starts_at)}</span><span>至 {activityTime(item.ends_at)}</span></div></div>

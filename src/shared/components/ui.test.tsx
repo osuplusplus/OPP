@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { Button, Input, Select, Tooltip } from "./ui";
+import { Button, Input, Tooltip } from "./ui";
 
 beforeAll(() => {
   // jsdom 不提供 ResizeObserver，Radix Tooltip 定位时需要一个最小实现。
@@ -21,27 +21,16 @@ describe("公共 UI 组件", () => {
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
-  it("Input 与 Select 复用现有控件样式并透传事件", () => {
+  it("Input 复用现有控件样式并透传事件", () => {
     const onInput = vi.fn();
-    const onSelect = vi.fn();
     render(
-      <>
-        <Input aria-label="名称" className="custom-input" onChange={onInput} />
-        <Select aria-label="模式" className="custom-select" onChange={onSelect}>
-          <option value="osu">osu!</option>
-          <option value="mania">mania</option>
-        </Select>
-      </>,
+      <Input aria-label="名称" className="custom-input" onChange={onInput} />,
     );
 
     const input = screen.getByRole("textbox", { name: "名称" });
-    const select = screen.getByRole("combobox", { name: "模式" });
     expect(input).toHaveClass("opp-input", "custom-input");
-    expect(select).toHaveClass("opp-input", "custom-select");
     fireEvent.change(input, { target: { value: "Daisuke" } });
-    fireEvent.change(select, { target: { value: "mania" } });
     expect(onInput).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it("Tooltip 使用 Radix 展示提示内容", async () => {

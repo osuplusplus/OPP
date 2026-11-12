@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { BeatmapHubPack, OnlineBeatmapset } from "../../shared/types/osu";
-import { communityIdentityKey, communityProfileKey, useCommunityIdentity, useCommunityProfile } from "../../shared/lib/communityIdentity";
+import { communityIdentityKey, useCommunityIdentity, useCommunityProfile } from "../../shared/lib/communityIdentity";
 
 export const hubKey = ["beatmaphub"] as const;
 export const beatmapHubAuthKey = communityIdentityKey;
-export const beatmapHubProfileKey = communityProfileKey;
 export const beatmapHubRecommendationsKey = [...hubKey, "recommendations"] as const;
 export const hubPackKey = [...hubKey, "pack"] as const;
 export const hubSearchKey = [...hubKey, "search"] as const;

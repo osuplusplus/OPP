@@ -8,7 +8,12 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), tailwindcss()],
+  // React Compiler 在编译期自动为组件/钩子插入记忆化,替代手写 memo 化;
+  // 违反 React 规则的组件会被编译器跳过并保持原语义,不会构建失败。
+  plugins: [
+    react({ babel: { plugins: ["babel-plugin-react-compiler"] } }),
+    tailwindcss(),
+  ],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
   },

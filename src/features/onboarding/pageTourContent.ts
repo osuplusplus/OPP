@@ -185,7 +185,7 @@ const copies: Record<string, PageGuideCopy> = {
     summary: "从最佳成绩计算八项能力分布，定位短板并把成绩带入相似谱面或训练生成器。",
     modules: [
       { title: "能力概览", purpose: "顶部卡片展示分析覆盖率和八项能力分布；刷新会增量复用已有结果。", example: "先查看覆盖率，再点击“增量刷新”更新最新成绩。", target: '[data-page-guide-content="true"]' },
-      { title: "训练重点", purpose: "选择一个能力维度后，明细会优先显示对该能力贡献最高的成绩。", example: "点击最低能力项，再查看右侧推荐的训练方向。", targetText: "从短板开始练习" },
+      { title: "训练重点", purpose: "选择一个能力维度后，明细会优先显示对该能力贡献最高的成绩。", example: "点击最弱的维度，成绩明细会立即按该维度贡献排序。", targetText: "从短板开始练习" },
       { title: "成绩能力明细", purpose: "按谱面关键词和能力维度筛选成绩，并可直接跳转相似谱面或导入训练生成器。", example: "搜索谱师或歌曲名，点击结果右侧的相似谱面按钮。", targetText: "成绩能力明细" },
     ],
   },

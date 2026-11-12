@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Search, Users } from "lucide-react";
@@ -16,6 +16,36 @@ import { LobbyPublishDialog } from "./LobbyPublishDialog";
 import { LobbyDetailDialog } from "./LobbyDetailDialog";
 import "./community.css";
 
+/**
+ * 大厅列表 + 服务器时钟:每秒 tick 只在本组件内消化(推算 status、
+ * 过滤),页面其余部分不随之重渲染;卡片接收原始 item 与稳定 status
+ * 字符串,由 React Compiler 记忆化,只有真正跨状态的大厅才会重渲染。
+ */
+function LobbyFeedClocked({ pages, serverTime, receivedAt, statusFilter, onOpen, feed }: {
+  pages: { items: CommunityLobby[]; server_time?: string }[] | undefined;
+  serverTime: string | undefined;
+  receivedAt: number;
+  statusFilter: string;
+  onOpen: (id: string, button: HTMLButtonElement) => void;
+  feed: Omit<React.ComponentProps<typeof Feed>, "empty" | "children">;
+}) {
+  const clock = useServerClock(serverTime, receivedAt);
+  const items = useMemo(
+    () => [...new Map((pages?.flatMap((page) => page.items) ?? []).map((item) => [item.id, item])).values()],
+    [pages],
+  );
+  const activeOnly = statusFilter === "active";
+  const visible = useMemo(
+    () => items
+      .map((item) => ({ item, status: lobbyState(item, clock) }))
+      .filter(({ status }) => activeOnly
+        ? status !== "ended" && status !== "closed"
+        : statusFilter === "all" || status === statusFilter),
+    [items, clock, activeOnly, statusFilter],
+  );
+  return <Feed {...feed} empty={!visible.length}>{visible.map(({ item, status }) => <LobbyCard item={item} key={item.id} onOpen={onOpen} status={status} />)}</Feed>;
+}
+
 export function LobbiesPage() {
   const [params, setParams] = useSearchParams(); const query = queryFromParams(params); const mine = params.get("view") === "mine";
   const client = useQueryClient(); const { ruleset } = useMode(); const auth = useCommunityIdentity(); const connected = Boolean(auth.data?.connected);
@@ -28,8 +58,6 @@ export function LobbiesPage() {
   const identity = `${auth.data?.device_id ?? "guest"}:${connected}`;
   const list = useLobbies({ ...query, status: query.status ?? (mine ? "all" : "active") }, mine, mine ? identity : "public", !mine || connected);
   const pages = list.data?.pages;
-  const clock = useServerClock(pages?.[pages.length - 1]?.server_time, list.dataUpdatedAt);
-  const items = [...new Map((list.data?.pages.flatMap((page) => page.items) ?? []).map((item) => [item.id, { ...item, status: lobbyState(item, clock) }])).values()].filter((item) => (query.status ?? (mine ? "all" : "active")) === "active" ? item.status !== "ended" && item.status !== "closed" : !query.status || query.status === "all" || item.status === query.status);
   const change = (key: string, value: string) => setParams((previous) => { const next = new URLSearchParams(previous); if (value) next.set(key, value); else next.delete(key); return next; }, { replace: true });
   const changeView = (value: boolean) => setParams((previous) => { const next = new URLSearchParams(previous); next.delete("status"); if (value) next.set("view", "mine"); else next.delete("view"); return next; }, { replace: true });
   const refresh = () => client.invalidateQueries({ queryKey: communityKey });
@@ -45,7 +73,7 @@ export function LobbiesPage() {
       {mine ? <FilterSelect label="活动状态" value={query.status === "all" ? "" : query.status} options={{ active: "未结束", upcoming: "即将开始", ongoing: "进行中", ended: "已结束", closed: "提前结束" }} onChange={(value) => change("status", value || "all")} /> : null}
       <Button size="icon" aria-label="刷新约玩" disabled={mine && !connected} loading={list.isFetching && !list.isFetchingNextPage} onClick={() => void list.refetch()}><RefreshCw size={17} /></Button>
     </div>
-    {mine && !connected ? <div className="community-empty"><h3>连接身份后查看你的发布</h3><p>公开大厅始终可以直接浏览。</p><Button onClick={openMine}>连接社区身份</Button></div> : <Feed loading={list.isPending} error={list.error} empty={!items.length} retry={() => void list.refetch()} more={list.hasNextPage} loadingMore={list.isFetchingNextPage} loadMore={() => void list.fetchNextPage()}>{items.map((item) => <LobbyCard key={item.id} item={item} onOpen={(id, button) => { trigger.current = button; setSelection(id); }} />)}</Feed>}
+    {mine && !connected ? <div className="community-empty"><h3>连接身份后查看你的发布</h3><p>公开大厅始终可以直接浏览。</p><Button onClick={openMine}>连接社区身份</Button></div> : <LobbyFeedClocked feed={{ loading: list.isPending, error: list.error, retry: () => void list.refetch(), more: list.hasNextPage, loadingMore: list.isFetchingNextPage, loadMore: () => void list.fetchNextPage() }} onOpen={(id, button) => { trigger.current = button; setSelection(id); }} pages={pages} receivedAt={list.dataUpdatedAt} serverTime={pages?.[pages.length - 1]?.server_time} statusFilter={query.status ?? (mine ? "all" : "active")} />}
     {selection ? <LobbyDetailDialog key={selection} id={selection} ownerId={profile.data?.user.id} onClose={() => setSelection(null)} restoreFocus={restoreFocus} onEdit={(edit) => setPublisher({ edit })} onChanged={refresh} /> : null}
     {publisher ? <LobbyPublishDialog key={publisher.edit?.id ?? "new"} edit={publisher.edit} connected={connected} identity={osu.data ?? {}} mode={ruleset} onConnect={() => setIdentityOpen(true)} onClose={() => setPublisher(null)} onSaved={(item) => { setPublisher(null); void refresh(); setSelection(item.id); }} /> : null}
     {identityOpen ? <CommunityIdentityDialog onClose={() => { setIdentityOpen(false); setPendingMine(false); }} onConnected={() => { setIdentityOpen(false); if (pendingMine) { changeView(true); setPendingMine(false); } }} /> : null}

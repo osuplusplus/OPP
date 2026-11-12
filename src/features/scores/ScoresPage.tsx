@@ -1,5 +1,5 @@
 import { osuScoreUrl } from "../../shared/lib/osuUrl";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Medal, Pin, RefreshCw, Trophy, X, Zap } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
@@ -82,11 +82,13 @@ export function ScoresPage({ category = "best", offset = 0, title, embedded = fa
   const [selected, setSelected] = useState<{ score: Score; position: number } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const heading = title ?? (category === "pinned" ? "Pinned 成绩" : category === "recent" ? "近期成绩" : effectiveOffset ? "BP 101–200" : "最佳成绩");
+  // 搜索词走 deferred 值:输入框即时响应,百行过滤在过渡中更新不阻塞打字。
+  const deferredSearch = useDeferredValue(search);
   const filtered = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
+    const query = deferredSearch.trim().toLocaleLowerCase();
     return (scoresQuery.data?.data ?? []).map((score, index) => ({ score, position: index + effectiveOffset + 1 })).filter(({ score }) => !query || [score.beatmapset?.title, score.beatmapset?.title_unicode, score.beatmapset?.artist, score.beatmapset?.creator, score.beatmap?.version, ...scoreMods(score)].filter(Boolean).some((value) => String(value).toLocaleLowerCase().includes(query)));
-  }, [scoresQuery.data, search, effectiveOffset]);
-  const suggestions = (scoresQuery.data?.data ?? []).flatMap((score) => [score.beatmapset?.title, score.beatmapset?.artist, score.beatmap?.version, ...scoreMods(score)]).filter((value): value is string => Boolean(value)).map((value) => ({ value }));
+  }, [scoresQuery.data, deferredSearch, effectiveOffset]);
+  const suggestions = useMemo(() => (scoresQuery.data?.data ?? []).flatMap((score) => [score.beatmapset?.title, score.beatmapset?.artist, score.beatmap?.version, ...scoreMods(score)]).filter((value): value is string => Boolean(value)).map((value) => ({ value })), [scoresQuery.data]);
   const refresh = async () => { setRefreshing(true); try { await scoresQuery.refresh(); } finally { setRefreshing(false); } };
   return <>
     {!embedded ? <><PageHeader title={heading} />{category === "best" ? <div className="mb-4 flex gap-2"><Link className={`rounded-lg px-3 py-2 text-xs ${effectiveOffset === 0 ? "bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]" : "text-slate-500 hover:text-white"}`} to="/data/scores">BP 1–100</Link><Link className={`rounded-lg px-3 py-2 text-xs ${effectiveOffset === 100 ? "bg-[var(--theme-primary-muted)] text-[var(--theme-primary)]" : "text-slate-500 hover:text-white"}`} to="/data/scores?offset=100">BP 101–200</Link></div> : null}</> : <div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2"><h2 className="text-xl font-semibold tracking-tight text-white">{heading}</h2>{category === "pinned" ? <Pin className="size-4 text-pink-200" /> : null}</div><Badge tone={category === "pinned" ? "pink" : "cyan"}>{category === "pinned" ? "官方置顶" : category === "recent" ? "最近游玩" : `BP ${effectiveOffset + 1}–${effectiveOffset + 100}`}</Badge></div>}

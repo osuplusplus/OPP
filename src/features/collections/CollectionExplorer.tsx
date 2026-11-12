@@ -46,8 +46,14 @@ export function CollectionExplorer({ folders, loading, failed, toolbar, onRetry,
   const restored = useRef<string | null>(null);
   const activeRow = useRef<string | null>(null);
   useEffect(() => { const timer = setTimeout(() => setDebounced(search), 200); return () => clearTimeout(timer); }, [search]);
+  // 本地成绩状态更新时刷新浏览数据;窗口聚焦会反复触发 refreshLocalScores,
+  // 用节流避免每次聚焦都级联失效 browser + scores 两条查询链。
+  const lastCascade = useRef(0);
   useEffect(() => {
     if (!status.dataUpdatedAt) return;
+    const now = Date.now();
+    if (now - lastCascade.current < 60_000) return;
+    lastCascade.current = now;
     void client.invalidateQueries({ queryKey: collectionBrowserKey });
     void client.invalidateQueries({ queryKey: ["collection-scores"] });
   }, [client, status.dataUpdatedAt]);

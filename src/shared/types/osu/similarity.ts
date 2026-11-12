@@ -50,15 +50,6 @@ export interface SimilarityBaseFeatures {
   max_combo: number;
 }
 
-export interface SimilarityBaseWeights {
-  bpm: number;
-  ar: number;
-  length_seconds: number;
-  object_density: number;
-  circle_ratio: number;
-  slider_ratio: number;
-}
-
 export interface SimilarityFilters {
   min_star: number | null;
   max_star: number | null;
@@ -360,6 +351,4 @@ export type SimilarityRecommendationResponse =
 
 export type AnySimilarityBeatmap = SimilarityBeatmap | ManiaSimilarityBeatmap;
 export type AnySimilarityResult = SimilarityResult | ManiaSimilarityResult;
-export type AnySimilarityRecommendationResult =
-  | SimilarityRecommendationResult
-  | ManiaSimilarityRecommendationResult;
+

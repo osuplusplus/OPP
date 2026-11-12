@@ -800,3 +800,11 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 .download-result-actions button { border: 1px solid var(--border-subtle, #64748b55); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface-interactive, #64748b15); text-align: left; overflow-wrap: anywhere; }
 .download-result-actions button:disabled { opacity: .6; }
 .download-result-actions p { width: 100%; font-size: 12px; overflow-wrap: anywhere; }
+
+/* Offscreen list-item skipping: pure-CSS windowing for long card lists
+   (medal grid, download queue). `auto` in contain-intrinsic-size lets the
+   browser remember the real size after first paint to avoid scroll jumps. */
+.cv-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}

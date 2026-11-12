@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { activityDescription, activityLevel, buildPlayActivity, buildTrendData, careerToday, changePeriodView, currentPeriod, describeDelta, fillCareerDays, interpolateStats, monthDays, monthRange, periodRange, periodSummary, shiftPeriod, weekday } from "./careerModel";
+import { activityDescription, activityLevel, buildPlayActivity, buildTrendData, careerToday, changePeriodView, currentPeriod, describeDelta, fillCareerDays, interpolateStats, monthRange, periodRange, periodSummary, shiftPeriod, weekday } from "./careerModel";
 import { careerFixtureDay, careerFixtureDays, careerFixtureStats, careerFixtureToday } from "./careerFixtures.test-data";
 
 describe("careerModel", () => {
   it("builds a timezone independent month grid", () => {
     expect(monthRange(2026, 1)).toEqual({ start: "2026-02-01", end: "2026-02-28" });
-    expect(monthDays(2026, 1)).toHaveLength(28);
     expect(weekday("2026-02-01")).toBe(0);
   });
 

@@ -1,12 +1,9 @@
 import { useEffect, useState } from "react";
 import { desktopApi } from "../../shared/lib/tauri";
-import type {
-  AppSettings,
-  BeatmapDownloadProgress,
-  TosuLiveSnapshot,
-} from "../../shared/types/osu";
+import type { AppSettings } from "../../shared/types/osu";
 import { useMpStatus, useIrcStatus } from "./mpWatcher";
 import { useChat } from "./chatWatcher";
+import { useBeatmapDownloadProgress, useTosuSnapshot } from "./liveEvents";
 import type { OverlayMode } from "./model";
 import { HudCard } from "./HudCard";
 import { DirectPanel } from "./DirectPanel";
@@ -15,17 +12,51 @@ import { ChatPanel } from "./ChatPanel";
 type PanelTab = "search" | "chat";
 
 /**
+ * HUD 卡片的实时数据壳:tosu 快照与下载进度只在本地订阅,
+ * 高频事件的重渲染被限制在 HUD 卡片内部,不触碰根组件。
+ */
+function HudCardLive({
+  settings,
+  mpActivity,
+  chatUnread,
+  irc,
+  onOpen,
+  onOpenChat,
+}: {
+  settings: AppSettings | null;
+  mpActivity: ReturnType<typeof useMpStatus>;
+  chatUnread: number;
+  irc: ReturnType<typeof useIrcStatus>;
+  onOpen: () => void;
+  onOpenChat: () => void;
+}) {
+  const snapshot = useTosuSnapshot();
+  const download = useBeatmapDownloadProgress();
+  return (
+    <HudCard
+      settings={settings}
+      snapshot={snapshot}
+      mpActivity={mpActivity}
+      download={download}
+      chatUnread={chatUnread}
+      irc={irc}
+      onOpen={onOpen}
+      onOpenChat={onOpenChat}
+    />
+  );
+}
+
+/**
  * 覆盖层根组件：Steam 式交互——平时完全隐藏（hidden），全局热键唤出 Direct
  * 面板，再按热键或 Esc 收起回原状态；HUD 常驻状态卡为可选设置。模式由
- * 后端热键/命令驱动（overlay-mode-changed），本地点击仅作同步回执。tosu
- * 快照、下载进度与 IRC 状态全局共享给 HUD 与面板。
+ * 后端热键/命令驱动（overlay-mode-changed），本地点击仅作同步回执。
+ * 根组件只持有 mode/tab/settings 等低频状态；tosu 快照、下载进度由
+ * HudCardLive / DirectPanel 的叶子组件自行订阅。
  */
 export function OverlayWindow() {
   const [mode, setMode] = useState<OverlayMode>("hidden");
   const [tab, setTab] = useState<PanelTab>("search");
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [snapshot, setSnapshot] = useState<TosuLiveSnapshot | null>(null);
-  const [download, setDownload] = useState<BeatmapDownloadProgress | null>(null);
   const mpActivity = useMpStatus();
   const irc = useIrcStatus();
   const chat = useChat(mode === "panel" && tab === "chat");
@@ -44,15 +75,7 @@ export function OverlayWindow() {
         if (!disposed) setSettings(value);
       })
       .catch(() => {});
-    const subscriptions = [
-      desktopApi.onOverlayModeChanged((next) => setMode(next)),
-      desktopApi.onTosuLiveData((value) => setSnapshot(value)),
-      desktopApi.onBeatmapDownloadProgress((progress) => {
-        setDownload(
-          progress.phase === "finished" || progress.phase === "cancelled" ? null : progress,
-        );
-      }),
-    ];
+    const subscriptions = [desktopApi.onOverlayModeChanged((next) => setMode(next))];
     return () => {
       disposed = true;
       subscriptions.forEach((pending) => void pending.then((unlisten) => unlisten()));
@@ -95,11 +118,9 @@ export function OverlayWindow() {
 
   if (mode !== "panel") {
     return (
-      <HudCard
+      <HudCardLive
         settings={settings}
-        snapshot={snapshot}
         mpActivity={mpActivity}
-        download={download}
         chatUnread={chat.unread}
         irc={irc}
         onOpen={() => enterMode("panel")}
@@ -143,12 +164,7 @@ export function OverlayWindow() {
         </button>
       </header>
       {tab === "search" ? (
-        <DirectPanel
-          settings={settings}
-          snapshot={snapshot}
-          mpActivity={mpActivity}
-          download={download}
-        />
+        <DirectPanel settings={settings} mpActivity={mpActivity} />
       ) : (
         <ChatPanel settings={settings} entries={chat.entries} irc={irc} />
       )}

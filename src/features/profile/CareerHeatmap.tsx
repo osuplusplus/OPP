@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { fullNumber } from "../../shared/lib/format";
 import { activityDescription, weekday, type CareerPeriod, type PlayActivity } from "./careerModel";
 
@@ -9,12 +9,26 @@ export function CareerHeatmap({ activities, period, selected, onSelect }: {
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
+  // 年视图约 365 格:派生数据全部 memo,hover 只重渲染 readout 而非重算网格。
   const offset = activities.length ? weekday(activities[0].day.date) : 0;
-  const cells = [...Array.from({ length: offset }, () => null), ...activities];
-  const current = activities.find((item) => item.day.date === hovered) ?? activities.find((item) => item.day.date === selected);
-  const focusDate = selected ?? [...activities].reverse().find((item) => item.state !== "future")?.day.date;
-  const recorded = activities.filter((item) => item.state === "recorded" || item.state === "unknown");
-  const activeDays = activities.filter((item) => item.count != null && item.count > 0 && !item.spanning).length;
+  const cells = useMemo(() => [...Array.from({ length: offset }, () => null), ...activities], [activities, offset]);
+  const current = useMemo(
+    () => activities.find((item) => item.day.date === hovered) ?? activities.find((item) => item.day.date === selected),
+    [activities, hovered, selected],
+  );
+  const focusDate = useMemo(
+    () => selected ?? [...activities].reverse().find((item) => item.state !== "future")?.day.date,
+    [activities, selected],
+  );
+  const recorded = useMemo(() => activities.filter((item) => item.state === "recorded" || item.state === "unknown").length, [activities]);
+  const activeDays = useMemo(() => activities.filter((item) => item.count != null && item.count > 0 && !item.spanning).length, [activities]);
+  // 月份标签的列位置:一次遍历带出索引,避免 indexOf 在 365 项上的 O(n²)。
+  const monthMarks = useMemo(
+    () => activities
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.day.date.endsWith("-01")),
+    [activities],
+  );
   const keyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const steps: Record<string, number> = period.view === "year" ? { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 } : { ArrowUp: -7, ArrowDown: 7, ArrowLeft: -1, ArrowRight: 1 };
     const target = event.key === "Home" ? 0 : event.key === "End" ? activities.length - 1 : event.key in steps ? index + steps[event.key] : null;
@@ -25,10 +39,10 @@ export function CareerHeatmap({ activities, period, selected, onSelect }: {
     buttons.current.get(activities[next].day.date)?.focus();
   };
   return <section aria-label="游玩记录" className="career-panel career-activity">
-    <div className="career-section-header"><div><h2>游玩记录</h2><p className="career-muted">以新增游玩次数着色，点击日期回看当天</p></div><span className="career-muted">{recorded.length} 天有记录</span></div>
+    <div className="career-section-header"><div><h2>游玩记录</h2><p className="career-muted">以新增游玩次数着色，点击日期回看当天</p></div><span className="career-muted">{recorded} 天有记录</span></div>
     <div className={`career-heatmap-layout career-heatmap-${period.view}`}>
       <div className="career-heatmap-scroll">
-        {period.view === "year" ? <div className="career-heatmap-months" style={{ gridTemplateColumns: `repeat(${Math.ceil(cells.length / 7)}, minmax(0, 1fr))` }}>{activities.filter((item) => item.day.date.endsWith("-01")).map((item) => <span key={item.day.date} style={{ gridColumn: Math.floor((offset + activities.indexOf(item)) / 7) + 1 }}>{Number(item.day.date.slice(5, 7))}月</span>)}</div> : null}
+        {period.view === "year" ? <div className="career-heatmap-months" style={{ gridTemplateColumns: `repeat(${Math.ceil(cells.length / 7)}, minmax(0, 1fr))` }}>{monthMarks.map(({ item, index }) => <span key={item.day.date} style={{ gridColumn: Math.floor((offset + index) / 7) + 1 }}>{Number(item.day.date.slice(5, 7))}月</span>)}</div> : null}
         <div className="career-heatmap-body">
           <div className="career-weekdays">{weekdays.map((label) => <span key={label}>{label}</span>)}</div>
           <div aria-label={`${period.year}年${period.view === "month" ? `${period.month + 1}月` : ""}游玩热力图`} className="career-heatmap-grid" style={period.view === "year" ? { gridTemplateColumns: `repeat(${Math.ceil(cells.length / 7)}, minmax(0, 1fr))` } : undefined}>

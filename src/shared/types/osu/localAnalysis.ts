@@ -108,13 +108,6 @@ export interface LocalResourceRef {
   logical_path?: string | null;
 }
 
-export interface ScanDiagnostic {
-  code: string;
-  message: string;
-  logical_path?: string | null;
-  resource_id?: string | null;
-}
-
 export interface LocalLibrarySummary {
   client: OsuClient;
   completeness: Completeness;

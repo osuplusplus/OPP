@@ -47,11 +47,3 @@ export function useOnlineBeatmapsetDetail(beatmapsetId: number | null) {
     staleTime: 5 * 60_000,
   });
 }
-
-export function useOnlineBeatmapProviderStatus() {
-  return useQuery({
-    queryKey: ["online-beatmap-providers"],
-    queryFn: () => desktopApi.getOnlineBeatmapProviderStatus(),
-    staleTime: 60_000,
-  });
-}

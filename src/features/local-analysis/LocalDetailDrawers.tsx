@@ -1,13 +1,10 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
-import { formatBytes } from "../../shared/lib/format";
 import {
   AreaChart,
-  ChevronRight,
   FileArchive,
   Gauge,
   LoaderCircle,
-  Palette,
   X,
 } from "lucide-react";
 import {
@@ -26,7 +23,6 @@ import { dateTime, fixedNumber, fullNumber } from "../../shared/lib/format";
 import type { OsuClient } from "../../shared/types/osu";
 import {
   useLocalBeatmapDetail,
-  useLocalSkinDetail,
 } from "./api";
 
 const chartColors = ["#73e5ea", "#ff79ad", "#a98bff", "#f5c66f"];
@@ -312,116 +308,3 @@ export function BeatmapDetailDrawer({
   );
 }
 
-export function SkinDetailDrawer({
-  client,
-  resourceId,
-  onClose,
-}: {
-  client: OsuClient;
-  resourceId: string | null;
-  onClose: () => void;
-}) {
-  const query = useLocalSkinDetail(client, resourceId);
-  const detail = query.data;
-
-  return (
-    <Dialog.Root onOpenChange={(open) => !open && onClose()} open={Boolean(resourceId)}>
-      {resourceId ? (
-        <DrawerFrame
-          description={
-            detail
-              ? `${detail.summary.author} · ${detail.summary.version}`
-              : "正在读取 Skin 配置与资源盘点"
-          }
-          title={detail?.summary.name ?? "Skin 详情"}
-        >
-          {query.isLoading ? (
-            <div className="grid min-h-64 place-items-center">
-              <LoaderCircle className="size-6 animate-spin text-cyan-200" />
-            </div>
-          ) : query.error || !detail ? (
-            <ErrorPanel error={query.error} onRetry={() => query.refetch()} />
-          ) : (
-            <div className="space-y-5">
-              {detail.notice ? (
-                <div className="rounded-2xl border border-amber-300/15 bg-amber-300/[0.07] p-4 text-sm leading-6 text-amber-100">
-                  {detail.notice}
-                </div>
-              ) : null}
-              <div className="grid grid-cols-2 gap-5">
-                <Card className="p-5">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                    <Palette className="size-4 text-pink-200" />
-                    配置概览
-                  </div>
-                  <DataLine label="完整度" value={detail.summary.completeness === "complete" ? "完整" : "部分"} />
-                  <DataLine label="Section" value={detail.summary.section_count} />
-                  <DataLine label="Mania 配置" value={detail.summary.has_mania_config ? "有" : "无"} />
-                  <DataLine label="修改时间" value={dateTime(detail.summary.modified_at)} />
-                </Card>
-                <Card className="p-5">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                    <FileArchive className="size-4 text-cyan-200" />
-                    资源盘点
-                  </div>
-                  <DataLine label="递归文件数" value={detail.inventory ? fullNumber(detail.inventory.file_count) : "不可确定"} />
-                  <DataLine label="总大小" value={detail.inventory ? formatBytes(detail.inventory.total_bytes) : "不可确定"} />
-                  <DataLine label="扩展名种类" value={detail.inventory ? Object.keys(detail.inventory.by_extension).length : "不可确定"} />
-                  <DataLine label="资源归属" value={detail.inventory ? "stable 文件夹" : "Realm 未读取"} />
-                </Card>
-              </div>
-
-              {detail.inventory ? (
-                <Card className="p-5">
-                  <h3 className="text-sm font-semibold text-white">扩展名分布</h3>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {Object.entries(detail.inventory.by_extension)
-                      .sort((left, right) => right[1] - left[1])
-                      .map(([extension, count]) => (
-                        <Badge key={extension}>
-                          .{extension} · {count}
-                        </Badge>
-                      ))}
-                  </div>
-                </Card>
-              ) : null}
-
-              <div className="space-y-3">
-                {detail.sections.map((section, sectionIndex) => (
-                  <Card className="overflow-hidden" key={`${section.name}-${sectionIndex}`}>
-                    <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3.5">
-                      <ChevronRight className="size-3.5 text-cyan-200" />
-                      <h3 className="text-sm font-semibold text-white">[{section.name}]</h3>
-                      <span className="ml-auto text-xs text-slate-600">{section.entries.length} 项</span>
-                    </div>
-                    <div className="divide-y divide-white/[0.045] px-5">
-                      {section.entries.map((entry, entryIndex) => (
-                        <div
-                          className="grid grid-cols-[minmax(130px,.45fr)_1fr] gap-5 py-2.5 text-xs"
-                          key={`${entry.key}-${entryIndex}`}
-                        >
-                          <span className="font-mono text-slate-500">{entry.key}</span>
-                          <span className="flex min-w-0 items-center gap-2 break-all text-slate-300">
-                            {entry.color ? (
-                              <span
-                                className="size-4 shrink-0 rounded border border-white/20"
-                                style={{
-                                  backgroundColor: `rgb(${entry.color.slice(0, 3).join(",")})`,
-                                }}
-                              />
-                            ) : null}
-                            {entry.value}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-        </DrawerFrame>
-      ) : null}
-    </Dialog.Root>
-  );
-}

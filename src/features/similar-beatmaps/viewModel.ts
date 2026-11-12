@@ -6,7 +6,6 @@ import type {
   SimilarityPreferences,
 } from "../../shared/types/osu";
 import { manualWeightingFromPreferences } from "./defaults";
-import { APP_TIME_ZONE } from "../../shared/lib/format";
 
 export const similarityIndexStateCopy: Record<
   Exclude<SimilarityIndexStatus["state"], "ready">,
@@ -70,17 +69,4 @@ export function resolveSimilarityWeighting(
   }
   // Also migrates old saved dynamic preferences without resetting the user settings.
   return manualWeightingFromPreferences(preferences);
-}
-
-export function formatSimilarityMetric(value: number | null, digits = 2) {
-  return value == null ? "—" : value.toFixed(digits);
-}
-
-export function formatDataCutoff(value: number | null) {
-  if (value == null) return "索引未声明数据截止时间";
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "long",
-    timeStyle: "short",
-    timeZone: APP_TIME_ZONE,
-  }).format(new Date(value * 1000));
 }

@@ -32,7 +32,3 @@ export function useScores(
 
   return { ...query, refresh };
 }
-
-export function useBestScores(ruleset: Ruleset, enabled: boolean) {
-  return useScores(ruleset, "best", 0, 100, enabled);
-}

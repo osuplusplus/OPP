@@ -19,24 +19,6 @@ export const statusOptions = [
   { value: "mine", label: "我做的谱面" },
 ] as const;
 
-export const sortOptions = [
-  { value: "relevance_desc", label: "相关度" },
-  { value: "ranked_desc", label: "上架 (Ranked) 时间：新 → 旧" },
-  { value: "ranked_asc", label: "上架 (Ranked) 时间：旧 → 新" },
-  { value: "difficulty_asc", label: "难度：低 → 高" },
-  { value: "difficulty_desc", label: "难度：高 → 低" },
-  { value: "plays_desc", label: "游玩次数：高 → 低" },
-  { value: "plays_asc", label: "游玩次数：低 → 高" },
-  { value: "favourites_desc", label: "收藏量：高 → 低" },
-  { value: "favourites_asc", label: "收藏量：低 → 高" },
-  { value: "rating_desc", label: "评分：高 → 低" },
-  { value: "rating_asc", label: "评分：低 → 高" },
-  { value: "title_asc", label: "标题：A → Z" },
-  { value: "title_desc", label: "标题：Z → A" },
-  { value: "artist_asc", label: "艺术家：A → Z" },
-  { value: "artist_desc", label: "艺术家：Z → A" },
-] as const;
-
 export const genreOptions = [
   { value: null, label: "全部流派" },
   { value: 1, label: "未指定" },

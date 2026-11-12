@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { Ellipsis, X } from "lucide-react";
 import type { OnlineBeatmapset } from "../../shared/types/osu";
 import { useIsPresent } from "motion/react";
@@ -72,6 +72,18 @@ export function OnlineResults({ items, selectedId, queuedIds, total, sort, varia
     pendingFocus.current = null;
   }, [start, end, viewport]);
   const toggle = (id: number) => setChecked((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  // 滚动位置更新用 rAF 合并:连续滚动事件只产生一次渲染,且值未变时跳过。
+  const scrollFrame = useRef<number | null>(null);
+  useEffect(() => () => { if (scrollFrame.current != null) cancelAnimationFrame(scrollFrame.current); }, []);
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    if (scrollFrame.current != null) return;
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = null;
+      const top = node.scrollTop;
+      setViewport((current) => (top === current.top ? current : { ...current, top }));
+    });
+  };
   return <section ref={panelRef} className={`online-results ${expanded ? "is-expanded" : ""}`} data-page-guide-online-results="true" aria-label={title}>
     <header className="online-results-header">
       <div className="online-results-label"><strong>{title}</strong><small>{items.length}{total !== null ? ` / ${total}` : ""}</small></div>
@@ -85,7 +97,7 @@ export function OnlineResults({ items, selectedId, queuedIds, total, sort, varia
         </div>
       </details>
     </header>
-    <div className="online-results-scroll" ref={root} onScroll={(event) => { const top = event.currentTarget.scrollTop; setViewport((current) => ({ ...current, top })); }}>
+    <div className="online-results-scroll" ref={root} onScroll={handleScroll}>
       <div className="online-virtual-space" role="list" aria-label="谱面集" style={{ height: layout.totalHeight }}>
         {items.slice(start * columns, end * columns).map((item, offset) => {
           const index = start * columns + offset;

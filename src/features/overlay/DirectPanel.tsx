@@ -1,23 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type UIEvent } from "react";
 import { desktopApi } from "../../shared/lib/tauri";
 import { errorMessage } from "../../shared/lib/format";
 import type {
   AppSettings,
-  BeatmapDownloadProgress,
   LocalBeatmapPresence,
   OnlineBeatmap,
   OnlineBeatmapset,
   OverlayMpActivity,
   Ruleset,
-  TosuLiveSnapshot,
 } from "../../shared/types/osu";
 import { createDefaultSearchQuery } from "../online-beatmaps/filters";
 import { compactCount, isMultiplayerState, resolveDownloadProvider, starColor, statusMeta } from "./model";
+import { useBeatmapDownloadProgress, useTosuSnapshot } from "./liveEvents";
 
 const SEARCH_DEBOUNCE_MS = 400;
 const PRESENCE_CHUNK = 1000;
 /** 难度条最多展示的数量，超出折叠为 "+N"。 */
 const MAX_DIFF_CHIPS = 6;
+/** 初始渲染的卡片数；滚动触底后按同一步长扩容，避免长结果全量挂载。 */
+const RENDER_BATCH = 60;
 
 type SetPresence = "present" | "partial" | "missing" | "unknown";
 
@@ -163,16 +164,27 @@ function BeatmapCard({
   );
 }
 
+/**
+ * 面板底部的多人状态行:tosu 快照只在此叶子组件订阅,游戏运行时的
+ * 高频事件不会重渲染搜索结果列表。
+ */
+function MpStateLine({ mpActivity }: { mpActivity: OverlayMpActivity }) {
+  const snapshot = useTosuSnapshot();
+  const line = mpSummary(mpActivity);
+  const multiplayer = isMultiplayerState(snapshot?.state)
+    ? `多人状态：${snapshot?.state}`
+    : null;
+  const text = line ?? multiplayer;
+  if (!text) return null;
+  return <div className="panel-mp-line">{text}</div>;
+}
+
 export function DirectPanel({
   settings,
-  snapshot,
   mpActivity,
-  download,
 }: {
   settings: AppSettings | null;
-  snapshot: TosuLiveSnapshot | null;
   mpActivity: OverlayMpActivity;
-  download: BeatmapDownloadProgress | null;
 }) {
   const [text, setText] = useState("");
   const [ruleset, setRuleset] = useState<Ruleset>("osu");
@@ -182,7 +194,11 @@ export function DirectPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [presence, setPresence] = useState<Map<number, LocalBeatmapPresence>>(new Map());
+  const [limit, setLimit] = useState(RENDER_BATCH);
   const searchSeq = useRef(0);
+  // 已查询过本地 presence 的 beatmap id:load-more 只补查新增 id,不再全量重查。
+  const queriedIds = useRef<Set<number>>(new Set());
+  const download = useBeatmapDownloadProgress();
 
   const searchPage = async (pageCursor: string | null, replace: boolean) => {
     const seq = searchSeq.current + 1;
@@ -198,6 +214,7 @@ export function DirectPanel({
       const response = await desktopApi.searchOnlineBeatmapsets(query);
       if (searchSeq.current !== seq) return;
       setItems((previous) => (replace ? response.beatmapsets : [...previous, ...response.beatmapsets]));
+      if (replace) setLimit(RENDER_BATCH);
       setCursor(response.cursor_string ?? undefined);
     } catch (caught) {
       if (searchSeq.current !== seq) return;
@@ -216,18 +233,27 @@ export function DirectPanel({
 
   useEffect(() => {
     // 空结果时不清空旧映射：当前列表为空不会查询，且新结果以异步覆盖。
+    // 增量查询:仅请求本次新出现的难度 id,旧结果直接沿用。
     if (!items.length) return;
+    const pending = items
+      .flatMap((set) => (set.beatmaps ?? []).map((map) => map.id))
+      .filter((id) => !queriedIds.current.has(id));
+    if (!pending.length) return;
+    for (const id of pending) queriedIds.current.add(id);
     let disposed = false;
-    const ids = items.flatMap((set) => (set.beatmaps ?? []).map((map) => map.id));
     const chunks: number[][] = [];
-    for (let index = 0; index < ids.length; index += PRESENCE_CHUNK) {
-      chunks.push(ids.slice(index, index + PRESENCE_CHUNK));
+    for (let index = 0; index < pending.length; index += PRESENCE_CHUNK) {
+      chunks.push(pending.slice(index, index + PRESENCE_CHUNK));
     }
     void Promise.all(
       chunks.map((chunk) => desktopApi.queryLocalBeatmapPresence(chunk, null).catch(() => [])),
     ).then((results) => {
       if (disposed) return;
-      setPresence(new Map(results.flat().map((entry) => [entry.beatmap_id, entry])));
+      setPresence((previous) => {
+        const next = new Map(previous);
+        for (const entry of results.flat()) next.set(entry.beatmap_id, entry);
+        return next;
+      });
     });
     return () => {
       disposed = true;
@@ -256,7 +282,14 @@ export function DirectPanel({
   };
 
   const downloadingId = download?.current_beatmapset_id ?? null;
-  const mpLine = mpSummary(mpActivity);
+  const visibleItems = items.slice(0, limit);
+  const expandOnScroll = (event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    if (limit >= items.length) return;
+    if (node.scrollTop + node.clientHeight >= node.scrollHeight - 400) {
+      setLimit((current) => Math.min(items.length, current + RENDER_BATCH));
+    }
+  };
 
   // 面板外壳（标题栏/标签页）由 OverlayWindow 提供，此处是"谱面搜索"标签页主体。
   return (
@@ -285,13 +318,13 @@ export function DirectPanel({
           <option value="graveyard">坟场</option>
         </select>
       </div>
-      <div className="panel-results">
+      <div className="panel-results" onScroll={expandOnScroll}>
         {loading && items.length === 0 ? <div className="panel-hint">搜索中…</div> : null}
         {!loading && items.length === 0 && !error ? (
           <div className="panel-hint">输入关键词搜索，或浏览最新上架谱面。</div>
         ) : null}
         {error ? <div className="panel-error">{error}</div> : null}
-        {items.map((set) => (
+        {visibleItems.map((set) => (
           <BeatmapCard
             key={set.id}
             set={set}
@@ -313,9 +346,7 @@ export function DirectPanel({
             {download.current_title ? ` · ${download.current_title}` : ""}
           </div>
         ) : null}
-        {mpLine || (isMultiplayerState(snapshot?.state) ? `多人状态：${snapshot?.state}` : null) ? (
-          <div className="panel-mp-line">{mpLine ?? `多人状态：${snapshot?.state}`}</div>
-        ) : null}
+        <MpStateLine mpActivity={mpActivity} />
       </footer>
     </>
   );

@@ -1,7 +1,7 @@
 import type { LiveExportProgress } from "./renderEvents";
 import * as Dialog from "@radix-ui/react-dialog";
 import { save } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import { Film, FolderOpen, LoaderCircle, MonitorPlay, Pause, Play, Square, X } from "lucide-react";
 import { useMode } from "../../app/ModeContext";
 import { ErrorPanel } from "../../shared/components/ErrorPanel";
@@ -17,6 +17,93 @@ function formatTime(ms: number) {
   const s = total % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+/** 面板命令接口:导出前暂停、新回放开始/会话异常时重置时间轴。 */
+export type LiveTimelineHandle = {
+  pause: () => void;
+  reset: (durationMs?: number) => void;
+};
+
+/**
+ * 时间轴控制条:后端每帧推送的 time/playing/duration 只在本组件消化,
+ * 避免整个预览面板(数百行 JSX)随播放进度逐帧重渲染。
+ */
+const LiveTimeline = forwardRef<LiveTimelineHandle, {
+  active: boolean;
+  disabled: boolean;
+  onStop: () => void;
+  onExport: () => void;
+  onEnded: () => void;
+  exportLabel: ReactNode;
+}>(function LiveTimeline({ active, disabled, onStop, onExport, onEnded, exportLabel }, ref) {
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [time, setTime] = useState(0);
+  const playingRef = useRef(false);
+  const scrubbingRef = useRef(false);
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: () => void = () => undefined;
+    desktopApi.onLiveRenderTime((state) => {
+      if (!state.active) {
+        playingRef.current = false;
+        setPlaying(false);
+        onEnded();
+        return;
+      }
+      playingRef.current = state.playing;
+      setPlaying(state.playing);
+      setDuration(state.durationMs);
+      if (!scrubbingRef.current) setTime(state.timeMs);
+    }).then((dispose) => { if (disposed) dispose(); else unlisten = dispose; });
+    return () => { disposed = true; unlisten(); };
+  }, [onEnded]);
+  useImperativeHandle(ref, () => ({
+    pause: () => {
+      if (!playingRef.current) return;
+      playingRef.current = false;
+      setPlaying(false);
+      void desktopApi.liveRenderPause();
+    },
+    reset: (durationMs) => {
+      playingRef.current = false;
+      setPlaying(false);
+      setTime(0);
+      if (durationMs != null) setDuration(durationMs);
+    },
+  }), []);
+  const toggle = () => {
+    setPlaying(!playing);
+    void (playing ? desktopApi.liveRenderPause() : desktopApi.liveRenderPlay());
+  };
+  const seek = (value: number) => {
+    setTime(value);
+    void desktopApi.liveRenderSeek(value);
+  };
+  return <div className="mt-4 flex flex-wrap items-center gap-3">
+    {active ? <>
+      <Button size="sm" variant="primary" onClick={toggle}>{playing ? <Pause className="size-4" /> : <Play className="size-4" />}{playing ? "暂停" : "播放"}</Button>
+      <Button size="sm" onClick={onStop}><Square className="size-4" />停止</Button>
+      <span className="font-mono text-xs text-slate-400">{formatTime(time)} / {formatTime(duration)}</span>
+    </> : null}
+    <Button size="sm" disabled={disabled} onClick={onExport}><Film className="size-4" />{exportLabel}</Button>
+    <input
+      className="w-full accent-cyan-400"
+      aria-label="回放播放进度"
+      type="range"
+      min={0}
+      max={Math.max(duration, 1)}
+      step={10}
+      value={Math.min(time, duration)}
+      disabled={!active}
+      onPointerDown={() => { scrubbingRef.current = true; }}
+      onPointerUp={() => { scrubbingRef.current = false; }}
+      onPointerCancel={() => { scrubbingRef.current = false; }}
+      onBlur={() => { scrubbingRef.current = false; }}
+      onChange={(event) => seek(Number(event.target.value))}
+    />
+  </div>;
+});
 
 const defaultOptions: LiveRenderOptions = {
   hud: true,
@@ -47,10 +134,6 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
   const [audioOffsetText, setAudioOffsetText] = useRenderSession(`live-audio-offset:${client}`, String(defaultOptions.audioOffset));
   const [starting, setStarting] = useState(false);
   const [active, setActive] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [time, setTime] = useState(0);
-  const [scrubbing, setScrubbing] = useState(false);
   const [error, setError] = useRenderSession<unknown>("live-error", null);
   const [exportOpen, setExportOpen] = useState(false);
   const [ffmpegVersion, setFfmpegVersion] = useState<string | null | undefined>(undefined);
@@ -74,23 +157,13 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
   useEffect(() => { visibleRef.current = visible; }, [visible]);
   const startedOptionsRef = useRef<string>("");
 
-  // 时间轴事件:后端每帧/状态变化推送当前时间。
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: () => void = () => undefined;
-    desktopApi.onLiveRenderTime((state) => {
-      if (!state.active) {
-        activeRef.current = false;
-        setPlaying(false);
-        setActive(false);
-        return;
-      }
-      setPlaying(state.playing);
-      setDuration(state.durationMs);
-      if (!scrubbing) setTime(state.timeMs);
-    }).then((dispose) => { if (disposed) dispose(); else unlisten = dispose; });
-    return () => { disposed = true; unlisten(); };
-  }, [scrubbing]);
+  // 时间轴事件由 LiveTimeline 子组件订阅(每帧高频,不重渲染本面板)。
+  const timelineRef = useRef<LiveTimelineHandle>(null);
+  // 播放自然结束/后端停止:预览会话失效,面板回到未激活态。
+  const handleTimelineEnded = useCallback(() => {
+    activeRef.current = false;
+    setActive(false);
+  }, []);
 
   // 皮肤列表(客户端切换时重拉;失败静默为空,仅剩内置项)。
   useEffect(() => {
@@ -114,7 +187,7 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
     desktopApi.onLiveRenderError((message) => {
       activeRef.current = false;
       setActive(false);
-      setPlaying(false);
+      timelineRef.current?.reset();
       setSkinError(message);
     })
       .then((dispose) => { if (disposed) dispose(); else unlistenErr = dispose; })
@@ -194,7 +267,6 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
     generation.current++;
     activeRef.current = false;
     setActive(false);
-    setPlaying(false);
     void desktopApi.liveRenderClose().catch(() => undefined);
   }, []);
 
@@ -202,7 +274,7 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
     if (!visible) {
       generation.current++;
       activeRef.current = false;
-      void desktopApi.liveRenderClose().then(() => { setActive(false); setPlaying(false); }).catch(() => undefined);
+      void desktopApi.liveRenderClose().then(() => { setActive(false); }).catch(() => undefined);
     }
   }, [visible]);
 
@@ -248,8 +320,7 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
       startedOptionsRef.current = JSON.stringify(openOptions);
       activeRef.current = true;
       setActive(true);
-      setDuration(info.durationMs);
-      setTime(0);
+      timelineRef.current?.reset(info.durationMs);
     } catch (value) {
       setError(value);
     } finally {
@@ -275,7 +346,7 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
     generation.current++;
     if (activeRef.current) {
       activeRef.current = false;
-      void desktopApi.liveRenderClose().then(() => { setActive(false); setPlaying(false); }).catch(() => undefined);
+      void desktopApi.liveRenderClose().then(() => { setActive(false); }).catch(() => undefined);
     }
   }, [replayPath, client]);
 
@@ -294,10 +365,7 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
           ? { ...f, encoder: "x264" }
           : f,
       );
-      if (playing) {
-        setPlaying(false);
-        void desktopApi.liveRenderPause();
-      }
+      timelineRef.current?.pause();
       setExportOpen(true);
     } catch (value) {
       setError(value);
@@ -332,15 +400,6 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
   const update = <K extends keyof LiveRenderOptions>(key: K, value: LiveRenderOptions[K]) =>
     setOptions((current) => ({ ...current, [key]: value }));
 
-  const toggle = () => {
-    setPlaying(!playing);
-    void (playing ? desktopApi.liveRenderPause() : desktopApi.liveRenderPlay());
-  };
-  const seek = (value: number) => {
-    setTime(value);
-    void desktopApi.liveRenderSeek(value);
-  };
-
   return <div className="studio-panel">
     {error ? <div className="mb-5"><ErrorPanel error={error} /></div> : null}
     <div className="studio-grid">
@@ -349,29 +408,15 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
           <div ref={containerRef} className="studio-viewport relative w-full overflow-hidden" role="region" aria-label="回放预览">
             {!active ? <ReplayIdentity provider="live" /> : null}
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            {active ? <>
-              <Button size="sm" variant="primary" onClick={toggle}>{playing ? <Pause className="size-4" /> : <Play className="size-4" />}{playing ? "暂停" : "播放"}</Button>
-              <Button size="sm" onClick={stop}><Square className="size-4" />停止</Button>
-              <span className="font-mono text-xs text-slate-400">{formatTime(time)} / {formatTime(duration)}</span>
-            </> : null}
-            <Button size="sm" disabled={Boolean(blocked)} onClick={() => void openExport()}><Film className="size-4" />导出视频</Button>
-            <input
-              className="w-full accent-cyan-400"
-              aria-label="回放播放进度"
-              type="range"
-              min={0}
-              max={Math.max(duration, 1)}
-              step={10}
-              value={Math.min(time, duration)}
-              disabled={!active}
-              onPointerDown={() => setScrubbing(true)}
-              onPointerUp={() => setScrubbing(false)}
-              onPointerCancel={() => setScrubbing(false)}
-              onBlur={() => setScrubbing(false)}
-              onChange={(event) => seek(Number(event.target.value))}
-            />
-          </div>
+          <LiveTimeline
+            active={active}
+            disabled={Boolean(blocked)}
+            exportLabel="导出视频"
+            onEnded={handleTimelineEnded}
+            onExport={() => void openExport()}
+            onStop={stop}
+            ref={timelineRef}
+          />
         </Card>
       </div>
       <div className="studio-settings" aria-label="实时预览设置"><div className="studio-settings-scroll">

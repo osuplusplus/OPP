@@ -15,12 +15,6 @@ export const defaultDifficultyWeights: DifficultyFeatureVector = {
   overlap: 0.25,
 };
 
-export const defaultDynamicWeighting = {
-  mode: "dynamic" as const,
-  lower_sections: 4,
-  upper_sections: 4,
-};
-
 export const defaultSimilarityPreferences: SimilarityPreferences = {
   advanced_enabled: false,
   mode: "manual",

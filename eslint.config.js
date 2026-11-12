@@ -21,6 +21,9 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // recommended-latest 追加 React Compiler 的规则集,标记
+      // 编译器无法安全优化的写法(违反 React 规则的组件会被跳过记忆化)。
+      ...reactHooks.configs["recommended-latest"].rules,
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },

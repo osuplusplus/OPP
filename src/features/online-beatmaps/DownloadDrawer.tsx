@@ -58,7 +58,7 @@ function DownloadContents() {
       {!state.queue.length ? <p className="online-empty">清单为空。可从搜索结果多选添加，也可以按筛选条件批量加入。</p> : state.queue.map((item) => {
         const progress = state.itemProgress[item.id];
         const active = state.activeIds.includes(item.id);
-        return <div key={item.id}>
+        return <div className="cv-item" key={item.id}>
           <div className="online-download-item-heading">
             <span><strong>{item.title_unicode || item.title}</strong><small>{item.artist_unicode || item.artist} · {item.creator}</small></span>
             <span className={`online-download-item-status is-${progress?.phase ?? (active ? "queued" : "pending")}`}>{itemStatus(progress, active, Boolean(state.result?.cancelled))}</span>

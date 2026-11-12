@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactElement, ReactNode, SelectHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactElement, ReactNode } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import * as Switch from "@radix-ui/react-switch";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -43,14 +43,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({ className, ...p
   <input className={cn("opp-input", className)} data-slot="input" ref={ref} {...props} />
 ));
 Input.displayName = "Input";
-
-export type SelectProps = SelectHTMLAttributes<HTMLSelectElement>;
-
-// Select 与 Input 保持相同的尺寸、焦点环和主题适配。
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(({ className, ...props }, ref) => (
-  <select className={cn("opp-input", className)} data-slot="select" ref={ref} {...props} />
-));
-Select.displayName = "Select";
 
 export function Button({
   className,

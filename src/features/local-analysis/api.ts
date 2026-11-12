@@ -30,8 +30,6 @@ export function useLocalArtworkSample() {
 }
 export const localSummaryKey = (client: OsuClient) =>
   ["local-summary", client] as const;
-export const localBeatmapsKey = (query: BeatmapQuery) =>
-  ["local-beatmaps", query] as const;
 export const localBeatmapSetsKey = (query: BeatmapQuery) =>
   ["local-beatmap-sets", query] as const;
 export const localSkinsKey = (query: SkinQuery) =>
@@ -70,7 +68,9 @@ export function useLocalBeatmapPresence(ids: number[], client: OsuClient | null,
   const index = useLocalIndexStatus(enabled);
   const normalized = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))].sort((a, b) => a - b);
   return useQuery({
-    queryKey: ["local-beatmap-presence", client, normalized, index.data],
+    // 索引就绪阶段进 key 即可:数据新鲜度由 observeLocalIndex 在
+    // last_scan_at revision 变化时失效驱动,无需定时轮询全量重查。
+    queryKey: ["local-beatmap-presence", client, normalized, index.data?.phase],
     queryFn: async () => {
       const results = [];
       for (let start = 0; start < normalized.length; start += 1000) {
@@ -79,8 +79,7 @@ export function useLocalBeatmapPresence(ids: number[], client: OsuClient | null,
       return results;
     },
     enabled: enabled && normalized.length > 0 && index.data?.phase === "ready",
-    staleTime: 5000,
-    refetchInterval: 5000,
+    staleTime: 60_000,
   });
 }
 
@@ -91,15 +90,6 @@ export function useLocalSummary(client: OsuClient) {
     queryFn: () => desktopApi.getLocalSummary(client),
     enabled: indexStatus.data?.phase === "ready",
     staleTime: 30_000,
-  });
-}
-
-export function useLocalBeatmaps(query: BeatmapQuery, enabled: boolean) {
-  return useQuery({
-    queryKey: localBeatmapsKey(query),
-    queryFn: () => desktopApi.queryLocalBeatmaps(query),
-    enabled,
-    placeholderData: keepPreviousData,
   });
 }
 

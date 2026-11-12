@@ -161,13 +161,6 @@ export function monthRange(year: number, month: number) {
   return { start: iso(start), end: iso(end) };
 }
 
-export function monthDays(year: number, month: number): string[] {
-  const { start, end } = monthRange(year, month);
-  const result: string[] = [];
-  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 1)) result.push(cursor);
-  return result;
-}
-
 export function addDays(value: string, amount: number) {
   const date = new Date(`${value}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + amount);

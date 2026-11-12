@@ -522,22 +522,12 @@ export function ViewTrainerPage() {
     ctx.fillStyle = "rgba(251,113,133,.98)";
     ctx.fillRect(Math.max(0, x0 - 3), 0, 6, height);
     ctx.fillRect(Math.max(0, x1 - 3), 0, 6, height);
-    // 播放头:预览时刻映射回原谱时间轴,与曲线/窗口同一坐标(未预览或
-    // 映射超出曲线范围时不画)。
-    if (playheadMap !== null && playheadMap >= 0 && playheadMap <= curveDuration) {
-      const px = clamp((playheadMap / curveDuration) * width, 0, width);
-      ctx.strokeStyle = "rgba(103,232,249,.9)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, height);
-      ctx.stroke();
-    }
+    // 播放头不再在画布内重绘:每帧移动的指针改为 CSS 定位元素,曲线
+    // 只在数据/窗口变化时重绘一次。
   }, [
     curveDuration,
     end,
     mapDuration,
-    playheadMap,
     start,
     strainPeak,
     strainSectionLength,
@@ -768,14 +758,23 @@ export function ViewTrainerPage() {
                   最高区间
                 </Button>
               </div>
-              <canvas
-                ref={canvasRef}
-                className="mt-5 h-28 w-full touch-none rounded-lg border border-white/10 bg-black/20"
-                onPointerDown={handleStrainPointer}
-                onPointerMove={handleStrainPointer}
-                onPointerUp={handleStrainPointer}
-                onPointerCancel={handleStrainPointer}
-              />
+              <div className="relative mt-5">
+                <canvas
+                  ref={canvasRef}
+                  className="h-28 w-full touch-none rounded-lg border border-white/10 bg-black/20"
+                  onPointerDown={handleStrainPointer}
+                  onPointerMove={handleStrainPointer}
+                  onPointerUp={handleStrainPointer}
+                  onPointerCancel={handleStrainPointer}
+                />
+                {playheadMap !== null && playheadMap >= 0 && playheadMap <= curveDuration ? (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 w-[2px] -translate-x-1/2 bg-cyan-300/90"
+                    style={{ left: `${clamp((playheadMap / curveDuration) * 100, 0, 100)}%` }}
+                  />
+                ) : null}
+              </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_130px]">
                 <label className="text-xs text-slate-400">
                   滑动窗口位置{" "}
