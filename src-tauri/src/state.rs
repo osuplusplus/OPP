@@ -11,7 +11,7 @@ use crate::{
     error::CommandResult,
     features::{
         account::{AvatarCache, CredentialStore},
-        beatmaphub::BeatmapHubService,
+        beatmaphub::{BeatmapHubService, OsuCollectorClient},
         collections::CollectionService,
         danser::DanserRuntime,
         game_session::{GameMonitorRuntime, GameSessionRuntime},
@@ -51,6 +51,8 @@ pub struct AppState {
     pub collections: Arc<CollectionService>,
     pub local_scores: crate::features::local_scores::LocalScoreService,
     pub beatmaphub: Arc<BeatmapHubService>,
+    /// osu!Collector 只读客户端（PackHub 补充来源，直连不经 PackHub 服务器）。
+    pub osu_collector: OsuCollectorClient,
     pub similarity: Arc<SimilarityRuntime>,
     pub store: Arc<StateStore>,
     pub oauth: Mutex<OAuthRuntime>,
@@ -111,6 +113,7 @@ impl AppState {
                 collections,
                 local_scores: Default::default(),
                 beatmaphub,
+                osu_collector: OsuCollectorClient::new()?,
                 similarity: Arc::new(SimilarityRuntime::default()),
                 store,
                 oauth: Mutex::new(OAuthRuntime::default()),

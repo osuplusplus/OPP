@@ -1,5 +1,7 @@
-import type { BeatmapHubAuthStatus, BeatmapHubBackup, BeatmapHubBackupRestoreResult, BeatmapHubBackupUploadResult, BeatmapHubComment, BeatmapHubImportResult, BeatmapHubPack, BeatmapHubPackPreview, BeatmapHubProfile, BeatmapHubPublishResult, BeatmapHubRecommendation, OnlineBeatmapset } from "../../types/osu";
-import { call } from "./invoke";
+import type { BeatmapHubAuthStatus, BeatmapHubBackup, BeatmapHubBackupRestoreResult, BeatmapHubBackupUploadResult, BeatmapHubComment, BeatmapHubImportResult, BeatmapHubPack, BeatmapHubPackPreview, BeatmapHubProfile, BeatmapHubPublishResult, BeatmapHubRecommendation, OnlineBeatmapset, OsuCollectorCollectionDetail, OsuCollectorImportProgress, OsuCollectorListPage } from "../../types/osu";
+import { listen } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { call, isTauri } from "./invoke";
 
 // beatmaphub 域的 Tauri 命令适配（从 lib/tauri.ts 拆分，desktopApi 组合导出不变）。
 export const beatmaphubApi = {
@@ -57,4 +59,24 @@ export const beatmaphubApi = {
   deleteBeatmapBackup: () => call<void>("delete_beatmap_backup"),
 
   restoreBeatmapBackup: () => call<BeatmapHubBackupRestoreResult>("restore_beatmap_backup"),
+
+  // —— osu!Collector 补充来源（直连，只读浏览 + 导入）——
+  getOsuCollectorCollections: (cursor?: number | null) =>
+    call<OsuCollectorListPage>("get_osu_collector_collections", { cursor: cursor ?? null }),
+
+  getOsuCollectorCollection: (collectionId: number) =>
+    call<OsuCollectorCollectionDetail>("get_osu_collector_collection", { collectionId }),
+
+  importOsuCollectorCollection: (collectionId: number) =>
+    call<BeatmapHubImportResult>("import_osu_collector_collection", { collectionId }),
+
+  onOsuCollectorImportProgress: async (
+    handler: (progress: OsuCollectorImportProgress) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri()) return () => undefined;
+    return listen<OsuCollectorImportProgress>(
+      "collector-import-progress",
+      (event) => handler(event.payload),
+    );
+  },
 };

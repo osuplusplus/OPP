@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BeatmapHubPack } from "../../shared/types/osu";
 
 const api = vi.hoisted(() => Object.fromEntries([
-  "getBeatmapHubAuthStatus", "getAuthStatus", "listCollectionSummaries", "getBeatmapHubProfile", "previewBeatmapHubPack", "getOnlineBeatmapset", "getBeatmapHubRecommendations", "searchBeatmapHubPacks", "getBeatmapHubComments", "getSettings", "getLocalSources", "onBeatmapDownloadProgress", "createBeatmapHubProfile", "linkBeatmapHubDevice", "loginBeatmapHub", "logoutBeatmapHub", "createBeatmapHubDeviceLink", "revokeBeatmapHubDevice", "publishBeatmapHubPack", "updateBeatmapHubPack", "deleteBeatmapHubPack", "favoriteBeatmapHubPack", "likeBeatmapHubPack", "rateBeatmapHubPack", "createBeatmapHubComment", "updateBeatmapHubComment", "deleteBeatmapHubComment", "importCollectionArchive", "importBeatmapHubPack", "beginCollectionTask", "getCollectionDownloadItems", "downloadOnlineBeatmapsets", "installCollectionDownloads",
+  "getBeatmapHubAuthStatus", "getAuthStatus", "listCollectionSummaries", "getBeatmapHubProfile", "previewBeatmapHubPack", "getOnlineBeatmapset", "getBeatmapHubRecommendations", "searchBeatmapHubPacks", "getBeatmapHubComments", "getSettings", "getLocalSources", "onBeatmapDownloadProgress", "createBeatmapHubProfile", "linkBeatmapHubDevice", "loginBeatmapHub", "logoutBeatmapHub", "createBeatmapHubDeviceLink", "revokeBeatmapHubDevice", "publishBeatmapHubPack", "updateBeatmapHubPack", "deleteBeatmapHubPack", "favoriteBeatmapHubPack", "likeBeatmapHubPack", "rateBeatmapHubPack", "createBeatmapHubComment", "updateBeatmapHubComment", "deleteBeatmapHubComment", "importCollectionArchive", "importBeatmapHubPack", "beginCollectionTask", "getCollectionDownloadItems", "downloadOnlineBeatmapsets", "installCollectionDownloads", "getOsuCollectorCollections", "getOsuCollectorCollection", "importOsuCollectorCollection", "onOsuCollectorImportProgress",
 ].map((name) => [name, vi.fn()])));
 vi.mock("../../shared/lib/tauri", () => ({ desktopApi: api, isTauri: () => true }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
@@ -46,6 +46,8 @@ describe("BeatmapHubPage", () => {
     api.getCollectionDownloadItems.mockResolvedValue([{ beatmapset_id: 123, title: "Map", artist: "Artist" }]);
     api.installCollectionDownloads.mockResolvedValue({ installed_sets: 1, resolved_entries: 1, unresolved_entries: 0 });
     api.publishBeatmapHubPack.mockResolvedValue({ id: "7K3N9A", included: 1, skipped: 0 });
+    api.getOsuCollectorCollections.mockResolvedValue({ collections: [], next_cursor: null, has_more: false });
+    api.onOsuCollectorImportProgress.mockResolvedValue(() => undefined);
   });
 
   it("shows discovery for guests without parsing packs or showing identity setup", async () => {
@@ -253,5 +255,33 @@ describe("BeatmapHubPage", () => {
     await screen.findByRole("heading", { name: "Second Pack" });
     await act(async () => resolve(preview));
     expect(within(screen.getByRole("dialog")).queryByText("Tech Pack")).not.toBeInTheDocument();
+  });
+  const collectorCollection = { id: 24451, name: "jump", uploader: "Lesulite", description: null, beatmap_count: 10, favourites: 0, last_modified: "2026-11-08T00:00:00Z" };
+  const collectorDetail = {
+    collection: collectorCollection,
+    total_sets: 3, local_sets: 1, missing_sets: 2, unsubmitted_beatmaps: 0,
+    preview: [{ beatmap_id: 5192101, beatmapset_id: 2395248, checksum: "c2d40107e3fddd513a7726c0ad55c072", mode: "osu", difficulty_name: "FAITO'S HEART ATTACK", difficulty_rating: 6.49, artist: "Lil Texas", title: "Die Young", creator: "Tarrasky", local: false }],
+    has_more: true,
+  };
+  it("browses osu!Collector collections and imports one as a local folder", async () => {
+    api.getOsuCollectorCollections.mockResolvedValue({ collections: [collectorCollection], next_cursor: null, has_more: false });
+    api.getOsuCollectorCollection.mockResolvedValue(collectorDetail);
+    api.importOsuCollectorCollection.mockResolvedValue({ folder_id: "oc-folder", imported_sets: 3, imported_entries: 10, unresolved_sets: 0 });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "查看收藏 jump" }));
+    expect(await screen.findByRole("heading", { name: "jump" })).toBeInTheDocument();
+    expect(screen.getByText("osu!Collector · Lesulite")).toBeInTheDocument();
+    expect(screen.getByText("待下载")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "导入收藏夹" }));
+    expect(await screen.findByRole("button", { name: "已导入收藏夹" })).toBeDisabled();
+    expect(api.importOsuCollectorCollection).toHaveBeenCalledWith(24451);
+    expect(api.downloadOnlineBeatmapsets).not.toHaveBeenCalled();
+  });
+  it("shows an explicit network hint when osu!Collector is unreachable", async () => {
+    api.getOsuCollectorCollections.mockRejectedValue({ code: "COLLECTOR_UNREACHABLE", message: "无法连接 osu!Collector：请检查网络连接（该站点在部分地区需要国际网络）后重试" });
+    renderPage();
+    expect(await screen.findByText("osu!Collector 暂时无法连接")).toBeInTheDocument();
+    expect(screen.getByText(/该站点在部分地区需要国际网络/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
   });
 });

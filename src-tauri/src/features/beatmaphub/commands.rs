@@ -265,3 +265,35 @@ pub async fn restore_beatmap_backup(
 ) -> CommandResult<BackupRestoreResult> {
     state.beatmaphub.restore_backup(&state).await
 }
+
+/// 浏览 osu!Collector 最近上传的收藏集合（直连，无需身份）。
+#[tauri::command]
+pub async fn get_osu_collector_collections(
+    cursor: Option<i64>,
+    state: State<'_, AppState>,
+) -> CommandResult<super::collector::CollectorListPage> {
+    state.osu_collector.list(cursor).await
+}
+
+/// 查看 osu!Collector 收藏集合详情，附本地已有/缺失统计与难度样本。
+#[tauri::command]
+pub async fn get_osu_collector_collection(
+    collection_id: i64,
+    state: State<'_, AppState>,
+) -> CommandResult<super::collector::CollectorCollectionDetail> {
+    state.osu_collector.detail(&state, collection_id).await
+}
+
+/// 把 osu!Collector 收藏集合导入为新的本地收藏夹；进度经
+/// `collector-import-progress` 事件广播，导入按页节流避免打挂源站。
+#[tauri::command]
+pub async fn import_osu_collector_collection(
+    collection_id: i64,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<ImportResult> {
+    state
+        .osu_collector
+        .import(&app, &state, collection_id)
+        .await
+}

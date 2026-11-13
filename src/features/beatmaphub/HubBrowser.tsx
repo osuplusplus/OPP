@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { ArrowUpRight, Layers3, RefreshCw, Search, Star, X } from "lucide-react";
 import { Button } from "../../shared/components/ui";
-import type { BeatmapHubPack } from "../../shared/types/osu";
-import { useBeatmapHubRecommendations, useHubSearch } from "./api";
-import { hubError, packCover, parseHubInput } from "./model";
+import type { BeatmapHubPack, OsuCollectorCollection } from "../../shared/types/osu";
+import { useBeatmapHubRecommendations, useCollectorCollections, useHubSearch } from "./api";
+import { collectorDate, hubError, packCover, parseHubInput } from "./model";
 
 export function HubCover({ ids, className = "" }: { ids: number[]; className?: string }) {
   const url = packCover(ids);
@@ -25,7 +25,36 @@ function PackCard({ pack, onOpen }: { pack: BeatmapHubPack; onOpen: (id: string)
     </div>
   </button>;
 }
-export function HubBrowser({ onOpen, fallbackQuery, onClearFallback }: { onOpen: (id: string, fallback?: string) => void; fallbackQuery: string | null; onClearFallback: () => void }) {
+function CollectorCard({ collection, onOpen }: { collection: OsuCollectorCollection; onOpen: (id: number) => void }) {
+  const date = collectorDate(collection.last_modified);
+  return <button className="hub-pack-card" onClick={() => onOpen(collection.id)} type="button" aria-label={`查看收藏 ${collection.name}`}>
+    <HubCover ids={[]} />
+    <div className="hub-pack-copy">
+      <div className="hub-card-eyebrow"><span><span className="hub-source-badge">osu!Collector</span>{collection.beatmap_count} 张难度</span><ArrowUpRight size={16} /></div>
+      <h3 title={collection.name}>{collection.name}</h3>
+      <p className="hub-muted">{collection.uploader}</p>
+      {date ? <p className="hub-card-description">更新于 {date}</p> : null}
+    </div>
+  </button>;
+}
+
+/** osu!Collector 补充来源区块：直连浏览 recent 列表，网络不可达时给出明确提示。 */
+export function CollectorSection({ onOpen }: { onOpen: (id: number) => void }) {
+  const result = useCollectorCollections();
+  const collections = result.data?.pages.flatMap((page) => page.collections) ?? [];
+  return <section aria-label="来自 osu!Collector 的收藏集合">
+    <div className="hub-section-heading"><div><h2>来自 osu!Collector</h2><p>社区收藏集合直连浏览，导入后收藏夹会标注来源</p></div><Button aria-label="刷新 osu!Collector 列表" size="icon" loading={result.isFetching && !result.isFetchingNextPage} onClick={() => void result.refetch()}><RefreshCw size={16} /></Button></div>
+    {result.isPending ? <div className="hub-grid" aria-label="正在加载收藏集合" aria-busy="true">{Array.from({ length: 4 }, (_, index) => <div className="hub-skeleton" key={index} />)}</div>
+      : result.error ? <div className="hub-empty" role="alert"><h3>osu!Collector 暂时无法连接</h3><p>{hubError(result.error)}</p><Button onClick={() => void result.refetch()}>重新加载</Button></div>
+      : !collections.length ? <div className="hub-empty"><Layers3 size={32} /><h3>还没有可浏览的收藏集合</h3><p>osu!Collector 列表为空，稍后再来看看。</p></div>
+      : <>
+        <div className="hub-grid">{collections.map((collection) => <CollectorCard key={collection.id} collection={collection} onOpen={onOpen} />)}</div>
+        {result.hasNextPage ? <div className="hub-collector-more"><Button disabled={result.isFetchingNextPage} loading={result.isFetchingNextPage} onClick={() => void result.fetchNextPage()}>加载更多</Button></div> : null}
+      </>}
+  </section>;
+}
+
+export function HubBrowser({ onOpen, onOpenCollector, fallbackQuery, onClearFallback }: { onOpen: (id: string, fallback?: string) => void; onOpenCollector: (id: number) => void; fallbackQuery: string | null; onClearFallback: () => void }) {
   const [text, setText] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [validation, setValidation] = useState<string | null>(null);
@@ -42,7 +71,8 @@ export function HubBrowser({ onOpen, fallbackQuery, onClearFallback }: { onOpen:
     else if (input.kind === "code") onOpen(input.id, input.bare ? inputText.trim() : undefined);
     else { setSubmitted(input.query); if (submitted === input.query && input.query) void search.refetch(); }
   };
-  return <section aria-label="发现曲包">
+  return <>
+    <section aria-label="发现曲包">
     <div className="hub-intro"><span className="hub-eyebrow">COMMUNITY COLLECTIONS</span><h2>下一段旅程，从这里开始。</h2><p>发现玩家分享的曲包，把喜欢的谱面带进你的收藏夹。</p></div>
     <form className="hub-search" data-page-guide-hub-search="true" onSubmit={(event) => { event.preventDefault(); submit(); }}>
       <Search size={20} aria-hidden="true" />
@@ -53,5 +83,7 @@ export function HubBrowser({ onOpen, fallbackQuery, onClearFallback }: { onOpen:
     {validation ? <p className="hub-error" role="alert">{validation}</p> : null}
     <div className="hub-section-heading"><div><h2>{activeQuery ? `“${activeQuery}”的搜索结果` : "社区推荐"}</h2><p>{activeQuery ? `${packs.length} 个结果` : "来自社区的练习灵感与精选清单"}</p></div><Button aria-label={activeQuery ? "刷新搜索" : "刷新推荐"} size="icon" loading={result.isFetching} onClick={() => void result.refetch()}><RefreshCw size={16} /></Button></div>
     {result.isPending ? <div className="hub-grid" aria-label="正在加载曲包" aria-busy="true">{Array.from({ length: 6 }, (_, index) => <div className="hub-skeleton" key={index} />)}</div> : result.error ? <div className="hub-empty" role="alert"><h3>曲包暂时无法加载</h3><p>{hubError(result.error)}</p><Button onClick={() => void result.refetch()}>重新加载</Button></div> : !packs.length ? <div className="hub-empty"><Layers3 size={32} /><h3>{activeQuery ? "没有找到匹配的曲包" : "社区还没有公开曲包"}</h3><p>{activeQuery ? "试试其他关键词，也可以直接输入分享码。" : "你可以输入分享码，或发布自己的第一个曲包。"}</p></div> : <div className="hub-grid" data-page-guide-hub-results="true">{packs.map((pack) => <PackCard key={pack.id} pack={pack} onOpen={onOpen} />)}</div>}
-  </section>;
+    </section>
+    <CollectorSection onOpen={onOpenCollector} />
+  </>;
 }

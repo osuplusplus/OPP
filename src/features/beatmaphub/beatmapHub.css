@@ -97,3 +97,6 @@
 .hub-task > span:last-child { flex-shrink: 0; color: var(--theme-primary-light); }
 @media (max-width: 760px) { .hub-search { gap: 6px; padding-left: 12px; } .hub-visibility { grid-template-columns: 1fr; } .hub-detail-content { padding: 18px; } .hub-intro h2 { font-size: 26px; } }
 @media (prefers-reduced-motion: reduce) { .hub-pack-card, .hub-skeleton { animation: none; transition: none; } .hub-pack-card:hover { transform: none; } }
+/* —— osu!Collector 补充来源 —— */
+.hub-source-badge { display: inline-flex; align-items: center; margin-right: 8px; padding: 1px 8px; border: 1px solid var(--theme-primary-soft); border-radius: 999px; color: var(--theme-primary-light); font-size: 10px; letter-spacing: 0.04em; }
+.hub-collector-more { display: flex; justify-content: center; margin-top: 18px; }

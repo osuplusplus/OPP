@@ -22,4 +22,10 @@ export async function copyHubCode(code: string) {
     return true;
   } catch { return false; }
 }
+/** osu!Collector 集合的更新日期展示；解析失败返回空串（不渲染日期节点）。 */
+export function collectorDate(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
+}
 export interface CommentDraft { content: string; editing: string | null }

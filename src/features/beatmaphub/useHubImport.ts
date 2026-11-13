@@ -35,6 +35,57 @@ export function useHubImport() {
     }).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch(() => { /* Completion/error feedback still comes from the command result. */ });
     return () => { disposed = true; unlisten?.(); };
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    // osu!Collector 分页拉取进度：仅更新进行中任务的提示文案。
+    void hubApi.onCollectorProgress((progress) => {
+      const id = `oc-${progress.collection_id}`;
+      if (activeId.current !== id || tasksRef.current[id]?.phase !== "importing") return;
+      patch(id, { message: `正在从 osu!Collector 拉取难度 ${progress.beatmaps}/${progress.total_beatmaps}…` });
+    }).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch(() => { /* Progress is cosmetic; ignore subscription failures. */ });
+    return () => { disposed = true; unlisten?.(); };
+  }, []);
+
+  // 导入完成后的“检查缺失 → 下载 → 安装”链路，Hub 曲包与 osu!Collector 集合共用。
+  const fulfillDownloads = async (id: string, imported: BeatmapHubImportResult, download: boolean, config: DownloadConfig | undefined, previous: HubImportTask | undefined) => {
+    if (!download) return;
+    if (!config?.root) throw new Error("收藏夹已创建。请配置有效的 osu!stable 目录后重试下载。");
+    await hubApi.beginTask();
+    let paths = previous?.pendingPaths ?? [];
+    if (paths.length) {
+      patch(id, { phase: "installing", message: "已创建收藏夹 · 正在重试安装已下载的谱面…" });
+      const install = await hubApi.install([imported.folder_id], paths);
+      patch(id, { pendingPaths: [] });
+      if (install.unresolved_entries) throw new Error(`收藏夹已保留，仍有 ${install.unresolved_entries} 个条目未解析，请重试补齐。`);
+    }
+    patch(id, { phase: "checking", message: "已创建收藏夹 · 正在检查缺失谱面…" });
+    const items = await hubApi.downloadItems([imported.folder_id]);
+    if (items.length) {
+      patch(id, { phase: "downloading", message: `已创建收藏夹 · 正在下载 ${items.length} 个谱面集…` });
+      const root = config.root.replace(/[\\/]+$/, "");
+      const separator = root.includes("\\") ? "\\" : "/";
+      const result = await hubApi.download({
+        destination: config.settings.beatmap_download_directory || `${root}${separator}OPP Downloads`,
+        provider: resolveDefaultDownloadProvider(config.settings), overwrite: false,
+        include_video: config.settings.include_video_in_beatmap_downloads, open_after_download: false, items,
+      });
+      paths = result.completed_paths ?? [];
+      const incomplete = result.failed > 0 || result.cancelled;
+      patch(id, { pendingPaths: paths, downloadIncomplete: incomplete });
+      if (paths.length) {
+        patch(id, { phase: "installing", message: `下载成功 ${result.completed}，失败 ${result.failed} · 正在安装 ${paths.length} 个谱面集…` });
+        const install = await hubApi.install([imported.folder_id], paths);
+        patch(id, { pendingPaths: [] });
+        if (install.unresolved_entries) throw new Error(`收藏夹已保留，仍有 ${install.unresolved_entries} 个条目未解析，请重试补齐。`);
+      } else if (!incomplete) throw new Error("下载未返回可安装的文件，请重试补齐。");
+      if (incomplete) throw new Error(`收藏夹已保留；下载${result.cancelled ? "已取消" : `失败 ${result.failed} 个`}，可重试补齐。`);
+    }
+  };
+
+  const finish = (id: string, imported: BeatmapHubImportResult, download: boolean) => {
+    patch(id, { phase: "complete", message: `已导入 ${imported.imported_sets} 个谱面集${imported.unresolved_sets ? `（${imported.unresolved_sets} 个以占位条目导入）` : ""}${download ? " · 缺失谱面已补齐" : " · 已保存到本地收藏夹"}` });
+  };
 
   const run = async (id: string, title: string, resolved: OnlineBeatmapset[], download: boolean, config: DownloadConfig | undefined) => {
     // Collection downloads use a shared backend task; never overlap Hub imports.
@@ -50,42 +101,33 @@ export function useHubImport() {
         patch(id, { imported, message: `已导入 ${imported.imported_sets} 个谱面集` });
         void client.invalidateQueries({ queryKey: ["collections"] });
       }
-      if (download) {
-        if (!config?.root) throw new Error("收藏夹已创建。请配置有效的 osu!stable 目录后重试下载。");
-        await hubApi.beginTask();
-        let paths = previous?.pendingPaths ?? [];
-        let incomplete = previous?.downloadIncomplete ?? false;
-        if (paths.length) {
-          patch(id, { phase: "installing", message: "已创建收藏夹 · 正在重试安装已下载的谱面…" });
-          const install = await hubApi.install([imported.folder_id], paths);
-          patch(id, { pendingPaths: [] });
-          if (install.unresolved_entries) throw new Error(`收藏夹已保留，仍有 ${install.unresolved_entries} 个条目未解析，请重试补齐。`);
-          paths = [];
-        }
-        patch(id, { phase: "checking", message: "已创建收藏夹 · 正在检查缺失谱面…" });
-        const items = await hubApi.downloadItems([imported.folder_id]);
-        if (items.length) {
-          patch(id, { phase: "downloading", message: `已创建收藏夹 · 正在下载 ${items.length} 个谱面集…` });
-          const root = config.root.replace(/[\\/]+$/, "");
-          const separator = root.includes("\\") ? "\\" : "/";
-          const result = await hubApi.download({
-            destination: config.settings.beatmap_download_directory || `${root}${separator}OPP Downloads`,
-            provider: resolveDefaultDownloadProvider(config.settings), overwrite: false,
-            include_video: config.settings.include_video_in_beatmap_downloads, open_after_download: false, items,
-          });
-          paths = result.completed_paths ?? [];
-          incomplete = result.failed > 0 || result.cancelled;
-          patch(id, { pendingPaths: paths, downloadIncomplete: incomplete });
-          if (paths.length) {
-            patch(id, { phase: "installing", message: `下载成功 ${result.completed}，失败 ${result.failed} · 正在安装 ${paths.length} 个谱面集…` });
-            const install = await hubApi.install([imported.folder_id], paths);
-            patch(id, { pendingPaths: [] });
-            if (install.unresolved_entries) throw new Error(`收藏夹已保留，仍有 ${install.unresolved_entries} 个条目未解析，请重试补齐。`);
-          } else if (!incomplete) throw new Error("下载未返回可安装的文件，请重试补齐。");
-          if (incomplete) throw new Error(`收藏夹已保留；下载${result.cancelled ? "已取消" : `失败 ${result.failed} 个`}，可重试补齐。`);
-        }
+      await fulfillDownloads(id, imported, download, config, previous);
+      finish(id, imported, download);
+    } catch (error) {
+      patch(id, { phase: "error", error: hubError(error), message: tasksRef.current[id]?.imported ? "收藏夹已创建，补齐未完成" : "导入未完成" });
+    } finally {
+      activeId.current = null;
+      void client.invalidateQueries({ queryKey: ["collections"] });
+      void client.invalidateQueries({ queryKey: hubPackKey });
+    }
+  };
+
+  // osu!Collector 集合导入：后端分页拉取全部难度（带 MD5）后写入，进度经事件回传。
+  const runCollector = async (collectionId: number, title: string, download: boolean, config: DownloadConfig | undefined) => {
+    const id = `oc-${collectionId}`;
+    if (activeId.current || tasksRef.current[id]?.phase === "complete") return;
+    activeId.current = id;
+    const previous = tasksRef.current[id];
+    patch(id, { id, title, phase: previous?.imported ? "checking" : "importing", message: previous?.imported ? "正在重试补齐，保留已有收藏夹…" : "正在从 osu!Collector 拉取全部难度…", error: undefined });
+    try {
+      let imported = previous?.imported;
+      if (!imported) {
+        imported = await hubApi.importCollector(collectionId);
+        patch(id, { imported, message: `已导入 ${imported.imported_sets} 个谱面集` });
+        void client.invalidateQueries({ queryKey: ["collections"] });
       }
-      patch(id, { phase: "complete", message: `已导入 ${imported.imported_sets} 个谱面集${imported.unresolved_sets ? `（${imported.unresolved_sets} 个以占位条目导入）` : ""}${download ? " · 缺失谱面已补齐" : " · 已保存到本地收藏夹"}` });
+      await fulfillDownloads(id, imported, download, config, previous);
+      finish(id, imported, download);
     } catch (error) {
       patch(id, { phase: "error", error: hubError(error), message: tasksRef.current[id]?.imported ? "收藏夹已创建，补齐未完成" : "导入未完成" });
     } finally {
@@ -95,5 +137,5 @@ export function useHubImport() {
     }
   };
   const busy = Object.values(tasks).some((task) => task.phase !== "complete" && task.phase !== "error");
-  return { tasks, busy, run };
+  return { tasks, busy, run, runCollector };
 }

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { BeatmapHubPack, OnlineBeatmapset } from "../../shared/types/osu";
 import { communityIdentityKey, useCommunityIdentity, useCommunityProfile } from "../../shared/lib/communityIdentity";
@@ -8,6 +8,7 @@ export const beatmapHubAuthKey = communityIdentityKey;
 export const beatmapHubRecommendationsKey = [...hubKey, "recommendations"] as const;
 export const hubPackKey = [...hubKey, "pack"] as const;
 export const hubSearchKey = [...hubKey, "search"] as const;
+export const collectorKey = [...hubKey, "collector"] as const;
 
 // All Hub IO crosses this boundary; components never call the command adapter.
 export const hubApi = {
@@ -26,6 +27,8 @@ export const hubApi = {
   deleteComment: desktopApi.deleteBeatmapHubComment,
   importArchive: desktopApi.importCollectionArchive,
   importPack: desktopApi.importBeatmapHubPack,
+  importCollector: desktopApi.importOsuCollectorCollection,
+  onCollectorProgress: desktopApi.onOsuCollectorImportProgress,
   beginTask: desktopApi.beginCollectionTask,
   downloadItems: desktopApi.getCollectionDownloadItems,
   download: desktopApi.downloadOnlineBeatmapsets,
@@ -52,6 +55,25 @@ export function useHubPreview(id: string, identity: string) {
 }
 export function useHubComments(id: string) {
   return useQuery({ queryKey: [...hubKey, "comments", id], queryFn: () => desktopApi.getBeatmapHubComments(id), enabled: Boolean(id), gcTime: 0 });
+}
+// osu!Collector recent 列表：游标分页，“加载更多”由 useInfiniteQuery 驱动。
+export function useCollectorCollections() {
+  return useInfiniteQuery({
+    queryKey: [...collectorKey, "recent"],
+    queryFn: ({ pageParam }) => desktopApi.getOsuCollectorCollections(pageParam),
+    initialPageParam: null as number | null,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more && lastPage.next_cursor != null ? lastPage.next_cursor : undefined,
+    gcTime: 0,
+  });
+}
+export function useCollectorDetail(id: number | null) {
+  return useQuery({
+    queryKey: [...collectorKey, "detail", id],
+    queryFn: () => desktopApi.getOsuCollectorCollection(id!),
+    enabled: id != null,
+    gcTime: 0,
+  });
 }
 export function useHubCollections(enabled: boolean) {
   return useQuery({ queryKey: ["collections", "summaries"], queryFn: desktopApi.listCollectionSummaries, enabled });

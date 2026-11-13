@@ -125,3 +125,56 @@ export interface BeatmapHubBackupRestoreResult {
   entries: number;
 }
 
+
+// —— osu!Collector（PackHub 补充来源，直连不经 PackHub 服务器）——
+
+/** osu!Collector 收藏集合卡片（recent 列表与详情头部共用）。 */
+export interface OsuCollectorCollection {
+  id: number;
+  name: string;
+  uploader: string;
+  description: string | null;
+  beatmap_count: number;
+  favourites: number;
+  last_modified: string | null;
+}
+
+/** recent 列表页；`next_cursor` 透传给下一次请求实现“加载更多”。 */
+export interface OsuCollectorListPage {
+  collections: OsuCollectorCollection[];
+  next_cursor: number | null;
+  has_more: boolean;
+}
+
+/** 详情预览中的单个难度行，`local` 来自本地索引比对。 */
+export interface OsuCollectorBeatmap {
+  beatmap_id: number;
+  beatmapset_id: number;
+  checksum: string | null;
+  mode: string;
+  difficulty_name: string;
+  difficulty_rating: number | null;
+  artist: string;
+  title: string;
+  creator: string;
+  local: boolean;
+}
+
+/** 集合详情：元数据 + 本地已有/缺失统计 + 首页难度样本。 */
+export interface OsuCollectorCollectionDetail {
+  collection: OsuCollectorCollection;
+  total_sets: number;
+  local_sets: number;
+  missing_sets: number;
+  unsubmitted_beatmaps: number;
+  preview: OsuCollectorBeatmap[];
+  has_more: boolean;
+}
+
+/** `collector-import-progress` 事件载荷。 */
+export interface OsuCollectorImportProgress {
+  collection_id: number;
+  page: number;
+  beatmaps: number;
+  total_beatmaps: number;
+}
