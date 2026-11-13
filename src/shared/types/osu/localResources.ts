@@ -16,7 +16,13 @@ export interface LocalLibraryStorageStatus {
 }
 export type Completeness = "complete" | "partial";
 export type CapabilityLevel = "full" | "partial" | "unavailable";
-export type BeatmapDownloadProvider = "sayobot" | "hinai" | "catboy" | "nerinyan";
+export type BeatmapDownloadProvider =
+  | "sayobot"
+  | "osudirect"
+  | "nekoha"
+  | "hinai"
+  | "catboy"
+  | "nerinyan";
 
 export interface PlatformCapabilities {
   os: "windows" | "linux";

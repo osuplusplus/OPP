@@ -18,7 +18,8 @@ export function OnlineSourceCredit() {
           </button>
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          感谢小夜长期为 osu! 社区提供公益谱面服务。
+          感谢小夜长期为 osu! 社区提供公益谱面服务。备用下载源：osu.direct、Nekoha Mirror、
+          Catboy、Nerinyan、Hinai Mirror，感谢各镜像站维护者。
         </p>
       </div>
       <button

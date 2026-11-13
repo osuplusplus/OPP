@@ -19,6 +19,8 @@ pub const NERINYAN_BASE_URL: &str = "https://api.nerinyan.moe";
 pub const CATBOY_BASE_URL: &str = "https://catboy.best";
 pub const HINAI_BASE_URL: &str = "https://mirror.hinamizawa.ai";
 pub const SAYOBOT_BASE_URL: &str = "https://dl.sayobot.cn";
+pub const OSU_DIRECT_BASE_URL: &str = "https://osu.direct";
+pub const NEKOHA_BASE_URL: &str = "https://mirror.nekoha.moe";
 pub const OSU_METADATA_URL: &str = "https://osu.ppy.sh/osu";
 
 /// 单个镜像的健康与能力快照，供前端下载源选择器展示。
@@ -83,7 +85,8 @@ impl ProviderRegistry {
 
     /// 下载 `.osz` 并以累计字节数回调进度。
     /// 各镜像的“无视频”参数形态不同：Sayobot 用路径段 `full/novideo`，
-    /// Hinai/Catboy 用 `?novideo=true`，Nerinyan 用 `?noVideo=true`。
+    /// Hinai/Catboy 用 `?novideo=true`，Nerinyan/osu.direct 用 `?noVideo=true`，
+    /// Nekoha 用 `?noVideo=1`。
     pub async fn osz_with_progress<F>(
         &self,
         id: u64,
@@ -122,6 +125,22 @@ impl ProviderRegistry {
                         if include_video { "" } else { "?novideo=true" }
                     ),
                     "CATBOY_DOWNLOAD_FAILED",
+                    Some(format!("{id}.osz")),
+                ),
+                "osudirect" => (
+                    format!(
+                        "{OSU_DIRECT_BASE_URL}/api/d/{id}{}",
+                        if include_video { "" } else { "?noVideo=true" }
+                    ),
+                    "OSUDIRECT_DOWNLOAD_FAILED",
+                    Some(format!("{id}.osz")),
+                ),
+                "nekoha" => (
+                    format!(
+                        "{NEKOHA_BASE_URL}/api/download/{id}{}",
+                        if include_video { "" } else { "?noVideo=1" }
+                    ),
+                    "NEKOHA_DOWNLOAD_FAILED",
                     Some(format!("{id}.osz")),
                 ),
                 "nerinyan" => (
@@ -252,18 +271,28 @@ impl ProviderRegistry {
     }
 
     /// 并发探测各镜像健康端点，返回含官方条目的能力矩阵。
-    /// Hinai 没有专用健康端点，借用其文档页判断可达性。
+    /// osu.direct 与 Hinai 没有专用健康端点，分别借用其搜索接口与文档页判断可达性。
     pub async fn statuses(&self) -> Vec<ProviderStatus> {
         let sayobot_health = "https://api.sayobot.cn/beatmaplist?L=1&O=0&T=1";
-        let nerinyan_health = format!("{NERINYAN_BASE_URL}/health");
+        let osudirect_health = format!("{OSU_DIRECT_BASE_URL}/api/search?q=freedom");
+        let nekoha_health = format!("{NEKOHA_BASE_URL}/api/stats");
         let catboy_health = format!("{CATBOY_BASE_URL}/health");
+        let nerinyan_health = format!("{NERINYAN_BASE_URL}/health");
         let hinai_health = format!("{HINAI_BASE_URL}/docs/beatmap-download");
-        let (sayobot, nerinyan, catboy, hinai) = tokio::join!(
+        let (sayobot, osudirect, nekoha, catboy, nerinyan, hinai) = tokio::join!(
             self.health("sayobot", sayobot_health),
-            self.health("nerinyan", &nerinyan_health),
+            self.health("osudirect", &osudirect_health),
+            self.health("nekoha", &nekoha_health),
             self.health("catboy", &catboy_health),
+            self.health("nerinyan", &nerinyan_health),
             self.health("hinai", &hinai_health),
         );
+        // 探测失败也保留条目（标记离线并带原因），与成功条目共用 `describe` 的能力矩阵。
+        let resolve = |id: &str, probe: CommandResult<ProviderStatus>| {
+            probe.unwrap_or_else(|error| {
+                offline_status(id, error.retry_after_seconds, error.message)
+            })
+        };
         // 官方条目不做网络探测，作为搜索与信息基准始终展示为在线。
         vec![
             ProviderStatus {
@@ -277,50 +306,12 @@ impl ProviderRegistry {
                 retry_after_seconds: None,
                 message: Some("官方筛选与信息基准".into()),
             },
-            sayobot.unwrap_or_else(|error| ProviderStatus {
-                id: "sayobot".into(),
-                label: "小夜（Sayobot）".into(),
-                online: false,
-                supports_search: true,
-                supports_metadata: true,
-                supports_osu_download: false,
-                supports_osz_download: true,
-                retry_after_seconds: error.retry_after_seconds,
-                message: Some(error.message),
-            }),
-            nerinyan.unwrap_or_else(|error| ProviderStatus {
-                id: "nerinyan".into(),
-                label: "Nerinyan".into(),
-                online: false,
-                supports_search: true,
-                supports_metadata: true,
-                supports_osu_download: false,
-                supports_osz_download: true,
-                retry_after_seconds: error.retry_after_seconds,
-                message: Some(error.message),
-            }),
-            catboy.unwrap_or_else(|error| ProviderStatus {
-                id: "catboy".into(),
-                label: "Catboy".into(),
-                online: false,
-                supports_search: false,
-                supports_metadata: true,
-                supports_osu_download: true,
-                supports_osz_download: true,
-                retry_after_seconds: error.retry_after_seconds,
-                message: Some(error.message),
-            }),
-            hinai.unwrap_or_else(|error| ProviderStatus {
-                id: "hinai".into(),
-                label: "Hinai Mirror".into(),
-                online: false,
-                supports_search: false,
-                supports_metadata: false,
-                supports_osu_download: false,
-                supports_osz_download: true,
-                retry_after_seconds: error.retry_after_seconds,
-                message: Some(error.message),
-            }),
+            resolve("sayobot", sayobot),
+            resolve("osudirect", osudirect),
+            resolve("nekoha", nekoha),
+            resolve("catboy", catboy),
+            resolve("nerinyan", nerinyan),
+            resolve("hinai", hinai),
         ]
     }
 
@@ -334,21 +325,15 @@ impl ProviderRegistry {
             .map_err(|error| CommandError::network(error.to_string()))?;
         let retry_after = retry_after(&response);
         if response.status().is_success() {
+            let (label, search, metadata, osu, osz) = describe(id);
             Ok(ProviderStatus {
                 id: id.into(),
-                label: match id {
-                    "sayobot" => "小夜（Sayobot）",
-                    "hinai" => "Hinai Mirror",
-                    "catboy" => "Catboy",
-                    "nerinyan" => "Nerinyan",
-                    _ => id,
-                }
-                .into(),
+                label: label.into(),
                 online: true,
-                supports_search: id == "nerinyan" || id == "sayobot",
-                supports_metadata: id != "hinai",
-                supports_osu_download: id == "catboy",
-                supports_osz_download: true,
+                supports_search: search,
+                supports_metadata: metadata,
+                supports_osu_download: osu,
+                supports_osz_download: osz,
                 retry_after_seconds: retry_after,
                 message: None,
             })
@@ -596,6 +581,37 @@ fn retry_after(response: &Response) -> Option<u64> {
         .get("retry-after")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse().ok())
+}
+
+/// 镜像的静态描述：`(展示名, 支持搜索, 支持元数据, 支持单难度 .osu, 支持 .osz 下载)`。
+/// 在线/离线条目共用这一份能力矩阵，避免两份手写清单随镜像增减而漂移。
+/// 能力标志描述的是 OPP 实际接入了哪些接口，而非镜像站理论上提供的能力。
+fn describe(id: &str) -> (&'static str, bool, bool, bool, bool) {
+    match id {
+        "sayobot" => ("小夜（Sayobot）", true, true, false, true),
+        "osudirect" => ("osu.direct", false, false, false, true),
+        "nekoha" => ("Nekoha Mirror", false, false, false, true),
+        "catboy" => ("Catboy", false, true, true, true),
+        "nerinyan" => ("Nerinyan", true, true, false, true),
+        "hinai" => ("Hinai Mirror", false, false, false, true),
+        _ => ("未知镜像", false, false, false, false),
+    }
+}
+
+/// 健康探测失败时的离线条目：沿用 `describe` 的能力矩阵，带上失败原因与重试提示。
+fn offline_status(id: &str, retry_after_seconds: Option<u64>, message: String) -> ProviderStatus {
+    let (label, search, metadata, osu, osz) = describe(id);
+    ProviderStatus {
+        id: id.into(),
+        label: label.into(),
+        online: false,
+        supports_search: search,
+        supports_metadata: metadata,
+        supports_osu_download: osu,
+        supports_osz_download: osz,
+        retry_after_seconds,
+        message: Some(message),
+    }
 }
 
 /// 统一 HTTP 状态到错误码的映射：429 归为 `RATE_LIMITED`，5xx 归为 `SERVER_ERROR`，

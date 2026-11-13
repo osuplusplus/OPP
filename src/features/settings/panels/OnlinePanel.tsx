@@ -60,9 +60,11 @@ export function OnlinePanel({
             value={settings.default_beatmap_download_provider}
           >
             <option value="sayobot">小夜（Sayobot，推荐）</option>
-            <option value="hinai">Hinai Mirror（仅手动选择）</option>
+            <option value="osudirect">osu.direct</option>
+            <option value="nekoha">Nekoha Mirror</option>
             <option value="catboy">Catboy</option>
             <option value="nerinyan">Nerinyan</option>
+            <option value="hinai">Hinai Mirror（仅手动选择）</option>
           </select>
           <span className="mt-2 block text-xs leading-5 text-slate-500">
             下载失败时仍会自动尝试其他可用镜像；下载队列中可以临时切换，不会改动此默认值。

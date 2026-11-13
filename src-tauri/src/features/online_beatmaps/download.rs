@@ -116,11 +116,22 @@ fn adapters(provider: &str) -> CommandResult<&'static [&'static str]> {
     // Official .osz downloads require the lazer OAuth scope, unavailable to OPP.
     // Offer the official website in the UI; never send ordinary OAuth tokens to mirrors.
     // Hinai's own cascade can stall, so only use it when explicitly selected.
+    // Nerinyan's API has been unstable (observed offline since 2026-11), so it is
+    // demoted to the last automatic fallback; osu.direct and Nekoha fill the gap.
     match provider {
-        "sayobot" => Ok(&["sayobot", "catboy", "nerinyan"]),
-        "hinai" => Ok(&["hinai", "sayobot", "catboy", "nerinyan"]),
-        "catboy" => Ok(&["catboy", "sayobot", "nerinyan"]),
-        "nerinyan" => Ok(&["nerinyan", "sayobot", "catboy"]),
+        "sayobot" => Ok(&["sayobot", "osudirect", "nekoha", "catboy", "nerinyan"]),
+        "osudirect" => Ok(&["osudirect", "sayobot", "nekoha", "catboy", "nerinyan"]),
+        "nekoha" => Ok(&["nekoha", "sayobot", "osudirect", "catboy", "nerinyan"]),
+        "hinai" => Ok(&[
+            "hinai",
+            "sayobot",
+            "osudirect",
+            "nekoha",
+            "catboy",
+            "nerinyan",
+        ]),
+        "catboy" => Ok(&["catboy", "sayobot", "osudirect", "nekoha", "nerinyan"]),
+        "nerinyan" => Ok(&["nerinyan", "sayobot", "osudirect", "nekoha", "catboy"]),
         _ => Err(CommandError::new(
             "DOWNLOAD_ADAPTER_DISABLED",
             "No download mirror is selected.",
@@ -336,13 +347,19 @@ mod regression_tests {
     fn sayobot_is_preferred_and_hinai_is_only_explicit() {
         assert_eq!(
             adapters("sayobot").unwrap(),
-            ["sayobot", "catboy", "nerinyan"]
+            ["sayobot", "osudirect", "nekoha", "catboy", "nerinyan"]
         );
         assert_eq!(adapters("hinai").unwrap()[0], "hinai");
-        for provider in ["catboy", "nerinyan"] {
+        for provider in ["osudirect", "nekoha", "catboy", "nerinyan"] {
             let sources = adapters(provider).unwrap();
             assert_eq!(sources[0], provider);
             assert!(!sources.contains(&"hinai"));
+        }
+        // 每个级联都包含 Sayobot 与 osu.direct 双保险，Nerinyan 不再出现在前三位。
+        for provider in ["sayobot", "osudirect", "nekoha", "catboy", "nerinyan"] {
+            let sources = adapters(provider).unwrap();
+            assert!(sources.contains(&"sayobot") && sources.contains(&"osudirect"));
+            assert_ne!(sources[1], "nerinyan");
         }
         assert!(adapters("none").is_err());
     }

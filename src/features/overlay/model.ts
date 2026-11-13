@@ -12,7 +12,11 @@ export function resolveDownloadProvider(
   settings: AppSettings | null | undefined,
 ): BeatmapDownloadProvider {
   const provider = settings?.default_beatmap_download_provider;
-  return provider === "hinai" || provider === "catboy" || provider === "nerinyan"
+  return provider === "osudirect" ||
+    provider === "nekoha" ||
+    provider === "hinai" ||
+    provider === "catboy" ||
+    provider === "nerinyan"
     ? provider
     : "sayobot";
 }

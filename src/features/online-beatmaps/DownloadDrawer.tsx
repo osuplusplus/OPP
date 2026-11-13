@@ -71,7 +71,7 @@ function DownloadContents() {
     <div className="online-download-options"><span>保存到</span><p title={path}>{path || "开始下载时选择目录"}</p>
       <details><summary>更多选项</summary>
         <button disabled={state.busy || choosing} onClick={() => void choose()}><FolderOpen />更改保存目录</button>
-        <label>下载源<select disabled={state.busy} value={provider} onChange={(event) => setProvider(event.target.value as BeatmapDownloadProvider | "none")}><option value="sayobot">小夜 Sayobot</option><option value="hinai">Hinai（仅手动）</option><option value="catboy">Catboy</option><option value="nerinyan">Nerinyan</option><option value="none">不使用镜像</option></select></label>
+        <label>下载源<select disabled={state.busy} value={provider} onChange={(event) => setProvider(event.target.value as BeatmapDownloadProvider | "none")}><option value="sayobot">小夜 Sayobot</option><option value="osudirect">osu.direct</option><option value="nekoha">Nekoha Mirror</option><option value="catboy">Catboy</option><option value="nerinyan">Nerinyan</option><option value="hinai">Hinai（仅手动）</option><option value="none">不使用镜像</option></select></label>
         <label><input type="checkbox" disabled={state.busy} checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />覆盖同名 .osz 文件</label>
       </details>
     </div>

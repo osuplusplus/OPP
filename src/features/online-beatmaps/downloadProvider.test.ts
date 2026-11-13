@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { resolveDefaultDownloadProvider } from "./downloadProvider";
 
 describe("resolveDefaultDownloadProvider", () => {
-  it.each(["sayobot", "hinai", "catboy", "nerinyan"] as const)(
+  it.each(["sayobot", "osudirect", "nekoha", "hinai", "catboy", "nerinyan"] as const)(
     "keeps the configured %s provider",
     (provider) => {
       expect(resolveDefaultDownloadProvider({
