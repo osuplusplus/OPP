@@ -64,9 +64,12 @@ export function DownloadTargetActions({ result, onNotice }: {
     setOpening(client);
     try {
       const outcome = await desktopApi.openBeatmapFiles(client, paths);
-      const clientName = client === "lazer" ? "lazer" : "Stable";
       const failures = outcome.failures.length ? `：${outcome.failures.join("；")}` : "";
-      onNotice(`已交给 ${clientName} 导入 ${outcome.opened} 个曲包${outcome.failed ? `，${outcome.failed} 个失败` : ""}${failures}。`);
+      const suffix = outcome.failed ? `，${outcome.failed} 个失败` : "";
+      // stable 是直接解压进 Songs：游戏运行中不会自动发现新目录，需提示 F5。
+      onNotice(client === "lazer"
+        ? `已交给 lazer 导入 ${outcome.opened} 个曲包${suffix}${failures}。`
+        : `已解压 ${outcome.opened} 个曲包进 Stable 的 Songs${suffix}${failures}；若已打开 osu!，进入歌曲列表按几次 F5 刷新即可看到新曲包（未运行时启动 osu! 会自动扫描）。`);
     } catch (error) {
       onNotice(errorMessage(error));
     } finally {

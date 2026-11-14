@@ -26,6 +26,10 @@ use uuid::Uuid;
 
 // 同时最多 2 个下载，控制对镜像的并发压力；进度文案中的“最多同时 2 个”与此对应。
 const DOWNLOAD_CONCURRENCY: usize = 2;
+// 失败项自动重试：镜像的瞬时限流与网络抖动通常在短冷却后自行恢复，
+// 整批跑完后把失败项再重试两轮，免去用户“第二轮手动重下才齐”的操作。
+const RETRY_ROUNDS: usize = 2;
+const RETRY_COOLDOWN: Duration = Duration::from_secs(5);
 
 /// 用 `buffer_unordered` 将任务流的并发限制在 `DOWNLOAD_CONCURRENCY`。
 fn concurrent_jobs<I, F>(jobs: I) -> impl Stream<Item = F::Output>
@@ -38,6 +42,7 @@ where
 
 /// 执行整个批量下载：结果按完成顺序（而非提交顺序）回收。
 /// 因取消而失败的项目不计入失败也不计入成功，仅由最终 `cancelled` 标志表达。
+/// 失败项在短暂冷却后自动重试 `RETRY_ROUNDS` 轮，结果只保留最终失败。
 pub async fn run(
     app: &AppHandle,
     state: &AppState,
@@ -64,64 +69,107 @@ pub async fn run(
         completed_paths: vec![],
         succeeded_beatmapset_ids: vec![],
     };
-    let jobs: Vec<_> = items
-        .iter()
-        .map(|item| {
-            let counts = &counts;
-            async move {
-                let span = global().map(|logger| {
-                    logger.operation(
-                        "online_beatmaps",
-                        format!("download_item:{}", item.beatmapset_id),
-                    )
-                });
-                let outcome =
-                    download_one(app, state, item, request, destination, cancel, counts).await;
-                (item, finish_span(span, outcome))
+    let mut pending: Vec<&BeatmapDownloadItem> = items.iter().collect();
+    // 最近一轮的失败清单：重试成功即从中消失，只有最终轮残留的进入结果。
+    let mut last_failures: Vec<BeatmapDownloadFailure> = Vec::new();
+    for round in 0..=RETRY_ROUNDS {
+        if round > 0 {
+            if pending.is_empty() || cancel.load(Ordering::Relaxed) {
+                break;
             }
-        })
-        .collect();
-    let results = concurrent_jobs(jobs);
-    futures_util::pin_mut!(results);
-    while let Some((item, outcome)) = results.next().await {
-        let (phase, message) = match outcome {
-            Ok((path, skipped)) => {
-                if skipped {
-                    result.skipped += 1;
-                } else {
-                    result.completed += 1;
+            if let Some(first) = pending.first().copied() {
+                emit_progress(
+                    app,
+                    progress_for_item(
+                        "downloading",
+                        counts.lock().expect("download progress lock").clone(),
+                        first,
+                        Some(format!(
+                            "{} 个曲包下载失败，{} 秒后自动重试（第 {round}/{RETRY_ROUNDS} 轮）",
+                            pending.len(),
+                            RETRY_COOLDOWN.as_secs()
+                        )),
+                    ),
+                );
+            }
+            tokio::time::sleep(RETRY_COOLDOWN).await;
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+        }
+        // copied 让 future 只借用外层 items，跨轮重排 pending 不与借用冲突。
+        let jobs: Vec<_> = pending
+            .iter()
+            .copied()
+            .map(|item| {
+                let counts = &counts;
+                async move {
+                    let span = global().map(|logger| {
+                        logger.operation(
+                            "online_beatmaps",
+                            format!("download_item:{}", item.beatmapset_id),
+                        )
+                    });
+                    let outcome =
+                        download_one(app, state, item, request, destination, cancel, counts).await;
+                    (item, finish_span(span, outcome))
                 }
-                result.succeeded_beatmapset_ids.push(item.beatmapset_id);
-                result
-                    .completed_paths
-                    .push(path.to_string_lossy().into_owned());
-                (
-                    if skipped { "skipped" } else { "completed" },
-                    path.to_string_lossy().into_owned(),
-                )
-            }
-            // 取消导致的失败不进入统计；并发窗口内尚未启动的任务不会产生任何结果。
-            Err(error) if error.code == "DOWNLOAD_CANCELLED" => continue,
-            Err(error) => {
-                result.failed += 1;
-                result.failures.push(BeatmapDownloadFailure {
-                    beatmapset_id: item.beatmapset_id,
-                    title: item.title.clone(),
-                    message: error.message.clone(),
-                });
-                ("failed", error.message)
-            }
-        };
-        let updated = DownloadProgressCounts {
-            total: result.total,
-            processed: result.completed + result.skipped + result.failed,
-            completed: result.completed,
-            skipped: result.skipped,
-            failed: result.failed,
-        };
-        *counts.lock().expect("download progress lock") = updated.clone();
-        emit_progress(app, progress_for_item(phase, updated, item, Some(message)));
+            })
+            .collect();
+        let results = concurrent_jobs(jobs);
+        futures_util::pin_mut!(results);
+        let mut failed_items: Vec<(&BeatmapDownloadItem, String)> = Vec::new();
+        while let Some((item, outcome)) = results.next().await {
+            let (phase, message) = match outcome {
+                Ok((path, skipped)) => {
+                    if skipped {
+                        result.skipped += 1;
+                    } else {
+                        result.completed += 1;
+                    }
+                    result.succeeded_beatmapset_ids.push(item.beatmapset_id);
+                    result
+                        .completed_paths
+                        .push(path.to_string_lossy().into_owned());
+                    (
+                        if skipped { "skipped" } else { "completed" },
+                        path.to_string_lossy().into_owned(),
+                    )
+                }
+                // 取消导致的失败不进入统计；并发窗口内尚未启动的任务不会产生任何结果。
+                Err(error) if error.code == "DOWNLOAD_CANCELLED" => continue,
+                Err(error) => {
+                    failed_items.push((item, error.message.clone()));
+                    ("failed", error.message)
+                }
+            };
+            // 本轮内失败先计入 failed 展示；进入下一轮重试时随重试结果修正。
+            let round_failed = failed_items.len();
+            let updated = DownloadProgressCounts {
+                total: result.total,
+                processed: result.completed + result.skipped + round_failed,
+                completed: result.completed,
+                skipped: result.skipped,
+                failed: round_failed,
+            };
+            *counts.lock().expect("download progress lock") = updated.clone();
+            emit_progress(app, progress_for_item(phase, updated, item, Some(message)));
+        }
+        last_failures = failed_items
+            .iter()
+            .map(|(item, message)| BeatmapDownloadFailure {
+                beatmapset_id: item.beatmapset_id,
+                title: item.title.clone(),
+                message: message.clone(),
+            })
+            .collect();
+        pending = failed_items.into_iter().map(|(item, _)| item).collect();
+        if pending.is_empty() {
+            break;
+        }
     }
+    result.failed = last_failures.len();
+    result.failures = last_failures;
     // 结束时直接读取消标志，作为最终判定依据。
     result.cancelled = cancel.load(Ordering::Relaxed);
     result
