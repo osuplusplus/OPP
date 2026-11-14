@@ -275,13 +275,23 @@ export function CollectionsPage() {
       try {
         written = await desktopApi.writeStableCollections();
       } catch (caught) {
-        if ((caught as CommandError)?.code !== "GAME_RUNNING") throw caught;
-        deferred = true;
+        // 游戏运行中：延期由全局监视器在游戏退出后补写。
+        if ((caught as CommandError)?.code === "GAME_RUNNING") {
+          deferred = true;
+        } else if ((caught as CommandError)?.code === "COLLECTION_CONFLICT") {
+          // osu! 退出时会重写 collection.db 导致指纹过期（常见且必然发生）：
+          // 先合并游戏侧收藏再重试一次，免去用户手动“读取 Stable”。
+          await desktopApi.refreshCollections("stable");
+          throwIfCollectionTaskCancelled();
+          written = await desktopApi.writeStableCollections();
+        } else {
+          throw caught;
+        }
       }
       throwIfCollectionTaskCancelled();
       if (deferred) {
         const message = completed
-          ? `${completed.install.extracted_sets} 个曲包已解压进 Songs（osu! 内 F5 刷新后即可游玩）；检测到 osu! 正在运行，收藏夹将在游戏退出后自动写回（重启 osu! 后在游戏内生效）。`
+          ? `${completed.install.extracted_sets} 个曲包已解压进 Songs（进入 osu! 歌曲列表后按几次 F5 刷新即可看到）；检测到 osu! 正在运行，收藏夹将在游戏退出后自动写回，重启 osu! 后在游戏内生效。`
           : "检测到 osu! 正在运行，收藏夹更改将在游戏退出后自动写回（重启 osu! 后在游戏内生效）。";
         setNotice(message);
         updateCollectionTask({ phase: "completed", message, processed: 1, total: 1 });
@@ -299,7 +309,7 @@ export function CollectionsPage() {
       // 部分下载失败不影响整体完成态，失败项仍列在错误信息里供逐个处理。
       const extracted = completed.install.extracted_sets;
       const errors = completed.download.failures.map((failure) => `#${failure.beatmapset_id} ${failure.title}：${failure.message}`);
-      const message = `已写回 ${written!.written_folders} 个收藏夹，${extracted} 个曲包已解压进 Songs（osu! 内 F5 刷新后即可游玩）${errors.length ? `；${errors.length} 项下载失败` : ""}。`;
+      const message = `已写回 ${written!.written_folders} 个收藏夹，${extracted} 个曲包已解压进 Songs；进入 osu! 歌曲列表后按几次 F5 刷新，新曲包文件夹才会出现（游戏未运行时启动 osu! 即自动扫描）${errors.length ? `；${errors.length} 项下载失败` : ""}。`;
       setNotice(message);
       updateCollectionTask({ phase: "completed", message, processed: completed.download.total, total: completed.download.total, errors });
       changed();

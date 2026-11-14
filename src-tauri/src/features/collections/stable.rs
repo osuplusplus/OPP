@@ -5,7 +5,7 @@
 //! 同步以 SHA-256 指纹识别外部修改，写回走“临时文件 + 备份 + 失败回滚”流程。
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -752,35 +752,49 @@ pub async fn enable_collection_stable_sync(folder_id: String, app: AppHandle) ->
 }
 
 /// 从内部状态构造待写回的 `StableDb`：空校验和的条目跳过并计数，版本号沿用解析值。
+/// 同名文件夹合并为单个收藏夹：osu! 按名称索引收藏夹，collection.db 中出现
+/// 重复名称时游戏会在该条目处中断加载，此项及其后的收藏夹全部丢失；
+/// 合并时成员按校验和取并集，保留首次出现顺序。
 pub(super) fn stable_db_for_write(file: &super::service::CollectionFile) -> (StableDb, usize) {
     let mut skipped_entries = 0usize;
-    let folders = file
+    let mut merged: Vec<(StableCollection, HashSet<String>)> = Vec::new();
+    let mut index_by_name: HashMap<&str, usize> = HashMap::new();
+    for folder in file
         .folders
         .iter()
         .filter(|folder| folder.participates_in_stable())
-        .map(|folder| {
-            let checksums = folder
-                .entries
-                .iter()
-                .filter_map(|entry| {
-                    match entry
-                        .checksum
-                        .as_deref()
-                        .filter(|checksum| !checksum.is_empty())
-                    {
-                        Some(value) => Some(value.to_string()),
-                        None => {
-                            skipped_entries += 1;
-                            None
-                        }
+    {
+        let index = *index_by_name
+            .entry(folder.name.as_str())
+            .or_insert_with(|| {
+                merged.push((
+                    StableCollection {
+                        name: folder.name.clone(),
+                        checksums: Vec::new(),
+                    },
+                    HashSet::new(),
+                ));
+                merged.len() - 1
+            });
+        let (collection, seen) = &mut merged[index];
+        for entry in &folder.entries {
+            match entry
+                .checksum
+                .as_deref()
+                .filter(|checksum| !checksum.is_empty())
+            {
+                Some(checksum) => {
+                    if seen.insert(checksum.to_string()) {
+                        collection.checksums.push(checksum.to_string());
                     }
-                })
-                .collect();
-            StableCollection {
-                name: folder.name.clone(),
-                checksums,
+                }
+                None => skipped_entries += 1,
             }
-        })
+        }
+    }
+    let folders = merged
+        .into_iter()
+        .map(|(collection, _)| collection)
         .collect::<Vec<_>>();
     let db = StableDb {
         version: file.stable_version.unwrap_or(20200101),

@@ -477,3 +477,85 @@ fn legacy_collections_default_to_existing_sync_behavior() {
     assert!(legacy.participates_in_stable());
     assert!(legacy.pool.is_none());
 }
+
+/// 同名收藏夹写回时必须合并为单个条目：osu! 按名称加载收藏夹，
+/// collection.db 出现重名会在重复项处中断并丢弃它及其后的全部收藏夹。
+#[test]
+fn stable_write_merges_duplicate_collection_names() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = CollectionService::new(directory.path()).unwrap();
+    let make_pool = |beatmap_id: i32, checksum: &str| CollectionCandidate {
+        beatmap_id: Some(beatmap_id),
+        beatmapset_id: Some(beatmap_id + 100),
+        checksum: Some(checksum.into()),
+        ruleset: Some("osu".into()),
+        difficulty_name: "Hard".into(),
+        title: "Song".into(),
+        artist: "Artist".into(),
+        creator: "Mapper".into(),
+        local_client: None,
+        local_resource_id: None,
+    };
+    let first = service
+        .replace_tournament_pool(
+            "tournament:opp:https://example.com/a",
+            "Dup",
+            vec![make_pool(1, "aaaa1111aaaa1111aaaa1111aaaa1111")],
+            None,
+        )
+        .unwrap();
+    let second = service
+        .replace_tournament_pool(
+            "tournament:opp:https://example.com/b",
+            "Dup",
+            vec![
+                make_pool(2, "bbbb2222bbbb2222bbbb2222bbbb2222"),
+                make_pool(3, "aaaa1111aaaa1111aaaa1111aaaa1111"),
+            ],
+            None,
+        )
+        .unwrap();
+    let tail = service.create("Tail", "user").unwrap();
+    service.enable_stable_sync(&first.id).unwrap();
+    service.enable_stable_sync(&second.id).unwrap();
+    let db = stable::stable_db_for_write(&service.value.lock().unwrap()).0;
+    let written = parse_stable_db(&encode_stable_db(&db).unwrap()).unwrap();
+    assert_eq!(written.folders.len(), 2);
+    assert_eq!(written.folders[0].name, "Dup");
+    // 并集去重且保持首次出现顺序，重复条目不计入 skipped。
+    assert_eq!(
+        written.folders[0].checksums,
+        vec![
+            "aaaa1111aaaa1111aaaa1111aaaa1111",
+            "bbbb2222bbbb2222bbbb2222bbbb2222"
+        ]
+    );
+    // 重名之后的收藏夹仍然完整写出，不再被游戏侧连带丢弃。
+    assert_eq!(written.folders[1].name, tail.name);
+    let _ = &second;
+}
+
+/// 参与stable 同步的收藏夹之间禁止重名（创建与重命名都校验），
+/// 与 lazer 只读镜像同名不受限制。
+#[test]
+fn collection_names_must_be_unique_for_stable_sync() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = CollectionService::new(directory.path()).unwrap();
+    let folder = service.create("Mirror", "user").unwrap();
+    let error = service.create("Mirror", "user").unwrap_err();
+    assert_eq!(error.code, "INVALID_COLLECTION_NAME");
+    let other = service.create("Other", "user").unwrap();
+    let error = service.rename(&other.id, "Mirror").unwrap_err();
+    assert_eq!(error.code, "INVALID_COLLECTION_NAME");
+    // 重命名为自身当前名称不应被误判为冲突。
+    service.rename(&folder.id, "Mirror").unwrap();
+    // lazer 只读镜像不参与 collection.db 写回，允许同名。
+    let lazer = service.create("Lazer twin", "user").unwrap();
+    {
+        let mut file = service.value.lock().unwrap();
+        let mirror = file.folders.iter_mut().find(|f| f.id == lazer.id).unwrap();
+        mirror.source = CollectionSource::Lazer;
+        mirror.read_only = true;
+    }
+    service.create("Lazer twin", "user").unwrap();
+}

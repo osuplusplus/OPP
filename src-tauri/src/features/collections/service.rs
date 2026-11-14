@@ -302,9 +302,12 @@ impl CollectionService {
     }
 
     /// 新建 OPP 收藏夹；默认参与 stable 同步并立即标记待写回。
+    /// 名称不得与任何参与 stable 同步的收藏夹重复：collection.db 中重名
+    /// 会让 osu! 在该条目处中断加载并丢弃它及其后的所有收藏夹。
     pub(crate) fn create(&self, name: &str, creator: &str) -> CommandResult<CollectionFolder> {
         let name = validate_name(name)?;
         self.update(|file| {
+            ensure_unique_stable_name(file, &name, None)?;
             let now = Utc::now().to_rfc3339();
             let folder = CollectionFolder {
                 id: Uuid::new_v4().to_string(),
@@ -330,9 +333,16 @@ impl CollectionService {
         })
     }
 
-    /// 重命名收藏夹；只读文件夹拒绝修改。
+    /// 重命名收藏夹；只读文件夹拒绝修改。名称同样不得与其他参与
+    /// stable 同步的收藏夹重复（见 `create` 的说明）。
     pub(super) fn rename(&self, folder_id: &str, name: &str) -> CommandResult<()> {
         let name = validate_name(name)?;
+        {
+            // edit_folder 只暴露目标文件夹，这里先整体读一次做重名校验；
+            // 编辑本身由持久化锁串行化，预检与写入之间的窗口可忽略。
+            let file = self.value.lock()?;
+            ensure_unique_stable_name(&file, &name, Some(folder_id))?;
+        }
         self.edit_folder(folder_id, |folder| {
             ensure_writable(folder)?;
             folder.name = name;
@@ -683,6 +693,28 @@ fn validate_name(name: &str) -> CommandResult<String> {
         ));
     }
     Ok(name.to_string())
+}
+
+/// 名称唯一性：参与 stable 同步的文件夹之间不允许同名（`exclude_id` 用于
+/// 重命名时排除自身）。osu! 按名称加载收藏夹，collection.db 出现重名时
+/// 会丢弃重复项及其后的全部收藏夹；lazer 只读镜像不参与写回，不受限。
+fn ensure_unique_stable_name(
+    file: &CollectionFile,
+    name: &str,
+    exclude_id: Option<&str>,
+) -> CommandResult<()> {
+    let conflict = file.folders.iter().any(|folder| {
+        folder.id != exclude_id.unwrap_or("")
+            && folder.participates_in_stable()
+            && folder.name == name
+    });
+    if conflict {
+        return Err(CommandError::new(
+            "INVALID_COLLECTION_NAME",
+            "该名称已被参与 Stable 同步的收藏夹使用，osu! 不支持重名收藏夹",
+        ));
+    }
+    Ok(())
 }
 
 fn folder_mut<'a>(
