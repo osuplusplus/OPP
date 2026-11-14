@@ -30,6 +30,17 @@ pub async fn get_tournament_pool(
     finish_span(span, service::load(&reference, &state, |_| {}).await)
 }
 
+/// 浏览 RomAI 图池索引：全量池摘要（段位、图位统计、封面），
+/// 一小时内的本地缓存直接复用，过期后带 ETag 条件刷新。
+#[tauri::command]
+pub async fn get_romai_pool_summaries(
+    state: State<'_, AppState>,
+) -> CommandResult<super::romai::RomaiPoolIndex> {
+    let span =
+        global().map(|logger| logger.operation("tournament_pools", "get_romai_pool_summaries"));
+    finish_span(span, state.romai_pools.summaries().await)
+}
+
 /// 拉取图池并以替换方式同步到关联的收藏夹文件夹。
 #[tauri::command]
 pub async fn sync_tournament_pool_collection(

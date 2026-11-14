@@ -23,6 +23,7 @@ use crate::{
         skin_workshop::SkinWorkshopService,
         tablet_driver::OtdRuntime,
         tosu::TosuRuntime,
+        tournament_pools::RomaiPoolsClient,
         translation::TranslationService,
     },
     infrastructure::{osu_api::OsuApi, storage::StateStore},
@@ -53,6 +54,8 @@ pub struct AppState {
     pub beatmaphub: Arc<BeatmapHubService>,
     /// osu!Collector 只读客户端（PackHub 补充来源，直连不经 PackHub 服务器）。
     pub osu_collector: OsuCollectorClient,
+    /// RomAI 图池客户端（比赛图池来源，全量索引缓存于应用数据目录）。
+    pub romai_pools: RomaiPoolsClient,
     pub similarity: Arc<SimilarityRuntime>,
     pub store: Arc<StateStore>,
     pub oauth: Mutex<OAuthRuntime>,
@@ -114,6 +117,7 @@ impl AppState {
                 local_scores: Default::default(),
                 beatmaphub,
                 osu_collector: OsuCollectorClient::new()?,
+                romai_pools: RomaiPoolsClient::new(app_data_dir)?,
                 similarity: Arc::new(SimilarityRuntime::default()),
                 store,
                 oauth: Mutex::new(OAuthRuntime::default()),

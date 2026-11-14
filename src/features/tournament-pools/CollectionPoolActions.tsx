@@ -49,7 +49,7 @@ export function CollectionPoolActions({ folder, pool, onImportStable }: {
       <button disabled={busy} onClick={() => sync.mutate()}><RefreshCw size={15} />{sync.isPending ? "正在同步…" : "同步图池"}</button>
       <span>{downloads.destination || "开始下载时选择目录"}</span>
       <label>下载源 <select aria-label="图池下载源" disabled={downloads.state.busy} value={provider ?? downloads.defaultProvider} onChange={(e) => setProvider(e.target.value as BeatmapDownloadProvider | "none")}>
-        <option value="sayobot">小夜 Sayobot（推荐）</option><option value="hinai">Hinai（仅手动）</option><option value="catboy">Catboy</option><option value="nerinyan">Nerinyan</option><option value="none">不使用镜像</option>
+        <option value="sayobot">小夜 Sayobot（推荐）</option><option value="osudirect">osu.direct</option><option value="nekoha">Nekoha Mirror</option><option value="hinai">Hinai（仅手动）</option><option value="catboy">Catboy</option><option value="nerinyan">Nerinyan</option><option value="none">不使用镜像</option>
       </select></label>
       <button disabled={downloads.state.busy || busy} onClick={() => { void desktopApi.chooseBeatmapDownloadDirectory(downloads.destination || null).then((path) => path ? downloads.saveDestination(path) : undefined).catch((error) => setNotice(errorMessage(error))); }}>更改保存目录</button>
     </div></details>

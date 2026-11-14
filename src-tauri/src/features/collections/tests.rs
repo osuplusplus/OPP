@@ -9,7 +9,7 @@ use md5::{Digest, Md5};
 
 use super::*;
 use super::{
-    downloads::parse_downloaded_beatmap,
+    downloads::parse_archive_beatmap,
     service::{LocalPresenceCacheEntry, cached_local_presence, candidate_to_entry},
     share::{SharePayload, decode_share, encode_share},
     stable::{
@@ -273,12 +273,32 @@ Version:Another
 BeatmapID:456
 BeatmapSetID:123
 "#;
-    let (beatmap_id, parsed) = parse_downloaded_beatmap(bytes).unwrap();
-    assert_eq!(beatmap_id, 456);
+    let (beatmap_id, parsed) = parse_archive_beatmap(bytes);
+    assert_eq!(beatmap_id, Some(456));
     assert_eq!(parsed.beatmapset_id, Some(123));
     assert_eq!(parsed.ruleset.as_deref(), Some("mania"));
     assert_eq!(parsed.title, "Unicode Title");
     assert_eq!(parsed.difficulty_name, "Another");
+    assert_eq!(parsed.checksum, format!("{:x}", Md5::digest(bytes)));
+}
+
+/// 2014 前的老 .osu 元数据没有任何 ID 字段：难度 ID 解析为 None，
+/// 但标题/难度名/MD5 仍可用于条目回填。
+#[test]
+fn legacy_beatmap_without_ids_still_supplies_title_and_checksum() {
+    let bytes = br#"osu file format v5
+
+[Metadata]
+Title:Mythologia's End
+Artist:Hatsune Miku
+Creator:val0108
+Version:Myth0108ia
+"#;
+    let (beatmap_id, parsed) = parse_archive_beatmap(bytes);
+    assert_eq!(beatmap_id, None);
+    assert_eq!(parsed.beatmapset_id, None);
+    assert_eq!(parsed.title, "Mythologia's End");
+    assert_eq!(parsed.difficulty_name, "Myth0108ia");
     assert_eq!(parsed.checksum, format!("{:x}", Md5::digest(bytes)));
 }
 

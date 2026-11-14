@@ -18,6 +18,7 @@ import { NotificationCard } from "../shared/components/notifications";
 import { AppDialog } from "../shared/components/AppDialog";
 import { displayFileName } from "../shared/lib/displayText";
 import { CollectionAddDialog } from "../features/collections/CollectionAddDialog";
+import { StableWriteBackWatcher } from "../features/collections/StableWriteBackWatcher";
 import { requestCollectionTaskCancellation, subscribeCollectionTask, updateCollectionTask, type CollectionTaskStatus } from "../features/collections/taskStatus";
 import { settingsQueryKey, useSettings } from "../features/settings/api";
 const OnboardingTour = lazy(() => import("../features/onboarding/OnboardingTour").then((module) => ({ default: module.OnboardingTour })));
@@ -138,6 +139,9 @@ function CollectionTaskToast() {
   const [collapsed, setCollapsed] = useState(false);
   const active = useRef(false);
   const [cancelling, setCancelling] = useState(false);
+  // 并行下载（最多同时 2 个）会交替上报各自的曲名，直接展示会来回闪烁；
+  // 与 DownloadToast 同款的状态适配器把“当前曲名”固定到一个进行中的条目上。
+  const [progressDisplay] = useState(createDownloadProgressDisplay);
 
   useEffect(() => subscribeCollectionTask((next) => {
     active.current = !["completed", "failed", "cancelled"].includes(next.phase);
@@ -164,15 +168,16 @@ function CollectionTaskToast() {
         updateCollectionTask({ phase: "cancelled", message: "缺失曲包下载已取消" });
         return;
       }
+      const visible = progressDisplay.update(progress);
       updateCollectionTask({
         phase: "downloading",
-        message: progress.current_title ?? progress.message ?? "正在下载缺失曲包",
+        message: visible?.current_title ?? progress.message ?? "正在下载缺失曲包",
         processed: progress.processed,
         total: progress.total,
       });
     }).then((unlisten) => { if (disposed) unlisten(); else disposeDownload = unlisten; });
     return () => { disposed = true; disposeCollection?.(); disposeDownload?.(); };
-  }, []);
+  }, [progressDisplay]);
 
   if (!status) return null;
   const terminal = ["completed", "failed", "cancelled"].includes(status.phase);
@@ -180,9 +185,8 @@ function CollectionTaskToast() {
   const labels: Record<CollectionTaskStatus["phase"], string> = {
     checking: "解析缺失谱面",
     downloading: "下载曲包",
-    installing: "读取曲包并补齐 MD5",
+    installing: "解压曲包进 Songs",
     writing: "写回游戏收藏夹",
-    opening: "调用游戏导入曲包",
     completed: "收藏夹同步完成",
     failed: "收藏夹同步失败",
     cancelled: "收藏夹同步已取消",
@@ -509,6 +513,7 @@ export function AppShell() {
       </Suspense>
       {location.pathname !== "/online/beatmaps" ? <DownloadToast /> : null}
       <CollectionTaskToast />
+      <StableWriteBackWatcher />
       <DownloadCompletedPlaylist />
       <CollectionAddDialog defaultCreator={profileQuery.data?.data.username ?? ""} />
       <UpdateCenter

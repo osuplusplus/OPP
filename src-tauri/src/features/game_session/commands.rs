@@ -18,8 +18,10 @@ pub fn get_game_status(state: State<'_, AppState>) -> CommandResult<GameStatusSn
         .map_err(|_| CommandError::new("GAME_STATUS_LOCKED", "游戏状态不可用"))
 }
 
-/// 逐个把 `.osz` 曲包路径作为启动参数交给客户端打开，两次启动间隔 180ms；
-/// 不存在、非 `.osz` 或启动失败者计入失败列表。
+/// 把 `.osz` 曲包交给客户端导入。stable 走确定性路径：直接解压进 Songs
+/// （把文件参数塞给 osu! 进程在开机初始化期间会整批丢失并弹系统报错）；
+/// lazer 的单实例参数转发可靠，保留逐个启动（间隔 180ms）。
+/// 不存在、非 `.osz` 或导入失败者计入失败列表。
 #[tauri::command]
 pub async fn open_beatmap_files(
     client: LocalClient,
@@ -29,6 +31,18 @@ pub async fn open_beatmap_files(
     use crate::infrastructure::logging::{finish_span, global};
     let span = global().map(|log| log.operation("game_session", "open_beatmap_files"));
     let result = async {
+        if client == LocalClient::Stable {
+            let (opened, failures) =
+                crate::features::collections::downloads::import_archives_into_stable_songs(
+                    &state,
+                    &archive_paths,
+                )?;
+            return Ok(BeatmapOpenResult {
+                opened,
+                failed: failures.len(),
+                failures,
+            });
+        }
         let target = game_launch_target(client, &state)?;
         let mut opened = 0usize;
         let mut failures = Vec::new();

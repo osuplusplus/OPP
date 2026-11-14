@@ -1,10 +1,8 @@
 .beatmaphub-page, .hub-dialog { color: var(--text); }
 :root[data-theme-mode="light"] .hub-overlay { background: rgba(20, 25, 35, .32); }
 .beatmaphub-page { padding-bottom: 32px; }
-.hub-intro { padding: 10px 0 28px; }
-.hub-eyebrow { color: var(--theme-primary-light); font-size: 10px; font-weight: 700; letter-spacing: .2em; }
-.hub-intro h2 { margin: 10px 0; font-size: clamp(24px, 2.5vw, 36px); font-weight: 650; letter-spacing: -.04em; }
-.hub-intro p, .hub-muted { color: var(--text-muted); font-size: 13px; line-height: 1.7; }
+.hub-muted { color: var(--text-muted); font-size: 13px; line-height: 1.7; }
+.hub-filter-rows { margin: 12px 0 4px; border-bottom: 1px solid var(--line-subtle); }
 .hub-search { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 18px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-panel); }
 .hub-search:focus-within { border-color: var(--theme-primary); box-shadow: 0 0 0 3px var(--theme-primary-muted); }
 .hub-search > svg { color: var(--text-muted); flex-shrink: 0; }
@@ -18,8 +16,6 @@
 .hub-pack-card { text-align: left; min-width: 0; overflow: hidden; border: 1px solid var(--line-subtle); border-radius: 12px; background: var(--surface-panel); cursor: pointer; transition: border-color 160ms, transform 160ms, box-shadow 160ms; }
 .hub-pack-card:hover { border-color: var(--theme-primary-soft); transform: translateY(-3px); box-shadow: 0 10px 26px #00000016; }
 .hub-pack-card:focus-visible, .hub-task:focus-visible, .hub-text-button:focus-visible, .hub-rating button:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 4px; }
-.hub-cover { position: relative; aspect-ratio: 2.35; overflow: hidden; background: linear-gradient(125deg, var(--theme-primary-muted), var(--surface-raised)); }
-.hub-cover img { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; }
 .hub-cover-placeholder { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 32px; height: 32px; color: var(--theme-primary-light); opacity: .45; }
 .hub-pack-copy { padding: 17px 18px 16px; }
 .hub-card-eyebrow { display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 11px; }
@@ -95,8 +91,77 @@
 .hub-task > span:first-child { display: grid; gap: 4px; }
 .hub-task > span:first-child > span { color: var(--text-muted); }
 .hub-task > span:last-child { flex-shrink: 0; color: var(--theme-primary-light); }
-@media (max-width: 760px) { .hub-search { gap: 6px; padding-left: 12px; } .hub-visibility { grid-template-columns: 1fr; } .hub-detail-content { padding: 18px; } .hub-intro h2 { font-size: 26px; } }
+@media (max-width: 760px) { .hub-search { gap: 6px; padding-left: 12px; } .hub-visibility { grid-template-columns: 1fr; } .hub-detail-content { padding: 18px; } }
 @media (prefers-reduced-motion: reduce) { .hub-pack-card, .hub-skeleton { animation: none; transition: none; } .hub-pack-card:hover { transform: none; } }
 /* —— osu!Collector 补充来源 —— */
 .hub-source-badge { display: inline-flex; align-items: center; margin-right: 8px; padding: 1px 8px; border: 1px solid var(--theme-primary-soft); border-radius: 999px; color: var(--theme-primary-light); font-size: 10px; letter-spacing: 0.04em; }
 .hub-collector-more { display: flex; justify-content: center; margin-top: 18px; }
+/* RomAI 增量加载：触底哨兵 + 显式“加载更多”，首批只渲染 48 张卡片。 */
+.hub-romai-more { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; margin-top: 18px; }
+/* 集合卡片：无封面，以难度分布直方图代替视觉主体（色阶对齐 osu!Collector 官网）。 */
+:root { --hub-star-high: #ffffff; }
+:root[data-theme-mode="light"] { --hub-star-high: #17203a; }
+.hub-spread { padding: 16px 16px 10px; border-bottom: 1px solid var(--line-subtle); background: var(--surface-interactive); }
+.hub-spread-bars { display: flex; align-items: flex-end; gap: 3px; height: 56px; }
+.hub-spread-bar { flex: 1; min-width: 0; border-radius: 2px 2px 0 0; opacity: .92; }
+.hub-spread-axis { display: flex; gap: 3px; margin-top: 4px; color: var(--text-muted); font-size: 9px; line-height: 1; }
+.hub-spread-axis > span { flex: 1; min-width: 0; text-align: center; }
+.hub-spread-empty { display: flex; align-items: center; justify-content: center; gap: 8px; height: 86px; color: var(--text-muted); font-size: 11px; }
+.hub-card-eyebrow .hub-modes { display: inline-flex; min-width: 0; align-items: center; gap: 10px; }
+.hub-mode-count { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
+.hub-mode-count svg { color: var(--text-muted); }
+.hub-favourites { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.hub-favourites svg { color: var(--theme-primary-light); }
+.hub-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line-subtle); font-size: 11px; }
+.hub-uploader { display: inline-flex; min-width: 0; align-items: center; gap: 6px; color: var(--text); font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hub-uploader img { flex-shrink: 0; width: 18px; height: 18px; border-radius: 999px; object-fit: cover; }
+.hub-card-footer .hub-muted { flex-shrink: 0; font-size: 11px; }
+/* —— RomAI 风格统一视觉（来源分段 / 封面拼贴 / ELO 徽章 / 模组色签 / 图位标识）—— */
+/* 来源切换分段控件：三个来源常驻可见，当前来源以主色高亮，比下拉更显眼。 */
+.hub-source-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 14px 0 4px; padding: 5px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface-interactive); }
+.hub-source-segment { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; color: var(--text-muted); cursor: pointer; transition: color 140ms, background 140ms, border-color 140ms, box-shadow 140ms; }
+.hub-source-segment:hover { background: var(--surface-interactive-hover); color: var(--text); }
+.hub-source-segment[aria-selected="true"] { border-color: var(--theme-primary-soft); background: var(--theme-primary-muted); color: var(--theme-primary-light); box-shadow: 0 0 0 3px var(--theme-primary-muted); }
+.hub-source-segment:focus-visible { outline: 2px solid var(--theme-primary); outline-offset: 2px; }
+.hub-source-segment > svg { flex-shrink: 0; }
+.hub-source-segment-copy { display: grid; text-align: left; line-height: 1.3; }
+.hub-source-segment-copy strong { font-size: 13px; font-weight: 650; }
+.hub-source-segment-copy small { font-size: 10px; opacity: .75; letter-spacing: .02em; }
+@media (max-width: 760px) { .hub-source-switch { grid-template-columns: 1fr; } }
+/* 四联封面拼贴：每段等宽铺满，底部渐隐进卡片底色，文字区与封面无缝衔接。 */
+.hub-pack-card { position: relative; }
+.hub-collage { position: relative; display: flex; aspect-ratio: 2.35; overflow: hidden; background: linear-gradient(125deg, var(--theme-primary-muted), var(--surface-raised)); }
+.hub-collage-segment { flex: 1; min-width: 0; height: 100%; object-fit: cover; }
+.hub-collage-fallback { background: var(--surface-interactive); }
+.hub-collage-scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, var(--surface-panel) 0%, color-mix(in srgb, var(--surface-panel) 60%, transparent) 24%, transparent 56%); }
+.hub-collage .hub-cover-placeholder { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 32px; height: 32px; color: var(--theme-primary-light); opacity: .45; }
+/* ELO 段位徽章：半透明深底 + 模糊 + 段位色描边（颜色由内联样式注入）。 */
+.hub-elo-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid; border-radius: 999px; background: rgba(10, 12, 16, 0.55); backdrop-filter: blur(6px); font-size: 11px; font-weight: 650; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.hub-romai-card .hub-elo-badge, .hub-collage ~ .hub-elo-badge { position: absolute; top: 10px; right: 10px; z-index: 2; color: #fff; }
+.hub-elo-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; transform: rotate(45deg); }
+.hub-card-subtitle { margin: 3px 0 0; color: var(--text-muted); font-size: 12px; }
+/* 模组计数色签：底色/描边/文字色由内联样式按模组注入。 */
+.hub-mod-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.hub-mod-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 1px solid; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.hub-filter-rows .hub-elo-dot { width: 7px; height: 7px; }
+.hub-option-count { color: var(--text-muted); font-size: 10px; opacity: .85; }
+/* RomAI 图池详情：头部行 + 按模组分组的图位列表（槽位标识与收藏夹管理页同源）。 */
+.hub-romai-headline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.hub-romai-headline .hub-card-subtitle { margin: 0; }
+.hub-romai-headline .hub-mod-chips { margin: 0; }
+.hub-slot-list { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.hub-slot-list > li { display: grid; gap: 8px; }
+.hub-slot-list ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hub-slot-group { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; }
+.hub-slot-group::before { content: ""; width: 14px; height: 2px; border-radius: 1px; background: currentColor; opacity: .6; }
+.hub-slot-group span { padding: 1px 8px; border-radius: 999px; background: var(--surface-interactive); color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.hub-slot-row { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line-subtle); border-radius: 10px; background: var(--surface-interactive); }
+.hub-slot-chip { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; min-width: 52px; padding: 6px 8px; border: 1px solid; border-radius: 8px; font-size: 13px; font-weight: 750; letter-spacing: 0.03em; font-variant-numeric: tabular-nums; }
+.hub-slot-map { display: flex; flex: 1; min-width: 0; align-items: center; gap: 12px; }
+.hub-slot-map > img { flex-shrink: 0; width: 64px; height: 40px; border: 1px solid var(--line-subtle); border-radius: 6px; object-fit: cover; }
+.hub-slot-map > div { min-width: 0; }
+.hub-slot-map strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
+.hub-slot-map p { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; color: var(--text-muted); font-size: 11px; }
+.hub-slot-map small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; color: var(--text-muted); font-size: 10px; }
+.hub-slot-status { flex-shrink: 0; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .hub-source-segment { transition: none; } }

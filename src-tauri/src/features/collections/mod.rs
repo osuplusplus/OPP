@@ -6,7 +6,8 @@
 // task（后台任务的取消与进度）。
 mod archive;
 mod browser;
-mod downloads;
+// downloads 内的“osz 导入 stable Songs”需被下载完成自动导入与游戏会话命令复用。
+pub(crate) mod downloads;
 mod lazer;
 mod models;
 // notebook 中的类型需被 tournament_pools 模块复用，因此放开为 crate 内可见。
@@ -21,9 +22,7 @@ pub use browser::*;
 mod tests;
 
 pub use archive::import_collection_archive;
-pub use downloads::{
-    get_collection_download_items, install_collection_downloads, open_collection_downloads,
-};
+pub use downloads::{get_collection_download_items, install_collection_downloads};
 pub use models::*;
 pub use service::CollectionService;
 pub use share::{export_collection_share, import_collection_share, preview_collection_share};

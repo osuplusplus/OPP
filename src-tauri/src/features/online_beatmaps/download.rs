@@ -39,8 +39,10 @@ pub fn download_file_name(item: &BeatmapDownloadItem, suggested: Option<&str>) -
 }
 
 /// 校验镜像压缩包与所选谱面集一致，拦截镜像缓存过期或返回错包：
-/// 包内每个 `.osu` 的 `BeatmapSetID` 必须匹配，收集到的 `BeatmapID`
-/// 集合须与 `expected_beatmap_ids` 精确相等（谱面池模式下允许为超集）。
+/// 包内带 ID 的 `.osu` 的 `BeatmapSetID` 必须匹配，收集到的 `BeatmapID`
+/// 集合须覆盖 `expected_beatmap_ids`（谱面池模式下允许为超集）。
+/// 2014 前的老谱面 `.osu` 元数据没有任何 ID 字段，此时退化为标题比对
+/// （ASCII/Unicode 任一命中即可），仍然拦截镜像返回完全不同曲目的错包。
 pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> CommandResult<()> {
     let mut archive = zip::ZipArchive::new(reader).map_err(|_| {
         CommandError::new(
@@ -50,6 +52,9 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
     })?;
     let expected: HashSet<u64> = item.expected_beatmap_ids.iter().copied().collect();
     let mut found = HashSet::new();
+    // 无 ID 老格式 `.osu` 的标题收集（ASCII 与 Unicode 各一），供兜底比对。
+    let mut legacy_titles: Vec<[String; 2]> = Vec::new();
+    let mut saw_submitted_set_id = false;
     for index in 0..archive.len() {
         let mut file = archive
             .by_index(index)
@@ -68,11 +73,13 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
         file.read_to_end(&mut bytes).map_err(|_| {
             CommandError::new("INVALID_BEATMAP_ARCHIVE", "无法读取压缩包中的 .osu 文件")
         })?;
-        // 只需要 [Metadata] 段里的两个 ID，不解析 `.osu` 其余内容。
+        // 只需要 [Metadata] 段里的字段，不解析 `.osu` 其余内容。
         let text = String::from_utf8_lossy(&bytes);
         let mut in_metadata = false;
-        let mut beatmap_id = None;
-        let mut set_id = None;
+        let mut beatmap_id: Option<i64> = None;
+        let mut set_id: Option<i64> = None;
+        let mut title = None;
+        let mut title_unicode = None;
         for line in text.lines() {
             let line = line.trim().trim_start_matches('\u{feff}');
             if line.starts_with('[') && line.ends_with(']') {
@@ -81,20 +88,38 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
                 if let Some(value) = line.strip_prefix("BeatmapID:") {
                     beatmap_id = value.trim().parse::<i64>().ok();
                 } else if let Some(value) = line.strip_prefix("BeatmapSetID:") {
-                    set_id = value.trim().parse::<u64>().ok();
+                    set_id = value.trim().parse::<i64>().ok();
+                } else if let Some(value) = line.strip_prefix("Title:") {
+                    title = Some(value.trim().to_string());
+                } else if let Some(value) = line.strip_prefix("TitleUnicode:") {
+                    title_unicode = Some(value.trim().to_string());
                 }
             }
         }
-        if set_id != Some(item.beatmapset_id) || beatmap_id.is_none_or(|id| id < -1) {
+        if beatmap_id.is_some_and(|id| id < -1) {
             return Err(CommandError::new(
                 "STALE_BEATMAP_ARCHIVE",
                 "镜像返回的谱面文件与所选谱面集不符",
             ));
         }
-        // Published archives can also contain an unsubmitted guest difficulty (0/-1).
-        // It cannot satisfy a requested BID, but does not invalidate the submitted maps.
+        // 带 ID 的难度：集合 ID 必须精确匹配；ID 缺失/未提交（0/-1）的难度
+        // 既不能满足请求的难度，也不会否决其余已提交难度。
+        if let Some(set_id) = set_id.filter(|value| *value > 0) {
+            saw_submitted_set_id = true;
+            if u64::try_from(set_id) != Ok(item.beatmapset_id) {
+                return Err(CommandError::new(
+                    "STALE_BEATMAP_ARCHIVE",
+                    "镜像返回的谱面文件与所选谱面集不符",
+                ));
+            }
+        }
         if let Some(id) = beatmap_id.filter(|id| *id > 0) {
             found.insert(id as u64);
+        } else if set_id.filter(|value| *value > 0).is_none() {
+            let titles = [title.unwrap_or_default(), title_unicode.unwrap_or_default()];
+            if titles.iter().any(|value| !value.is_empty()) {
+                legacy_titles.push(titles);
+            }
         }
     }
     let matches = if item.allow_extra_difficulties {
@@ -103,12 +128,33 @@ pub fn validate_osz<R: Read + Seek>(reader: R, item: &BeatmapDownloadItem) -> Co
         found == expected
     };
     if found.is_empty() || (!expected.is_empty() && !matches) {
+        // 整包都是无 ID 的老格式（2014 前经典图常见）：无法比对难度 ID，
+        // 退化为标题比对，拦截镜像返回完全不同曲目的错包。
+        if !saw_submitted_set_id && !legacy_titles.is_empty() {
+            let wanted = normalize_title(&item.title);
+            if !wanted.is_empty()
+                && legacy_titles
+                    .iter()
+                    .any(|titles| titles.iter().any(|value| normalize_title(value) == wanted))
+            {
+                return Ok(());
+            }
+        }
         return Err(CommandError::new(
             "STALE_BEATMAP_ARCHIVE",
             "镜像中的难度与官网当前难度不一致",
         ));
     }
     Ok(())
+}
+
+/// 标题归一化：只保留字母数字并小写，供老谱面的兜底比对。
+fn normalize_title(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// 给出首选镜像对应的级联顺序；不在列表中的镜像不会被自动尝试。
@@ -341,6 +387,56 @@ mod regression_tests {
         };
         validate_osz(archive(&entries), &exact).unwrap();
         assert!(validate_osz(archive(&missing), &exact).is_err());
+    }
+
+    /// 2014 前的老谱面整包没有 ID 字段（如 SID 48979 Mythologia's End）：
+    /// 按归一化标题兜底放行，标题不同（镜像串包）仍然拒绝；
+    /// 混入错误集合 ID 的难度文件依旧整体拒绝。
+    #[test]
+    fn legacy_archive_without_ids_validates_by_normalized_title() {
+        fn legacy(title: &str, extra: &str) -> Cursor<Vec<u8>> {
+            let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            writer
+                .start_file("old.osu", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            write!(
+                writer,
+                "osu file format v5\n[Metadata]\nTitle:{title}\nArtist:Hatsune Miku\nVersion:Myth0108ia\n{extra}"
+            )
+            .unwrap();
+            writer.finish().unwrap()
+        }
+        let item = BeatmapDownloadItem {
+            beatmapset_id: 48979,
+            artist: "Hatsune Miku".into(),
+            title: "Mythologia's End".into(),
+            expected_beatmap_ids: vec![151229],
+            allow_extra_difficulties: true,
+        };
+        validate_osz(legacy("Mythologia's End", ""), &item).unwrap();
+        // 大小写/标点差异经归一化后仍命中。
+        validate_osz(legacy("mythologia's  END!", ""), &item).unwrap();
+        // 镜像返回完全不同的曲目：标题不命中即拒绝。
+        assert!(validate_osz(legacy("Solar Sect of Mystic Wisdom", ""), &item).is_err());
+        // 混入带错误集合 ID 的难度文件仍然整体拒绝。
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file("a.osu", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        write!(
+            writer,
+            "osu file format v5\n[Metadata]\nTitle:Mythologia's End\n"
+        )
+        .unwrap();
+        writer
+            .start_file("b.osu", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        write!(
+            writer,
+            "osu file format v14\n[Metadata]\nBeatmapID:1\nBeatmapSetID:999\n"
+        )
+        .unwrap();
+        assert!(validate_osz(writer.finish().unwrap(), &item).is_err());
     }
 
     #[test]

@@ -6,6 +6,7 @@ use super::{models::*, rino, service, uri};
 fn reference() -> TournamentPoolRef {
     TournamentPoolRef {
         url: None,
+        pool_id: None,
         provider: "rino".into(),
         season: "s1".into(),
         category: "qualification".into(),
@@ -41,6 +42,7 @@ async fn live_rino_api_accepts_all_supported_pool_references() {
         for (category, _) in CATEGORIES {
             let reference = TournamentPoolRef {
                 url: None,
+                pool_id: None,
                 provider: "rino".into(),
                 season: season.into(),
                 category: category.into(),
@@ -388,6 +390,7 @@ fn standard_reference() -> TournamentPoolRef {
         url: Some("https://example.com/pool.json".into()),
         season: String::new(),
         category: String::new(),
+        pool_id: None,
     }
 }
 fn standard_document() -> serde_json::Value {
@@ -559,4 +562,73 @@ fn sync_commits_membership_and_snapshot_together_and_preserves_notes_on_failure(
     ));
     let notes: serde_json::Value = serde_json::from_slice(&std::fs::read(notes).unwrap()).unwrap();
     assert_eq!(notes["records"]["bid:10"]["note"], "练习记录");
+}
+
+/// RomAI 引用：24 位十六进制图池 ID 合法，携带其余来源字段或格式错误均拒绝；
+/// 来源标识形如 `tournament:romai:<pool_id>`。
+#[test]
+fn romai_reference_requires_a_object_id_and_exclusive_fields() {
+    let reference = TournamentPoolRef {
+        url: None,
+        pool_id: Some("6649b30ad5efb507e7b8d7b5".into()),
+        provider: "romai".into(),
+        season: String::new(),
+        category: String::new(),
+    };
+    assert!(reference.validate().is_ok());
+    assert_eq!(
+        reference.source_id(),
+        "tournament:romai:6649b30ad5efb507e7b8d7b5"
+    );
+    // ID 非法（长度不足 / 非十六进制）或混入 rino/opp 字段一律拒绝。
+    for bad in [
+        TournamentPoolRef {
+            pool_id: Some("short".into()),
+            ..reference.clone()
+        },
+        TournamentPoolRef {
+            pool_id: Some("zz49b30ad5efb507e7b8d7zz".into()),
+            ..reference.clone()
+        },
+        TournamentPoolRef {
+            season: "s1".into(),
+            ..reference.clone()
+        },
+        TournamentPoolRef {
+            url: Some("https://example.com".into()),
+            ..reference.clone()
+        },
+        TournamentPoolRef {
+            pool_id: None,
+            ..reference
+        },
+    ] {
+        assert!(bad.validate().is_err(), "{bad:?}");
+    }
+}
+
+/// 序列化兼容：旧持久化引用（无 pool_id 字段）可反序列化；romai 引用序列化
+/// 后只携带 provider 与 pool_id，且能往返。
+#[test]
+fn romai_references_serialize_compactly_and_old_refs_still_parse() {
+    let legacy: TournamentPoolRef =
+        serde_json::from_str(r#"{"provider":"rino","season":"s1","category":"finals"}"#).unwrap();
+    assert_eq!(legacy.provider, "rino");
+    assert_eq!(legacy.pool_id, None);
+    let romai = TournamentPoolRef {
+        url: None,
+        pool_id: Some("6649b30ad5efb507e7b8d7b5".into()),
+        provider: "romai".into(),
+        season: String::new(),
+        category: String::new(),
+    };
+    let encoded = serde_json::to_string(&romai).unwrap();
+    assert_eq!(
+        encoded,
+        r#"{"provider":"romai","pool_id":"6649b30ad5efb507e7b8d7b5"}"#
+    );
+    assert_eq!(
+        serde_json::from_str::<TournamentPoolRef>(&encoded).unwrap(),
+        romai
+    );
 }

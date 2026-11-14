@@ -209,20 +209,14 @@ pub struct CollectionBackupStatus {
     pub latest: Option<String>,
 }
 
-/// 补齐下载安装到本地后的统计。
+/// 补齐下载安装到本地后的统计；`extracted_sets` 为本次解压进 Songs 的曲包数
+/// （已存在同前缀目录而跳过的不计入）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionInstallResult {
     pub installed_sets: usize,
+    pub extracted_sets: usize,
     pub resolved_entries: usize,
     pub unresolved_entries: usize,
-}
-
-/// 打开收藏夹条目所在谱面文件/目录的结果统计。
-#[derive(Debug, Clone, Serialize)]
-pub struct CollectionOpenResult {
-    pub opened: usize,
-    pub failed: usize,
-    pub failures: Vec<String>,
 }
 
 /// 后台任务进度事件的负载，经 `collection-task-progress` 事件广播给前端。

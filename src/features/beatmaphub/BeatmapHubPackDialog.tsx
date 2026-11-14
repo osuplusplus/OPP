@@ -6,7 +6,7 @@ import { AppDialog } from "../../shared/components/AppDialog";
 import { Button } from "../../shared/components/ui";
 import type { BeatmapHubPack, BeatmapHubPackPreview, OnlineBeatmapset } from "../../shared/types/osu";
 import { hubApi, hubPackKey, hubSearchKey, beatmapHubRecommendationsKey, useHubDownloadConfig, useHubMetadata } from "./api";
-import { HubCover } from "./HubBrowser";
+import { HubCollage } from "./HubBrowser";
 import { HubComments } from "./HubComments";
 import { copyHubCode, hubError, type CommentDraft } from "./model";
 import type { HubImportTask, useHubImport } from "./useHubImport";
@@ -52,7 +52,7 @@ export function BeatmapHubPackDialog({ preview, open, onClose, onCloseAutoFocus,
   </div>;
   return <>
     <AppDialog open={open} onOpenChange={(value) => { if (!value && !busy) onClose(); }} onCloseAutoFocus={onCloseAutoFocus} overlayProps={{ className: "hub-overlay" }} title={pack.title} description={`${pack.owner.display_name} · ${pack.is_private ? "仅凭分享码访问" : "公开曲包"} · BPH-${pack.id}`} size="lg" contentClassName="hub-dialog hub-detail" bodyClassName="hub-detail-body" closeLabel="关闭曲包详情" closeDisabled={busy} footer={footer}>
-      <HubCover ids={pack.beatmapset_ids} className="hub-detail-cover" />
+      <HubCollage className="hub-detail-cover" ids={pack.beatmapset_ids} />
       <div className="hub-detail-content">
         {pack.description ? <p className="hub-description">{pack.description}</p> : null}
         <div className="hub-preview-counts"><div><strong>{pack.beatmapset_ids.length}</strong><span>谱面集</span></div><div><strong>{preview.locally_available_ids.length}</strong><span>本地已有</span></div><div><strong>{preview.missing_ids.length}</strong><span>需要下载</span></div></div>

@@ -64,6 +64,9 @@ pub(super) async fn load(
     progress("fetching");
     let pool = if reference.provider == "opp" {
         standard::fetch(reference).await?
+    } else if reference.provider == "romai" {
+        // RomAI 走 AppState 内的缓存客户端，避免详情/导入重复下载全量索引。
+        state.romai_pools.fetch_pool(reference).await?
     } else {
         rino::fetch(reference).await?
     };

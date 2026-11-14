@@ -1,4 +1,4 @@
-import type { TournamentImportProgress, TournamentLink, TournamentPool, TournamentPoolRef, TournamentPoolSyncResult } from "../../types/osu";
+import type { RomaiPoolIndex, TournamentImportProgress, TournamentLink, TournamentPool, TournamentPoolRef, TournamentPoolSyncResult } from "../../types/osu";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { call, isTauri } from "./invoke";
 
@@ -10,6 +10,9 @@ export const tournamentPoolsApi = {
     if (!isTauri()) return () => undefined;
     return listen<TournamentImportProgress>("tournament-pool-import-progress", (event) => handler(event.payload));
   },
+
+  // 浏览 RomAI 图池索引（一小时本地缓存 + ETag 条件刷新，断网回退缓存）。
+  getRomaiPoolSummaries: () => call<RomaiPoolIndex>("get_romai_pool_summaries"),
 
   repairTournamentPoolMetadata: (folderId: string) => call<[number, number]>("repair_tournament_pool_metadata", { folderId }),
 

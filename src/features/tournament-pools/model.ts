@@ -6,7 +6,7 @@ const stages: Record<string, string> = {
   semifinals: "半决赛", finals: "决赛", grandfinals: "总决赛",
 };
 
-export const poolTitle = (reference: TournamentPoolRef) => reference.provider === "opp" ? "OPP 图池" : `ASC 星域杯 ${reference.season.toUpperCase()} ${stages[reference.category]}`;
+export const poolTitle = (reference: TournamentPoolRef) => reference.provider === "opp" ? "OPP 图池" : reference.provider === "romai" ? "RomAI 图池" : `ASC 星域杯 ${reference.season.toUpperCase()} ${stages[reference.category]}`;
 
 export function poolDownloads(pool: TournamentPool | undefined) {
   const sets = new Map<number, BeatmapDownloadSelection>();

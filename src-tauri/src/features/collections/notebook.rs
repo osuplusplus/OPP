@@ -437,6 +437,7 @@ mod tests {
                     info: Default::default(),
                     reference: crate::features::tournament_pools::TournamentPoolRef {
                         url: None,
+                        pool_id: None,
                         provider: "rino".into(),
                         season: "s1".into(),
                         category: "finals".into(),

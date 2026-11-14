@@ -335,6 +335,7 @@ fn browse_folders(
                 if let ["tournament", provider, season, category] = parts.as_slice() {
                     let reference = crate::features::tournament_pools::TournamentPoolRef {
                         url: None,
+                        pool_id: None,
                         provider: (*provider).into(),
                         season: (*season).into(),
                         category: (*category).into(),
@@ -727,6 +728,7 @@ mod tests {
             .unwrap();
         let reference = crate::features::tournament_pools::TournamentPoolRef {
             url: None,
+            pool_id: None,
             provider: "rino".into(),
             season: "s2".into(),
             category: "finals".into(),

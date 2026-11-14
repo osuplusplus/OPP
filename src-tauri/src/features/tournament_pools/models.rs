@@ -13,34 +13,78 @@ pub const CATEGORIES: [(&str, &str); 6] = [
     ("grandfinals", "总决赛"),
 ];
 
+/// RomAI 段位表：按 ELO 升序排列的（段位 ID、门槛）分段。
+/// 门槛与 romai.dev 图池页一致（Candidate 覆盖 1400 以下全部，
+/// 数据集最低约 983；其余按百分位分段，已对照全量 1336 池计数校验）。
+pub const ROMAI_TIERS: [(&str, i32); 8] = [
+    ("candidate", 0),
+    ("silver", 1400),
+    ("gold", 1500),
+    ("platinum", 1600),
+    ("diamond", 1700),
+    ("atomos", 1800),
+    ("cosmic", 1900),
+    ("quantum", 2000),
+];
+
+/// 由 ELO 推导 RomAI 段位 ID：返回不超过该 ELO 的最高门槛段位。
+pub fn romai_tier(elo: i32) -> &'static str {
+    ROMAI_TIERS
+        .iter()
+        .rev()
+        .find(|(_, floor)| elo >= *floor)
+        .map(|(id, _)| *id)
+        .unwrap_or(ROMAI_TIERS[0].0)
+}
+
+/// RomAI 图池 ID 必须形如 Mongo ObjectId（24 位十六进制）。
+pub fn is_romai_pool_id(id: &str) -> bool {
+    id.len() == 24 && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 /// 唯一确定一个图池来源的引用，同时充当收藏夹与图池之间的关联键。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TournamentPoolRef {
-    /// 来源类型：`opp`（标准 JSON 文档导入）或 `rino`（赛事接口）。
+    /// 来源类型：`opp`（标准 JSON 文档导入）、`rino`（赛事接口）或 `romai`（RomAI 图池库）。
     pub provider: String,
-    /// rino 赛季，仅允许 `s1`/`s2`；`opp` 来源必须留空。
+    /// rino 赛季，仅允许 `s1`/`s2`；其余来源必须留空。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub season: String,
-    /// rino 阶段，取值必须是 `CATEGORIES` 中的 ID；`opp` 来源必须留空。
+    /// rino 阶段，取值必须是 `CATEGORIES` 中的 ID；其余来源必须留空。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub category: String,
-    /// `opp` 来源的图池文档地址（须为公开 HTTPS）；`rino` 来源必须为 `None`。
+    /// `opp` 来源的图池文档地址（须为公开 HTTPS）；其余来源必须为 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// `romai` 来源的图池 ID（RomAI 数据集中的 Mongo ObjectId，24 位十六进制）；
+    /// 其余来源必须为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool_id: Option<String>,
 }
 
 impl TournamentPoolRef {
     /// 校验引用自身的合法组合：`opp` 只校验公开 HTTPS 来源地址，
-    /// `rino` 则强制限定赛季与阶段枚举且不允许携带 `url`。
+    /// `rino` 强制限定赛季与阶段枚举，`romai` 只要求 24 位十六进制图池 ID；
+    /// 三种来源都不允许携带其余来源的字段。
     pub fn validate(&self) -> CommandResult<()> {
         // `opp` 分支：赛季与阶段留空，仅要求来源地址本身合法可访问。
         if self.provider == "opp" && self.season.is_empty() && self.category.is_empty() {
             return super::standard::source_url(self.url.as_deref().unwrap_or("")).map(|_| ());
         }
+        // `romai` 分支：仅要求图池 ID 形如 Mongo ObjectId（24 位十六进制）。
+        if self.provider == "romai"
+            && self.season.is_empty()
+            && self.category.is_empty()
+            && self.url.is_none()
+            && self.pool_id.as_deref().is_some_and(is_romai_pool_id)
+        {
+            return Ok(());
+        }
         // 其余输入一律按 rino 的严格枚举校验，任一条件不满足即整体拒绝。
         if self.provider != "rino"
             || self.url.is_some()
+            || self.pool_id.is_some()
             || !matches!(self.season.as_str(), "s1" | "s2")
             || !CATEGORIES.iter().any(|(id, _)| *id == self.category)
         {
@@ -53,13 +97,20 @@ impl TournamentPoolRef {
     }
 
     /// 生成稳定的来源标识：收藏夹据此识别同一图池、避免重复建夹；
-    /// `opp` 把规范化后的 URL 拼入标识，`rino` 使用“提供方:赛季:阶段”三元组。
+    /// `opp` 把规范化后的 URL 拼入标识，`romai` 使用图池 ID，
+    /// `rino` 使用“提供方:赛季:阶段”三元组。
     pub fn source_id(&self) -> String {
         if self.provider == "opp" {
             let url = super::standard::source_url(self.url.as_deref().unwrap_or(""));
             return format!(
                 "tournament:opp:{}",
                 url.map(|u| u.to_string()).unwrap_or_default()
+            );
+        }
+        if self.provider == "romai" {
+            return format!(
+                "tournament:romai:{}",
+                self.pool_id.clone().unwrap_or_default()
             );
         }
         format!(

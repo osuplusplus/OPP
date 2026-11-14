@@ -297,8 +297,21 @@ pub async fn download_online_beatmapsets(
     });
     if open_after_download {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        for path in &result.completed_paths {
-            let _ = open_downloaded_path(app.clone(), path.clone());
+        // stable 已配置：直接解压进 Songs（系统 .osz 关联可能指向别的客户端，
+        // 且把文件参数塞给启动中的 osu! 会整批丢失）；未配置 stable（如 lazer
+        // 用户）沿用系统关联逐个打开，lazer 的单实例导入本身可靠。
+        let stable_import =
+            crate::features::collections::downloads::import_archives_into_stable_songs(
+                &state,
+                &result.completed_paths,
+            );
+        match stable_import {
+            Ok(_) => {}
+            Err(_) => {
+                for path in &result.completed_paths {
+                    let _ = open_downloaded_path(app.clone(), path.clone());
+                }
+            }
         }
     }
 

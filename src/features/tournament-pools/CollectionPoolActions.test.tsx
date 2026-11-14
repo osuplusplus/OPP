@@ -13,7 +13,7 @@ const downloads = vi.hoisted(() => ({
 vi.mock("../online-beatmaps/api", () => ({ useBeatmapDownloads: () => downloads }));
 vi.mock("../../shared/lib/tauri", async (original) => {
   const real = await original<typeof import("../../shared/lib/tauri")>();
-  return { ...real, desktopApi: { ...real.desktopApi, queryCollectionEntries: vi.fn(), syncTournamentPoolCollection: vi.fn(), writeStableCollections: vi.fn(), openCollectionDownloads: vi.fn() } };
+  return { ...real, desktopApi: { ...real.desktopApi, queryCollectionEntries: vi.fn(), syncTournamentPoolCollection: vi.fn(), writeStableCollections: vi.fn() } };
 });
 const folder: CollectionFolderSummary = { id: "pool", name: "Pool", creator: "user", source: "opp", stable_sync: false, read_only: false, pending_write: false, entry_count: 3, missing_count: 2, beatmapset_count: 1, revision: 3 };
 const pool: CollectionPoolSnapshot = { title: "资格赛", tournament: "ASC 星域杯", season: "S1", reference: { provider: "opp", url: "https://example.com/pool.json" }, slots: [] };
@@ -38,7 +38,7 @@ it("downloads stored entries with exact difficulties and never writes or opens g
   ], { provider: "nerinyan", openAfterDownload: false }));
   expect(screen.getByRole("status")).toHaveTextContent("BID 3");
   expect(desktopApi.syncTournamentPoolCollection).not.toHaveBeenCalled();
-  expect(desktopApi.writeStableCollections).not.toHaveBeenCalled(); expect(desktopApi.openCollectionDownloads).not.toHaveBeenCalled();
+  expect(desktopApi.writeStableCollections).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "导入 Stable" }));
   expect(onImportStable).toHaveBeenCalledOnce(); client.clear();
 });

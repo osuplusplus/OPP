@@ -24,6 +24,7 @@ import type {
   CommandError,
 } from "../../shared/types/osu";
 import { resolveDefaultDownloadProvider } from "../online-beatmaps/downloadProvider";
+import { createDownloadProgressDisplay } from "../online-beatmaps/downloadProgressDisplay";
 import { collectionsQueryKey, collectionSummariesKey, collectionEntriesKey, useCollectionSummaries, useRefreshCollections } from "./api";
 import { beginCollectionTask, throwIfCollectionTaskCancelled, updateCollectionTask } from "./taskStatus";
 
@@ -136,6 +137,8 @@ export function CollectionsPage() {
   useEffect(() => {
     let dispose: (() => void) | undefined;
     let active = true;
+    // 并行下载会交替上报各自的曲名，经状态适配器固定为一个进行中的条目，避免提示来回闪烁。
+    const progressDisplay = createDownloadProgressDisplay();
     void desktopApi.onBeatmapDownloadProgress((progress: BeatmapDownloadProgress) => {
       if (!collectionDownloadActive.current) return;
       if (progress.phase === "finished") {
@@ -146,8 +149,9 @@ export function CollectionsPage() {
         setNotice("缺失曲包下载已取消。");
         return;
       }
+      const visible = progressDisplay.update(progress);
       const current = Math.min(progress.total, progress.processed + (progress.phase === "downloading" ? 1 : 0));
-      setNotice(`正在下载缺失曲包 ${current}/${progress.total}${progress.current_title ? `：${progress.current_title}` : ""}`);
+      setNotice(`正在下载缺失曲包 ${current}/${progress.total}${visible?.current_title ? `：${visible.current_title}` : ""}`);
     }).then((unlisten) => { if (active) dispose = unlisten; else unlisten(); });
     return () => { active = false; dispose?.(); };
   }, []);
@@ -204,6 +208,7 @@ export function CollectionsPage() {
       const failures: BeatmapDownloadResult["failures"] = [];
       const archivePaths: string[] = [];
       let installedSets = 0;
+      let extractedSets = 0;
       let resolvedEntries = 0;
       let unresolvedEntries = 0;
       for (let index = 0; index < batches.length; index++) {
@@ -229,10 +234,10 @@ export function CollectionsPage() {
           total: items.length,
         });
         if (!paths.length) continue;
-        setNotice(`正在统一读取本批 ${paths.length} 个曲包（累计 ${archivePaths.length} 个），并计算收藏难度 MD5…`);
+        setNotice(`正在解压本批 ${paths.length} 个曲包进 Songs（累计 ${archivePaths.length} 个）并计算收藏难度 MD5…`);
         updateCollectionTask({
           phase: "installing",
-          message: `正在读取第 ${index + 1}/${batches.length} 批的 ${paths.length} 个曲包并计算收藏难度 MD5…`,
+          message: `正在解压第 ${index + 1}/${batches.length} 批的 ${paths.length} 个曲包进 Songs…`,
           processed: 0,
           total: paths.length,
           errors: failures.map((failure) => `#${failure.beatmapset_id} ${failure.title}：${failure.message}`),
@@ -240,6 +245,7 @@ export function CollectionsPage() {
         const install = await desktopApi.installCollectionDownloads(folderIds, paths);
         throwIfCollectionTaskCancelled();
         installedSets += install.installed_sets;
+        extractedSets += install.extracted_sets;
         resolvedEntries += install.resolved_entries;
         unresolvedEntries += install.unresolved_entries;
       }
@@ -249,7 +255,7 @@ export function CollectionsPage() {
       changed();
       return {
         download: { destination, total: items.length, completed, skipped, failed, cancelled: false, failures, completed_paths: archivePaths },
-        install: { installed_sets: installedSets, resolved_entries: resolvedEntries, unresolved_entries: unresolvedEntries },
+        install: { installed_sets: installedSets, extracted_sets: extractedSets, resolved_entries: resolvedEntries, unresolved_entries: unresolvedEntries },
       };
     } finally {
       collectionDownloadActive.current = false;
@@ -262,32 +268,46 @@ export function CollectionsPage() {
       throwIfCollectionTaskCancelled();
       setNotice("正在安全写回 osu!stable/collection.db…");
       updateCollectionTask({ phase: "writing", message: "曲包 MD5 已准备完成，正在统一写回 collection.db…", processed: 0, total: 1 });
-      const written = await desktopApi.writeStableCollections();
+      // osu! 运行中写 collection.db 会被游戏退出时覆盖（且不安全），此时只延期：
+      // 下载与解压已完成，写回由 StableWriteBackWatcher 在游戏退出后自动补上。
+      let written: Awaited<ReturnType<typeof desktopApi.writeStableCollections>> | null = null;
+      let deferred = false;
+      try {
+        written = await desktopApi.writeStableCollections();
+      } catch (caught) {
+        if ((caught as CommandError)?.code !== "GAME_RUNNING") throw caught;
+        deferred = true;
+      }
       throwIfCollectionTaskCancelled();
-      if (!completed) {
-        const message = `已写回 ${written.written_folders} 个收藏夹，没有需要导入的缺失曲包。`;
+      if (deferred) {
+        const message = completed
+          ? `${completed.install.extracted_sets} 个曲包已解压进 Songs（osu! 内 F5 刷新后即可游玩）；检测到 osu! 正在运行，收藏夹将在游戏退出后自动写回（重启 osu! 后在游戏内生效）。`
+          : "检测到 osu! 正在运行，收藏夹更改将在游戏退出后自动写回（重启 osu! 后在游戏内生效）。";
         setNotice(message);
         updateCollectionTask({ phase: "completed", message, processed: 1, total: 1 });
         changed();
         return true;
       }
-      const archivePaths = completed.download.completed_paths ?? [];
-      updateCollectionTask({ phase: "opening", message: `collection.db 已写回，正在交给 osu! 导入 ${archivePaths.length} 个曲包…`, processed: 0, total: archivePaths.length });
-      const opened = await desktopApi.openCollectionDownloads(archivePaths);
-      throwIfCollectionTaskCancelled();
-      const errors = [
-        ...completed.download.failures.map((failure) => `#${failure.beatmapset_id} ${failure.title}：${failure.message}`),
-        ...opened.failures,
-      ];
-      const message = `已写回 ${written.written_folders} 个收藏夹，并交给 osu! 导入 ${opened.opened} 个曲包${errors.length ? `；${errors.length} 项失败` : ""}。`;
+      if (!completed) {
+        const message = `已写回 ${written!.written_folders} 个收藏夹，没有需要导入的缺失曲包。`;
+        setNotice(message);
+        updateCollectionTask({ phase: "completed", message, processed: 1, total: 1 });
+        changed();
+        return true;
+      }
+      // 曲包已在 install 步骤解压进 Songs（不依赖 osu! 启动时序），这里只汇总结果：
+      // 部分下载失败不影响整体完成态，失败项仍列在错误信息里供逐个处理。
+      const extracted = completed.install.extracted_sets;
+      const errors = completed.download.failures.map((failure) => `#${failure.beatmapset_id} ${failure.title}：${failure.message}`);
+      const message = `已写回 ${written!.written_folders} 个收藏夹，${extracted} 个曲包已解压进 Songs（osu! 内 F5 刷新后即可游玩）${errors.length ? `；${errors.length} 项下载失败` : ""}。`;
       setNotice(message);
-      updateCollectionTask({ phase: errors.length ? "failed" : "completed", message, processed: opened.opened + opened.failed, total: archivePaths.length, errors });
+      updateCollectionTask({ phase: "completed", message, processed: completed.download.total, total: completed.download.total, errors });
       changed();
       return errors.length === 0;
     } catch (caught) {
       const message = (caught as CommandError).message ?? String(caught);
       setNotice(message);
-      updateCollectionTask({ phase: "failed", message: "写回或调用游戏导入失败", errors: [message] });
+      updateCollectionTask({ phase: "failed", message: "写回收藏夹失败", errors: [message] });
       return false;
     } finally {
       setBusy(false);

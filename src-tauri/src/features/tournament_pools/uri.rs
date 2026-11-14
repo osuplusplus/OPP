@@ -95,10 +95,12 @@ pub(super) fn parse(raw: &str) -> CommandResult<TournamentPoolRef> {
             season: String::new(),
             category: String::new(),
             url: Some(source.to_string()),
+            pool_id: None,
         });
     }
     let reference = TournamentPoolRef {
         url: None,
+        pool_id: None,
         provider: "rino".into(),
         season: params.remove("season").ok_or_else(invalid)?,
         category: params.remove("category").ok_or_else(invalid)?,

@@ -50,7 +50,7 @@ export interface RinoPoolRef {
   category: "qualification" | "ro16" | "quarterfinals" | "semifinals" | "finals" | "grandfinals";
 }
 
-export type TournamentPoolRef = RinoPoolRef | { provider: "opp"; url: string };
+export type TournamentPoolRef = RinoPoolRef | { provider: "opp"; url: string } | { provider: "romai"; pool_id: string };
 export interface TournamentInfo { tournament?: string; season?: string; category?: string }
 export type TournamentImportPhase = "fetching" | "enriching" | "saving";
 export interface TournamentImportProgress { request_id: number; phase: TournamentImportPhase }
@@ -72,6 +72,8 @@ export interface TournamentPoolEntry {
     difficulty_name: string;
     checksum: string | null;
     download_disabled: boolean;
+    /** 补全时抓取的原始 osu! 谱面 JSON（含 difficulty_rating/bpm 等），仅部分消费方使用。 */
+    metadata?: OnlineBeatmap | null;
   } | null;
   resolution_error: string | null;
 }
@@ -85,6 +87,42 @@ export interface TournamentPool extends TournamentInfo {
 export interface TournamentLink {
   id: number;
   reference: TournamentPoolRef;
+}
+
+// —— RomAI 图池库（比赛图池来源，全量索引经本地缓存浏览）——
+
+/** RomAI 段位 ID，门槛与 romai.dev 图池页一致（candidate 覆盖 1400 以下）。 */
+export type RomaiTier = "candidate" | "silver" | "gold" | "platinum" | "diamond" | "atomos" | "cosmic" | "quantum";
+
+/** 各模组图位数量；`tb` 有 TieBreaker 时为 1。 */
+export interface RomaiModCounts {
+  nm: number;
+  hd: number;
+  hr: number;
+  dt: number;
+  fm: number;
+  tb: number;
+}
+
+/** RomAI 图池浏览卡片：段位、图位统计与封面谱面集 ID。 */
+export interface RomaiPoolSummary {
+  id: string;
+  name: string;
+  elo: number;
+  tier: RomaiTier;
+  map_count: number;
+  counts: RomaiModCounts;
+  /** 封面谱面集 ID（最多 4 个），用于拼 assets.ppy.sh 封面；展示端点未覆盖时为空。 */
+  covers: number[];
+}
+
+/** 图池索引浏览结果：全量摘要 + 数据时间戳。 */
+export interface RomaiPoolIndex {
+  pools: RomaiPoolSummary[];
+  /** 最近一次成功拉取的 Unix 秒时间戳。 */
+  fetched_at: number;
+  /** 本次调用是否未走网络（缓存命中，可能为过期回退）。 */
+  from_cache: boolean;
 }
 
 export interface TournamentPoolSyncResult {
@@ -183,14 +221,10 @@ export interface CollectionDownloadItem {
 
 export interface CollectionInstallResult {
   installed_sets: number;
+  /** 本次解压进 Songs 的曲包数（已存在同前缀目录而跳过的不计入）。 */
+  extracted_sets: number;
   resolved_entries: number;
   unresolved_entries: number;
-}
-
-export interface CollectionOpenResult {
-  opened: number;
-  failed: number;
-  failures: string[];
 }
 
 export interface BeatmapOpenResult {
@@ -200,7 +234,7 @@ export interface BeatmapOpenResult {
 }
 
 export interface CollectionTaskProgress {
-  phase: "checking" | "installing" | "opening";
+  phase: "checking" | "installing";
   processed: number;
   total: number;
   message: string;

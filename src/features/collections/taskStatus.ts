@@ -5,7 +5,6 @@ export type CollectionTaskPhase =
   | "downloading"
   | "installing"
   | "writing"
-  | "opening"
   | "completed"
   | "failed"
   | "cancelled";

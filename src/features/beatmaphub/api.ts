@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { desktopApi } from "../../shared/lib/tauri";
 import type { BeatmapHubPack, OnlineBeatmapset } from "../../shared/types/osu";
 import { communityIdentityKey, useCommunityIdentity, useCommunityProfile } from "../../shared/lib/communityIdentity";
+import { collectorSearchParams, type CollectorSort } from "./model";
 
 export const hubKey = ["beatmaphub"] as const;
 export const beatmapHubAuthKey = communityIdentityKey;
@@ -9,6 +10,8 @@ export const beatmapHubRecommendationsKey = [...hubKey, "recommendations"] as co
 export const hubPackKey = [...hubKey, "pack"] as const;
 export const hubSearchKey = [...hubKey, "search"] as const;
 export const collectorKey = [...hubKey, "collector"] as const;
+export const romaiPoolsKey = [...hubKey, "romai-pools"] as const;
+export const romaiPoolKey = [...hubKey, "romai-pool"] as const;
 
 // All Hub IO crosses this boundary; components never call the command adapter.
 export const hubApi = {
@@ -56,11 +59,12 @@ export function useHubPreview(id: string, identity: string) {
 export function useHubComments(id: string) {
   return useQuery({ queryKey: [...hubKey, "comments", id], queryFn: () => desktopApi.getBeatmapHubComments(id), enabled: Boolean(id), gcTime: 0 });
 }
-// osu!Collector recent 列表：游标分页，“加载更多”由 useInfiniteQuery 驱动。
-export function useCollectorCollections() {
+// osu!Collector 搜索浏览：关键词 + 排序驱动搜索端点，游标分页“加载更多”由 useInfiniteQuery 驱动。
+export function useCollectorCollections(query: { search: string; sort: CollectorSort }) {
+  const params = collectorSearchParams(query);
   return useInfiniteQuery({
-    queryKey: [...collectorKey, "recent"],
-    queryFn: ({ pageParam }) => desktopApi.getOsuCollectorCollections(pageParam),
+    queryKey: [...collectorKey, "search", params.search ?? "", params.sortBy],
+    queryFn: ({ pageParam }) => desktopApi.getOsuCollectorCollections({ ...params, cursor: pageParam }),
     initialPageParam: null as number | null,
     getNextPageParam: (lastPage) =>
       lastPage.has_more && lastPage.next_cursor != null ? lastPage.next_cursor : undefined,
@@ -72,6 +76,25 @@ export function useCollectorDetail(id: number | null) {
     queryKey: [...collectorKey, "detail", id],
     queryFn: () => desktopApi.getOsuCollectorCollection(id!),
     enabled: id != null,
+    gcTime: 0,
+  });
+}
+// RomAI 图池索引：后端一小时本地缓存 + ETag 条件刷新，这里延长前端 staleTime 避免频繁穿透。
+export function useRomaiPools(enabled: boolean) {
+  return useQuery({
+    queryKey: romaiPoolsKey,
+    queryFn: () => desktopApi.getRomaiPoolSummaries(),
+    enabled,
+    staleTime: 10 * 60_000,
+    gcTime: 0,
+  });
+}
+// 单个 RomAI 图池详情（含补全后的谱面元数据），只在打开弹窗时请求。
+export function useRomaiPoolDetail(poolId: string | null) {
+  return useQuery({
+    queryKey: [...romaiPoolKey, poolId],
+    queryFn: () => desktopApi.getTournamentPool({ provider: "romai", pool_id: poolId! }),
+    enabled: poolId != null,
     gcTime: 0,
   });
 }

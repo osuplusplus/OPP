@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { BeatmapHubImportResult, OnlineBeatmapset } from "../../shared/types/osu";
 import { resolveDefaultDownloadProvider } from "../online-beatmaps/downloadProvider";
+import { createDownloadProgressDisplay } from "../online-beatmaps/downloadProgressDisplay";
 import { hubApi, hubPackKey, type useHubDownloadConfig } from "./api";
 import { hubError } from "./model";
 
@@ -21,6 +22,8 @@ export function useHubImport() {
   const [tasks, setTasks] = useState<Record<string, HubImportTask>>({});
   const tasksRef = useRef<Record<string, HubImportTask>>({});
   const activeId = useRef<string | null>(null);
+  // 并行下载会交替上报各自的曲名，经状态适配器固定为一个进行中的条目，避免任务提示来回闪烁。
+  const [progressDisplay] = useState(createDownloadProgressDisplay);
   const patch = (id: string, value: Partial<HubImportTask>) => {
     tasksRef.current = { ...tasksRef.current, [id]: { ...tasksRef.current[id], ...value } };
     setTasks(tasksRef.current);
@@ -31,10 +34,11 @@ export function useHubImport() {
     void hubApi.onDownloadProgress((progress) => {
       const id = activeId.current;
       if (!id || tasksRef.current[id]?.phase !== "downloading") return;
-      patch(id, { message: `已创建收藏夹 · 下载 ${progress.processed}/${progress.total}${progress.current_title ? `：${progress.current_title}` : ""}` });
+      const visible = progressDisplay.update(progress);
+      patch(id, { message: `已创建收藏夹 · 下载 ${progress.processed}/${progress.total}${visible?.current_title ? `：${visible.current_title}` : ""}` });
     }).then((stop) => { if (disposed) stop(); else unlisten = stop; }).catch(() => { /* Completion/error feedback still comes from the command result. */ });
     return () => { disposed = true; unlisten?.(); };
-  }, []);
+  }, [progressDisplay]);
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -74,7 +78,7 @@ export function useHubImport() {
       const incomplete = result.failed > 0 || result.cancelled;
       patch(id, { pendingPaths: paths, downloadIncomplete: incomplete });
       if (paths.length) {
-        patch(id, { phase: "installing", message: `下载成功 ${result.completed}，失败 ${result.failed} · 正在安装 ${paths.length} 个谱面集…` });
+        patch(id, { phase: "installing", message: `下载成功 ${result.completed}，失败 ${result.failed} · 正在解压 ${paths.length} 个谱面集进 Songs…` });
         const install = await hubApi.install([imported.folder_id], paths);
         patch(id, { pendingPaths: [] });
         if (install.unresolved_entries) throw new Error(`收藏夹已保留，仍有 ${install.unresolved_entries} 个条目未解析，请重试补齐。`);

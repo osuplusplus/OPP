@@ -1,4 +1,4 @@
-import type { CollectionArtwork, CollectionBackupStatus, CollectionBrowsePage, CollectionBrowseQuery, CollectionCandidate, CollectionDownloadItem, CollectionEntryPage, CollectionFolder, CollectionInstallResult, CollectionOpenResult, CollectionPersonalRecord, CollectionSharePreview, CollectionSnapshot, CollectionSummaries, CollectionSyncStatus, CollectionTaskProgress, CollectionWriteResult, LocalScoreRecord, LocalScoreStatus, OsuClient } from "../../types/osu";
+import type { CollectionArtwork, CollectionBackupStatus, CollectionBrowsePage, CollectionBrowseQuery, CollectionCandidate, CollectionDownloadItem, CollectionEntryPage, CollectionFolder, CollectionInstallResult, CollectionPersonalRecord, CollectionSharePreview, CollectionSnapshot, CollectionSummaries, CollectionSyncStatus, CollectionTaskProgress, CollectionWriteResult, LocalScoreRecord, LocalScoreStatus, OsuClient } from "../../types/osu";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { call, isTauri } from "./invoke";
 
@@ -66,9 +66,6 @@ export const collectionsApi = {
 
   installCollectionDownloads: (folderIds: string[], archivePaths: string[]) =>
     call<CollectionInstallResult>("install_collection_downloads", { folderIds, archivePaths }),
-
-  openCollectionDownloads: (archivePaths: string[]) =>
-    call<CollectionOpenResult>("open_collection_downloads", { archivePaths }),
 
   onCollectionTaskProgress: async (
     handler: (progress: CollectionTaskProgress) => void,
