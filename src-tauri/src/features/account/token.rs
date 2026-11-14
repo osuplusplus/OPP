@@ -42,14 +42,23 @@ pub(crate) async fn ensure_access_token(state: &AppState) -> CommandResult<Strin
         .await
     {
         Ok(response) => response,
-        // 刷新失败视为刷新令牌已失效：清空本地令牌，要求用户重新登录。
-        Err(_) => {
+        // 服务端明确拒绝刷新令牌（400 invalid_grant / 401）才视为凭据失效：
+        // 清空本地令牌，要求用户重新登录。
+        Err(error)
+            if matches!(
+                error.code.as_str(),
+                "TOKEN_REFRESH_FAILED" | "AUTH_REQUIRED"
+            ) =>
+        {
             state.credentials.clear_tokens()?;
             state
                 .store
                 .update(|persisted| persisted.token_expires_at = None)?;
             return Err(CommandError::auth_required());
         }
+        // 网络/服务端瞬时故障（超时、5xx、429 限速）保留令牌并原样返回错误，
+        // 下次调用会自动重试刷新，不把用户踢回浏览器授权。
+        Err(error) => return Err(error),
     };
     // 服务端未返回新刷新令牌时沿用旧值。
     let refreshed = TokenSet {
