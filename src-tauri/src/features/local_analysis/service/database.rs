@@ -492,17 +492,11 @@ impl LocalAnalysisService {
                 .get(&source_client)
                 .map(|s| s.phase.as_str())
                 .unwrap_or("idle");
+            // 逐文件诊断（解析失败等）只影响对应文件本身的条目，不影响其余
+            // 条目 ID 的可信度：绝大多数谱面成功入索引时，未命中仍可判定
+            // Missing。真正全局不可信的是扫描未完整完成或客户端级异常。
             if index.summary.completeness != Completeness::Complete
                 || matches!(phase, "pending" | "scanning" | "error")
-                || index.diagnostics.iter().any(|d| {
-                    matches!(
-                        d.code.as_str(),
-                        "BEATMAP_PARSE_ERROR"
-                            | "RESOURCE_READ_ERROR"
-                            | "DISCOVERY_ERROR"
-                            | "METADATA_ERROR"
-                    )
-                })
             {
                 known = false;
             }

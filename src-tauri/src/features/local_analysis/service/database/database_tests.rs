@@ -424,6 +424,32 @@ fn database_roundtrip_keeps_lazer_resource_manifest_skins_and_duplicate_maps() {
         .unwrap();
 }
 
+/// 逐文件解析诊断（如单个损坏 .osu）只影响该文件本身，不应推翻其余条目
+/// 的缺失判定：完整性仍为 complete 时未命中依旧判 `Missing` 而非 `Unknown`。
+#[test]
+fn presence_stays_decisive_with_per_file_parse_diagnostics() {
+    let (app, _stable, service, path) = fixture_service();
+    fs::write(&path, OSU_FIXTURE.replace("BeatmapID:-1", "BeatmapID:42")).unwrap();
+    let _database = attach(app.path(), &service);
+    scan(&service);
+    service.load_cached_indexes();
+    let mut index = (*service.current_index(LocalClient::Stable).unwrap().unwrap()).clone();
+    index.diagnostics.push(ScanDiagnostic {
+        code: "BEATMAP_PARSE_ERROR".into(),
+        message: "谱面没有可识别的 HitObject".into(),
+        logical_path: Some("broken.osu".into()),
+        resource_id: None,
+    });
+    service
+        .store_and_publish(LocalClient::Stable, index)
+        .unwrap();
+    let result = service
+        .beatmap_presence(vec![42, 99], Some(LocalClient::Stable))
+        .unwrap();
+    assert_eq!(result[0].status, LocalPresenceState::Present);
+    assert_eq!(result[1].status, LocalPresenceState::Missing);
+}
+
 /// 部分扫描、扫描中、来源离线与来源变更都必须给出 `Unknown` 而非误判缺失。
 #[test]
 fn presence_distinguishes_partial_pending_unavailable_and_changed_sources() {
