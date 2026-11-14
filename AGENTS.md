@@ -266,7 +266,7 @@ Version numbers must be updated simultaneously in:
 - `src-tauri/Cargo.lock`
 - `src-tauri/tauri.conf.json`
 
-Frontend "About" page reads `package.json` at build time. User-visible changes should be documented in `docs/版本变更记录.md`.
+Frontend "About" page reads `package.json` at build time. User-visible changes should be documented in `docs/版本变更记录.md` (results only; investigation details go to `docs/问题排查实录.md`).
 
 ## Windows Portable Update Flow
 
@@ -289,6 +289,7 @@ When a higher remote version is detected, the client downloads the new EXE from 
 - [游戏内覆盖 (In-Game Overlay)](./docs/游戏内覆盖.md)
 - [Linux 使用与构建 (Linux Usage & Build)](./docs/Linux.md)
 - [版本变更记录 (Version Changelog)](./docs/版本变更记录.md)
+- [问题排查实录 (Troubleshooting Notes)](./docs/问题排查实录.md)
 
 ## PR Contribution
 Direct PRs to the `dev` branch. Issues are welcome for discussion.

@@ -4,7 +4,7 @@
   <h1>OPP</h1>
   <p><strong>一站式 osu! 工具集合</strong></p>
 
-  [![Version](https://img.shields.io/badge/version-0.6.0-ff6aa7?style=for-the-badge)](./docs/版本变更记录.md#v060)
+  [![Version](https://img.shields.io/badge/version-0.6.1-ff6aa7?style=for-the-badge)](./docs/版本变更记录.md#v061)
   [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-5ce1e6?style=for-the-badge&logo=linux&logoColor=white)](#开始使用)
   [![Tauri](https://img.shields.io/badge/Tauri-2-a673ff?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/)
 
@@ -17,6 +17,20 @@ OPP 使用 Tauri 2、React 19 与 Rust 构建，支持 Windows x64 与 Linux。
 > OPP 是独立的社区项目，与 ppy Pty Ltd 或 osu! 官方无隶属关系。osu! 是 ppy Pty Ltd 的商标。
 
 [B 站视频演示](https://www.bilibili.com/video/BV1EhuC65EAB/)
+
+## 界面一览
+
+**相似谱面** · 本地数据集检索，支持最近游玩 / BP 一键推荐
+
+[![相似谱面](./docs/screenshots/similar-beatmaps.jpg)](./docs/screenshots/similar-beatmaps.jpg)
+
+**本地谱面** · 沉浸式舞台视图，谱面属性、操作与音乐播放一体化
+
+[![本地谱面](./docs/screenshots/local-maps.jpg)](./docs/screenshots/local-maps.jpg)
+
+**收藏夹** · 图池按图位（NM/HD/DT…）练习，附个人成绩记录与缺失补齐
+
+[![收藏夹](./docs/screenshots/collections.jpg)](./docs/screenshots/collections.jpg)
 
 ## 功能概览
 
@@ -31,7 +45,7 @@ OPP 使用 Tauri 2、React 19 与 Rust 构建，支持 Windows x64 与 Linux。
 | 音乐与回放 | 本地谱库播放器、悬浮迷你播放器、实时回放预览、o!rdr 与 Danser 渲染 |
 | 账号与直播 | osu! OAuth、玩家资料与成绩、游戏会话记录、tosu／歌词／OBS 联动 |
 
-v0.6.0 的完整变化见[版本记录](./docs/版本变更记录.md#v060)。
+v0.6.1 的完整变化见[版本记录](./docs/版本变更记录.md#v061)。
 
 ## 开始使用
 
