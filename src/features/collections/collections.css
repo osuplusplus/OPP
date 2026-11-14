@@ -117,7 +117,10 @@ html:has(.collection-explorer), body:has(.collection-explorer) { min-width: 0; }
 .collection-pagination > div { display: flex; gap: 10px; }
 .collection-inline-notice { margin: 8px 0; font-size: 12px; color: #c9b98e; }
 .collection-dialog-overlay { position: fixed; inset: 0; z-index: 260; background: #02060b99; backdrop-filter: blur(5px); }
-.collection-record-drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(620px, 96vw); z-index: 270; background: #121b28; border-left: 1px solid #afceee29; box-shadow: -20px 0 70px #0005; color: #dfe8f2; outline: none; display: flex; flex-direction: column; }
+.collection-record-drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(620px, 96vw); z-index: 270; background: #121b28; border-left: 1px solid #afceee29; box-shadow: -20px 0 70px #0005; color: #dfe8f2; outline: none; display: flex; flex-direction: column; animation: collection-drawer-in 220ms var(--ease-drawer) both; }
+.collection-record-drawer[data-state="closed"] { animation: collection-drawer-out 200ms var(--ease-drawer) both; pointer-events: none; }
+@keyframes collection-drawer-in { from { transform: translateX(100%); } }
+@keyframes collection-drawer-out { to { transform: translateX(100%); } }
 .collection-drawer-heading { display: flex; align-items: start; justify-content: space-between; padding: 27px; gap: 14px; border-bottom: 1px solid #ffffff12; }
 .collection-drawer-heading small { color: #8db6ca; font-size: 11px; }
 .collection-drawer-heading h2 { font-size: 21px; margin: 8px 0; font-weight: 650; }

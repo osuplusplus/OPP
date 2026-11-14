@@ -59,7 +59,7 @@ export function CollectionRecordDrawer({ row, player, onClose }: { row: Collecti
   const missingRepresentative = !scores.isPending && record.representative && ![...record.scores, ...(scores.data ?? [])].some((s) => s.id === record.representative!.id);
   return <Dialog.Root open onOpenChange={(open) => { if (!open) void close(); }}><Dialog.Portal>
     <Dialog.Overlay className="collection-dialog-overlay" />
-    <Dialog.Content className="collection-record-drawer">
+    <Dialog.Content className="collection-record-drawer" data-dialog-layout="drawer">
       <div className="collection-drawer-heading"><div><small>{row.folder_name} · {row.slot || "个人记录"}</small><Dialog.Title>{row.entry.title}</Dialog.Title><Dialog.Description>{row.entry.difficulty_name} · 记录仅保存在当前收藏夹</Dialog.Description></div><button aria-label="关闭记录" onClick={() => void close()}><X /></button></div>
       <div className="collection-drawer-content">
         <label className="collection-field">图位<input value={record.slot_override ?? row.source_slot} placeholder="例如 NM1、HD2" maxLength={64} onChange={(e) => change({ ...record, slot_override: e.target.value.toUpperCase() })} /></label>

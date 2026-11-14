@@ -157,6 +157,83 @@ fn mismatched_database_snapshot_is_rebuilt_once() {
         .unwrap();
 }
 
+/// 单条 JSON 载荷损坏（历史版本把 NaN/Infinity 序列化为 `null`）时，重启恢复
+/// 应跳过该条目、记录诊断并立即回写快照自愈，其余条目不受影响。
+#[test]
+fn corrupted_entry_is_skipped_and_database_self_heals_on_restart() {
+    let (app, _stable, service, _path) = fixture_service();
+    scan(&service);
+    let database = attach(app.path(), &service);
+    service.migrate_cached_indexes().unwrap();
+
+    let entry_count_before = database
+        .with_database("count_entries_before_corruption", |db| {
+            Ok(db
+                .connection
+                .query_row("SELECT COUNT(*) FROM resource_entries", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap())
+        })
+        .unwrap()
+        .expect("database attached");
+
+    // 把某条谱面的 bpm 改成 null，并把载荷哈希同步改写为损坏内容——
+    // 复现"哈希校验通过但反序列化失败"的历史损坏形态。
+    database
+        .with_database("corrupt_entry_payload", |db| {
+            let (key, json): (String, String) = db.connection.query_row(
+                "SELECT entry_key, payload_json FROM resource_entries WHERE payload_json LIKE '%\"bpm\"%' LIMIT 1",
+                [],
+                |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
+            ).unwrap();
+            let corrupted = json.replace("\"bpm\":", "\"bpm\":null,\"bpm_orig\":");
+            assert_ne!(corrupted, json, "fixture entry must contain a bpm field");
+            db.connection.execute(
+                "UPDATE resource_entries SET payload_json=?1, payload_hash=?2 WHERE entry_key=?3",
+                rusqlite::params![corrupted, sha256(corrupted.as_bytes()), key],
+            ).unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let cache_path = super::super::data::index_path(&service.cache_dir, LocalClient::Stable);
+    let _ = fs::remove_file(&cache_path);
+    let _ = fs::remove_file(cache_path.with_extension("json.bak"));
+
+    let restarted = LocalAnalysisService::new(app.path()).unwrap();
+    restarted.attach_database(Arc::clone(&database)).unwrap();
+    restarted.load_cached_indexes();
+
+    let index = restarted
+        .current_index(LocalClient::Stable)
+        .unwrap()
+        .expect("其余条目仍应恢复出完整索引");
+    assert_eq!(index.entries.len() as i64, entry_count_before - 1);
+    assert!(
+        index
+            .diagnostics
+            .iter()
+            .any(|item| item.code == "INDEX_ENTRY_CORRUPTED")
+    );
+    assert_eq!(
+        restarted.library_storage_status().unwrap()[0].storage,
+        "database"
+    );
+    // 自愈：坏行已从快照中清除。
+    database
+        .with_database("verify_healed_snapshot", |db| {
+            let remaining: i64 = db
+                .connection
+                .query_row("SELECT COUNT(*) FROM resource_entries", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(remaining, entry_count_before - 1);
+            Ok(())
+        })
+        .unwrap();
+}
+
 /// SQL 写入失败时回退 JSON 缓存，恢复写入后可重新迁回数据库。
 #[test]
 fn failed_sql_write_falls_back_and_old_database_cannot_win_on_restart() {

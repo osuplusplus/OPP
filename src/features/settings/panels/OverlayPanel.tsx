@@ -242,6 +242,13 @@ export function OverlayPanel({ settings, save, busy }: OverlayPanelProps) {
           Steam 式游戏内覆盖：平时完全隐藏，按全局热键随时唤出 Direct 谱面面板与多人聊天；
           可选常驻 HUD 状态卡与 tosu 游戏内渲染（独占全屏可见）。
         </p>
+        <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/[0.07] p-4">
+          <p className="text-sm font-semibold text-amber-200">实验性功能，仍在开发中</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            游戏内覆盖默认关闭，热键、HUD 常驻与 tosu 游戏内渲染等行为可能随版本调整；
+            若影响正常使用可随时在此关闭，欢迎反馈遇到的问题。
+          </p>
+        </div>
       </div>
 
       <Card className="p-6">

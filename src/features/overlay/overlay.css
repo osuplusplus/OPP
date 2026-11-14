@@ -718,3 +718,15 @@ button.chat-channel:hover { color: var(--ov-text); }
   font-size: 10px;
   color: var(--ov-text-muted);
 }
+
+/* 覆盖层是独立窗口入口,主程序的全局降动效级联不覆盖这里,单独补齐。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

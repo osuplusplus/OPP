@@ -26,6 +26,23 @@ use super::models::{
 pub const DIFFICULTY_ALGORITHM: &str =
     "rosu-pp 4.0.1 (2026-04-12) / ppy-osu@28c846b (2025-10-13) / NoMod + max SS pp";
 
+/// serde_json 会把 NaN/Infinity 序列化为 `null`，索引条目落库后将无法还原
+/// 回 `f64`（例如谱面缺少 TimingPoint 时 rosu-pp 的 BPM 会算出 Infinity）。
+/// 所有入库数值在构造时统一收敛为有限值。
+fn finite_or_zero(value: f64) -> f64 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
+/// 同 [`finite_or_zero`]，作用于 `f32` 字段（cs/ar/od/hp）。
+fn finite_f32(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
+/// 过滤掉非有限的 `Option<f64>`（星数 / PP 计算失败时可能产生 NaN）。
+fn finite_option(value: Option<f64>) -> Option<f64> {
+    value.filter(|value| value.is_finite())
+}
+
 /// 构造计算版本元数据；各规则集版本号对齐上游 osu! 的难度算法版本，
 /// 用于判断缓存结果的时效。
 pub fn calculation_version() -> LocalCalculationVersion {
@@ -305,18 +322,18 @@ pub fn parse_beatmap(
         difficulty_name: map.version.clone(),
         ruleset: ruleset(map.mode),
         format_version: map.format_version,
-        stars,
-        max_pp,
+        stars: finite_option(stars),
+        max_pp: finite_option(max_pp),
         max_combo,
-        bpm,
-        length_ms,
+        bpm: finite_or_zero(bpm),
+        length_ms: finite_or_zero(length_ms),
         object_count: hit_objects.total,
-        cs: map.circle_size,
-        ar: map.approach_rate,
-        od: map.overall_difficulty,
-        hp: map.hp_drain_rate,
-        average_nps,
-        peak_nps,
+        cs: finite_f32(map.circle_size),
+        ar: finite_f32(map.approach_rate),
+        od: finite_f32(map.overall_difficulty),
+        hp: finite_f32(map.hp_drain_rate),
+        average_nps: finite_or_zero(average_nps),
+        peak_nps: finite_or_zero(peak_nps),
         modified_at,
         analysis_status,
     };
@@ -330,13 +347,13 @@ pub fn parse_beatmap(
         ar: summary.ar,
         od: summary.od,
         hp: summary.hp,
-        slider_multiplier: map.slider_multiplier,
-        slider_tick_rate: map.slider_tick_rate,
+        slider_multiplier: finite_or_zero(map.slider_multiplier),
+        slider_tick_rate: finite_or_zero(map.slider_tick_rate),
         hit_objects,
         break_count: map.breaks.len(),
-        break_duration_ms,
+        break_duration_ms: finite_or_zero(break_duration_ms),
         timing_point_count: map.control_points.timing_points.len(),
-        active_length_ms,
+        active_length_ms: finite_or_zero(active_length_ms),
         average_nps: summary.average_nps,
         peak_nps: summary.peak_nps,
         difficulty_algorithm: DIFFICULTY_ALGORITHM.to_string(),
@@ -657,6 +674,25 @@ pub fn read_prefix(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 非有限浮点必须在入库前收敛：serde_json 把 NaN/Infinity 写成 `null`，
+    /// 索引条目重启恢复时会报 `invalid type: null, expected f64`。
+    #[test]
+    fn sanitizes_non_finite_values_before_persisting() {
+        assert_eq!(finite_or_zero(f64::INFINITY), 0.0);
+        assert_eq!(finite_or_zero(f64::NEG_INFINITY), 0.0);
+        assert_eq!(finite_or_zero(f64::NAN), 0.0);
+        assert_eq!(finite_or_zero(180.0), 180.0);
+        assert_eq!(finite_f32(f32::NAN), 0.0);
+        assert_eq!(finite_option(Some(f64::NAN)), None);
+        assert_eq!(finite_option(Some(5.23)), Some(5.23));
+        // 缺少 TimingPoint 时 rosu-pp 会算出 Infinity BPM，正是历史损坏条目的来源。
+        assert!(serde_json::from_str::<f64>("null").is_err());
+        assert_eq!(
+            serde_json::to_string(&finite_or_zero(f64::INFINITY)).unwrap(),
+            "0.0"
+        );
+    }
 
     /// 构造覆盖四种游戏模式的最小 `.osu` 测试数据。
     fn fixture(mode: u8, hit_objects: &str) -> String {

@@ -294,7 +294,8 @@ export function SimilarityHome({
   status?: ReactNode;
 }) {
   const reduced = useReducedMotion();
-  return <motion.section className="similarity-home" initial={{ opacity: 0, y: reduced ? 0 : 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : .28 }}>
+  // transform 走完整字符串形式:motion 12.x 的 x/y/scale 短语属性不经 GPU 加速。
+  return <motion.section className="similarity-home" initial={{ opacity: 0, transform: reduced ? "translateY(0)" : "translateY(12px)" }} animate={{ opacity: 1, transform: "translateY(0)" }} transition={{ duration: reduced ? 0 : .28 }}>
     <BeatmapSearchHeading icon={<Layers3 />} title="OPP Similarity" description="搜索本地谱面，或粘贴 Beatmap ID / 官方链接，找到相似的下一首" />
     <SimilaritySearch compact={false} busy={busy} ruleset={ruleset} value={searchValue} onValueChange={onSearchValueChange} onChoose={onChoose} onChooseFile={onChooseFile} />
     <div className="similarity-recommendations">
@@ -333,10 +334,10 @@ export function SimilarityHistoryDialog({
 }) {
   if (!open) return null;
   return <div className="similarity-history-dialog" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
-    <motion.div initial={{ opacity: 0, y: 12, scale: .985 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .2 }} onClick={(event) => event.stopPropagation()}>
+    <div onClick={(event) => event.stopPropagation()}>
       <header><div><h2>{title}</h2><p>只记录今天真正浏览过的推荐谱面，共 {entries.length} 张。</p></div><button type="button" aria-label="关闭今日推荐历史" onClick={onClose}><X /></button></header>
       <main>{entries.length ? entries.map(({ displayed_at, key_count, result }) => <button type="button" key={`${result.ruleset}:${result.beatmap_id}:${displayed_at}`} disabled={result.ruleset === "mania" && !result.online_url} title={result.ruleset === "mania" && !result.online_url ? "本地谱面没有在线页面" : undefined} onClick={() => onChoose(result)}><span><strong>{result.artist} - {result.title}</strong><small>{key_count ? `${key_count}K · ` : ""}[{result.version}] · {result.creator}</small></span><time>{new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(displayed_at))}</time></button>) : <p>今天还没有浏览过推荐谱面。</p>}</main>
-    </motion.div>
+    </div>
   </div>;
 }
 
@@ -353,9 +354,9 @@ export function SimilarityMessage({ message, tone = "error", onClose }: { messag
     className="similarity-message"
     data-tone={tone}
     role={tone === "error" ? "alert" : "status"}
-    initial={{ opacity: 0, x: "-50%", y: reduced ? 0 : -12, scale: reduced ? 1 : .98 }}
-    animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
-    exit={{ opacity: 0, x: "-50%", y: reduced ? 0 : -8 }}
+    initial={{ opacity: 0, transform: reduced ? "translateX(-50%)" : "translate(-50%, -12px) scale(.98)" }}
+    animate={{ opacity: 1, transform: "translate(-50%, 0)" }}
+    exit={{ opacity: 0, transform: reduced ? "translateX(-50%)" : "translate(-50%, -8px)" }}
     transition={{ duration: reduced ? 0 : .2 }}
   ><AlertTriangle /><span>{message}</span><button type="button" aria-label="关闭消息" onClick={onClose}><X /></button></motion.div> : null}</AnimatePresence>;
 }
@@ -374,7 +375,7 @@ function EvidenceRail({ source, result, cover, recommendation, details }: { sour
   const mania = source.ruleset === "mania";
   const sourcePattern = mania ? source.pattern_view : null;
   const resultPattern = result.ruleset === "mania" ? result.pattern_view : null;
-  return <motion.aside className="similarity-evidence-rail" layout initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .22 }}>
+  return <motion.aside className="similarity-evidence-rail" layout initial={{ opacity: 0, transform: "translateX(-16px)" }} animate={{ opacity: 1, transform: "translateX(0)" }} transition={{ duration: .22 }}>
     <div className="similarity-source-cover">{cover ? <img src={cover} alt="" /> : <div />}</div>
     <div className="similarity-source-copy">
       <div className="similarity-source-kicker"><span>{recommendation ? "本首推荐依据" : "参考谱面"}</span><small>{source.online_url && source.beatmap_id > 0 ? `BID ${source.beatmap_id}` : "本地谱面"}</small></div>
@@ -480,7 +481,7 @@ export function SimilarityStage({
       <EvidenceRail key={`${source.ruleset}:${source.beatmap_id}:${source.version}`} source={source} result={result} cover={referenceCover} recommendation={recommendation} details={details} />
       <main className="similarity-candidate-stage">
         <AnimatePresence mode="popLayout" initial={false}>
-          {emptyMessage ? <motion.div key="empty" className="similarity-stage-empty" initial={{ opacity: 0, y: reduced ? 0 : 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .2 }}><span>0 / {total}</span><h2>没有符合条件的候选谱面</h2><p>{emptyMessage}</p></motion.div> : <motion.div key={resultAnimationKey} className="similarity-candidate-copy" initial={{ opacity: 0, x: reduced ? 0 : 22 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: reduced ? 0 : -18 }} transition={{ duration: reduced ? 0 : .22 }}>
+          {emptyMessage ? <motion.div key="empty" className="similarity-stage-empty" initial={{ opacity: 0, transform: reduced ? "translateY(0)" : "translateY(10px)" }} animate={{ opacity: 1, transform: "translateY(0)" }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .2 }}><span>0 / {total}</span><h2>没有符合条件的候选谱面</h2><p>{emptyMessage}</p></motion.div> : <motion.div key={resultAnimationKey} className="similarity-candidate-copy" initial={{ opacity: 0, transform: reduced ? "translateX(0)" : "translateX(22px)" }} animate={{ opacity: 1, transform: "translateX(0)" }} exit={{ opacity: 0, transform: reduced ? "translateX(0)" : "translateX(-18px)" }} transition={{ duration: reduced ? 0 : .22 }}>
             <div className="similarity-candidate-meta"><span>{online ? `BID ${result.beatmap_id}` : "本地谱面"}</span><span>距离 {result.final_distance.toFixed(4)}</span>{completing ? <span><LoaderCircle className="animate-spin" />正在完善推荐</span> : null}</div>
             <p>{result.artist}</p>
             <h1>{result.title}</h1>

@@ -266,13 +266,27 @@ pub async fn restore_beatmap_backup(
     state.beatmaphub.restore_backup(&state).await
 }
 
-/// 浏览 osu!Collector 最近上传的收藏集合（直连，无需身份）。
+/// 按关键词与排序搜索 osu!Collector 收藏集合（直连，无需身份）；
+/// 空关键词即按最新上传浏览全部，`cursor` 透传上一页游标实现加载更多。
 #[tauri::command]
 pub async fn get_osu_collector_collections(
+    search: Option<String>,
+    sort_by: Option<String>,
+    order_by: Option<String>,
     cursor: Option<i64>,
+    per_page: Option<u32>,
     state: State<'_, AppState>,
 ) -> CommandResult<super::collector::CollectorListPage> {
-    state.osu_collector.list(cursor).await
+    state
+        .osu_collector
+        .search(super::collector::CollectorSearch {
+            search,
+            sort_by,
+            order_by,
+            cursor,
+            per_page,
+        })
+        .await
 }
 
 /// 查看 osu!Collector 收藏集合详情，附本地已有/缺失统计与难度样本。

@@ -30,6 +30,10 @@
   --control-radius: 8px;
   --motion-fast: 160ms;
   --motion-base: 220ms;
+  /* 统一缓动曲线:入场/退场用 ease-out,屏内移动用 ease-in-out,抽屉用 drawer。 */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   color: var(--text);
   background: var(--surface);
   font-family:
@@ -217,19 +221,11 @@ a[href],
     transform var(--motion-fast) ease;
 }
 
-@media (hover: hover) {
-  button:not(:disabled):hover,
-  a[href]:hover,
-  [role="button"]:hover,
-  [role="tab"]:hover {
-    transform: translateY(-1px);
-  }
-}
-
+/* 按压反馈保留;hover 位移动画在高频面上属过重装饰,已按 2026-11 动效审计移除。 */
 button:not(:disabled):active,
 [role="button"]:active,
 [role="tab"]:active {
-  transform: translateY(0) scale(0.985);
+  transform: scale(0.985);
 }
 
 button:focus-visible,
@@ -332,19 +328,20 @@ select option {
 
 .opp-action::after {
   position: absolute;
-  inset: 0 auto 0 -35%;
+  inset: 0 auto 0 0;
   z-index: -1;
   width: 30%;
   content: "";
   opacity: 0;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-  transform: skewX(-18deg);
-  transition: left var(--motion-base) ease, opacity var(--motion-fast) ease;
+  /* 扫光走 transform 合成器而非 left 布局属性;30% 宽度滑过 440% 自身宽度即横穿按钮。 */
+  transform: translateX(-130%) skewX(-18deg);
+  transition: transform var(--motion-base) ease, opacity var(--motion-fast) ease;
 }
 
 @media (hover: hover) {
   .opp-action:not(:disabled):hover::after {
-    left: 108%;
+    transform: translateX(440%) skewX(-18deg);
     opacity: 1;
   }
 }
@@ -469,11 +466,11 @@ select option {
 }
 
 .opp-candidate-filter-panel--open {
-  animation: opp-candidate-filter-expand 220ms cubic-bezier(.2, .8, .2, 1) both;
+  animation: opp-candidate-filter-expand 220ms var(--ease-out) both;
 }
 
 .opp-candidate-filter-trigger--animate {
-  animation: opp-candidate-filter-trigger 240ms cubic-bezier(.2, .8, .2, 1);
+  animation: opp-candidate-filter-trigger 240ms var(--ease-out);
 }
 
 @keyframes opp-candidate-filter-expand {
@@ -583,29 +580,16 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
-.opp-window-control svg {
-  transition: transform var(--motion-fast) cubic-bezier(.2,.8,.2,1);
-}
-
 @media (hover: hover) {
-  .opp-window-control:hover svg {
-    transform: scale(1.14);
-  }
   .opp-brand-mark:hover,
   .opp-title-mark:hover {
-    animation: opp-mark-pop 360ms cubic-bezier(.2,.8,.2,1);
-  }
-  .opp-nav-item:hover > svg,
-  .opp-nav-item:hover > span > svg {
-    transform: translateX(2px) scale(1.08);
+    animation: opp-mark-pop 360ms var(--ease-out);
   }
 }
 
 .opp-brand-mark,
-.opp-title-mark,
-.opp-nav-item > svg,
-.opp-nav-item > span > svg {
-  transition: transform var(--motion-fast) cubic-bezier(.2,.8,.2,1), filter var(--motion-fast) ease;
+.opp-title-mark {
+  transition: transform var(--motion-fast) var(--ease-out), filter var(--motion-fast) ease;
 }
 
 @keyframes opp-mark-pop {
@@ -663,7 +647,7 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
 }
 
 .opp-auth-card {
-  animation: opp-auth-card-in 480ms cubic-bezier(.2,.8,.2,1) both;
+  animation: opp-auth-card-in 480ms var(--ease-out) both;
 }
 
 .opp-auth-orbit {
@@ -793,6 +777,91 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ===== 动效基元(2026-11 动画审计引入) =====
+   所有 Radix 对话框共用一套 data-state 进退场:模态中心 scale+fade(模态豁免 origin 规则),
+   遮罩淡入淡出;Radix Presence 会等 closed 动画播完再卸载,无需 AnimatePresence。
+   抽屉(drawer)与触发点弹层(popover)排除在外,各自走滑动/origin 缩放。 */
+[data-radix-portal] [role="dialog"][data-state="open"]:not([data-dialog-layout="drawer"], [data-dialog-layout="popover"]) {
+  animation: opp-dialog-in 220ms var(--ease-out) both;
+}
+
+[data-radix-portal] [role="dialog"][data-state="closed"]:not([data-dialog-layout="drawer"], [data-dialog-layout="popover"]) {
+  animation: opp-dialog-out 150ms var(--ease-out) both;
+  pointer-events: none;
+}
+
+body > [data-radix-portal] > [data-state][data-state="open"]:not([role="dialog"]) {
+  animation: opp-fade-in 200ms ease both;
+}
+
+body > [data-radix-portal] > [data-state][data-state="closed"]:not([role="dialog"]) {
+  animation: opp-fade-out 150ms ease both;
+  pointer-events: none;
+}
+
+@keyframes opp-dialog-in {
+  from { opacity: 0; scale: 0.96; }
+}
+
+@keyframes opp-dialog-out {
+  to { opacity: 0; scale: 0.98; }
+}
+
+@keyframes opp-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes opp-fade-out {
+  to { opacity: 0; }
+}
+
+/* 通知卡:进入 scale+fade;视口在离场态播放收缩退出(通知系统负责时机)。 */
+.opp-notification {
+  animation: opp-notification-in 200ms var(--ease-out) both;
+}
+
+.opp-notification-exit[data-leaving="true"] {
+  animation: opp-notification-out 150ms ease both;
+  pointer-events: none;
+}
+
+@keyframes opp-notification-in {
+  from { opacity: 0; scale: 0.97; }
+}
+
+@keyframes opp-notification-out {
+  to { opacity: 0; scale: 0.97; }
+}
+
+/* Tooltip 微入场(高频面,近乎无感档);origin 对准触发点,关闭即卸载不加退场。 */
+.opp-tooltip[data-state="delayed-open"],
+.opp-tooltip[data-state="instant-open"] {
+  animation: opp-tooltip-in 125ms var(--ease-out) both;
+  transform-origin: var(--radix-tooltip-content-transform-origin, top center);
+}
+
+@keyframes opp-tooltip-in {
+  from { opacity: 0; scale: 0.97; }
+}
+
+/* 触发点弹层统一入场:opp-pop 向下展开,opp-pop-up 向上展开;origin 由各面板按触发方向声明。 */
+.opp-pop {
+  animation: opp-pop-in 150ms var(--ease-out) both;
+}
+
+.opp-pop-up {
+  animation: opp-pop-up-in 150ms var(--ease-out) both;
+}
+
+@keyframes opp-pop-in {
+  from { opacity: 0; scale: 0.97; translate: 0 -4px; }
+}
+
+@keyframes opp-pop-up-in {
+  from { opacity: 0; scale: 0.97; translate: 0 4px; }
+}
+
 
 /* Shared actions in download results and collection pools. */
 .download-result-actions { display: grid; gap: 8px; min-width: 0; }

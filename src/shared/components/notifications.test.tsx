@@ -19,11 +19,19 @@ describe("NotificationCard", () => {
   });
 
   it("supports the shared imperative notification API", () => {
-    render(<NotificationViewport />);
-    let id = "";
-    act(() => { id = notification.success("同步完成", "收藏夹已经写回。"); });
-    expect(screen.getByRole("status")).toHaveTextContent("收藏夹已经写回。");
-    act(() => notification.dismiss(id));
-    expect(screen.queryByText("同步完成")).not.toBeInTheDocument();
+    vi.useFakeTimers();
+    try {
+      render(<NotificationViewport />);
+      let id = "";
+      act(() => { id = notification.success("同步完成", "收藏夹已经写回。"); });
+      expect(screen.getByRole("status")).toHaveTextContent("收藏夹已经写回。");
+      act(() => notification.dismiss(id));
+      // dismiss 先进入离场态播放退场动画,期间卡片仍在 DOM 中。
+      expect(screen.getByText("同步完成")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.queryByText("同步完成")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -1,5 +1,5 @@
-//! 应用内更新：以 GitHub Tags 判断版本、以官方清单校验并下载便携 EXE，
-//! 交给便携更新助手完成原路径替换与重启。
+//! 应用内更新：以 GitHub Tags 判断版本、以 Releases API 读取更新公告、
+//! 以官方清单校验并下载便携 EXE，交给便携更新助手完成原路径替换与重启。
 use std::{
     env,
     path::Path,
@@ -27,6 +27,8 @@ const LATEST_MANIFEST_URL: &str =
     "https://github.com/osuplusplus/OPP/releases/latest/download/latest.json";
 /// GitHub Tags API 地址；最新版本号以此为准。
 const GITHUB_TAGS_URL: &str = "https://api.github.com/repos/osuplusplus/OPP/tags?per_page=100";
+/// GitHub Releases API 地址前缀（按 tag 追加）；更新公告正文以此为准。
+const GITHUB_RELEASE_URL: &str = "https://api.github.com/repos/osuplusplus/OPP/releases/tags/";
 /// 国内 GitHub Release 镜像。版本检查仍直接访问 GitHub Tags API，只有大文件下载走镜像。
 const RELEASE_MIRROR_PREFIX: &str = "https://gh-proxy.com/";
 /// 便携 EXE 只允许来自官方 GitHub Release；清单被篡改时无法指向其他下载源。
@@ -52,6 +54,14 @@ struct UpdateManifest {
 #[derive(Debug, Deserialize)]
 struct GithubTag {
     name: String,
+}
+
+/// Releases API 返回条目的最小子集：发布名称、公告正文（Markdown）与发布时间。
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    name: Option<String>,
+    body: Option<String>,
+    published_at: Option<String>,
 }
 
 /// 版本检查结果：展示用版本信息、发布页链接与是否可自动更新。
@@ -262,6 +272,36 @@ async fn fetch_latest_tag(client: &reqwest::Client) -> CommandResult<String> {
         .ok_or_else(|| CommandError::new("NO_RELEASE_TAG", "GitHub 没有可用的版本 Tag"))
 }
 
+/// 拉取指定 tag 的 Release 元信息（名称 / 公告正文 / 发布时间）。
+/// 公告属于展示性信息：获取失败只记日志并返回 `None`，不影响版本判断。
+async fn fetch_release(client: &reqwest::Client, tag: &str) -> Option<GithubRelease> {
+    let result = async {
+        let response = client
+            .get(format!("{GITHUB_RELEASE_URL}{tag}"))
+            .header(ACCEPT, "application/vnd.github+json")
+            .header(CACHE_CONTROL, "no-cache")
+            .send()
+            .await
+            .map_err(|error| CommandError::network(format!("无法连接 GitHub Releases：{error}")))?;
+        if !response.status().is_success() {
+            return Err(CommandError::network(format!(
+                "GitHub Release 读取失败（HTTP {}）",
+                response.status()
+            )));
+        }
+        response.json::<GithubRelease>().await.map_err(|error| {
+            CommandError::new("INVALID_RELEASE_DATA", format!("无法读取 Release：{error}"))
+        })
+    };
+    match result.await {
+        Ok(release) => Some(release),
+        Err(error) => {
+            crate::log_warn!("update", "读取更新公告失败：{}", error.message);
+            None
+        }
+    }
+}
+
 #[tauri::command]
 /// 读取 GitHub Tags 并比较当前版本；启动检查失败不会阻塞其他功能。
 pub async fn check_for_updates(app: AppHandle) -> CommandResult<UpdateCheckResult> {
@@ -269,12 +309,23 @@ pub async fn check_for_updates(app: AppHandle) -> CommandResult<UpdateCheckResul
     let client = http_client(&current_version)?;
     // 版本判断只依赖 GitHub Tags；下载清单在用户确认安装时再读取。
     let latest_tag = fetch_latest_tag(&client).await?;
+    let release = fetch_release(&client, &latest_tag).await;
     let manifest = UpdateManifest {
         version: latest_tag.clone(),
         url: format!("https://github.com/osuplusplus/OPP/releases/tag/{latest_tag}"),
         sha256: None,
     };
-    build_update_result(&current_version, manifest, supports_auto_update())
+    let mut result = build_update_result(&current_version, manifest, supports_auto_update())?;
+    if let Some(release) = release {
+        // 优先展示 Release 页面本身的名称与公告；正文为空时保留前端兜底文案。
+        result.release_name = release
+            .name
+            .filter(|name| !name.trim().is_empty())
+            .or(result.release_name);
+        result.release_notes = release.body.filter(|body| !body.trim().is_empty());
+        result.published_at = release.published_at;
+    }
+    Ok(result)
 }
 
 #[tauri::command]

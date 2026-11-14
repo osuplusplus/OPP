@@ -7,7 +7,7 @@ import { ErrorPanel } from "../../shared/components/ErrorPanel";
 import { PageHeader } from "../../shared/components/PageHeader";
 import { Badge, Button, Card, DataLine, EmptyState, InfoTip, SectionTitle } from "../../shared/components/ui";
 import { desktopApi, useCapabilities } from "../../shared/lib/tauri";
-import type { ObsStatus, TosuLiveSnapshot, TosuStatus } from "../../shared/types/osu";
+import type { AppSettings, ObsStatus, TosuLiveSnapshot, TosuStatus } from "../../shared/types/osu";
 import { settingsQueryKey, useSettings } from "../settings/api";
 
 const TOSU_RELEASES = "https://github.com/tosuapp/tosu/releases/latest";
@@ -39,12 +39,15 @@ export function TosuPage() {
   const queryClient = useQueryClient();
   const refresh = async () => { try { const [nextTosu, nextObs] = await Promise.all([desktopApi.getTosuStatus(), desktopApi.getObsStatus()]); setStatus(nextTosu); setObs(nextObs); setObsUrl(nextObs.websocket_url); setSelectedScene(nextObs.selected_scene ?? ""); setError(null); } catch (value) { setError(value); } };
   const saveSettings = async (patch: Record<string, boolean>) => { if (!settings.data) return; const saved = await desktopApi.updateSettings({ ...settings.data, ...patch }); queryClient.setQueryData(settingsQueryKey, saved); };
+  // setTosuExecutable 等命令在后端直接改设置；必须同步 settings 缓存，
+  // 否则其它页面用旧快照整份回写时会把刚选的路径抹掉。
+  const patchSettings = (patch: Partial<AppSettings>) => { queryClient.setQueryData<AppSettings>(settingsQueryKey, (current) => (current ? { ...current, ...patch } : current)); };
   const loadScenes = async () => { setBusy("obs"); try { setScenes(await desktopApi.getObsScenes()); } catch (value) { setError(value); } finally { setBusy(null); } };
   useEffect(() => { let disposed = false; let off: (() => void) | undefined; void desktopApi.onTosuLiveData((value) => { if (!disposed && document.visibilityState !== "hidden") setLive(value); }).then((unlisten) => { if (disposed) unlisten(); else off = unlisten; }); return () => { disposed = true; off?.(); }; }, []);
-  const chooseTosu = async () => { const path = await desktopApi.chooseTosuExecutable(status?.executable_path); if (path) setStatus(await desktopApi.setTosuExecutable(path)); };
-  const chooseLyrics = async () => { const path = await desktopApi.chooseTosuLyricsExecutable(status?.lyrics.executable_path); if (path) setStatus(await desktopApi.setTosuLyricsExecutable(path)); };
+  const chooseTosu = async () => { const path = await desktopApi.chooseTosuExecutable(status?.executable_path); if (path) { const next = await desktopApi.setTosuExecutable(path); setStatus(next); patchSettings({ tosu_executable_path: next.executable_path ?? path }); } };
+  const chooseLyrics = async () => { const path = await desktopApi.chooseTosuLyricsExecutable(status?.lyrics.executable_path); if (path) { const next = await desktopApi.setTosuLyricsExecutable(path); setStatus(next); patchSettings({ tosu_lyrics_executable_path: next.lyrics.executable_path ?? path }); } };
   const startStop = async () => { if (canStopTosu) { setBusy("tosu"); try { await desktopApi.stopTosu(); await refresh(); } catch (value) { setError(value); } finally { setBusy(null); } } else window.dispatchEvent(new Event("opp:request-tosu-launch")); };
-  const saveObs = async () => { setBusy("obs"); try { setObs(await desktopApi.saveObsConnection(obsUrl, obsPassword || null, selectedScene || null)); setObsPassword(""); await loadScenes(); } catch (value) { setError(value); } finally { setBusy(null); } };
+  const saveObs = async () => { setBusy("obs"); try { const next = await desktopApi.saveObsConnection(obsUrl, obsPassword || null, selectedScene || null); setObs(next); patchSettings({ obs_websocket_url: next.websocket_url }); setObsPassword(""); await loadScenes(); } catch (value) { setError(value); } finally { setBusy(null); } };
   const refreshSources = async () => { setBusy("refresh"); try { setRefreshMessage((await desktopApi.refreshSelectedObsScene()).message); } catch (value) { setError(value); } finally { setBusy(null); } };
   const lyrics = status?.lyrics;
   // Windows 上只能停止 OPP 自己启动的 tosu；Linux 上外部（提权）tosu 也能经 pkexec 终止。

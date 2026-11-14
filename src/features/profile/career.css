@@ -31,7 +31,7 @@
 .career-more > summary { display: grid; place-items: center; width: 34px; height: 34px; cursor: pointer; list-style: none; border-radius: 6px; color: var(--text-muted); }
 .career-more > summary::-webkit-details-marker { display: none; }
 .career-more[open] > summary { background: var(--surface-interactive-hover); }
-.career-more > div { position: absolute; top: 40px; right: 0; z-index: 20; width: 150px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-panel-strong); }
+.career-more > div { position: absolute; top: 40px; right: 0; z-index: 20; width: 150px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-panel-strong); animation: opp-pop-in 150ms var(--ease-out) both; transform-origin: top right; }
 .career-more button { width: 100%; }
 .career-panel { min-width: 0; padding: 20px 24px; border: 1px solid var(--line-subtle); border-radius: 10px; background: var(--surface-panel); }
 .career-section-header { align-items: flex-start; gap: 16px; flex-wrap: wrap; }

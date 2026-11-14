@@ -106,8 +106,11 @@ fn config_roots() -> Vec<PathBuf> {
     roots
 }
 
-/// 依次在候选根目录下查找配置文件（最多下探 3 层，取第一个 JSON 文件）。
+/// 依次在候选根目录下查找配置文件（最多下探 3 层）：优先 `settings.json` /
+/// `config.json` 主配置，否则回退到第一个 JSON 文件（目录里还有 favourites
+/// 等同名 JSON，不能随便取第一个当主配置）。
 fn find_config() -> Option<PathBuf> {
+    let mut fallback = None;
     for root in config_roots() {
         if !root.is_dir() {
             continue;
@@ -118,17 +121,24 @@ fn find_config() -> Option<PathBuf> {
             .filter_map(Result::ok)
             .filter(|e| e.file_type().is_file())
         {
-            if entry
+            if !entry
                 .path()
                 .extension()
                 .and_then(|x| x.to_str())
                 .is_some_and(|x| x.eq_ignore_ascii_case("json"))
             {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if name == "settings.json" || name == "config.json" {
                 return Some(entry.path().to_path_buf());
+            }
+            if fallback.is_none() {
+                fallback = Some(entry.path().to_path_buf());
             }
         }
     }
-    None
+    fallback
 }
 
 fn string_field(value: &Value, keys: &[&str]) -> Option<String> {

@@ -208,7 +208,7 @@ export function Tooltip({
         <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
         <TooltipPrimitive.Portal>
           <TooltipPrimitive.Content
-            className="opp-floating z-[200] max-w-xs px-3 py-2 text-xs leading-5 text-slate-200"
+            className="opp-tooltip opp-floating z-[200] max-w-xs px-3 py-2 text-xs leading-5 text-slate-200"
             data-slot="tooltip-content"
             side={side}
             sideOffset={7}

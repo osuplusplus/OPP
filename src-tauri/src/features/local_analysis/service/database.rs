@@ -139,27 +139,45 @@ impl LocalAnalysisService {
                     ));
                 }
                 let summary: LocalLibrarySummary = serde_json::from_str(&snapshot.summary_json)?;
-                // 逐条校验 SHA-256 与条目键，任何不匹配都视为数据库损坏。
-                let entries = snapshot
-                    .entries
-                    .into_iter()
-                    .map(|entry| {
-                        if sha256(entry.json.as_bytes()) != entry.hash {
-                            return Err(CommandError::new(
-                                "DATABASE_INDEX_INVALID",
-                                "索引条目校验失败",
-                            ));
+                // 逐条校验 SHA-256 与条目键：哈希不匹配仍是数据库级损坏（整体拒绝）；
+                // 单条 JSON 反序列化失败（旧版本曾把 NaN/Infinity 序列化为 null 等）
+                // 只跳过该条目并记录诊断，避免一行坏数据报废整个快照。
+                let mut corrupted_entries = 0usize;
+                let mut entries = Vec::with_capacity(snapshot.entries.len());
+                let snapshot_entry_count = snapshot.entries.len();
+                for entry in snapshot.entries {
+                    if sha256(entry.json.as_bytes()) != entry.hash {
+                        return Err(CommandError::new(
+                            "DATABASE_INDEX_INVALID",
+                            "索引条目校验失败",
+                        ));
+                    }
+                    let value = match serde_json::from_str::<IndexedEntry>(&entry.json) {
+                        Ok(value) if value.key == entry.key => value,
+                        Ok(_) => {
+                            corrupted_entries += 1;
+                            continue;
                         }
-                        let value: IndexedEntry = serde_json::from_str(&entry.json)?;
-                        if value.key != entry.key {
-                            return Err(CommandError::new(
-                                "DATABASE_INDEX_INVALID",
-                                "索引条目标识不匹配",
-                            ));
+                        Err(error) => {
+                            corrupted_entries += 1;
+                            if let Some(log) = global() {
+                                log.log(
+                                    "WARN",
+                                    "local_analysis.storage",
+                                    format!("跳过无法反序列化的索引条目 {}：{error}", entry.key),
+                                );
+                            }
+                            continue;
                         }
-                        Ok(value)
-                    })
-                    .collect::<CommandResult<Vec<_>>>()?;
+                    };
+                    entries.push(value);
+                }
+                if snapshot_entry_count > 0 && corrupted_entries == snapshot_entry_count {
+                    return Err(CommandError::new(
+                        "DATABASE_INDEX_INVALID",
+                        "索引条目全部损坏",
+                    ));
+                }
                 if summary.client != client
                     || summary.source_root != snapshot.root
                     || summary.scanned_at != snapshot.revision
@@ -186,11 +204,32 @@ impl LocalAnalysisService {
                     skin_orders: BTreeMap::new(),
                 };
                 index.rebuild_runtime_indexes();
+                if corrupted_entries > 0 {
+                    // 修复期间跳过的条目要显式告知：写进诊断并在存储状态里可见。
+                    index.diagnostics.push(diagnostic(
+                        "INDEX_ENTRY_CORRUPTED",
+                        format!("{corrupted_entries} 个索引条目损坏已跳过，重新扫描后自动修复"),
+                        None,
+                    ));
+                }
                 Ok(Some(index))
             });
             match loaded {
                 Ok(Some(Some(index))) => {
-                    self.report(client, Some(&index), "database", None);
+                    // 存在跳过的条目时立即用剩余条目回写快照（修订号不变），
+                    // 坏行就此清除，无需用户手动重新扫描。
+                    let mut warning = None;
+                    if let Some(diagnostic) = index
+                        .diagnostics
+                        .iter()
+                        .find(|item| item.code == "INDEX_ENTRY_CORRUPTED")
+                    {
+                        warning = Some(diagnostic.message.clone());
+                        if let Ok(true) = self.save_database(client, &index) {
+                            let _ = self.record_revision(client, &index.summary.scanned_at);
+                        }
+                    }
+                    self.report(client, Some(&index), "database", warning);
                     return Ok(Some(index));
                 }
                 Err(error) => {

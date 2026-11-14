@@ -529,7 +529,7 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
           {ffmpegVersion === null ? <div className="mt-5 rounded-xl border border-amber-300/15 bg-amber-300/[0.05] p-4 text-sm text-amber-100">未检测到 FFmpeg。请安装 FFmpeg 并确保 ffmpeg 在 PATH 中,然后重试。</div> : exporting ? (
             <div className="mt-5 space-y-4">
               <div className="flex items-center gap-2 text-sm text-slate-300"><LoaderCircle className="size-4 animate-spin" />{exporting.phase === "mux" ? "混入音频…" : `正在渲染 ${exporting.frame}/${exporting.total} 帧`}</div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: exporting.total > 0 ? `${Math.round((exporting.frame / exporting.total) * 100)}%` : "0%" }} /></div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-cyan-400 transition-[width]" style={{ width: exporting.total > 0 ? `${Math.round((exporting.frame / exporting.total) * 100)}%` : "0%" }} /></div>
               <Button size="sm" onClick={() => void desktopApi.liveRenderExportCancel()}>取消导出</Button>
             </div>
           ) : exportResult ? (

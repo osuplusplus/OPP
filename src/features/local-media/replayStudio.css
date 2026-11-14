@@ -67,7 +67,8 @@
 .studio-task-content { min-height: 0; overflow-y: auto; }
 .studio-task-content > section, .studio-task-content > div { background: transparent; border: 0; box-shadow: none; padding: 0; }
 .studio-library-overlay { position: fixed; inset: 0; background: #0008; z-index: 100; }
-.studio-library { position: fixed; padding: 18px; z-index: 101; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--studio-line); border-radius: 10px; box-shadow: 0 16px 48px #0005; overflow: hidden; animation: studio-dropdown-enter .15s ease-out; }
+.studio-library { position: fixed; padding: 18px; z-index: 101; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--studio-line); border-radius: 10px; box-shadow: 0 16px 48px #0005; overflow: hidden; animation: studio-dropdown-enter .15s var(--ease-out); transform-origin: top center; }
+.studio-library[data-state="closed"] { animation: opp-fade-out 120ms ease both; pointer-events: none; }
 .studio-library header { display: flex; justify-content: space-between; align-items: center; }
 .studio-library h2 { font-size: 16px; margin: 0; font-weight: 700; }
 .studio-library header + p { color: var(--studio-muted); font-size: 12px; line-height: 1.7; }

@@ -81,7 +81,7 @@
 .similarity-preview-close { position: absolute; z-index: 5; top: 12px; right: 12px; padding: 7px; border: 1px solid var(--line-subtle); border-radius: 6px; background: var(--surface-panel); color: var(--text); }
 .similarity-preview-close svg { width: 17px; }
 .similarity-history-dialog { position: fixed; inset: 0; z-index: 290; display: grid; place-items: center; padding: 20px; background: #000b; backdrop-filter: blur(12px); }
-.similarity-history-dialog > div { width: min(700px, 100%); max-height: min(720px, calc(100vh - 40px)); overflow: hidden; border: 1px solid var(--line-subtle); border-radius: 10px; background: var(--surface-float); box-shadow: 0 30px 100px #000c; }
+.similarity-history-dialog > div { width: min(700px, 100%); max-height: min(720px, calc(100vh - 40px)); overflow: hidden; border: 1px solid var(--line-subtle); border-radius: 10px; background: var(--surface-float); box-shadow: 0 30px 100px #000c; animation: opp-dialog-in 200ms var(--ease-out) both; }
 .similarity-history-dialog header { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding: 20px; border-bottom: 1px solid var(--line-subtle); }
 .similarity-history-dialog h2 { margin: 0; color: var(--text); font-size: 18px; }
 .similarity-history-dialog header p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }

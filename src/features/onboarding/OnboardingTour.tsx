@@ -196,7 +196,9 @@ export function OnboardingTour({
             height: targetBox.height,
             left: targetBox.left,
             top: targetBox.top,
-            transition: reduceMotion ? "none" : "all 180ms ease",
+            transition: reduceMotion
+              ? "none"
+              : "left 180ms var(--ease-out), top 180ms var(--ease-out), width 180ms var(--ease-out), height 180ms var(--ease-out)",
             width: targetBox.width,
           }}
         />
@@ -212,7 +214,7 @@ export function OnboardingTour({
           left: panelPosition?.left ?? 16,
           opacity: panelPosition ? 1 : 0,
           top: panelPosition?.top ?? 16,
-          transition: reduceMotion ? "none" : "left 180ms ease, top 180ms ease, opacity 120ms ease",
+          transition: reduceMotion ? "none" : "left 180ms var(--ease-out), top 180ms var(--ease-out), opacity 120ms ease",
         }}
         tabIndex={-1}
       >

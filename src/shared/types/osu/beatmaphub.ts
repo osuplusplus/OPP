@@ -128,22 +128,36 @@ export interface BeatmapHubBackupRestoreResult {
 
 // —— osu!Collector（PackHub 补充来源，直连不经 PackHub 服务器）——
 
-/** osu!Collector 收藏集合卡片（recent 列表与详情头部共用）。 */
+/** 集合内单个模式的难度数量。 */
+export interface OsuCollectorModeCount {
+  mode: string;
+  count: number;
+}
+
+/** osu!Collector 收藏集合卡片（搜索列表与详情头部共用）。 */
 export interface OsuCollectorCollection {
   id: number;
   name: string;
   uploader: string;
+  /** 上传者 osu 用户 ID，用于拼 a.ppy.sh 头像；缺失为 null。 */
+  uploader_id: number | null;
   description: string | null;
   beatmap_count: number;
   favourites: number;
   last_modified: string | null;
+  date_uploaded: string | null;
+  /** 按整数星数分桶的难度分布（下标 0 对应 1★，共 10 桶）；旧数据缺失为 null。 */
+  difficulty_spread: number[] | null;
+  /** 各模式难度数量（仅数量大于 0 的模式，按游戏内顺序）。 */
+  modes: OsuCollectorModeCount[];
 }
 
-/** recent 列表页；`next_cursor` 透传给下一次请求实现“加载更多”。 */
+/** 搜索列表页；`next_cursor` 透传给下一次请求实现“加载更多”，`total` 为命中总数。 */
 export interface OsuCollectorListPage {
   collections: OsuCollectorCollection[];
   next_cursor: number | null;
   has_more: boolean;
+  total: number | null;
 }
 
 /** 详情预览中的单个难度行，`local` 来自本地索引比对。 */

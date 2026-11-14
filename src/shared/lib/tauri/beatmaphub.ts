@@ -61,8 +61,14 @@ export const beatmaphubApi = {
   restoreBeatmapBackup: () => call<BeatmapHubBackupRestoreResult>("restore_beatmap_backup"),
 
   // —— osu!Collector 补充来源（直连，只读浏览 + 导入）——
-  getOsuCollectorCollections: (cursor?: number | null) =>
-    call<OsuCollectorListPage>("get_osu_collector_collections", { cursor: cursor ?? null }),
+  getOsuCollectorCollections: (params: { search?: string | null; sortBy?: string | null; orderBy?: string | null; cursor?: number | null; perPage?: number | null } = {}) =>
+    call<OsuCollectorListPage>("get_osu_collector_collections", {
+      search: params.search ?? null,
+      sortBy: params.sortBy ?? null,
+      orderBy: params.orderBy ?? null,
+      cursor: params.cursor ?? null,
+      perPage: params.perPage ?? null,
+    }),
 
   getOsuCollectorCollection: (collectionId: number) =>
     call<OsuCollectorCollectionDetail>("get_osu_collector_collection", { collectionId }),

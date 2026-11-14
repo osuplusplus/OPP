@@ -90,7 +90,7 @@ export function GameLauncher() {
           <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
         </button>
       </div>
-      {open ? <div aria-label="启动客户端" className="absolute bottom-[calc(100%+8px)] left-0 z-50 w-full rounded-lg border border-[var(--line-subtle)] bg-[var(--surface-panel-strong)] p-2 shadow-2xl" id="game-launch-options">
+      {open ? <div aria-label="启动客户端" className="opp-pop-up absolute bottom-[calc(100%+8px)] left-0 z-50 w-full rounded-lg border border-[var(--line-subtle)] bg-[var(--surface-panel-strong)] p-2 shadow-2xl" id="game-launch-options" style={{ transformOrigin: "bottom right" }}>
         {clients.map((item) => {
           const isRunning = running.some((entry) => entry.client === item.value);
           return <button aria-label={`${isRunning ? "运行中" : "启动"} osu! ${item.label}`} className="flex min-h-10 w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-xs text-slate-300 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-primary)] disabled:opacity-50" disabled={isRunning} key={item.value} onClick={() => void startGame(item.value)} type="button"><span>osu! {item.label}</span><span className="text-[10px] text-slate-400">{isRunning ? "运行中" : "启动"}</span></button>;

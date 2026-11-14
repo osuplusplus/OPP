@@ -12,7 +12,7 @@ export function StageBackground({ source, reduceMotion = false }: { source: stri
   const reduced = reduceMotion || systemReduced;
   return <div className="local-stage-art" aria-hidden="true">
     <AnimatePresence initial={false}>
-      <motion.div className="local-stage-art-layer" key={source ?? "empty"} initial={{ opacity: 0, scale: reduced ? 1 : 1.025 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : 0.4 }}>
+      <motion.div className="local-stage-art-layer" key={source ?? "empty"} initial={{ opacity: 0, scale: reduced ? 1 : 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : 0.3 }}>
         {source ? <Artwork key={source} source={source} /> : <div className="local-stage-art-fallback" />}
       </motion.div>
     </AnimatePresence>

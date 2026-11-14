@@ -153,7 +153,7 @@ function UpdateAnnouncementDialog({
                     </div>
                     <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.08]">
                       <div
-                        className="h-full rounded-full bg-[var(--theme-primary)] transition-all"
+                        className="h-full rounded-full bg-[var(--theme-primary)] transition-[width]"
                         style={{
                           width: `${progress?.total_bytes
                             ? Math.min(100, (progress.downloaded_bytes / progress.total_bytes) * 100)

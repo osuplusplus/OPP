@@ -21,6 +21,8 @@ export interface NotificationOptions {
 
 interface NotificationItem extends NotificationOptions {
   id: string;
+  /** true = 正在播放退场动画,等待移除。 */
+  leaving?: boolean;
 }
 
 const toneStyles: Record<NotificationTone, { border: string; icon: string; Icon: typeof Info }> = {
@@ -39,12 +41,22 @@ function publish() {
   listeners.forEach((listener) => listener(items));
 }
 
+const EXIT_MS = 160;
+
 function dismiss(id: string) {
   const timer = timers.get(id);
   if (timer !== undefined) window.clearTimeout(timer);
   timers.delete(id);
-  items = items.filter((item) => item.id !== id);
+  const target = items.find((item) => item.id === id);
+  if (!target || target.leaving) return;
+  // 先进入离场态播放退场动画,动画结束后再真正移除;重复 dismiss 会被 leaving 挡住。
+  items = items.map((item) => item.id === id ? { ...item, leaving: true } : item);
   publish();
+  timers.set(id, window.setTimeout(() => {
+    timers.delete(id);
+    items = items.filter((item) => item.id !== id);
+    publish();
+  }, EXIT_MS));
 }
 
 function show(options: NotificationOptions) {
@@ -111,7 +123,7 @@ export function NotificationCard({
   return (
     <section
       aria-atomic="true"
-      className={cn("pointer-events-auto w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-[var(--surface-float)] shadow-[0_18px_60px_rgba(0,0,0,.32)] backdrop-blur-xl", style.border, className)}
+      className={cn("opp-notification pointer-events-auto w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-[var(--surface-float)] shadow-[0_18px_60px_rgba(0,0,0,.32)] backdrop-blur-xl", style.border, className)}
       data-notification-tone={tone}
       role={tone === "error" ? "alert" : "status"}
     >
@@ -142,7 +154,11 @@ export function NotificationViewport() {
   if (!visible.length) return null;
   return (
     <aside aria-label="应用通知" className="pointer-events-none fixed right-6 top-[calc(var(--titlebar-height)+16px)] z-[290] flex flex-col gap-3">
-      {visible.map((item) => <NotificationCard action={item.action} description={item.description} key={item.id} onClose={() => dismiss(item.id)} title={item.title} tone={item.tone} />)}
+      {visible.map((item) => (
+        <div className="opp-notification-exit" data-leaving={item.leaving ? "true" : undefined} key={item.id}>
+          <NotificationCard action={item.action} description={item.description} onClose={() => dismiss(item.id)} title={item.title} tone={item.tone} />
+        </div>
+      ))}
     </aside>
   );
 }

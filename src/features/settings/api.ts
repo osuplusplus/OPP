@@ -66,6 +66,8 @@ export function useSettings() {
       translation_api_base_url: null,
       translation_api_model: null,
     }),
-    staleTime: Infinity,
+    // 不设 staleTime：设置项会被 OTD/TOSU 路径选择等后端流程在页面外修改，
+    // 挂载时重新拉取才能保证「整份设置回写」的页面拿到最新快照，
+    // 避免用过期数据覆盖后端刚写入的值。
   });
 }

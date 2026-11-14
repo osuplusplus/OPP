@@ -276,6 +276,9 @@ fn any_process(predicate: impl Fn(&str) -> bool) -> bool {
 }
 
 /// Windows 下用 tasklist 按 IMAGENAME 过滤判断进程是否在运行。
+///
+/// 必须用 `/FO CSV`：表格格式的镜像名列固定 25 字符宽，超长进程名（如
+/// `OpenTabletDriver.Daemon.exe`）会被截断导致永远匹配失败；CSV 会输出完整名。
 #[cfg(windows)]
 pub fn windows_tasklist_running(image_name: &str) -> bool {
     use std::os::windows::process::CommandExt;
@@ -283,12 +286,20 @@ pub fn windows_tasklist_running(image_name: &str) -> bool {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     Command::new("tasklist")
         .creation_flags(CREATE_NO_WINDOW)
-        .args(["/FI", &format!("IMAGENAME eq {image_name}"), "/NH"])
+        .args([
+            "/FI",
+            &format!("IMAGENAME eq {image_name}"),
+            "/NH",
+            "/FO",
+            "CSV",
+        ])
         .output()
         .map(|output| {
+            // CSV 每行以带引号的完整镜像名开头，无匹配时只有 INFO 提示行。
+            let prefix = format!("\"{}\"", image_name.to_ascii_lowercase());
             String::from_utf8_lossy(&output.stdout)
-                .to_ascii_lowercase()
-                .contains(&image_name.to_ascii_lowercase())
+                .lines()
+                .any(|line| line.trim_start().to_ascii_lowercase().starts_with(&prefix))
         })
         .unwrap_or(false)
 }
