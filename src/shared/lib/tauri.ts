@@ -1027,7 +1027,7 @@ export function useCapabilities() {
 }
 
 export type LiveEncoderId = "x264" | "x265" | "nvenc" | "hevc_nvenc";
-/** 导出弹窗的编码器选择:auto = 固定 H.264(NVENC 优先,回退 x264)。 */
+/** 导出弹窗的编码器选择:auto = 优先 HEVC NVENC → H.264 NVENC → x264。 */
 export type LiveEncoderChoice = LiveEncoderId | "auto";
 
 export interface LiveEncoderCapability {

@@ -12,11 +12,13 @@ import {
   defaultExportForm,
   isHardwareEncoder,
   loadExportProfile,
+  parentDir,
+  presetHint,
   presetOptions,
+  recommendedSettings,
   resolveAutoEncoder,
   saveExportProfile,
   splitArgs,
-  tuneOptions,
   type ExportForm,
 } from "./exportProfile";
 import { useReplayWorkspace, useRenderSession } from "./api";
@@ -75,8 +77,11 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
   // 默认导出文件夹:有值时导出跳过保存对话框。
   const [exportDirectory, setExportDirectory] = useRenderSession("live-export-directory", initialProfile?.outputDirectory ?? "");
   const [savedAt, setSavedAt] = useState<string | null>(initialProfile?.updatedAt ?? null);
-  // auto 固定 H.264(NVENC 优先,回退 x264);探测结果就绪前先按 x264 展示。
+  // auto 优先 HEVC NVENC,其次 H.264 NVENC,最后 x264;探测结果就绪前先按 x264 展示。
   const effectiveEncoder = exportForm.encoder === "auto" ? resolveAutoEncoder(encoderProbe) : exportForm.encoder;
+  // auto 选项括号里展示它实际会用的参数(用户改过 preset/质量就显示用户值)。
+  const autoPreset = exportForm.preset || recommendedSettings(effectiveEncoder).preset;
+  const autoQualityLabel = isHardwareEncoder(effectiveEncoder) ? "CQ" : "CRF";
   const nvencAvailable = encoderProbe?.nvencAvailable ?? false;
   // 导出偏移的原始输入(与预览偏移同理:text 框允许键入 "-" 等中间态)。
   const [exportOffsetText, setExportOffsetText] = useRenderSession("live-export-offset", String(initialProfile?.export.audioOffset ?? 0));
@@ -334,18 +339,22 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
           encoder = encoder === "hevc_nvenc" && available.has("x265") ? "x265" : "x264";
         }
         const effective = encoder === "auto" ? resolveAutoEncoder(probe) : encoder;
-        // auto 在不同机器上可能落到软件/硬件编码器,preset/tune 必须按
-        // 实际编码器重新校验,避免把 p5 交给 libx265。
-        // 上游推荐值:硬件 NVENC p4/CQ22,软件 x264 veryfast/CRF18。
-        // 默认表单是 CQ22;落到软件编码器且用户没改过 preset/tune 时
-        // 自动切到 CRF18。
-        const softwareDefaultQuality = !isHardwareEncoder(effective) && f.quality === 22 && f.preset === "" && f.tune === "";
+        // auto 在不同机器上可能落到软件/硬件编码器,preset 必须按实际
+        // 编码器重新校验,避免把 p5 交给 libx265。
+        // 表单仍是“未改动”的 auto 默认(preset 空、quality=默认值)时,
+        // 换成该编码器的推荐值:HEVC p1/CQ30、H.264 p1/CQ26、x264 superfast/CRF22。
+        const rec = recommendedSettings(effective);
+        const untouchedDefaults = f.preset === "" && f.tune === "" && f.quality === defaultExportForm.quality;
         return {
           ...f,
           encoder,
           preset: presetOptions(effective).includes(f.preset) ? f.preset : "",
-          tune: tuneOptions(effective).includes(f.tune) ? f.tune : "",
-          quality: softwareDefaultQuality ? 18 : f.quality,
+          quality: untouchedDefaults ? rec.quality : f.quality,
+          // 高级参数已从 UI 移除：清掉旧配置里残留的值，避免隐形生效。
+          tune: "",
+          rc: "vbr",
+          qp: null,
+          gop: null,
         };
       });
       if (playing) {
@@ -373,12 +382,21 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
       const beatmapPath = await desktopApi.getLocalBeatmapPath(client, fresh.beatmap_resource_id);
       const base = replayPath.split(/[\\/]/).pop()?.replace(/\.osr$/i, "") || "replay";
       const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const out = !forceDialog && exportDirectory.trim()
-        ? joinPath(exportDirectory.trim(), `${base}-${stamp}.mp4`)
+      let targetDir = exportDirectory.trim();
+      const out = !forceDialog && targetDir
+        ? joinPath(targetDir, `${base}-${stamp}.mp4`)
         : await save({ defaultPath: `${base}.mp4`, filters: [{ name: "MP4 视频", extensions: ["mp4"] }] });
       if (!out) return;
+      // 记住这次实际选择的目录：下次「快速导出」直接用它，不再弹保存框。
+      if (forceDialog || !targetDir) {
+        const dir = parentDir(out);
+        if (dir && dir !== targetDir) {
+          targetDir = dir;
+          setExportDirectory(dir);
+        }
+      }
       // 导出前再落一次盘,避免防抖窗口内退出应用丢掉最后一次修改。
-      saveExportProfile(exportForm, exportDirectory);
+      saveExportProfile(exportForm, targetDir);
       const [width, height] = exportForm.resolution.split("x").map(Number);
       setExporting({ phase: "render", frame: 0, total: 0, message: "准备中…" });
       await desktopApi.liveRenderExport(beatmapPath, replayPath, { ...options, resultsStyle: exportForm.resultsStyle }, {
@@ -638,7 +656,7 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
                 </Button>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] leading-relaxed text-slate-500">画质、编码器、范围与文件夹都会记住；有默认文件夹时「快速导出」不再弹保存框。</p>
+                <p className="text-[10px] leading-relaxed text-slate-500">画质、编码器、范围与文件夹都会记住；「快速导出」沿用上次导出的文件夹，不再弹保存框。</p>
                 <Button size="sm" variant="ghost" onClick={() => { clearExportProfile(); setExportForm(defaultExportForm); setExportDirectory(""); setExportOffsetText("0"); setSavedAt(null); }}>
                   <RotateCcw className="size-3.5" />恢复默认
                 </Button>
@@ -665,11 +683,14 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
                 value={exportForm.encoder}
                 onChange={(event) => {
                   const encoder = event.target.value as LiveEncoderChoice;
-                  setExportForm((f) => ({ ...f, encoder, preset: "", tune: "", quality: encoder === "auto" || encoder === "nvenc" || encoder === "hevc_nvenc" ? 22 : 18 }));
+                  const rec = encoder === "auto"
+                    ? { preset: "", tune: "", quality: defaultExportForm.quality }
+                    : recommendedSettings(encoder);
+                  setExportForm((f) => ({ ...f, encoder, preset: rec.preset, tune: rec.tune, quality: rec.quality }));
                 }}
               >
                 {([
-                  ["auto", encoderProbe ? `自动 · H.264（NVENC 优先，当前 ${ENCODER_LABELS[effectiveEncoder]}）` : "自动 · H.264（NVENC 优先）"],
+                  ["auto", encoderProbe ? `自动 · 硬件 HEVC 优先（当前 ${ENCODER_LABELS[effectiveEncoder]} · ${autoPreset} · ${autoQualityLabel}${exportForm.quality}）` : "自动 · 硬件 HEVC 优先（HEVC NVENC → H.264 NVENC → x264）"],
                   ["x264", "H.264 · 软件"],
                   ["x265", "H.265 · 软件"],
                   ["nvenc", "H.264 · NVENC"],
@@ -680,36 +701,29 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
                 })}
               </select>
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-xs text-slate-400">速度档 preset
-                <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.preset} onChange={(event) => setExportForm((f) => ({ ...f, preset: event.target.value }))}>
-                  {presetOptions(effectiveEncoder).map((preset) => <option key={preset || "auto"} value={preset}>{preset || "自动"}</option>)}
-                </select>
-              </label>
-              <label className="text-xs text-slate-400">tune
-                <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.tune} onChange={(event) => setExportForm((f) => ({ ...f, tune: event.target.value }))}>
-                  {tuneOptions(effectiveEncoder).map((tune) => <option key={tune || "auto"} value={tune}>{tune || "自动"}</option>)}
-                </select>
-              </label>
-            </div>
-            {isHardwareEncoder(effectiveEncoder) ? <div className="grid grid-cols-2 gap-3">
-              <label className="text-xs text-slate-400" title="cbr 需要在额外参数里提供 -b:v">码率控制 rc
-                <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.rc} onChange={(event) => setExportForm((f) => ({ ...f, rc: event.target.value as ExportForm["rc"] }))}>
-                  <option value="vbr">vbr</option>
-                  <option value="constqp">constqp</option>
-                  <option value="cbr">cbr</option>
-                </select>
-              </label>
-              {exportForm.rc === "constqp" ? <label className="text-xs text-slate-400">固定 QP
-                <input className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" type="number" min={1} max={51} value={exportForm.qp ?? ""} onChange={(event) => setExportForm((f) => ({ ...f, qp: event.target.value === "" ? null : Number(event.target.value) }))} />
-              </label> : <label className="text-xs text-slate-400">关键帧 GOP
-                <input className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" type="number" min={1} value={exportForm.gop ?? ""} placeholder="自动" onChange={(event) => setExportForm((f) => ({ ...f, gop: event.target.value === "" ? null : Number(event.target.value) }))} />
-              </label>}
-            </div> : <label className="text-xs text-slate-400">关键帧 GOP
-              <input className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" type="number" min={1} value={exportForm.gop ?? ""} placeholder="自动" onChange={(event) => setExportForm((f) => ({ ...f, gop: event.target.value === "" ? null : Number(event.target.value) }))} />
-            </label>}
-            <label className="block text-xs text-slate-400" title="crf（软件）/ cq（NVENC），越低画质越高">质量 {isHardwareEncoder(effectiveEncoder) ? "cq" : "crf"} {exportForm.quality}
-              <input className="mt-3 w-full accent-cyan-400" type="range" min={10} max={34} value={exportForm.quality} onChange={(event) => setExportForm((f) => ({ ...f, quality: Number(event.target.value) }))} />
+            <label className="block text-xs text-slate-400">
+              <span className="flex items-center justify-between">速度档 preset
+                <button type="button" className="text-[10px] text-cyan-300/80 hover:text-cyan-200" onClick={() => {
+                  const rec = recommendedSettings(effectiveEncoder);
+                  setExportForm((f) => ({ ...f, preset: rec.preset, tune: rec.tune, quality: rec.quality }));
+                }}>恢复推荐</button>
+              </span>
+              <select className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white" value={exportForm.preset} onChange={(event) => setExportForm((f) => ({ ...f, preset: event.target.value }))}>
+                {presetOptions(effectiveEncoder).map((preset) => {
+                  const hint = presetHint(effectiveEncoder, preset);
+                  return <option key={preset || "auto"} value={preset}>{preset ? `${preset}${hint ? ` · ${hint}` : ""}` : "自动（推荐）"}</option>;
+                })}
+              </select>
+            </label>
+            <label className="block text-xs text-slate-400" title="crf（软件）/ cq（NVENC）：数值越大体积越小、画质越低">
+              <span className="flex items-center justify-between">质量 {isHardwareEncoder(effectiveEncoder) ? "cq" : "crf"}
+                <span className="text-[10px] text-slate-500">推荐 {recommendedSettings(effectiveEncoder).quality}</span>
+              </span>
+              <div className="mt-2 flex items-center gap-3">
+                <input className="w-full accent-cyan-400" type="range" min={10} max={51} value={exportForm.quality} onChange={(event) => setExportForm((f) => ({ ...f, quality: Number(event.target.value) }))} />
+                <input className="w-20 rounded-lg border border-white/10 bg-black/20 p-1.5 text-center text-sm text-white" type="number" min={0} max={51} value={exportForm.quality} onChange={(event) => setExportForm((f) => ({ ...f, quality: Math.max(0, Math.min(51, Number(event.target.value) || 0)) }))} />
+              </div>
+              <p className="mt-1 text-[10px] text-slate-500">数值越大体积越小、画质越低；22–30 为常用区间。</p>
             </label>
             <label className="block text-xs text-slate-400" title="追加到 ffmpeg 命令末尾，可覆盖默认参数；支持引号">额外 ffmpeg 参数
               <input className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 p-3 font-mono text-xs text-white" placeholder="-b:v 20M" value={exportForm.extraArgs} onChange={(event) => setExportForm((f) => ({ ...f, extraArgs: event.target.value }))} />
@@ -770,11 +784,11 @@ export function LivePreviewPanel({ visible }: { visible: boolean }) {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Button className="w-full" variant="primary" loading={exportBusy} disabled={ffmpegVersion === null} onClick={() => void confirmExport(true)}><Film className="size-4" />选择位置并导出</Button>
-              <Button className="w-full" loading={exportBusy} disabled={ffmpegVersion === null} onClick={() => void confirmExport(false)} title={exportDirectory.trim() ? "使用默认文件夹，不再询问保存位置" : "使用当前设置导出（仍会询问保存位置）"}>
+              <Button className="w-full" loading={exportBusy} disabled={ffmpegVersion === null} onClick={() => void confirmExport(false)} title={exportDirectory.trim() ? `导出到上次的文件夹：${exportDirectory.trim()}` : "首次快速导出会询问保存位置，之后自动沿用"}>
                 <Check className="size-4" />快速导出
               </Button>
             </div>
-            <p className="text-center text-[10px] text-slate-500">{exportDirectory.trim() ? `快速导出到 ${exportDirectory.trim()}` : "设置默认导出文件夹后，快速导出会跳过保存对话框"}</p>
+            <p className="text-center text-[10px] text-slate-500">{exportDirectory.trim() ? `快速导出到 ${exportDirectory.trim()}` : "首次快速导出会询问位置，之后自动沿用上次目录"}</p>
           </div>}
         </Dialog.Content>
       </Dialog.Portal>

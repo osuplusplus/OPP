@@ -2525,7 +2525,7 @@ pub struct ExportParams {
     pub fps: u32,
     /// "x264" | "x265" | "nvenc" | "hevc_nvenc"。
     pub encoder: String,
-    /// crf(软件)/ cq(nvenc),默认 18。
+    /// crf(软件)/ cq(nvenc)：前端默认 HEVC CQ30 / H.264 CQ26 / x264 CRF22。
     pub quality: u32,
     /// 编码 preset(软件 veryfast..slower;NVENC p1..p7)。空 = 各编码器默认。
     #[serde(default)]
@@ -3023,13 +3023,14 @@ fn ffmpeg_encoder_args(params: &ExportParams) -> Vec<String> {
             } else {
                 "h264_nvenc"
             };
+            // 实测性价比档：p1/ull 最快；p4 适合更高画质。
             let preset = if params.preset.is_empty() {
-                "p4"
+                "p1"
             } else {
                 params.preset.as_str()
             };
             let tune = if params.tune.is_empty() {
-                "hq"
+                "ull"
             } else {
                 params.tune.as_str()
             };
@@ -3060,7 +3061,7 @@ fn ffmpeg_encoder_args(params: &ExportParams) -> Vec<String> {
         }
         "x265" => {
             let preset = if params.preset.is_empty() {
-                "medium"
+                "fast"
             } else {
                 params.preset.as_str()
             };
@@ -3073,8 +3074,9 @@ fn ffmpeg_encoder_args(params: &ExportParams) -> Vec<String> {
             push_args(&mut args, &["-tag:v", "hvc1"]);
         }
         _ => {
+            // CPU 编码实测性价比档：superfast + CRF22 比 veryfast/18 快约 33%。
             let preset = if params.preset.is_empty() {
-                "veryfast"
+                "superfast"
             } else {
                 params.preset.as_str()
             };
@@ -3708,13 +3710,13 @@ mod tests {
         assert!(!gpu_yuv_active(&p));
         assert_eq!(
             joined(&ffmpeg_encoder_args(&p)),
-            "-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -movflags +faststart"
+            "-c:v libx264 -preset superfast -crf 18 -pix_fmt yuv420p -movflags +faststart"
         );
         let p = params("x265", 22, false);
         assert_eq!(export_input_pix_fmt(&p), "bgra");
         assert!(
             joined(&ffmpeg_encoder_args(&p))
-                .starts_with("-c:v libx265 -preset medium -crf 22 -tag:v hvc1")
+                .starts_with("-c:v libx265 -preset fast -crf 22 -tag:v hvc1")
         );
     }
 
@@ -3752,7 +3754,7 @@ mod tests {
         assert_eq!(export_input_pix_fmt(&p), "bgr0");
         assert_eq!(
             joined(&ffmpeg_encoder_args(&p)),
-            "-c:v h264_nvenc -preset p4 -tune hq -rc vbr -cq 19 -b:v 0 -movflags +faststart"
+            "-c:v h264_nvenc -preset p1 -tune ull -rc vbr -cq 19 -b:v 0 -movflags +faststart"
         );
     }
 
@@ -3772,7 +3774,7 @@ mod tests {
         let p = params("hevc_nvenc", 20, true);
         assert_eq!(
             joined(&ffmpeg_encoder_args(&p)),
-            "-c:v hevc_nvenc -preset p4 -tune hq -rc vbr -cq 20 -b:v 0 -tag:v hvc1 -movflags +faststart"
+            "-c:v hevc_nvenc -preset p1 -tune ull -rc vbr -cq 20 -b:v 0 -tag:v hvc1 -movflags +faststart"
         );
     }
 

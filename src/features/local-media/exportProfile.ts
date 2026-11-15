@@ -26,7 +26,8 @@ export const defaultExportForm: ExportForm = {
   resolution: "1920x1080",
   fps: 60,
   encoder: "auto",
-  quality: 22,
+  // auto 的推荐档位：HEVC NVENC p1/CQ30（实测最快且体积最小）。
+  quality: 30,
   preset: "",
   tune: "",
   rc: "vbr",
@@ -69,6 +70,42 @@ export function tuneOptions(encoder: LiveEncoderId): string[] {
 
 export function isHardwareEncoder(encoder: LiveEncoderId): boolean {
   return encoder === "nvenc" || encoder === "hevc_nvenc";
+}
+
+/** 各编码器的实测性价比档位（1080p ReI 全流程基准）。 */
+export interface RecommendedSettings {
+  preset: string;
+  tune: string;
+  quality: number;
+}
+
+export const RECOMMENDED_SETTINGS: Record<LiveEncoderId, RecommendedSettings> = {
+  // 707 fps / 161 MB / SSIM 0.991
+  hevc_nvenc: { preset: "p1", tune: "ull", quality: 30 },
+  // 656 fps / 247 MB
+  nvenc: { preset: "p1", tune: "ull", quality: 26 },
+  // 443 fps / 201 MB（superfast + CRF22，观感≈veryfast/18）
+  x264: { preset: "superfast", tune: "", quality: 22 },
+  // 软件 HEVC 慢，保持画质档
+  x265: { preset: "fast", tune: "", quality: 22 },
+};
+
+export function recommendedSettings(encoder: LiveEncoderId): RecommendedSettings {
+  return RECOMMENDED_SETTINGS[encoder];
+}
+
+/** preset 下拉里的简短提示（速度/画质倾向）。 */
+export function presetHint(encoder: LiveEncoderId, preset: string): string {
+  if (!preset) return "";
+  if (isHardwareEncoder(encoder)) {
+    const hints: Record<string, string> = { p1: "最快", p2: "很快", p3: "偏快", p4: "平衡", p5: "偏清晰", p6: "清晰", p7: "最清晰" };
+    return hints[preset] ?? "";
+  }
+  const hints: Record<string, string> = {
+    ultrafast: "最快", superfast: "推荐", veryfast: "快", faster: "较快", fast: "平衡",
+    medium: "偏清晰", slow: "清晰", slower: "更清晰", veryslow: "很慢", placebo: "最慢",
+  };
+  return hints[preset] ?? "";
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -122,12 +159,24 @@ export function normalizeExportForm(input: unknown): ExportForm {
 }
 
 /**
- * auto 编码器:固定 H.264,不自动选 H.265。硬件 NVENC 优先
- * (nvenc),不可用时回退软件 x264;即使机器支持 HEVC 也不自动使用。
+ * auto 编码器:优先 HEVC NVENC,其次 H.264 NVENC,最后软件 x264。
+ * 顺序即实测性价比(1080p hevc p1/CQ30 约 707 fps、161 MB;nvenc p1/CQ26
+ * 约 656 fps;x264 superfast/CRF22 约 443 fps)。x265 软件 HEVC 太慢,
+ * 只在用户显式选择时使用。
  */
 export function resolveAutoEncoder(probe: LiveEncoderProbe | undefined): LiveEncoderId {
   if (!probe) return "x264";
-  return probe.encoders.some((encoder) => encoder.id === "nvenc" && encoder.available) ? "nvenc" : "x264";
+  const available = (id: LiveEncoderId) => probe.encoders.some((encoder) => encoder.id === id && encoder.available);
+  if (available("hevc_nvenc")) return "hevc_nvenc";
+  if (available("nvenc")) return "nvenc";
+  return "x264";
+}
+
+/** 取文件的父目录（兼容 Windows 反斜杠路径）；没有分隔符时返回空串。 */
+export function parentDir(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return index > 0 ? trimmed.slice(0, index) : "";
 }
 
 export function loadExportProfile(): ExportProfile | null {

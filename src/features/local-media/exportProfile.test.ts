@@ -4,7 +4,9 @@ import {
   defaultExportForm,
   loadExportProfile,
   normalizeExportForm,
+  parentDir,
   presetOptions,
+  recommendedSettings,
   resolveAutoEncoder,
   saveExportProfile,
   splitArgs,
@@ -84,7 +86,7 @@ describe("export profile", () => {
     expect(tuneOptions("nvenc")).toContain("ull");
   });
 
-  it("auto stays on H.264 and never selects HEVC automatically", () => {
+  it("auto prefers HEVC NVENC, then H.264 NVENC, then x264", () => {
     const encoder = (available: string[]) => resolveAutoEncoder({
       ffmpegAvailable: true,
       hevcAvailable: available.includes("hevc_nvenc") || available.includes("x265"),
@@ -97,13 +99,27 @@ describe("export profile", () => {
         available: available.includes(id),
       })),
     });
-    expect(encoder(["x264", "x265", "nvenc", "hevc_nvenc"])).toBe("nvenc");
+    expect(encoder(["x264", "x265", "nvenc", "hevc_nvenc"])).toBe("hevc_nvenc");
     expect(encoder(["x264", "x265"])).toBe("x264");
     expect(encoder(["x264", "nvenc"])).toBe("nvenc");
-    expect(encoder(["x265", "hevc_nvenc"])).toBe("x264");
+    expect(encoder(["x265", "hevc_nvenc"])).toBe("hevc_nvenc");
     expect(encoder(["x265"])).toBe("x264");
     expect(encoder(["x264"])).toBe("x264");
     expect(resolveAutoEncoder(undefined)).toBe("x264");
+  });
+
+  it("exposes measured best-value presets per encoder", () => {
+    expect(recommendedSettings("hevc_nvenc")).toEqual({ preset: "p1", tune: "ull", quality: 30 });
+    expect(recommendedSettings("nvenc")).toEqual({ preset: "p1", tune: "ull", quality: 26 });
+    expect(recommendedSettings("x264")).toEqual({ preset: "superfast", tune: "", quality: 22 });
+    expect(defaultExportForm.encoder).toBe("auto");
+    expect(defaultExportForm.quality).toBe(30);
+  });
+
+  it("extracts the parent directory for remembering the last export path", () => {
+    expect(parentDir("C:\\videos\\clips\\a.mp4")).toBe("C:\\videos\\clips");
+    expect(parentDir("/home/user/videos/a.mp4")).toBe("/home/user/videos");
+    expect(parentDir("a.mp4")).toBe("");
   });
 
   it("splits quoted extra ffmpeg arguments", () => {
