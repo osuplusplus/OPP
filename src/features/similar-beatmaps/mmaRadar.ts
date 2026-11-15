@@ -6,7 +6,6 @@ export interface MmaAxisValue {
   dimension: string;
   radius: number;
   coverage: number | null;
-  seconds: number | null;
   specifics: string;
 }
 
@@ -18,12 +17,10 @@ export function mmaRadarValues(view: ManiaPatternView | null | undefined): MmaAx
   return mmaAxes.map((dimension, index) => {
     const value = view?.coverage?.[index];
     const coverage = typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
-    const duration = view?.duration_seconds;
     return {
       dimension,
       radius: coverage === null ? 0 : Math.sqrt(coverage),
       coverage,
-      seconds: coverage === null || typeof duration !== "number" || !Number.isFinite(duration) ? null : coverage * duration,
       specifics: view?.bars.find((bar) => bar.pattern === dimension)?.specific_types.slice(0, 3).map(([name]) => name).join(" · ") ?? "",
     };
   });

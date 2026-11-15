@@ -655,12 +655,12 @@ mod compatibility_tests {
         }
     }
 
-    /// The distributed v4 package intentionally contains no source beatmaps. This verifies the
+    /// The distributed package intentionally contains no source beatmaps. This verifies the
     /// application command can still build recent/BP recommendations for every key count and Mod
     /// pool, and that the serialized response carries the packaged MMA records.
     #[tokio::test]
-    #[ignore = "requires MMA_PACKAGED_DATASET pointing to an osu-mania-dataset-v4 package"]
-    async fn v4_packaged_dataset_produces_pattern_recommendations() {
+    #[ignore = "requires MMA_PACKAGED_DATASET pointing to an osu-mania-dataset package (v4 or 1.0)"]
+    async fn packaged_dataset_produces_pattern_recommendations() {
         let root = std::env::var("MMA_PACKAGED_DATASET").expect("MMA_PACKAGED_DATASET");
         assert!(!std::path::Path::new(&root).join("beatmaps").exists());
         let metadata =
@@ -683,17 +683,20 @@ mod compatibility_tests {
             .unwrap()
             .map(Result::unwrap)
             .collect();
-        assert_eq!(
-            ids.len(),
-            6,
-            "expected online and local-only seeds for 4K/6K/7K"
+        // v4 也收本地谱面，每个键数有两张种子；1.0 只收 Ranked，每个键数一张。
+        assert!(
+            matches!(ids.len(), 3 | 6),
+            "expected a seed for each of 4K/6K/7K, plus local-only ones when the package has them"
         );
+        let map_count: u64 = connection
+            .query_row("SELECT count(*) FROM mania_beatmaps", [], |row| row.get(0))
+            .unwrap();
 
         let app_dir = tempfile::tempdir().unwrap();
         let state = AppState::new(app_dir.path()).unwrap();
         let dataset = state.similarity.mania_dataset(&root).unwrap();
         assert!(dataset.has_pattern_records());
-        assert_eq!(dataset.info().record_count, 12_450);
+        assert_eq!(dataset.info().record_count as u64, map_count);
 
         for kind in [
             SimilarityRecommendationKind::Recent,

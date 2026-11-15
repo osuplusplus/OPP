@@ -222,7 +222,7 @@
   flex: 1 1 auto;
   flex-direction: column;
   width: 100%;
-  min-height: 210px;
+  min-height: 240px;
   margin: 0;
   padding: 15px 12px 10px;
   border-top: 1px solid var(--similarity-line);
@@ -388,10 +388,20 @@
 :root[data-theme-mode="light"] .similarity-stage-metrics div:nth-child(5) strong { color: #9b4269; }
 :root[data-theme-mode="light"] .similarity-stage-metrics div:nth-child(6) strong { color: #3e6d31; }
 :root[data-theme-mode="light"] .similarity-radar-overlay { filter: none; }
-.mma-note-share > :first-child { color: #67e8f9; }
-.mma-note-share > :last-child { color: #f9a8d4; }
-:root[data-theme-mode="light"] .mma-note-share > :first-child { color: #146578; }
-:root[data-theme-mode="light"] .mma-note-share > :last-child { color: #9b4269; }
+/* 类型标签与 RC/LN 颜色取自 Mania Map Analyser 3.0 的 styles/status.css，键型条渐变取自其 styles/theme.css 的 .cluster-fill。 */
+.mma-note-share > :first-child { color: #8fb8f5; }
+.mma-note-share > :last-child { color: #c9a8ef; }
+:root[data-theme-mode="light"] .mma-note-share > :first-child { color: #2f5fb0; }
+:root[data-theme-mode="light"] .mma-note-share > :last-child { color: #6d3fa6; }
+.mma-share-rc { background: rgb(63, 122, 216); }
+.mma-share-ln { background: rgb(150, 93, 207); }
+.mma-mode-tag { padding: 2px 9px; border: 1px solid #ffffff3d; border-radius: 999px; background: rgba(55, 71, 115, .72); color: #f6fbff; font-size: 11px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; }
+.mma-mode-rc { background: rgba(63, 122, 216, .78); }
+.mma-mode-ln { background: rgba(150, 93, 207, .8); }
+.mma-mode-hb { background: rgba(206, 121, 58, .82); }
+.mma-mode-mix { background: rgba(72, 141, 122, .8); }
+.mma-mode-sv { border-color: rgba(255, 198, 215, .85); background: rgba(255, 56, 106, .9); color: #fff6f8; }
+.mma-bar-fill { --mma-bar: var(--stage-accent, var(--theme-primary)); background: linear-gradient(90deg, color-mix(in srgb, var(--mma-bar) 52%, #0a0c12), var(--mma-bar) 58%, color-mix(in srgb, var(--mma-bar) 62%, white)); }
 :root[data-theme-mode="light"] .similarity-stage-actions button.is-primary { color: var(--on-primary); background: var(--theme-primary); }
 :root[data-theme-mode="light"] .similarity-stage-empty { text-shadow: none; }
 :root[data-theme-mode="light"] .similarity-message { background: #fff1f2f5; color: #9f1239; box-shadow: 0 12px 32px #11182720; }
@@ -413,7 +423,7 @@
   .similarity-workspace-grid { display: block; height: calc(100% - 112px); padding: 0 14px 82px; overflow-y: auto; }
   .similarity-evidence-rail { overflow: visible; margin-inline: -14px; border-right: 0; border-bottom: 1px solid var(--similarity-line); }
   .similarity-source-cover { height: clamp(150px, 30vw, 210px); }
-  .similarity-radar-overlay { min-height: 220px; }
+  .similarity-radar-overlay { min-height: 240px; }
   .similarity-candidate-stage { padding: 56px 2px 28px; }
   .similarity-stage-actions { flex-wrap: wrap; }
   .similarity-stage-navigation { flex: 1 1 100%; justify-content: flex-end; padding-top: 7px; padding-left: 0; border-top: 1px solid var(--similarity-line); border-left: 0; }

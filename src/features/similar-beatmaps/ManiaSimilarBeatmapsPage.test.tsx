@@ -59,12 +59,14 @@ describe("mania similarity workspace", () => {
     expect(screen.getByTestId("mania-radar")).toHaveAttribute("data-pattern-comparison", String(hasCandidate));
     if (hasSource) {
       const panel = within(screen.getByRole("region", { name: "参考谱面键型" }));
-      expect(panel.getByText("Mix · Shield")).toBeInTheDocument();
+      expect(panel.getByText("Mix")).toBeInTheDocument();
+      expect(panel.getByText("Shield")).toBeInTheDocument();
       expect(panel.getByText("RC 76.6%")).toBeInTheDocument();
     } else expect(screen.queryByRole("region", { name: "参考谱面键型" })).not.toBeInTheDocument();
     if (hasCandidate) {
       const panel = within(screen.getByRole("region", { name: "候选谱面键型" }));
-      expect(panel.getByText("RC · Jumpstream")).toBeInTheDocument();
+      expect(panel.getByText("RC")).toBeInTheDocument();
+      expect(panel.getByText("Jumpstream")).toBeInTheDocument();
       expect(panel.getByText("LN 5.0%")).toBeInTheDocument();
     } else expect(screen.queryByRole("region", { name: "候选谱面键型" })).not.toBeInTheDocument();
   });

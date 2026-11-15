@@ -34,7 +34,7 @@ export function MmaCoverageTooltip({
       <p className="mb-2 font-semibold">{label}</p>
       {series.map(({ name, value }) => (
         <div className="mb-2 last:mb-0" key={name}>
-          <p>{name} · {value.coverage === null ? "暂无覆盖数据" : `${(value.coverage * 100).toFixed(1)}% · ${value.seconds?.toFixed(1)}s`}</p>
+          <p>{name} · {value.coverage === null ? "暂无覆盖数据" : `${(value.coverage * 100).toFixed(1)}%`}</p>
           {value.specifics ? <p className="mt-1 text-slate-400">{value.specifics}</p> : null}
         </div>
       ))}
