@@ -27,14 +27,21 @@ const difficulty: ManiaDifficultyVector = { speed: 1, hand_stream: 1, jack: 1, c
 describe("MMA native presentation", () => {
   it("keeps the analyser classification independent of the longest bar", () => {
     render(<MmaPatternPanel view={view} />);
-    expect(screen.getByText("Mix · Shield")).toBeInTheDocument();
+    expect(screen.getByText("Mix")).toBeInTheDocument();
+    expect(screen.getByText("Shield")).toBeInTheDocument();
     expect(screen.getByText("RC 76.6%")).toBeInTheDocument();
     expect(screen.getByText("LN 23.4%")).toBeInTheDocument();
-    expect(screen.getByText("79.2s")).toBeInTheDocument();
+    expect(screen.queryByText("SV")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d+\.\ds$/)).not.toBeInTheDocument();
     expect(screen.getByText("Shield (9.2%), Chordjack (4.1%)")).toBeInTheDocument();
     expect(screen.getByRole("meter", { name: "Wildcard 相对量" })).toHaveAttribute("aria-valuenow", "100");
     expect(screen.getByRole("meter", { name: "Coordination 相对量" })).toHaveAttribute("aria-valuenow", "66");
     expect(screen.queryByText(/分类依据|相对键型量|模式可以重叠|难度/)).not.toBeInTheDocument();
+  });
+
+  it("marks SV charts once the SV amount reaches the analyser threshold", () => {
+    render(<MmaPatternPanel view={{ ...view, category: "SV", sv_amount: 2000 }} />);
+    expect(screen.getAllByText("SV")).toHaveLength(1);
   });
 
   it("renders the stable empty state instead of an empty bar list", () => {
@@ -55,13 +62,13 @@ describe("MMA native presentation", () => {
     expect(screen.getByText("参考谱面暂无 MMA 数据")).toBeInTheDocument();
   });
 
-  it("describes each axis with real coverage, covered seconds and main subtypes", () => {
+  it("describes each axis with real coverage and main subtypes", () => {
     const values = mmaRadarValues(view);
     const coordination = values.findIndex((value) => value.dimension === "Coordination");
     render(<MmaCoverageTooltip label="Coordination" series={[{ name: "参考谱面", value: values[coordination] }, { name: "候选谱面", value: values[0] }]} />);
     expect(screen.getByText("Coordination")).toBeInTheDocument();
-    expect(screen.getByText("参考谱面 · 66.0% · 79.2s")).toBeInTheDocument();
+    expect(screen.getByText("参考谱面 · 66.0%")).toBeInTheDocument();
     expect(screen.getByText("Shield · Chordjack")).toBeInTheDocument();
-    expect(screen.getByText("候选谱面 · 52.0% · 62.4s")).toBeInTheDocument();
+    expect(screen.getByText("候选谱面 · 52.0%")).toBeInTheDocument();
   });
 });

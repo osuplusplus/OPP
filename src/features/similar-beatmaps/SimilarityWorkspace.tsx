@@ -385,7 +385,7 @@ function EvidenceRail({ source, result, cover, recommendation, details }: { sour
         <div><dt>谱师</dt><dd>{source.creator}</dd></div>
         <div><dt>BPM</dt><dd>{Math.round(source.base.bpm)}</dd></div>
         <div><dt>{mania ? "有效长度" : "长度"}</dt><dd>{durationLabel(mania ? source.base.active_length_seconds : source.base.length_seconds)}</dd></div>
-        {mania ? <><div><dt>键数 / Mod</dt><dd>{source.key_count}K · {source.game_mod}</dd></div><div><dt>难度分位</dt><dd>{Math.round(source.difficulty_percentile * 100)}%</dd></div></> : <><div><dt>星级</dt><dd>{source.star_rating?.toFixed(2) ?? "—"} ★</dd></div><div><dt>AR / OD</dt><dd>{source.base.ar.toFixed(1)} / {source.base.od.toFixed(1)}</dd></div></>}
+        {mania ? <><div><dt>键数 / Mod</dt><dd>{source.key_count}K · {source.game_mod}</dd></div><div><dt>平均 NPS</dt><dd>{source.base.avg_nps.toFixed(2)}</dd></div></> :<><div><dt>星级</dt><dd>{source.star_rating?.toFixed(2) ?? "—"} ★</dd></div><div><dt>AR / OD</dt><dd>{source.base.ar.toFixed(1)} / {source.base.od.toFixed(1)}</dd></div></>}
       </dl>
     </div>
     {details ? <div className="similarity-evidence-context">{details}</div> : null}
@@ -399,7 +399,7 @@ function EvidenceRail({ source, result, cover, recommendation, details }: { sour
 
 function CandidateMetrics({ result }: { result: AnySimilarityResult }) {
   const entries = result.ruleset === "mania"
-    ? [["键数", `${result.key_count}K`], ["Mod", result.game_mod], ["BPM", Math.round(result.base.bpm)], ["有效长度", durationLabel(result.base.active_length_seconds)], ["平均 NPS", result.base.avg_nps.toFixed(2)], ["难度分位", `${Math.round(result.difficulty_percentile * 100)}%`]]
+    ? [["键数", `${result.key_count}K`], ["Mod", result.game_mod], ["BPM", Math.round(result.base.bpm)], ["有效长度", durationLabel(result.base.active_length_seconds)], ["平均 NPS", result.base.avg_nps.toFixed(2)]]
     : [["星级", `${result.star_rating?.toFixed(2) ?? "—"} ★`], ["BPM", Math.round(result.base.bpm)], ["长度", durationLabel(result.base.length_seconds)], ["AR", result.base.ar.toFixed(1)], ["OD", result.base.od.toFixed(1)], ["CS", result.base.cs.toFixed(1)]];
   return <div className="similarity-stage-metrics">{entries.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>;
 }

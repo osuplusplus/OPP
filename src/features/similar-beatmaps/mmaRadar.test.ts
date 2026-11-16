@@ -20,23 +20,22 @@ const view = {
 } satisfies ManiaPatternView;
 
 describe("MMA coverage radar", () => {
-  it("uses fixed square-root radii and real coverage seconds, ignoring merged bar amounts", () => {
+  it("uses fixed square-root radii, ignoring merged bar amounts", () => {
     const values = mmaRadarValues(view);
     expect(values.map((value) => value.dimension)).toEqual(["Stream", "Chordstream", "Jacks", "Coordination", "Density", "Wildcard"]);
     expect(values.map((value) => value.radius)).toEqual([0.1, 0.2, 0.5, Math.sqrt(0.5), 1, 0]);
-    expect(values[2]).toMatchObject({ coverage: 0.25, seconds: 30, specifics: "Chordjacks · Minijacks" });
+    expect(values[2]).toMatchObject({ coverage: 0.25, specifics: "Chordjacks · Minijacks" });
   });
 
   it("keeps the same scale for a chart with smaller coverage", () => {
     const values = mmaRadarValues({ ...view, coverage: [0.01, 0.04, 0.25, 0, 0, 0] });
     expect(values[2].radius).toBe(0.5);
     expect(values[3].coverage).toBe(0);
-    expect(values[3].seconds).toBe(0);
     expect(values[5].radius).toBe(0);
   });
 
   it("does not fabricate coverage from missing data", () => {
-    expect(mmaRadarValues(undefined).every((value) => value.coverage === null && value.seconds === null)).toBe(true);
+    expect(mmaRadarValues(undefined).every((value) => value.coverage === null)).toBe(true);
     expect(mmaRadarValues({ ...view, coverage: [] }).every((value) => value.radius === 0)).toBe(true);
   });
 
