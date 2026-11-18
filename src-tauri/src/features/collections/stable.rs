@@ -5,9 +5,10 @@
 //! 同步以 SHA-256 指纹识别外部修改，写回走“临时文件 + 备份 + 失败回滚”流程。
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    sync::atomic::Ordering,
 };
 
 use chrono::Utc;
@@ -19,7 +20,8 @@ use uuid::Uuid;
 use super::lazer;
 use super::{CollectionBackupStatus, CollectionWriteResult};
 use super::{
-    CollectionCandidate, CollectionEntry, CollectionFolder, CollectionSnapshot, CollectionSource,
+    CollectionCandidate, CollectionDeleteResult, CollectionEntry, CollectionFolder,
+    CollectionRefreshItem, CollectionRefreshPreview, CollectionSnapshot, CollectionSource,
     CollectionSourceStatus, CollectionSyncStatus, service::CollectionService,
     task::ensure_collection_task_active,
 };
@@ -285,7 +287,9 @@ pub async fn get_collection_sync_status(app: AppHandle) -> CommandResult<Collect
         let pending_changes = file
             .folders
             .iter()
-            .any(|folder| folder.participates_in_stable() && folder.pending_write);
+            .any(|folder| folder.participates_in_stable() && folder.pending_write)
+            // 待落库的删除同样算作待写回：全局监视器据此在游戏退出后补写。
+            || !file.pending_stable_deletions.is_empty();
         let game_changed = file.stable_fingerprint.as_deref().unwrap_or("") != current_fingerprint;
         let mut downloadable_sets = HashSet::new();
         let mut missing_unresolved_count = 0;
@@ -357,9 +361,86 @@ pub(super) fn stable_collection_entry(
     }
 }
 
+/// 收集条目中非空校验和（统一小写）。collection.db 只保存难度 MD5，
+/// OPP 在线添加、尚未下载（无校验和）的条目不参与游戏侧差异比对。
+pub(super) fn entry_checksum_set(entries: &[CollectionEntry]) -> BTreeSet<String> {
+    entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .checksum
+                .as_deref()
+                .filter(|checksum| !checksum.is_empty())
+                .map(|checksum| checksum.to_ascii_lowercase())
+        })
+        .collect()
+}
+
+/// 游戏侧缺失的参与同步文件夹是否应随读取一并删除：
+/// Stable 来源（本就来自游戏）与已写回过的 OPP 文件夹（`pending_write=false`
+/// 意味着它曾被写入 collection.db）视为游戏侧删除，删除随之传播；
+/// 从未写回的 OPP 文件夹保留，避免误删刚在 OPP 创建的内容。
+fn missing_folder_is_removal(folder: &CollectionFolder) -> bool {
+    folder.source == CollectionSource::Stable || !folder.pending_write
+}
+
+/// 游戏侧收藏夹名称是否属于 OPP 已删除、尚未写入 collection.db 的名单：
+/// 读取与差异预览都跳过这些名字——用户的删除意图优先，合并不得复活它们。
+fn is_pending_deletion(file: &super::service::CollectionFile, name: &str) -> bool {
+    file.pending_stable_deletions
+        .iter()
+        .any(|pending| pending == name)
+}
+
+/// osu!stable 是否正在运行（运行中写 collection.db 会被游戏退出时的回写覆盖）。
+/// 直接读监视循环缓存的快照，与 `get_game_status` 命令同源。
+fn stable_game_running(state: &AppState) -> CommandResult<bool> {
+    let current = state
+        .game_monitor
+        .current
+        .lock()
+        .map_err(|_| CommandError::new("GAME_STATUS_LOCKED", "游戏状态不可用"))?;
+    Ok(current
+        .clients
+        .iter()
+        .any(|client| client.client == LocalClient::Stable && client.running))
+}
+
+/// 按名称把 collection.db 的收藏夹与参与 stable 同步的内部文件夹逐一配对
+/// （重名按出现顺序配对，`claimed` 防止多个内部文件夹指向同一来源）。
+/// 返回每个 db 收藏夹匹配到的内部文件夹下标，以及完全未被匹配的参与同步
+/// 文件夹下标；预览与应用共用此配对，保证两边分类一致。
+fn pair_stable_folders(
+    db: &StableDb,
+    folders: &[CollectionFolder],
+) -> (Vec<Option<usize>>, Vec<usize>) {
+    let mut claimed = HashSet::new();
+    let mut pairs = Vec::with_capacity(db.folders.len());
+    for item in &db.folders {
+        let existing = folders
+            .iter()
+            .enumerate()
+            .find(|(index, folder)| {
+                folder.participates_in_stable()
+                    && folder.name == item.name
+                    && !claimed.contains(index)
+            })
+            .map(|(index, _)| index);
+        if let Some(index) = existing {
+            claimed.insert(index);
+        }
+        pairs.push(existing);
+    }
+    let unmatched = (0..folders.len())
+        .filter(|index| folders[*index].participates_in_stable() && !claimed.contains(index))
+        .collect();
+    (pairs, unmatched)
+}
+
 /// 读取磁盘上的 collection.db 并合并进内部副本：
-/// 按名称与现有 stable 文件夹逐一配对更新，新名称导入，未出现的 stable 文件夹移除；
-/// 文件不存在时视为空库（版本 `20200101`）。
+/// 按名称与参与同步的文件夹逐一配对更新，新名称导入；游戏侧未出现的
+/// 文件夹按 `missing_folder_is_removal` 决定删除或保留（从未写回的 OPP
+/// 文件夹不动）。文件不存在时视为空库（版本 `20200101`）。
 fn refresh_stable_collections(
     path: PathBuf,
     collections: std::sync::Arc<CollectionService>,
@@ -395,24 +476,25 @@ fn refresh_stable_collections(
         .unwrap_or_default();
     collections.update(|file| {
         let now = Utc::now().to_rfc3339();
-        let mut matched = HashSet::new();
+        // 跳过 OPP 已删除、尚未落库的名字：合并不得复活用户删除的收藏夹。
+        let mut db = db;
+        db.folders
+            .retain(|folder| !is_pending_deletion(file, &folder.name));
+        let (pairs, unmatched) = pair_stable_folders(&db, &file.folders);
+        let mut retained_ids = HashSet::new();
         let mut imported = Vec::new();
-        for item in db.folders {
-            // 重名收藏夹按出现顺序逐个配对，`matched` 防止多个内部文件夹指向同一来源。
-            let existing = file
-                .folders
-                .iter()
-                .enumerate()
-                .find(|(index, folder)| {
-                    folder.participates_in_stable()
-                        && folder.name == item.name
-                        && !matched.contains(index)
-                })
-                .map(|(index, _)| index);
+        for (item, existing) in db.folders.into_iter().zip(pairs) {
             let previous_entries = existing
                 .map(|index| file.folders[index].entries.clone())
                 .unwrap_or_default();
-            let entries = item
+            // OPP 在线添加、尚未下载的条目（无校验和）游戏侧从未见过，
+            // 读取时原样保留，避免被 collection.db 的镜像静默清掉。
+            let online_only = previous_entries
+                .iter()
+                .filter(|entry| entry.checksum.as_deref().is_none_or(str::is_empty))
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut entries = item
                 .checksums
                 .into_iter()
                 .map(|checksum| {
@@ -425,12 +507,15 @@ fn refresh_stable_collections(
                     });
                     stable_collection_entry(checksum, local, previous)
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            let keeps_pending_write = !online_only.is_empty();
+            entries.extend(online_only);
             if let Some(index) = existing {
-                matched.insert(index);
+                retained_ids.insert(file.folders[index].id.clone());
                 let folder = &mut file.folders[index];
+                // 保留的在线条目尚未写入 collection.db，文件夹仍处于待写回状态。
+                folder.pending_write = keeps_pending_write;
                 folder.entries = entries;
-                folder.pending_write = false;
                 folder.updated_at = now.clone();
             } else {
                 imported.push(CollectionFolder {
@@ -454,13 +539,17 @@ fn refresh_stable_collections(
                 });
             }
         }
-        let retained_ids = matched
-            .into_iter()
-            .filter_map(|index| file.folders.get(index).map(|folder| folder.id.clone()))
+        // 未在游戏侧出现的参与同步文件夹：Stable 来源与已写回过的 OPP 文件夹
+        // 随之删除（游戏侧删除传播到 OPP），从未写回的 OPP 文件夹保留。
+        let removed_ids = unmatched
+            .iter()
+            .filter(|index| missing_folder_is_removal(&file.folders[**index]))
+            .filter_map(|index| file.folders.get(*index).map(|folder| folder.id.clone()))
             .collect::<HashSet<_>>();
-        // 仅移除本次 collection.db 中未出现的 stable 来源文件夹，其余来源保持不变。
         file.folders.retain(|folder| {
-            folder.source != CollectionSource::Stable || retained_ids.contains(&folder.id)
+            !folder.participates_in_stable()
+                || retained_ids.contains(&folder.id)
+                || !removed_ids.contains(&folder.id)
         });
         file.folders.extend(imported);
         file.stable_version = Some(db.version);
@@ -485,7 +574,8 @@ pub async fn refresh_collections(
 /// 刷新实现：lazer 在阻塞线程上本地解析 `client.realm` 并全量替换镜像；
 /// stable 交给后台线程做 collection.db 解析与合并，避免阻塞调用方。
 pub(super) async fn refresh_impl(client: LocalClient, state: &AppState) -> CommandResult<()> {
-    // 刷新会将 stable 的外部变化合并进内部副本，而不是覆盖本地创建的收藏夹。
+    // stable 刷新把游戏侧状态镜像进内部副本：同名文件夹以游戏侧为准
+    // （OPP 未写回的在线条目除外），游戏侧已删除的同步文件夹随之移除。
     if client == LocalClient::Lazer {
         return lazer::refresh_lazer_collections(state).await;
     }
@@ -497,6 +587,118 @@ pub(super) async fn refresh_impl(client: LocalClient, state: &AppState) -> Comma
     })
     .await??;
     Ok(())
+}
+
+/// 只读计算「读取 Stable」将产生的差异：不做本地索引扫描、不改动内部状态
+/// 与 collection.db，仅按名称配对后对比 MD5 集合（无校验和的 OPP 在线条目
+/// 不参与比对，视为 OPP 侧私有内容）。
+pub(super) fn preview_stable_refresh(
+    path: &Path,
+    collections: &std::sync::Arc<CollectionService>,
+) -> CommandResult<CollectionRefreshPreview> {
+    let db = if path.is_file() {
+        parse_stable_db(&fs::read(path)?)?
+    } else {
+        // 与应用路径一致：文件缺失视作空库，全部同步文件夹都会计入删除。
+        StableDb {
+            version: 20200101,
+            folders: Vec::new(),
+        }
+    };
+    let file = collections
+        .value
+        .lock()
+        .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?;
+    // 跳过 OPP 已删除、尚未落库的名字：它们不是游戏侧新增，读取后也不会导入。
+    let mut db = db;
+    db.folders
+        .retain(|item| !is_pending_deletion(&file, &item.name));
+    let (pairs, unmatched) = pair_stable_folders(&db, &file.folders);
+    let mut preview = CollectionRefreshPreview {
+        client: LocalClient::Stable,
+        has_changes: false,
+        additions: Vec::new(),
+        updates: Vec::new(),
+        removals: Vec::new(),
+        preserved: Vec::new(),
+    };
+    for (item, existing) in db.folders.iter().zip(&pairs) {
+        if let Some(index) = existing {
+            let folder = &file.folders[*index];
+            let game = item
+                .checksums
+                .iter()
+                .map(|checksum| checksum.to_ascii_lowercase())
+                .collect::<BTreeSet<_>>();
+            let ours = entry_checksum_set(&folder.entries);
+            let entries_added = game.difference(&ours).count();
+            let entries_removed = ours.difference(&game).count();
+            if entries_added > 0 || entries_removed > 0 {
+                preview.updates.push(CollectionRefreshItem {
+                    name: item.name.clone(),
+                    source: folder.source.clone(),
+                    entry_count: item.checksums.len(),
+                    entries_added,
+                    entries_removed,
+                    pending_overwrite: folder.pending_write,
+                });
+            }
+        } else {
+            preview.additions.push(CollectionRefreshItem {
+                name: item.name.clone(),
+                source: CollectionSource::Stable,
+                entry_count: item.checksums.len(),
+                entries_added: 0,
+                entries_removed: 0,
+                pending_overwrite: false,
+            });
+        }
+    }
+    for index in unmatched {
+        let folder = &file.folders[index];
+        let item = CollectionRefreshItem {
+            name: folder.name.clone(),
+            source: folder.source.clone(),
+            entry_count: folder.entries.len(),
+            entries_added: 0,
+            entries_removed: 0,
+            pending_overwrite: false,
+        };
+        if missing_folder_is_removal(folder) {
+            preview.removals.push(item);
+        } else {
+            preview.preserved.push(item);
+        }
+    }
+    // 仅有“保留”项（OPP 从未写回的新建收藏夹）不构成游戏侧差异。
+    preview.has_changes = !(preview.additions.is_empty()
+        && preview.updates.is_empty()
+        && preview.removals.is_empty());
+    Ok(preview)
+}
+
+/// Tauri 命令：预览「读取 Stable / lazer」将产生的差异。只读操作，既不改动
+/// OPP 内部状态也不触碰游戏侧文件；前端据此弹窗确认后再执行真正的刷新。
+#[tauri::command(async)]
+pub async fn preview_collection_refresh(
+    client: LocalClient,
+    app: AppHandle,
+) -> CommandResult<CollectionRefreshPreview> {
+    let state = app.state::<AppState>();
+    if client == LocalClient::Lazer {
+        let realm_path = lazer::lazer_realm_path(&state)?;
+        let collections = std::sync::Arc::clone(&state.collections);
+        return crate::infrastructure::tasks::blocking_io("preview_lazer_refresh", move || {
+            lazer::preview_lazer_refresh(&realm_path, &collections)
+        })
+        .await?;
+    }
+    let path = stable_path(&state)?;
+    let collections = std::sync::Arc::clone(&state.collections);
+    crate::infrastructure::tasks::blocking_io("preview_stable_refresh", move || {
+        preview_stable_refresh(&path, &collections)
+    })
+    .await?
 }
 
 /// Tauri 命令：查询备份状态，含目标文件指纹与备份目录（可在设置中指定）内的文件列表。
@@ -624,13 +826,66 @@ pub async fn rename_collection(
     })
     .await?
 }
-/// Tauri 命令：删除收藏夹，同时清理其笔记本数据。
+/// 删除收藏夹并尽量把删除同步落到 `collection.db`：
+/// 不参与 Stable 同步的收藏夹（图池、lazer 镜像等）仅本地删除；参与同步的
+/// 文件夹在 osu! 未运行时立即重写 collection.db，指纹冲突（通常是游戏退出时
+/// 回写了文件）则先合并游戏侧再重试一次——待落库名单保证已删名字不复活；
+/// osu! 运行中则记录待落库名单，由全局监视器在游戏退出后自动补写。
+pub(super) fn delete_collection_impl(
+    folder_id: &str,
+    state: &AppState,
+) -> CommandResult<CollectionDeleteResult> {
+    let folder = state.collections.folder(folder_id)?;
+    // 本地删除同时把参与同步的名字记入待落库名单（见 service::delete）。
+    state.collections.delete(folder_id)?;
+    if !folder.participates_in_stable() {
+        return Ok(CollectionDeleteResult {
+            name: folder.name,
+            stable_removed: false,
+            deferred: false,
+            written_folders: 0,
+        });
+    }
+    // 与自动补写一致：删除触发的写回不受历史取消标志影响。
+    state.collection_task_cancel.store(false, Ordering::Relaxed);
+    if stable_game_running(state)? {
+        return Ok(CollectionDeleteResult {
+            name: folder.name,
+            stable_removed: false,
+            deferred: true,
+            written_folders: 0,
+        });
+    }
+    let written = match write_stable_db(state) {
+        Ok(result) => result,
+        Err(error) if error.code == "COLLECTION_CONFLICT" => {
+            let path = stable_path(state)?;
+            let collections = std::sync::Arc::clone(&state.collections);
+            let local_analysis = std::sync::Arc::clone(&state.local_analysis);
+            refresh_stable_collections(path, collections, local_analysis)?;
+            write_stable_db(state)?
+        }
+        Err(error) => return Err(error),
+    };
+    Ok(CollectionDeleteResult {
+        name: folder.name,
+        stable_removed: true,
+        deferred: false,
+        written_folders: written.written_folders,
+    })
+}
+
+/// Tauri 命令：删除收藏夹，同时清理其笔记本数据；参与 Stable 同步的收藏夹
+/// 会同步把删除落到 collection.db（详见 `delete_collection_impl`）。
 #[tauri::command(async)]
-pub async fn delete_collection(folder_id: String, app: AppHandle) -> CommandResult<()> {
+pub async fn delete_collection(
+    folder_id: String,
+    app: AppHandle,
+) -> CommandResult<CollectionDeleteResult> {
     crate::infrastructure::tasks::blocking_io("delete_collection", move || {
         let state = app.state::<AppState>();
 
-        state.collections.delete(&folder_id)
+        delete_collection_impl(&folder_id, &state)
     })
     .await?
 }
@@ -675,25 +930,12 @@ pub async fn remove_collection_entry(
     .await?
 }
 
-/// Tauri 命令：把参与 stable 同步的收藏夹写回 `collection.db`。
-/// 前置校验：游戏运行中拒绝；磁盘指纹与内存指纹不一致（外部已修改）时要求先刷新。
-/// 落盘流程：写临时文件 → 旧库改名 `.db.bak` → 原子替换，任一步失败回滚备份。
-#[tauri::command(async)]
-pub fn write_stable_collections(
-    state: State<'_, AppState>,
-) -> CommandResult<CollectionWriteResult> {
-    ensure_collection_task_active(&state)?;
-    if get_game_status(state.clone())?
-        .clients
-        .iter()
-        .any(|client| client.client == LocalClient::Stable && client.running)
-    {
-        return Err(CommandError::new(
-            "GAME_RUNNING",
-            "请关闭 osu!stable 后再写回收藏夹",
-        ));
-    }
-    let path = stable_path(&state)?;
+/// 把参与 stable 同步的收藏夹写回 `collection.db`（不含游戏运行检查，
+/// 调用方自行判断是否延期）。磁盘指纹与内存指纹不一致（外部已修改）时
+/// 报 `COLLECTION_CONFLICT`；落盘流程：写临时文件 → 旧库改名 `.db.bak` →
+/// 原子替换，任一步失败回滚备份。成功后清除待写回标记与待落库的删除名单。
+pub(super) fn write_stable_db(state: &AppState) -> CommandResult<CollectionWriteResult> {
+    let path = stable_path(state)?;
     state.collections.update(|file| {
         let current = if path.is_file() {
             file_fingerprint(&path)?
@@ -733,12 +975,30 @@ pub fn write_stable_collections(
                 folder.pending_write = false;
             }
         }
+        // 删除已随本次写回落进 collection.db，不再需要跳过合并。
+        file.pending_stable_deletions.clear();
         Ok(CollectionWriteResult {
             written_folders: db.folders.len(),
             skipped_entries,
             backup_path: backup.map(|value| value.display().to_string()),
         })
     })
+}
+
+/// Tauri 命令：把参与 stable 同步的收藏夹写回 `collection.db`。
+/// 前置校验：游戏运行中拒绝；其余逻辑见 `write_stable_db`。
+#[tauri::command(async)]
+pub fn write_stable_collections(
+    state: State<'_, AppState>,
+) -> CommandResult<CollectionWriteResult> {
+    ensure_collection_task_active(&state)?;
+    if stable_game_running(&state)? {
+        return Err(CommandError::new(
+            "GAME_RUNNING",
+            "请关闭 osu!stable 后再写回收藏夹",
+        ));
+    }
+    write_stable_db(&state)
 }
 
 /// Tauri 命令：让指定收藏夹开始参与 `collection.db` 写回。

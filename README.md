@@ -92,3 +92,11 @@ pnpm tauri dev
 感谢早期用户 [Rinne_0](https://osu.ppy.sh/users/11511458) 和 [Ribet](https://osu.ppy.sh/users/19140906) 持续参与测试与反馈，以及所有上游维护者、贡献者和社区用户。图标原型为 NekoArc，由 **9** 绘制。
 
 OPP 使用 [MIT License](./LICENSE)；第三方声明见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+
+自26/11/18之后的此页面访客数
+
+<div align="center">
+[![访客计数](https://count.getloli.com/@osuplusplus-OPP?name=OPP&theme=moebooru&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)](https://github.com/journey-ad/Moe-Counter)
+
+</div>
+

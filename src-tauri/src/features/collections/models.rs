@@ -166,6 +166,43 @@ impl Default for CollectionSourceSyncStatus {
     }
 }
 
+/// 读取游戏收藏夹前的一次差异项：新增/更新/删除/保留各列表的一个条目。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionRefreshItem {
+    /// 游戏侧（新增）或 OPP 侧（更新/删除/保留）的收藏夹名称。
+    pub name: String,
+    /// OPP 侧文件夹来源；新增项游戏侧尚无对应文件夹，用来源区分展示。
+    pub source: CollectionSource,
+    /// 新增/删除项在对应一侧的条目数。
+    #[serde(default)]
+    pub entry_count: usize,
+    /// 更新项：游戏侧相对 OPP 新增的条目数。
+    #[serde(default)]
+    pub entries_added: usize,
+    /// 更新项：游戏侧相对 OPP 移除的条目数。
+    #[serde(default)]
+    pub entries_removed: usize,
+    /// 更新项：OPP 存在未写回修改，确认后将被游戏侧覆盖。
+    #[serde(default)]
+    pub pending_overwrite: bool,
+}
+
+/// 「读取 Stable / lazer」的差异预览：只读计算，不改动任何状态或游戏文件。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionRefreshPreview {
+    pub client: LocalClient,
+    /// 任一类别非空即视为有差异。
+    pub has_changes: bool,
+    /// 游戏侧有、OPP 侧没有的收藏夹。
+    pub additions: Vec<CollectionRefreshItem>,
+    /// 同名/同 ID 但条目集合不同的收藏夹。
+    pub updates: Vec<CollectionRefreshItem>,
+    /// 游戏侧已删除、确认后将一并从 OPP 移除的收藏夹。
+    pub removals: Vec<CollectionRefreshItem>,
+    /// 游戏侧已删除但 OPP 有未写回修改，应用时保留不动的收藏夹（仅 stable）。
+    pub preserved: Vec<CollectionRefreshItem>,
+}
+
 /// 导入分享码前的预览信息，按本地拥有情况与可下载性给出统计。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionSharePreview {
@@ -197,6 +234,18 @@ pub struct CollectionWriteResult {
     /// 因缺少 `checksum` 无法写入 collection.db 的条目数（该文件只存 MD5 列表）。
     pub skipped_entries: usize,
     pub backup_path: Option<String>,
+}
+
+/// 删除收藏夹的结果：本地删除总是成功，区别在游戏侧 collection.db 是否同步。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionDeleteResult {
+    pub name: String,
+    /// 本次删除已同步写入 collection.db（游戏未运行且无指纹冲突）。
+    pub stable_removed: bool,
+    /// osu! 运行中：删除已记录，将在游戏退出后由监视器自动写回移除。
+    pub deferred: bool,
+    /// 随本次删除一并写回的收藏夹总数（未写回时为 0）。
+    pub written_folders: usize,
 }
 
 /// 客户端收藏文件（如 collection.db）的备份状态。

@@ -4,12 +4,15 @@
 //! Realm 解析库为只读，无法写回游戏；lazer 来源的收藏夹因此是只读镜像，
 //! 编辑与 Stable 写回均不适用（`read_only` 恒为真）。
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use chrono::Utc;
 
-use super::stable::stable_collection_entry;
-use super::{CollectionEntry, CollectionFolder, CollectionSource};
+use super::stable::{entry_checksum_set, stable_collection_entry};
+use super::{
+    CollectionEntry, CollectionFolder, CollectionRefreshItem, CollectionRefreshPreview,
+    CollectionSource,
+};
 use crate::{
     error::{CommandError, CommandResult},
     features::local_analysis::{
@@ -132,4 +135,81 @@ pub(super) async fn refresh_lazer_collections(state: &AppState) -> CommandResult
         })
     })
     .await?
+}
+
+/// 只读计算「读取 lazer」将产生的差异：按 `lazer:<Realm UUID>` 配对镜像与
+/// Realm 数据；不改动内部状态与 client.realm。lazer 镜像没有“未写回”概念，
+/// 应用即全量替换，因此没有保留类别。
+pub(super) fn preview_lazer_refresh(
+    realm_path: &std::path::Path,
+    collections: &std::sync::Arc<super::service::CollectionService>,
+) -> CommandResult<CollectionRefreshPreview> {
+    let realm_collections = read_realm_collections(realm_path)
+        .map_err(|message| CommandError::new("COLLECTION_PARSE_FAILED", message))?;
+    let file = collections
+        .value
+        .lock()
+        .map_err(|_| CommandError::new("COLLECTION_STATE_ERROR", "收藏夹状态不可用"))?;
+    let mut preview = CollectionRefreshPreview {
+        client: LocalClient::Lazer,
+        has_changes: false,
+        additions: Vec::new(),
+        updates: Vec::new(),
+        removals: Vec::new(),
+        preserved: Vec::new(),
+    };
+    let mut seen = HashSet::new();
+    for collection in &realm_collections {
+        let folder_id = format!("lazer:{}", collection.id);
+        seen.insert(folder_id.clone());
+        if let Some(folder) = file.folders.iter().find(|folder| folder.id == folder_id) {
+            let game = collection
+                .md5_hashes
+                .iter()
+                .map(|checksum| checksum.to_ascii_lowercase())
+                .collect::<BTreeSet<_>>();
+            let ours = entry_checksum_set(&folder.entries);
+            let entries_added = game.difference(&ours).count();
+            let entries_removed = ours.difference(&game).count();
+            if entries_added > 0 || entries_removed > 0 {
+                preview.updates.push(CollectionRefreshItem {
+                    name: collection.name.clone(),
+                    source: CollectionSource::Lazer,
+                    entry_count: collection.md5_hashes.len(),
+                    entries_added,
+                    entries_removed,
+                    pending_overwrite: false,
+                });
+            }
+        } else {
+            preview.additions.push(CollectionRefreshItem {
+                name: collection.name.clone(),
+                source: CollectionSource::Lazer,
+                entry_count: collection.md5_hashes.len(),
+                entries_added: 0,
+                entries_removed: 0,
+                pending_overwrite: false,
+            });
+        }
+    }
+    for folder in file
+        .folders
+        .iter()
+        .filter(|folder| folder.source == CollectionSource::Lazer)
+    {
+        if !seen.contains(&folder.id) {
+            preview.removals.push(CollectionRefreshItem {
+                name: folder.name.clone(),
+                source: CollectionSource::Lazer,
+                entry_count: folder.entries.len(),
+                entries_added: 0,
+                entries_removed: 0,
+                pending_overwrite: false,
+            });
+        }
+    }
+    preview.has_changes = !(preview.additions.is_empty()
+        && preview.updates.is_empty()
+        && preview.removals.is_empty());
+    Ok(preview)
 }

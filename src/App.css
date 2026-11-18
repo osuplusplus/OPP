@@ -508,8 +508,12 @@ main .opp-section.overflow-hidden:not(.opp-interactive-surface):not(.opp-beatmap
 
 /* Dialogs are always a single, compact foreground layer. Their dimmed and
    blurred backdrop makes the current task clear without turning the page into
-   another stack of panels. Radix exposes the dialog role on every Content. */
-[role="dialog"]:not([data-dialog-layout]) {
+   another stack of panels. Radix exposes the dialog role on every Content.
+   Scope to Radix portals: in-page overlays (e.g. similarity history/preview)
+   also carry role="dialog" but style their own full-screen scrim — the panel
+   defaults here would otherwise turn the scrim into an opaque 720px corner
+   block. :where keeps specificity at 0 so feature dialog rules keep winning. */
+:where([data-radix-portal]) [role="dialog"]:not([data-dialog-layout]) {
   width: min(720px, calc(100vw - 2rem));
   max-height: min(720px, calc(100vh - 2rem));
   border: 1px solid var(--line-strong);
@@ -525,7 +529,7 @@ body > [data-radix-portal] > [data-state]:not([role="dialog"]) {
   backdrop-filter: blur(10px);
 }
 
-:root[data-theme-mode="light"] [role="dialog"] {
+:root[data-theme-mode="light"] :where([data-radix-portal]) [role="dialog"] {
   background: var(--surface-float);
   box-shadow: 0 24px 80px rgba(24, 32, 54, 0.18);
 }

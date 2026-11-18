@@ -559,3 +559,426 @@ fn collection_names_must_be_unique_for_stable_sync() {
     }
     service.create("Lazer twin", "user").unwrap();
 }
+
+/// 「读取 Stable」差异预览与镜像应用：游戏侧新增导入、同名更新以游戏侧为准；
+/// 游戏侧已删除的 Stable 来源与已写回过的 OPP 收藏夹随之删除（删除传播），
+/// 从未写回的 OPP 收藏夹保留；无校验和的在线条目不参与比对且应用后保留。
+#[tokio::test]
+async fn stable_refresh_preview_and_apply_mirror_game_side() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    // stable 目录需包含 Songs 才能通过来源识别。
+    fs::create_dir(source.path().join("Songs")).unwrap();
+    let state = crate::state::AppState::new(directory.path()).unwrap();
+    state
+        .local_analysis
+        .set_source(
+            crate::features::local_analysis::LocalClient::Stable,
+            source.path(),
+        )
+        .unwrap();
+    let make_candidate = |beatmap_id: i32, checksum: Option<&str>| CollectionCandidate {
+        beatmap_id: Some(beatmap_id),
+        beatmapset_id: Some(beatmap_id + 100),
+        checksum: checksum.map(str::to_string),
+        ruleset: Some("osu".into()),
+        difficulty_name: "Hard".into(),
+        title: "Song".into(),
+        artist: "Artist".into(),
+        creator: "Mapper".into(),
+        local_client: None,
+        local_resource_id: None,
+    };
+
+    // OPP 侧：Shared 含本地条目与在线添加条目（无校验和）；
+    // WrittenBefore 模拟“已写回过”（pending_write 已清除），NeverWritten 从未写回。
+    let shared = state.collections.create("Shared", "user").unwrap();
+    state
+        .collections
+        .add_entries(
+            &shared.id,
+            vec![
+                make_candidate(1, Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+                make_candidate(99, None),
+            ],
+        )
+        .unwrap();
+    let written = state.collections.create("WrittenBefore", "user").unwrap();
+    state.collections.create("NeverWritten", "user").unwrap();
+    {
+        let mut file = state.collections.value.lock().unwrap();
+        let folder = file
+            .folders
+            .iter_mut()
+            .find(|folder| folder.id == written.id)
+            .unwrap();
+        folder.pending_write = false;
+    }
+
+    // 游戏侧：新增 FromGame、Shared 比 OPP 多一个难度；两个 OPP 新建夹均已删除。
+    fs::write(
+        source.path().join("collection.db"),
+        encode_stable_db(&StableDb {
+            version: 20200101,
+            folders: vec![
+                StableCollection {
+                    name: "FromGame".into(),
+                    checksums: vec!["cccc3333cccc3333cccc3333cccc3333".into()],
+                },
+                StableCollection {
+                    name: "Shared".into(),
+                    checksums: vec![
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+                        "bbbb2222bbbb2222bbbb2222bbbb2222".into(),
+                    ],
+                },
+            ],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    let collections = std::sync::Arc::clone(&state.collections);
+    let preview =
+        stable::preview_stable_refresh(&source.path().join("collection.db"), &collections).unwrap();
+    assert!(preview.has_changes);
+    assert_eq!(
+        preview
+            .additions
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["FromGame"]
+    );
+    assert_eq!(preview.updates.len(), 1);
+    assert_eq!(preview.updates[0].name, "Shared");
+    // 在线条目（beatmap 99，无校验和）不计入差异，只报游戏侧新增的 bbbb…。
+    assert_eq!(preview.updates[0].entries_added, 1);
+    assert_eq!(preview.updates[0].entries_removed, 0);
+    assert!(preview.updates[0].pending_overwrite);
+    assert_eq!(
+        preview
+            .removals
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["WrittenBefore"]
+    );
+    assert_eq!(
+        preview
+            .preserved
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["NeverWritten"]
+    );
+    // 预览只读：内部状态不被改动。
+    assert!(state.collections.folder(&written.id).is_ok());
+
+    stable::refresh_impl(crate::features::local_analysis::LocalClient::Stable, &state)
+        .await
+        .unwrap();
+    {
+        let file = state.collections.value.lock().unwrap();
+        let by_name = |name: &str| {
+            file.folders
+                .iter()
+                .find(|folder| folder.name == name)
+                .unwrap_or_else(|| panic!("missing folder {name}"))
+        };
+        let from_game = by_name("FromGame");
+        assert_eq!(from_game.source, CollectionSource::Stable);
+        assert_eq!(from_game.entries.len(), 1);
+        assert!(!from_game.pending_write);
+        let shared = by_name("Shared");
+        // 游戏侧两个校验和 + 保留的在线条目，仍处于待写回状态。
+        assert_eq!(shared.entries.len(), 3);
+        assert!(
+            shared
+                .entries
+                .iter()
+                .any(|entry| entry.checksum.as_deref() == Some("bbbb2222bbbb2222bbbb2222bbbb2222"))
+        );
+        assert!(
+            shared
+                .entries
+                .iter()
+                .any(|entry| entry.beatmap_id == Some(99) && entry.checksum.is_none())
+        );
+        assert!(shared.pending_write);
+        assert!(
+            file.folders
+                .iter()
+                .all(|folder| folder.name != "WrittenBefore"),
+            "已写回过的收藏夹应随游戏侧删除"
+        );
+        assert!(by_name("NeverWritten").pending_write);
+        assert!(file.stable_fingerprint.is_some());
+    }
+
+    // 应用后再次预览：除“保留”项外无差异，不视为游戏侧变化。
+    let preview =
+        stable::preview_stable_refresh(&source.path().join("collection.db"), &collections).unwrap();
+    assert!(!preview.has_changes);
+    assert_eq!(
+        preview
+            .preserved
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["NeverWritten"]
+    );
+}
+
+/// 构造含给定收藏夹的 collection.db 并写入 stable 来源目录。
+fn write_stable_db_file(source: &std::path::Path, folders: Vec<StableCollection>) {
+    fs::write(
+        source.join("collection.db"),
+        encode_stable_db(&StableDb {
+            version: 20200101,
+            folders,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+/// 读取 stable 来源目录中 collection.db 的收藏夹名称（按出现顺序）。
+fn stable_db_names(source: &std::path::Path) -> Vec<String> {
+    parse_stable_db(&fs::read(source.join("collection.db")).unwrap())
+        .unwrap()
+        .folders
+        .into_iter()
+        .map(|folder| folder.name)
+        .collect()
+}
+
+/// 准备好 stable 来源（含 Songs）并完成一次读取导入的应用状态。
+async fn stable_state_with_db(
+    directory: &std::path::Path,
+    source: &std::path::Path,
+    folders: Vec<StableCollection>,
+) -> crate::state::AppState {
+    fs::create_dir(source.join("Songs")).unwrap();
+    let state = crate::state::AppState::new(directory).unwrap();
+    state
+        .local_analysis
+        .set_source(crate::features::local_analysis::LocalClient::Stable, source)
+        .unwrap();
+    write_stable_db_file(source, folders);
+    stable::refresh_impl(crate::features::local_analysis::LocalClient::Stable, &state)
+        .await
+        .unwrap();
+    state
+}
+
+/// 游戏未运行时，删除参与同步的收藏夹立即重写 collection.db：
+/// OPP 与游戏侧同步移除，待落库名单清空。
+#[tokio::test]
+async fn delete_collection_propagates_to_stable_db_when_game_closed() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    let state = stable_state_with_db(
+        directory.path(),
+        source.path(),
+        vec![
+            StableCollection {
+                name: "Keep".into(),
+                checksums: vec!["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()],
+            },
+            StableCollection {
+                name: "Doomed".into(),
+                checksums: vec!["bbbb2222bbbb2222bbbb2222bbbb2222".into()],
+            },
+        ],
+    )
+    .await;
+    let doomed = state
+        .collections
+        .value
+        .lock()
+        .unwrap()
+        .folders
+        .iter()
+        .find(|folder| folder.name == "Doomed")
+        .map(|folder| folder.id.clone())
+        .unwrap();
+
+    let result = stable::delete_collection_impl(&doomed, &state).unwrap();
+    assert_eq!(result.name, "Doomed");
+    assert!(result.stable_removed);
+    assert!(!result.deferred);
+    assert_eq!(result.written_folders, 1);
+    assert_eq!(stable_db_names(source.path()), ["Keep"]);
+    {
+        let file = state.collections.value.lock().unwrap();
+        assert!(file.pending_stable_deletions.is_empty());
+        assert!(file.folders.iter().all(|folder| folder.name != "Doomed"));
+    }
+}
+
+/// 指纹冲突（osu! 退出时回写了文件）时删除先合并游戏侧再重试：
+/// 游戏侧新增照常导入，已删名字不复活。
+#[tokio::test]
+async fn delete_collection_merges_game_side_on_conflict_without_resurrecting() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    let state = stable_state_with_db(
+        directory.path(),
+        source.path(),
+        vec![
+            StableCollection {
+                name: "Keep".into(),
+                checksums: vec!["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()],
+            },
+            StableCollection {
+                name: "Doomed".into(),
+                checksums: vec!["bbbb2222bbbb2222bbbb2222bbbb2222".into()],
+            },
+        ],
+    )
+    .await;
+    let doomed = state
+        .collections
+        .value
+        .lock()
+        .unwrap()
+        .folders
+        .iter()
+        .find(|folder| folder.name == "Doomed")
+        .map(|folder| folder.id.clone())
+        .unwrap();
+    // 模拟游戏退出时回写：文件在 OPP 外被修改（多出 External），指纹过期。
+    write_stable_db_file(
+        source.path(),
+        vec![
+            StableCollection {
+                name: "Keep".into(),
+                checksums: vec!["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()],
+            },
+            StableCollection {
+                name: "Doomed".into(),
+                checksums: vec!["bbbb2222bbbb2222bbbb2222bbbb2222".into()],
+            },
+            StableCollection {
+                name: "External".into(),
+                checksums: vec!["cccc3333cccc3333cccc3333cccc3333".into()],
+            },
+        ],
+    );
+
+    let result = stable::delete_collection_impl(&doomed, &state).unwrap();
+    assert!(result.stable_removed);
+    // 游戏侧新增被合并进来，已删名字没有复活。
+    assert_eq!(stable_db_names(source.path()), ["Keep", "External"]);
+    let file = state.collections.value.lock().unwrap();
+    assert!(file.pending_stable_deletions.is_empty());
+    assert!(file.folders.iter().any(|folder| folder.name == "External"));
+    assert!(file.folders.iter().all(|folder| folder.name != "Doomed"));
+}
+
+/// 待落库名单未清空前，游戏侧读取不得复活已删收藏；写回后名单清空。
+#[tokio::test]
+async fn pending_deletions_block_refresh_resurrection_until_written() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    let state = stable_state_with_db(
+        directory.path(),
+        source.path(),
+        vec![StableCollection {
+            name: "Doomed".into(),
+            checksums: vec!["bbbb2222bbbb2222bbbb2222bbbb2222".into()],
+        }],
+    )
+    .await;
+    let doomed = state
+        .collections
+        .value
+        .lock()
+        .unwrap()
+        .folders
+        .iter()
+        .find(|folder| folder.name == "Doomed")
+        .map(|folder| folder.id.clone())
+        .unwrap();
+    // 模拟 osu! 运行中的删除：只本地记录，尚未落库。
+    state.collections.delete(&doomed).unwrap();
+    assert_eq!(
+        state
+            .collections
+            .value
+            .lock()
+            .unwrap()
+            .pending_stable_deletions,
+        ["Doomed"]
+    );
+
+    // 游戏侧仍有该收藏，读取时必须跳过（不作为新增导入）。
+    stable::refresh_impl(crate::features::local_analysis::LocalClient::Stable, &state)
+        .await
+        .unwrap();
+    assert!(
+        state
+            .collections
+            .value
+            .lock()
+            .unwrap()
+            .folders
+            .iter()
+            .all(|folder| folder.name != "Doomed")
+    );
+    // 预览同样不把它算作游戏侧新增。
+    let collections = std::sync::Arc::clone(&state.collections);
+    let preview =
+        stable::preview_stable_refresh(&source.path().join("collection.db"), &collections).unwrap();
+    assert!(!preview.has_changes);
+
+    stable::write_stable_db(&state).unwrap();
+    assert!(stable_db_names(source.path()).is_empty());
+    assert!(
+        state
+            .collections
+            .value
+            .lock()
+            .unwrap()
+            .pending_stable_deletions
+            .is_empty()
+    );
+}
+
+/// 不参与 Stable 同步的收藏夹（图池等）删除时只动本地，不记待落库名单。
+#[test]
+fn deleting_non_synced_pool_records_no_pending_stable_deletion() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::state::AppState::new(directory.path()).unwrap();
+    let pool = state
+        .collections
+        .replace_tournament_pool(
+            "tournament:opp:https://example.com/pool",
+            "Pool",
+            vec![CollectionCandidate {
+                beatmap_id: Some(10),
+                beatmapset_id: Some(20),
+                checksum: Some("abc".into()),
+                ruleset: Some("osu".into()),
+                difficulty_name: "Hard".into(),
+                title: "Song".into(),
+                artist: "Artist".into(),
+                creator: "Mapper".into(),
+                local_client: None,
+                local_resource_id: None,
+            }],
+            None,
+        )
+        .unwrap();
+    state.collections.delete(&pool.id).unwrap();
+    assert!(
+        state
+            .collections
+            .value
+            .lock()
+            .unwrap()
+            .pending_stable_deletions
+            .is_empty()
+    );
+}

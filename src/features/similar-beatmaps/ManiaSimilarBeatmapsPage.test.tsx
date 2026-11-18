@@ -113,15 +113,22 @@ describe("mania similarity workspace", () => {
     renderPage();
     const buttonName = kind === "recent" ? /根据最近游玩推荐/ : /根据你的 BP 推荐/;
     await screen.findByRole("button", { name: buttonName });
-    for (const [index, mod] of ["NM", "DT", "HT", "mixed"].entries()) {
-      if (mod === "mixed") await user.click(screen.getByLabelText("NM / DT / HT 多 Mod 混池"));
-      else await user.click(screen.getByRole("button", { name: mod }));
+    // Mod 池按钮逐个切换；移除参考 Mod 时参考自动回落到池内第一项，单池时下拉不出现。
+    const steps: { toggle: "NM" | "DT" | "HT" | null; pool: string[]; reference: string }[] = [
+      { toggle: null, pool: ["NM"], reference: "NM" },
+      { toggle: "DT", pool: ["NM", "DT"], reference: "NM" },
+      { toggle: "HT", pool: ["NM", "DT", "HT"], reference: "NM" },
+      { toggle: "NM", pool: ["DT", "HT"], reference: "DT" },
+    ];
+    for (const [index, step] of steps.entries()) {
+      if (step.toggle) await user.click(screen.getByRole("button", { name: step.toggle }));
+      if (step.pool.length > 1) expect(screen.getByRole("combobox", { name: "参考 Mod" })).toHaveValue(step.reference);
+      else expect(screen.queryByRole("combobox", { name: "参考 Mod" })).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: buttonName }));
       await screen.findByText("4K One");
       await waitFor(() => expect(recommend).toHaveBeenCalledTimes((index + 1) * 2));
-      const pool = mod === "mixed" ? ["NM", "DT", "HT"] : [mod];
-      expect(recommend.mock.calls[index * 2][0]).toEqual(expect.objectContaining({ kind, candidate_mods: pool, seed_limit: 5, result_limit: 5 }));
-      expect(recommend.mock.calls[index * 2 + 1][0]).toEqual(expect.objectContaining({ kind, candidate_mods: pool }));
+      expect(recommend.mock.calls[index * 2][0]).toEqual(expect.objectContaining({ kind, candidate_mods: step.pool, seed_limit: 5, result_limit: 5 }));
+      expect(recommend.mock.calls[index * 2 + 1][0]).toEqual(expect.objectContaining({ kind, candidate_mods: step.pool }));
       expect(recommend.mock.calls[index * 2 + 1][0].seed_limit).toBeUndefined();
       expect(recommend.mock.calls[index * 2 + 1][0].result_limit).toBeGreaterThan(5);
       await waitFor(() => expect(localStorage.getItem("opp.similarity-recommendation-history.v2")).toContain("4K One"));
@@ -129,11 +136,15 @@ describe("mania similarity workspace", () => {
       await screen.findByRole("button", { name: buttonName });
       localStorage.removeItem("opp.similarity-recommendation-history.v2");
     }
-    await user.click(screen.getByLabelText("NM / DT / HT 多 Mod 混池"));
-    await user.click(screen.getByRole("button", { name: "NM" }));
+    // 唯一候选再点一次是 no-op，池不能被清空；换池后重新发起请求。
+    await user.click(screen.getByRole("button", { name: "DT" }));
+    await user.click(screen.getByRole("button", { name: "HT" }));
+    await user.click(screen.getByRole("button", { name: "HT" }));
+    expect(screen.queryByRole("combobox", { name: "参考 Mod" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: buttonName }));
     await screen.findByText("4K One");
-    expect(recommend).toHaveBeenCalledTimes(8);
+    await waitFor(() => expect(recommend).toHaveBeenCalledTimes(10));
+    expect(recommend.mock.calls[8][0]).toEqual(expect.objectContaining({ kind, candidate_mods: ["HT"], seed_limit: 5 }));
   });
 
   it("queries with Mania mods and navigates one result at a time", async () => {
@@ -142,7 +153,8 @@ describe("mania similarity workspace", () => {
     const query = vi.spyOn(desktopApi, "querySimilarBeatmaps").mockResolvedValue(response);
     renderPage();
     await user.click(await screen.findByRole("button", { name: "DT" }));
-    await user.click(screen.getByLabelText("NM / DT / HT 多 Mod 混池"));
+    await user.click(screen.getByRole("button", { name: "HT" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "参考 Mod" }), "DT");
     await user.type(screen.getByLabelText("搜索本地谱面、Beatmap ID 或链接"), "3001");
     await user.click(screen.getByRole("button", { name: "查询相似" }));
     expect(await screen.findByText("Stream One")).toBeInTheDocument();

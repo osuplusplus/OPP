@@ -54,6 +54,11 @@ pub(super) struct CollectionFile {
     /// 谱面 MD5 → 是否已安装的缓存；条目绑定 stable 扫描时间。
     #[serde(default)]
     pub(super) local_presence_cache: HashMap<String, LocalPresenceCacheEntry>,
+    /// 已在 OPP 删除、尚未写入 collection.db 的参与同步收藏夹名称。
+    /// 用于同步状态提示（触发自动补写），并让游戏侧读取跳过这些名字，
+    /// 防止合并时把用户刚删除的收藏夹复活；写回成功后清空。
+    #[serde(default)]
+    pub(super) pending_stable_deletions: Vec<String>,
 }
 
 /// 缓存的单个 MD5 存在性结论；`scan_at` 与当前扫描时间一致时才可信。
@@ -194,6 +199,7 @@ impl CollectionService {
             stable_fingerprint: file.stable_fingerprint.clone(),
             stable_version: file.stable_version,
             refreshed_at: file.refreshed_at.clone(),
+            pending_stable_deletions: file.pending_stable_deletions.clone(),
             ..Default::default()
         };
         let collection_bytes = serde_json::to_vec_pretty(&durable)?;
@@ -351,7 +357,9 @@ impl CollectionService {
         })
     }
 
-    /// 删除文件夹，并同步清理其笔记本数据。
+    /// 删除文件夹，并同步清理其笔记本数据。参与 Stable 同步的文件夹把
+    /// 名称记入待落库列表：写回成功前游戏侧读取会跳过该名字（不复活），
+    /// 同步状态也据此提示有待写回的删除。
     pub(crate) fn delete(&self, folder_id: &str) -> CommandResult<()> {
         self.update(|file| {
             let index = file
@@ -360,7 +368,12 @@ impl CollectionService {
                 .position(|folder| folder.id == folder_id)
                 .ok_or_else(|| CommandError::new("COLLECTION_NOT_FOUND", "未找到收藏夹"))?;
             ensure_writable(&file.folders[index])?;
-            file.folders.remove(index);
+            let deleted = file.folders.remove(index);
+            if deleted.participates_in_stable()
+                && !file.pending_stable_deletions.contains(&deleted.name)
+            {
+                file.pending_stable_deletions.push(deleted.name);
+            }
             Ok(())
         })?;
         self.notebooks.delete(folder_id)

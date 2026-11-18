@@ -16,6 +16,7 @@ import { NotificationCard } from "../../shared/components/notifications";
 import { AppDialog } from "../../shared/components/AppDialog";
 import { APP_TIME_ZONE } from "../../shared/lib/format";
 import { CollectionExplorer } from "./CollectionExplorer";
+import { RefreshPreviewDialog, type PendingCollectionRefresh } from "./RefreshPreviewDialog";
 import { desktopApi } from "../../shared/lib/tauri";
 import type {
   CollectionSharePreview,
@@ -94,14 +95,36 @@ export function CollectionsPage() {
   const [name, setName] = useState("");
   const [shareCode, setShareCode] = useState("");
   const [preview, setPreview] = useState<CollectionSharePreview | null>(null);
+  const [refreshPreview, setRefreshPreview] = useState<PendingCollectionRefresh | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const clientLabel = (client: "stable" | "lazer") => (client === "lazer" ? "osu!lazer" : "osu!stable");
   const refresh = async (client: "stable" | "lazer") => {
     setBusy(true);
     setNotice(null);
     try {
+      const diff = await desktopApi.previewCollectionRefresh(client);
+      if (!diff.has_changes) {
+        // 无差异也执行一次读取：同步 collection.db 指纹，避免之后写回误报冲突。
+        await refreshCollections(client);
+        setNotice(`已读取 ${clientLabel(client)} 收藏夹，与游戏侧一致。`);
+        return;
+      }
+      setRefreshPreview({ client, preview: diff });
+    } catch (caught) {
+      setNotice((caught as CommandError).message ?? String(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmRefresh = async () => {
+    if (!refreshPreview) return;
+    const { client, preview: diff } = refreshPreview;
+    setBusy(true);
+    try {
+      setRefreshPreview(null);
       await refreshCollections(client);
-      setNotice(`已读取 ${client === "lazer" ? "lazer" : "Stable"} 收藏夹。`);
+      setNotice(`已按 ${clientLabel(client)} 侧覆盖 OPP 收藏夹：新增 ${diff.additions.length}、更新 ${diff.updates.length}、删除 ${diff.removals.length}。`);
     } catch (caught) {
       setNotice((caught as CommandError).message ?? String(caught));
     } finally {
@@ -164,7 +187,12 @@ export function CollectionsPage() {
     }
     try {
       if (entryId) await desktopApi.removeCollectionEntry(folderId, entryId);
-      else await desktopApi.deleteCollection(folderId);
+      else {
+        // 参与 Stable 同步的收藏夹删除会同步落到 collection.db（运行中自动延期）。
+        const deleted = await desktopApi.deleteCollection(folderId);
+        if (deleted.stable_removed) setNotice(`已删除“${deleted.name}”，并已从 osu!stable 的 collection.db 移除。`);
+        else if (deleted.deferred) setNotice(`已删除“${deleted.name}”；检测到 osu! 正在运行，将在游戏退出后自动从 collection.db 移除。`);
+      }
     } finally {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: collectionSummariesKey }),
@@ -401,6 +429,7 @@ export function CollectionsPage() {
       <div className="collection-modal-actions"><Dialog.Close>完成</Dialog.Close></div>
     </Dialog.Content></Dialog.Portal></Dialog.Root>
     <ImportPreviewDialog busy={busy} onCancel={() => setPreview(null)} onConfirm={() => void confirmImport()} preview={preview} />
+    <RefreshPreviewDialog busy={busy} onCancel={() => setRefreshPreview(null)} onConfirm={() => void confirmRefresh()} pending={refreshPreview} />
     <AppDialog closeDisabled={busy} description="收藏夹修改已保存在 OPP。离开前是否写回 osu!stable？" footer={<><Button disabled={busy} onClick={stay} variant="ghost">留在此页</Button><Button disabled={busy} onClick={discardAndLeave} variant="secondary">暂不写回</Button><Button loading={busy} onClick={() => void saveAndLeave()}><Save className="size-4" />写回并离开</Button></>} onOpenChange={(open) => { if (!open && !busy) stay(); }} open={leavePrompt} size="sm" title="收藏夹尚未写回游戏"><p className="text-sm leading-6 text-slate-300">选择暂不写回只会离开当前页面，不会丢失 OPP 中的修改。</p></AppDialog>
   </>;
 }

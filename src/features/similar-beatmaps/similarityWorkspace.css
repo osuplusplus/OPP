@@ -119,6 +119,8 @@
 .similarity-message button { display: grid; place-items: center; padding: 4px; border: 0; background: transparent; color: currentColor; }
 .similarity-message button svg { width: 15px; }
 .mania-candidate-filter { position: relative; }
+/* 参考 Mod 下拉：跟随 Mod 池按钮的紧凑尺寸，覆盖全局 select 的 44px 最小高度。 */
+.mania-mod-ref { min-height: 32px; padding: 4px 8px; font-size: 12px; }
 .mania-candidate-filter > button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line-subtle); border-radius: 5px; background: var(--similarity-panel); color: var(--text-muted); }
 .mania-candidate-filter > button.is-active { border-color: var(--theme-primary); color: var(--theme-primary-light); }
 .mania-candidate-filter svg { width: 15px; }

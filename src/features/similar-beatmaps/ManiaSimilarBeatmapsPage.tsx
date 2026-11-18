@@ -120,8 +120,22 @@ export function ManiaSimilarBeatmapsPage() {
     similarityQuery.mutate(next, { onSuccess: (value) => { if (value.ruleset !== "mania") return; setResponse(value); setActiveKeyCount(value.target.key_count); } });
   }
   async function chooseFile() { const path = await desktopApi.chooseSimilarityBeatmapFile(); if (path) runSource({ kind: "local_file", path }); }
-  function selectTargetMod(targetMod: ManiaGameMod) { setRequest((current) => ({ ...current, target_mod: targetMod, candidate_mods: current.candidate_mods.length > 1 ? current.candidate_mods : [targetMod] })); }
-  function setMixedMods(enabled: boolean) { setRequest((current) => ({ ...current, candidate_mods: enabled ? [...MANIA_MODS] : [current.target_mod] })); }
+  // Mod 池按钮逐个切换候选；参考 Mod 独立用下拉选择（池内单选时自动跟随唯一项）。
+  function toggleCandidateMod(gameMod: ManiaGameMod) {
+    setRequest((current) => {
+      if (current.candidate_mods.includes(gameMod)) {
+        // 池内至少保留一个 Mod：唯一项再点不做任何事。
+        if (current.candidate_mods.length === 1) return current;
+        const candidate_mods = MANIA_MODS.filter((mod) => mod !== gameMod && current.candidate_mods.includes(mod));
+        return { ...current, candidate_mods, target_mod: candidate_mods.includes(current.target_mod) ? current.target_mod : candidate_mods[0] };
+      }
+      const candidate_mods = MANIA_MODS.filter((mod) => mod === gameMod || current.candidate_mods.includes(mod));
+      return { ...current, candidate_mods };
+    });
+  }
+  function selectReferenceMod(targetMod: ManiaGameMod) {
+    setRequest((current) => (current.candidate_mods.includes(targetMod) ? { ...current, target_mod: targetMod } : current));
+  }
 
   function recommend(kind: SimilarityRecommendationKind) {
     const run = recommendationRun.current + 1;
@@ -169,7 +183,11 @@ export function ManiaSimilarBeatmapsPage() {
 
   const busy = similarityQuery.isPending || similarityRecommendation.isPending;
   const showHome = !response && !recommendation;
-  const modControls = <div className="flex flex-wrap items-center gap-2">{MANIA_MODS.map((gameMod) => <Button key={gameMod} size="sm" type="button" variant={request.target_mod === gameMod ? "primary" : "ghost"} aria-pressed={request.target_mod === gameMod} onClick={() => selectTargetMod(gameMod)}>{gameMod}</Button>)}<label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" aria-label="NM / DT / HT 多 Mod 混池" checked={request.candidate_mods.length > 1} onChange={(event) => setMixedMods(event.target.checked)} />多 Mod</label></div>;
+  const modControls = <div className="flex flex-wrap items-center gap-2" title="点按 NM / DT / HT 切换候选 Mod 池（可多选，至少保留一个）；高亮项为参考 Mod，混池时可通过下拉调整。">{MANIA_MODS.map((gameMod) => {
+    const inPool = request.candidate_mods.includes(gameMod);
+    const sole = request.candidate_mods.length === 1;
+    return <Button key={gameMod} size="sm" type="button" variant={request.target_mod === gameMod ? "primary" : inPool ? "secondary" : "ghost"} aria-pressed={inPool} title={inPool ? `从候选池移除 ${gameMod}${sole ? "（至少保留一个 Mod）" : ""}` : `把 ${gameMod} 加入候选池`} onClick={() => toggleCandidateMod(gameMod)}>{gameMod}</Button>;
+  })}{request.candidate_mods.length > 1 ? <label className="flex items-center gap-2 text-xs text-slate-300">参考<select aria-label="参考 Mod" className="mania-mod-ref" value={request.target_mod} onChange={(event) => selectReferenceMod(event.target.value as ManiaGameMod)}>{request.candidate_mods.map((gameMod) => <option key={gameMod} value={gameMod}>{gameMod}</option>)}</select></label> : null}</div>;
   const keyTabs = recommendation ? <div className="flex gap-1" role="tablist" aria-label="Mania 键数分组">{KEY_COUNTS.map((keyCount) => { const group = recommendation.groups.find((item) => item.key_count === keyCount); return <Button key={keyCount} size="sm" role="tab" aria-selected={activeKeyCount === keyCount} variant={activeKeyCount === keyCount ? "primary" : "ghost"} onClick={() => { setActiveKeyCount(keyCount); setSelectedKey(null); }}>{keyCount}K · {group?.results.length ?? 0}</Button>; })}</div> : null;
   return <>
     <SimilarityHistoryDialog open={historyOpen} title="今日 Mania 推荐历史" entries={history} onClose={() => setHistoryOpen(false)} onChoose={(result: AnySimilarityResult) => { if (result.ruleset === "mania" && result.online_url) { setHistoryOpen(false); openOnline(result); } }} />

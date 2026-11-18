@@ -1,4 +1,4 @@
-import type { CollectionArtwork, CollectionBackupStatus, CollectionBrowsePage, CollectionBrowseQuery, CollectionCandidate, CollectionDownloadItem, CollectionEntryPage, CollectionFolder, CollectionInstallResult, CollectionPersonalRecord, CollectionSharePreview, CollectionSnapshot, CollectionSummaries, CollectionSyncStatus, CollectionTaskProgress, CollectionWriteResult, LocalScoreRecord, LocalScoreStatus, OsuClient } from "../../types/osu";
+import type { CollectionArtwork, CollectionBackupStatus, CollectionBrowsePage, CollectionBrowseQuery, CollectionCandidate, CollectionDeleteResult, CollectionDownloadItem, CollectionEntryPage, CollectionFolder, CollectionInstallResult, CollectionPersonalRecord, CollectionRefreshPreview, CollectionSharePreview, CollectionSnapshot, CollectionSummaries, CollectionSyncStatus, CollectionTaskProgress, CollectionWriteResult, LocalScoreRecord, LocalScoreStatus, OsuClient } from "../../types/osu";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { call, isTauri } from "./invoke";
 
@@ -9,6 +9,9 @@ export const collectionsApi = {
   enableCollectionStableSync: (folderId: string) => call<void>("enable_collection_stable_sync", { folderId }),
 
   refreshCollectionSummaries: (client: OsuClient) => call<CollectionSummaries>("refresh_collection_summaries", { client }),
+
+  // 只读预览「读取 Stable / lazer」的差异，弹窗确认后再执行真正的刷新。
+  previewCollectionRefresh: (client: OsuClient) => call<CollectionRefreshPreview>("preview_collection_refresh", { client }),
 
   listCollectionSummaries: () => call<CollectionSummaries>("list_collection_summaries"),
 
@@ -36,7 +39,7 @@ export const collectionsApi = {
 
   renameCollection: (folderId: string, name: string) => call<void>("rename_collection", { folderId, name }),
 
-  deleteCollection: (folderId: string) => call<void>("delete_collection", { folderId }),
+  deleteCollection: (folderId: string) => call<CollectionDeleteResult>("delete_collection", { folderId }),
 
   addCollectionEntries: (folderId: string, candidates: CollectionCandidate[]) => call<void>("add_collection_entries", { folderId, candidates }),
 

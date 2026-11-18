@@ -202,6 +202,25 @@ export interface CollectionSyncStatus {
 export interface CollectionSourceSyncStatus { client: OsuClient; available: boolean; external_changed: boolean; pending_write: boolean; backup_available: boolean; backup_confirmed: boolean; backup_count: number; latest_backup: string | null; }
 export interface CollectionBackupStatus { client: OsuClient; target: string | null; fingerprint: string | null; backups: string[]; latest: string | null; }
 
+/** 「读取 Stable / lazer」差异预览中的一个条目（新增/更新/删除/保留）。 */
+export interface CollectionRefreshItem {
+  name: string;
+  source: CollectionSource;
+  entry_count: number;
+  entries_added: number;
+  entries_removed: number;
+  pending_overwrite: boolean;
+}
+/** 读取游戏收藏夹前的只读差异预览；确认后才执行真正的覆盖。 */
+export interface CollectionRefreshPreview {
+  client: OsuClient;
+  has_changes: boolean;
+  additions: CollectionRefreshItem[];
+  updates: CollectionRefreshItem[];
+  removals: CollectionRefreshItem[];
+  preserved: CollectionRefreshItem[];
+}
+
 export interface CollectionSharePreview {
   name: string;
   creator: string;
@@ -244,6 +263,13 @@ export interface CollectionWriteResult {
   written_folders: number;
   skipped_entries: number;
   backup_path: string | null;
+}
+/** 删除收藏夹的结果：本地删除总是成功，区别在游戏侧 collection.db 是否同步移除。 */
+export interface CollectionDeleteResult {
+  name: string;
+  stable_removed: boolean;
+  deferred: boolean;
+  written_folders: number;
 }
 
 export interface CollectionFolderSummary {
