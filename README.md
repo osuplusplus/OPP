@@ -97,7 +97,7 @@ OPP 使用 [MIT License](./LICENSE)；第三方声明见 [THIRD_PARTY_NOTICES.md
 
 <div align="center">
 
-[![views](https://komarev.com/ghpvc/?username=osuplusplus&style=for-the-badge&color=ff6aa7)](https://komarev.com/ghpvc/)
+[![views](https://count.getloli.com/@OPP?theme=gelbooru&padding=7&offset=0&align=center&scale=1.0&pixelated=1&darkmode=auto)]
 
 </div>
 
