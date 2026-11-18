@@ -96,7 +96,8 @@ OPP 使用 [MIT License](./LICENSE)；第三方声明见 [THIRD_PARTY_NOTICES.md
 自26/11/18之后的此页面访客数
 
 <div align="center">
-[![访客计数](https://count.getloli.com/@osuplusplus-OPP?name=OPP&theme=moebooru&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)](https://github.com/journey-ad/Moe-Counter)
+
+[![views](https://komarev.com/ghpvc/?username=osuplusplus&style=for-the-badge&color=ff6aa7)](https://komarev.com/ghpvc/)
 
 </div>
 
